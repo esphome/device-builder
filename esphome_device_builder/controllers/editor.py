@@ -18,6 +18,7 @@ from fnv_hash_fast import fnv1a_32
 
 from ..helpers.api import api_command
 from ..helpers.async_ import drain_tasks, run_in_executor
+from ..helpers.device_yaml import extract_component_source_fingerprint
 from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.migrations import render_migrations
 from ..helpers.process import kill_quietly
@@ -47,6 +48,9 @@ _VALIDATE_CACHE_TTL = 60.0
 # user leaves.
 _IDLE_SUBPROCESS_TIMEOUT = 600.0
 _REAP_INTERVAL = 60.0
+# ``_EditorSession.source_fingerprint`` sentinel that matches no real
+# digest, so the next validate respawns the subprocess.
+_STALE_SOURCES = "stale"
 
 
 class ValidatorUnavailableError(RuntimeError):
@@ -76,6 +80,12 @@ class _EditorSession:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     cached: _CachedValidation | None = None
     last_used: float = field(default_factory=time.monotonic)
+    # ``extract_component_source_fingerprint`` of the content the subprocess
+    # was spawned for.
+    source_fingerprint: str = ""
+    # Bumped by ``invalidate_cache`` so an in-flight validate can't
+    # reinstate a pre-write result into ``cached``.
+    invalidation_epoch: int = 0
 
 
 class EditorController:
@@ -120,22 +130,42 @@ class EditorController:
 
         Cleared for all sessions, not just the written file: a referenced
         file (secrets, ``!include``, ``packages``) the content-hash key
-        can't see affects any open device's validation.
+        can't see affects any open device's validation. Sessions whose
+        content declares component sources also lose their warm
+        subprocess on the next validate — the write may have touched a
+        referenced ``packages:`` / ``!include`` file that carries
+        ``external_components:``, which the buffer-derived fingerprint
+        can't see. Out-of-band edits to a ``type: local`` component's
+        own files fire no config-dir write and stay uncovered until
+        the idle reap.
         """
         # Snapshot the values: this is await-free so the dict can't change
         # under us today, but the copy keeps it safe if a future caller adds
         # a suspension point mid-clear.
         for session in tuple(self._sessions.values()):
             session.cached = None
+            session.invalidation_epoch += 1
+            if session.source_fingerprint:
+                session.source_fingerprint = _STALE_SOURCES
 
     # ------------------------------------------------------------------
     # Subprocess management
     # ------------------------------------------------------------------
 
-    async def _ensure_subprocess(self, session: _EditorSession) -> None:
-        """Spawn the `esphome vscode --ace` subprocess for `session` if not already running."""
+    async def _ensure_subprocess(self, session: _EditorSession, source_fingerprint: str) -> None:
+        """Spawn the `esphome vscode --ace` subprocess for `session` unless a matching one runs."""
         if session.proc is not None and session.proc.returncode is None:
-            return
+            if session.source_fingerprint == source_fingerprint:
+                return
+            # esphome's loader cache and ``sys.modules`` outlive the
+            # subprocess's per-validate ``CORE.reset()``, so changed
+            # ``external_components:`` / ``packages:`` need a fresh process.
+            _LOGGER.info(
+                "Restarting vscode subprocess for %s: component sources changed",
+                session.configuration,
+            )
+            await self._terminate_subprocess(session)
+        session.source_fingerprint = source_fingerprint
 
         config_dir = str(self._db.settings.config_dir)
         cmd = [*self._esphome_cmd, "vscode", config_dir, "--ace"]
@@ -344,10 +374,13 @@ class EditorController:
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
             ok = False
+            epoch = session.invalidation_epoch
             try:
                 # Warm the subprocess outside the budget so a cold start
                 # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
-                await self._ensure_subprocess(session)
+                await self._ensure_subprocess(
+                    session, extract_component_source_fingerprint(content)
+                )
                 result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
                     timeout=timeout,
@@ -360,9 +393,10 @@ class EditorController:
                 # for callers) propagates unchanged.
                 if not ok:
                     await self._terminate_subprocess(session)
-            session.cached = _CachedValidation(
-                content_hash=content_hash, result=result, at=time.monotonic()
-            )
+            if session.invalidation_epoch == epoch:
+                session.cached = _CachedValidation(
+                    content_hash=content_hash, result=result, at=time.monotonic()
+                )
             return result
 
     async def _validate_locked(

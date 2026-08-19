@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from esphome import const
-from esphome.const import CONF_PACKAGES
+from esphome.const import CONF_EXTERNAL_COMPONENTS, CONF_PACKAGES, CONF_SUBSTITUTIONS
 
 from ...definitions import load_platform_capabilities_index
 from ...models.boards import RP2_PLATFORM_ALIASES, normalize_platform
@@ -209,17 +209,27 @@ def extract_network_address_fingerprint(yaml_content: str) -> str:
     ``!include``d *file* stays invisible — it changes no device YAML,
     so no scan event fires. Empty when no block exists.
     """
-    captured: list[str] = []
-    in_block = False
-    for line in yaml_content.splitlines():
-        key = _match_top_level_key(line)
-        if key is not None:
-            in_block = key in _ADDRESS_SOURCE_KEYS
-        if in_block and line.strip() and not line.lstrip().startswith("#"):
-            captured.append(line)
-    if not captured:
-        return ""
-    return hashlib.sha256("\n".join(captured).encode()).hexdigest()
+    return _digest_lines(_capture_top_level_lines(yaml_content, _ADDRESS_SOURCE_KEYS))
+
+
+# The blocks that decide *which* component modules esphome loads:
+# ``external_components:`` installs the overrides; ``packages:`` and a
+# top-level ``<<:`` merge key can pull an ``external_components:``
+# block in by reference. ``substitutions:`` joins only when one of
+# them references a substitution; unconditionally it would respawn
+# the validator on every unrelated substitutions edit. A ``${...}``
+# inside a *referenced* file stays invisible here — the stale gate in
+# ``EditorController.invalidate_cache`` covers those at save time.
+_COMPONENT_SOURCE_KEYS = frozenset({CONF_EXTERNAL_COMPONENTS, CONF_PACKAGES, "<<"})
+_SUBSTITUTIONS_KEY = frozenset({CONF_SUBSTITUTIONS})
+
+
+def extract_component_source_fingerprint(yaml_content: str) -> str:
+    """Digest of the blocks that decide which component modules esphome loads; empty when none."""
+    lines = _capture_top_level_lines(yaml_content, _COMPONENT_SOURCE_KEYS)
+    if any(_UNRESOLVED_SUBSTITUTION_RE.search(line) for line in lines):
+        lines += _capture_top_level_lines(yaml_content, _SUBSTITUTIONS_KEY)
+    return _digest_lines(lines)
 
 
 _RAW_API_ENCRYPTION_RE = re.compile(
@@ -689,6 +699,26 @@ def _match_top_level_key(line: str) -> str | None:
     if stripped.startswith("#") or ":" not in stripped:
         return None
     return stripped.split(":", 1)[0].strip()
+
+
+def _capture_top_level_lines(yaml_content: str, keys: frozenset[str]) -> list[str]:
+    """Return the non-blank, non-comment lines of the top-level *keys* blocks, in file order."""
+    captured: list[str] = []
+    in_block = False
+    for line in yaml_content.splitlines():
+        key = _match_top_level_key(line)
+        if key is not None:
+            in_block = key in keys
+        if in_block and line.strip() and not line.lstrip().startswith("#"):
+            captured.append(line)
+    return captured
+
+
+def _digest_lines(lines: list[str]) -> str:
+    """sha256 of *lines* joined by newline; empty string when there are none."""
+    if not lines:
+        return ""
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def _parse_inline_value(raw: str) -> str:

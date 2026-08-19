@@ -47,6 +47,7 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
     device_ap_label,
+    extract_component_source_fingerprint,
     extract_logger_baud_rate,
     extract_logger_interface,
     extract_network_address_fingerprint,
@@ -871,6 +872,84 @@ def test_extract_network_address_fingerprint_ignores_comments_and_blanks() -> No
 def test_extract_network_address_fingerprint_without_address_blocks() -> None:
     """No address-source block yields the empty fingerprint."""
     assert extract_network_address_fingerprint("logger:\napi:\n  reboot_timeout: 0s\n") == ""
+
+
+_EXTERNAL_COMPONENTS_YAML = (
+    "esphome:\n  name: dev\n"
+    "external_components:\n"
+    "  - source: github://p1ngb4ck/esphome@storage-testing\n"
+    "    components: [esp32]\n"
+    "esp32:\n  board: esp32dev\nlogger:\n"
+)
+
+
+def test_extract_component_source_fingerprint_tracks_source_edits_only() -> None:
+    """The digest moves with the source blocks, not with the rest of the file."""
+    base = _EXTERNAL_COMPONENTS_YAML
+    fingerprint = extract_component_source_fingerprint(base)
+    assert fingerprint
+    assert fingerprint != extract_component_source_fingerprint(
+        base.replace("components: [esp32]", "components: [esp32, ota]")
+    )
+    assert fingerprint != extract_component_source_fingerprint(
+        base.replace("@storage-testing", "@main")
+    )
+    assert fingerprint == extract_component_source_fingerprint(
+        base.replace("logger:\n", "logger:\n  level: DEBUG\n")
+    )
+    assert fingerprint == extract_component_source_fingerprint(
+        base.replace("  board: esp32dev\n", "  board: esp32-s3-devkitc-1\n")
+    )
+
+
+def test_extract_component_source_fingerprint_without_source_blocks() -> None:
+    """No source block yields the empty fingerprint."""
+    assert extract_component_source_fingerprint("esphome:\n  name: dev\nlogger:\n") == ""
+
+
+def test_extract_component_source_fingerprint_covers_root_merge_key() -> None:
+    """A top-level merge key counts as a source block; its edits move the digest."""
+    yaml_content = "esphome:\n  name: dev\n<<: !include base.yaml\nlogger:\n"
+    fingerprint = extract_component_source_fingerprint(yaml_content)
+    assert fingerprint
+    assert fingerprint != extract_component_source_fingerprint(
+        yaml_content.replace("base.yaml", "base2.yaml")
+    )
+
+
+def test_extract_component_source_fingerprint_covers_packages() -> None:
+    """A packages edit moves the digest; a package can carry external_components."""
+    yaml_content = "esphome:\n  name: dev\npackages:\n  base: !include common/base.yaml\nlogger:\n"
+    assert extract_component_source_fingerprint(
+        yaml_content
+    ) != extract_component_source_fingerprint(
+        yaml_content.replace("common/base.yaml", "common/base2.yaml")
+    )
+
+
+def test_extract_component_source_fingerprint_substitutions_only_when_referenced() -> None:
+    """A substitutions edit moves the digest only when a source block uses one."""
+    referenced = (
+        "substitutions:\n  branch: main\nexternal_components:\n  - source: github://a/b@${branch}\n"
+    )
+    assert extract_component_source_fingerprint(referenced) != extract_component_source_fingerprint(
+        referenced.replace("branch: main", "branch: dev")
+    )
+    literal = (
+        "substitutions:\n  branch: main\nexternal_components:\n  - source: github://a/b@main\n"
+    )
+    assert extract_component_source_fingerprint(literal) == extract_component_source_fingerprint(
+        literal.replace("branch: main", "branch: dev")
+    )
+
+
+def test_extract_component_source_fingerprint_ignores_comments_and_blanks() -> None:
+    """Full-line comments and blank lines inside a source block must not move the digest."""
+    plain = "external_components:\n  - source: github://a/b\nlogger:\n"
+    cosmetic = "external_components:\n# a comment\n\n  - source: github://a/b\nlogger:\n"
+    assert extract_component_source_fingerprint(plain) == extract_component_source_fingerprint(
+        cosmetic
+    )
 
 
 def test_extract_logger_baud_rate_int() -> None:
