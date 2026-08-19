@@ -692,6 +692,161 @@ def test_component_block_field_mapping_scalar_dash_is_not_the_form(generated_rul
     assert "    - old_key: fake\n" in new_text
 
 
+_CHANNEL_RULES = (
+    MigrationRule(
+        kind="platform_channel_colors",
+        old="rgb_order",
+        new="channel_colors",
+        domain="light",
+        platform="esp32_rmt_led_strip",
+    ),
+    MigrationRule(
+        kind="platform_channel_colors",
+        old="rgb_order",
+        new="channel_colors",
+        domain="light",
+        platform="rp2040_pio_led_strip",
+    ),
+)
+
+_LED_STRIP_YAML = """light:
+  - platform: esp32_rmt_led_strip
+    id: legacy_rgb
+    pin: GPIO13
+    rgb_order: GRB  # strip order
+  - platform: esp32_rmt_led_strip
+    id: legacy_rgbw
+    pin: GPIO14
+    rgb_order: GRB
+    is_rgbw: true
+  - platform: rp2040_pio_led_strip
+    id: legacy_wrgb
+    rgb_order: GRB
+    is_wrgb: true
+  - platform: fastled_clockless
+    id: keeps_rgb_order
+    rgb_order: GRB
+"""
+
+_CHANNEL_ITEM = "light:\n  - platform: esp32_rmt_led_strip\n    rgb_order: GRB\n"
+
+
+def test_channel_colors_folds_each_platform_item(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    new_text = _respell(_LED_STRIP_YAML)
+    assert "    channel_colors: GRB  # strip order\n" in new_text
+    assert "    channel_colors: GRBW\n" in new_text
+    assert "    channel_colors: WGRB\n" in new_text
+    assert "is_rgbw:" not in new_text
+    assert "is_wrgb:" not in new_text
+    # fastled keeps rgb_order — its template parameter, not a rename.
+    assert new_text.count("rgb_order:") == 1
+    assert "  - platform: fastled_clockless\n    id: keeps_rgb_order\n    rgb_order: GRB\n" in (
+        new_text
+    )
+
+
+def test_channel_colors_false_flag_dropped(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = "light:\n  - platform: esp32_rmt_led_strip\n    rgb_order: grb\n    is_rgbw: 'no'\n"
+    new_text = _respell(text)
+    assert "    channel_colors: GRB\n" in new_text
+    assert "is_rgbw" not in new_text
+
+
+def test_channel_colors_keeps_a_deleted_flag_line_comment(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    new_text = _respell(_CHANNEL_ITEM + "    is_rgbw: true  # white last\n")
+    assert "    channel_colors: GRBW\n" in new_text
+    assert "    # white last\n" in new_text
+    assert "is_rgbw" not in new_text
+
+
+@pytest.mark.parametrize("flag", ["yes", "on", "enable", "True"])
+def test_channel_colors_truthy_flag_spellings(generated_rules, flag: str) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    new_text = _respell(_CHANNEL_ITEM + f"    is_rgbw: {flag}\n")
+    assert "    channel_colors: GRBW\n" in new_text
+
+
+@pytest.mark.parametrize("value", ["${order}", "!secret order", "XYZ"])
+def test_channel_colors_undecodable_order_untouched(generated_rules, value: str) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = f"light:\n  - platform: esp32_rmt_led_strip\n    rgb_order: {value}\n"
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_undecodable_flag_untouched(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    assert render_migrations(_CHANNEL_ITEM + "    is_rgbw: ${w}\n") is None
+
+
+def test_channel_colors_both_flags_untouched(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    assert render_migrations(_CHANNEL_ITEM + "    is_rgbw: true\n    is_wrgb: true\n") is None
+
+
+def test_channel_colors_beside_existing_entry_untouched(generated_rules) -> None:
+    # Upstream refuses the combination, so the fold must not pick a winner.
+    generated_rules(*_CHANNEL_RULES)
+    text = (
+        "light:\n  - platform: esp32_rmt_led_strip\n    channel_colors: BGR\n"
+        "    rgb_order: GRB\n    is_rgbw: true\n"
+    )
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_on_the_dash_line(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = "light:\n  - rgb_order: GRB\n    platform: esp32_rmt_led_strip\n"
+    assert "  - channel_colors: GRB\n" in _respell(text)
+
+
+def test_channel_colors_flag_on_the_dash_line_untouched(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = "light:\n  - is_rgbw: true\n    platform: esp32_rmt_led_strip\n    rgb_order: GRB\n"
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_ignores_deeper_decoys(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = "light:\n  - platform: esp32_rmt_led_strip\n    nested:\n      rgb_order: GRB\n"
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_merge_key_item_untouched(generated_rules) -> None:
+    # The anchor may carry is_rgbw; folding the visible keys alone would
+    # emit the channel_colors-plus-flag combination upstream rejects.
+    generated_rules(*_CHANNEL_RULES)
+    text = (
+        "common: &common\n  is_rgbw: true\n\n"
+        "light:\n  - platform: esp32_rmt_led_strip\n    <<: *common\n    rgb_order: GRB\n"
+    )
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_quoted_flag_key_untouched(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = 'light:\n  - platform: esp32_rmt_led_strip\n    rgb_order: GRB\n    "is_rgbw": true\n'
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_other_domain_untouched(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    assert render_migrations("output:\n  - platform: esp32_rmt_led_strip\n    pin: 1\n") is None
+
+
+def test_channel_colors_composes_with_other_rules(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = _LEGACY_API_YAML + "\n" + _CHANNEL_ITEM + "    is_wrgb: true\n"
+    result = render_migrations(text)
+    assert result is not None
+    new_text, diff = result
+    assert "actions:" in new_text
+    assert "    channel_colors: WGRB\n" in new_text
+    assert diff.fromLine <= diff.toLine
+
+
 def test_generated_and_bespoke_rules_share_one_diff(generated_rules) -> None:
     generated_rules(_VOC_RULE)
     text = _LEGACY_API_YAML + "\n" + _SGP4X_YAML
@@ -708,6 +863,7 @@ def test_prefilter_covers_every_generated_rule_kind(generated_rules) -> None:
     firing = {
         "component_key": (_RP2_RULE, _RP2040_YAML),
         "platform_item_field": (_VOC_RULE, _SGP4X_YAML),
+        "platform_channel_colors": (_CHANNEL_RULES[0], _LED_STRIP_YAML),
         "component_block_field": (_BLOCK_RULE, "mycomp:\n  old_key: 1\n"),
     }
     assert set(firing) == set(MIGRATION_RULE_EXTRA_FIELDS)

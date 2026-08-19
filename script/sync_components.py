@@ -980,6 +980,8 @@ def main() -> int:
     _sweep_registry_rename_keys()
     _sweep_component_aliases()
     _fail_on_unhandled_renames()
+    if not args.limit_component:
+        _fail_on_missing_channel_colors_rules()
     _fail_on_unhandled_repr_keys()
 
     # Collected (and guarded) before any emit so the abort below leaves
@@ -5391,6 +5393,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     _classify_rename_pairs(
         component_id, _collect_rename_keys(manifest), platform_domain=platform_domain
     )
+    _classify_channel_colors_folds(component_id, manifest, platform_manifests_by_domain)
     for domain, platform_manifest in platform_manifests_by_domain:
         _classify_rename_pairs(component_id, _collect_rename_keys(platform_manifest), domain=domain)
 
@@ -8765,6 +8768,18 @@ _HANDLED_RENAME_KEYS = {
 
 _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
 
+#: Per-schema memo for :func:`_schema_has_channel_colors_fold`; the
+#: stored schema ref keeps the id from being reused.
+_CHANNEL_COLORS_MEMO: dict[int, tuple[Any, bool]] = {}
+
+#: Components acknowledged as bespoke-handled fold carriers. Empty is
+#: the steady state: a platform-schema fold ships data-driven.
+_HANDLED_CHANNEL_COLORS: set[str] = set()
+
+#: Components whose schema carries ``light.migrate_channel_colors``
+#: somewhere the ``platform_channel_colors`` rule can't address.
+_UNHANDLED_CHANNEL_COLORS: set[str] = set()
+
 #: Component ALIASES acknowledged as bespoke-handled on the dashboard
 #: side, keyed on the legacy name. Empty is the steady state: a
 #: top-level alias ships data-driven as a ``component_key`` rule.
@@ -8907,6 +8922,87 @@ def _fail_on_unhandled_renames() -> None:
             f"{rows}\n"
             "Add bespoke handling for each, then acknowledge it in _HANDLED_ALIASES."
         )
+    if _UNHANDLED_CHANNEL_COLORS:
+        rows = "\n".join(f"  {component}" for component in sorted(_UNHANDLED_CHANNEL_COLORS))
+        raise SystemExit(
+            "esphome components carry light.migrate_channel_colors outside a "
+            "platform schema, which the platform_channel_colors rule can't "
+            "address:\n"
+            f"{rows}\n"
+            "Extend the migration engine's fold to that shape, then "
+            "acknowledge each in _HANDLED_CHANNEL_COLORS."
+        )
+
+
+def _fail_on_missing_channel_colors_rules() -> None:
+    """
+    Abort when the channel-colors fold's rules would silently vanish.
+
+    Fires per platform when the committed artifact carries a rule this
+    sweep didn't re-emit, and when esphome ships the fold but detection
+    emitted nothing.
+    """
+    emitted = {
+        (domain, platform)
+        for kind, _component, domain, platform, _old, _new in _MIGRATION_RULES
+        if kind == "platform_channel_colors"
+    }
+    missing = _committed_channel_colors_platforms() - emitted
+    if missing:
+        rows = "\n".join(f"  {domain}: {platform}" for domain, platform in sorted(missing))
+        raise SystemExit(
+            "platform_channel_colors rules in the committed "
+            "migration_rules.index.json were not re-emitted:\n"
+            f"{rows}\n"
+            "Fix the fold detection, or remove the fold machinery if "
+            "upstream retired the migration."
+        )
+    if not emitted and _installed_esphome_has_channel_colors_fold():
+        raise SystemExit(
+            "esphome carries light.migrate_channel_colors but introspection "
+            "emitted no platform_channel_colors rules; the fold detection is "
+            "broken."
+        )
+
+
+def _installed_esphome_has_channel_colors_fold() -> bool:
+    """
+    Report whether the installed esphome ships ``light.migrate_channel_colors``.
+
+    An import failure propagates.
+    """
+    from esphome.components import light
+
+    return hasattr(light, "migrate_channel_colors")
+
+
+def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
+    """
+    ``(domain, platform)`` pairs of the committed ``platform_channel_colors`` rows.
+
+    Raises ``SystemExit`` on an unreadable or malformed artifact.
+    """
+    try:
+        payload = orjson.loads(_MIGRATION_RULES_INDEX_FILE.read_bytes())
+    except (OSError, orjson.JSONDecodeError) as exc:
+        raise SystemExit(f"migration_rules.index.json unreadable: {exc}") from exc
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        raise SystemExit("migration_rules.index.json: payload must be {'rules': [...]}")
+    out: set[tuple[str, str]] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise SystemExit("migration_rules.index.json: non-mapping rule row")
+        if rule.get("kind") != "platform_channel_colors":
+            continue
+        domain = rule.get("domain")
+        platform = rule.get("platform")
+        if not (isinstance(domain, str) and domain and isinstance(platform, str) and platform):
+            raise SystemExit(
+                "migration_rules.index.json: platform_channel_colors row missing domain/platform"
+            )
+        out.add((domain, platform))
+    return out
 
 
 def _fail_on_unhandled_repr_keys() -> None:
@@ -8995,6 +9091,52 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], bool]:
     _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
+
+
+def _classify_channel_colors_folds(
+    component_id: str,
+    manifest: Any,
+    platform_manifests_by_domain: list[tuple[str, Any]],
+) -> None:
+    """Route discovered ``migrate_channel_colors`` folds: platform schema → rule row, else canary."""
+    if _collect_channel_colors_fold(manifest) and component_id not in _HANDLED_CHANNEL_COLORS:
+        _UNHANDLED_CHANNEL_COLORS.add(component_id)
+    for domain, platform_manifest in platform_manifests_by_domain:
+        if _collect_channel_colors_fold(platform_manifest):
+            _MIGRATION_RULES.add(
+                ("platform_channel_colors", "", domain, component_id, "rgb_order", "channel_colors")
+            )
+
+
+def _collect_channel_colors_fold(manifest: Any) -> bool:
+    """Report whether the manifest schema carries a ``migrate_channel_colors`` validator."""
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return False
+    return _schema_has_channel_colors_fold(schema)
+
+
+def _schema_has_channel_colors_fold(schema: Any) -> bool:
+    """Walk *schema* for ``light.migrate_channel_colors`` closures; memoised."""
+    memoised = _CHANNEL_COLORS_MEMO.get(id(schema))
+    if memoised is not None:
+        return memoised[1]
+    found = False
+    visited: set[int] = set()
+    stack: list[Any] = [schema]
+    while stack:
+        node = stack.pop()
+        if node is None or id(node) in visited:
+            continue
+        visited.add(id(node))
+        if isinstance(node, FunctionType) and node.__qualname__.startswith(
+            "migrate_channel_colors."
+        ):
+            found = True
+            break
+        stack.extend(child for child, _direct in _rename_walk_children(node))
+    _CHANNEL_COLORS_MEMO[id(schema)] = (schema, found)
+    return found
 
 
 def _rename_key_pair(node: Any) -> tuple[str, str] | None:
