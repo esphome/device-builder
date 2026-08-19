@@ -9,6 +9,7 @@ disk-side branches all surface here.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -266,6 +267,60 @@ def test_sweep_keeps_data_dir_while_a_job_is_in_flight(tmp_path: Path, split: bo
     )
     assert deleted == 0
     assert data_dir.is_dir()
+
+
+def test_sweep_skips_when_data_root_is_symlink(tmp_path: Path) -> None:
+    """A symlinked ``<data_dir>/.remote_builds`` disables the sweep outright."""
+    now = 1_000_000.0
+    config_dir, data_root = _roots(tmp_path, split=True)
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(config_dir, key, age_seconds=3600, now=now)
+    real = tmp_path / "elsewhere" / "alpha" / DATA_DIR_NAME
+    real.mkdir(parents=True)
+    data_root.mkdir()
+    (data_root / REMOTE_BUILDS_NAME).symlink_to(tmp_path / "elsewhere")
+
+    deleted = sweep_remote_builds(
+        config_dir, data_dir=data_root, ttl_seconds=600, in_flight_keys=frozenset(), now=now
+    )
+    assert deleted == 0
+    assert key.subtree(config_dir).is_dir()
+    assert real.is_dir()
+
+
+def test_sweep_leaves_symlinked_data_dir_and_its_parent_alone(tmp_path: Path) -> None:
+    """A symlink at the data dir's position is neither followed nor removed; it blocks the prune."""
+    real = tmp_path / "elsewhere"
+    real.mkdir()
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    link = key.data_dir(tmp_path / DATA_DIR_NAME)
+    link.parent.mkdir(parents=True)
+    link.symlink_to(real)
+
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset())
+    assert deleted == 0
+    assert link.is_symlink()
+    assert real.is_dir()
+    assert link.parent.is_dir()
+
+
+def test_sweep_logs_data_dir_rmtree_failure_and_keeps_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failing data-dir ``rmtree`` is logged, not counted, and leaves the parent in place."""
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    data_dir = key.data_dir(tmp_path / DATA_DIR_NAME)
+    data_dir.mkdir(parents=True)
+
+    def _fail(_path: Path) -> None:
+        raise OSError("simulated rmtree failure")
+
+    monkeypatch.setattr("esphome_device_builder.helpers.remote_build_cleanup.rmtree", _fail)
+    with caplog.at_level(logging.WARNING):
+        deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset())
+    assert deleted == 0
+    assert data_dir.is_dir()
+    assert "simulated rmtree failure" in caplog.text
 
 
 def test_sweep_keeps_data_dir_while_a_sibling_subtree_is_warm(tmp_path: Path) -> None:

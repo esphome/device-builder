@@ -89,28 +89,29 @@ def sweep_remote_builds(
             deterministic.
 
     Returns:
-        Number of subtrees deleted. Useful for the caller's log
-        line so operators can see the cleanup running.
+        Number of subtrees deleted, device extracts and idle
+        build data dirs alike. Useful for the caller's log line
+        so operators can see the cleanup running.
     """
     if now is None:
         now = time.time()
     cutoff = now - ttl_seconds
     root = config_dir / REMOTE_BUILDS_SUBDIR
-    # Skip if the root itself is a symlink — ``is_dir()`` would
-    # follow it and the sweep would walk into whatever directory
-    # the symlink targets, potentially deleting subtrees outside
-    # the canonical layout. The canonical writer (submit_job)
-    # creates this root as a real directory; a symlink here is
-    # operator-or-attacker-placed and outside trust scope.
-    # Defense-in-depth matching the symlink skips at the
-    # dashboard_dir and entry levels below.
-    if root.is_symlink():
-        return 0
-
     # Split-root deployments (HA add-on, ``ESPHOME_DATA_DIR``) hold the
     # data dir under a second root; walk the union so a dashboard whose
     # config-root dir was pruned on an earlier sweep is still reclaimed.
     data_root = data_dir / REMOTE_BUILDS_NAME
+    # Skip if either root is a symlink — ``is_dir()`` would
+    # follow it and the sweep would walk into whatever directory
+    # the symlink targets, potentially deleting subtrees outside
+    # the canonical layout. The canonical writers (submit_job,
+    # the compile subprocess) create these roots as real
+    # directories; a symlink here is operator-or-attacker-placed
+    # and outside trust scope. Defense-in-depth matching the
+    # symlink skips at the dashboard_dir and entry levels below.
+    if root.is_symlink() or data_root.is_symlink():
+        return 0
+
     in_flight_dir_ids = frozenset(key.dir_id for key in in_flight_keys)
     deleted = 0
     for name in _dashboard_names(root, data_root):

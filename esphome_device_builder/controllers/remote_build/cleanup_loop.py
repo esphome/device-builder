@@ -57,7 +57,7 @@ async def run_cleanup_loop(controller: ReceiverController) -> None:
                 ),
             )
             if deleted:
-                _LOGGER.info("remote-build cleanup: swept %d cold subtree(s)", deleted)
+                _LOGGER.info("remote-build cleanup: reclaimed %d cold subtree(s)", deleted)
         except Exception:
             _LOGGER.exception("remote-build cleanup sweep failed")
 
@@ -65,7 +65,7 @@ async def run_cleanup_loop(controller: ReceiverController) -> None:
 def _sweep(
     config_dir: Path, *, ttl_seconds: float, in_flight_keys: frozenset[RemoteBuildPath]
 ) -> int:
-    """Run one sweep; resolves ``CORE.data_dir`` here because it stats the config dir."""
+    """Run one sweep with ``CORE.data_dir`` resolved on the executor thread."""
     return sweep_remote_builds(
         config_dir,
         data_dir=Path(CORE.data_dir),
