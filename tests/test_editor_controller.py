@@ -1097,40 +1097,35 @@ async def test_invalidate_cache_mid_validate_rerun_shares_the_budget(tmp_path: P
         "esphome_device_builder.controllers.editor.asyncio.wait_for", _wait_for
     ):
         await controller.validate_yaml(
-            configuration="kitchen.yaml", content="esphome:\n", timeout=1.0
+            configuration="kitchen.yaml", content="esphome:\n", timeout=5.0
         )
 
     assert calls == 2
-    assert timeouts[0] <= 1.0
+    assert timeouts[0] == 5.0
     assert timeouts[1] <= timeouts[0] - 0.05
 
 
 async def test_invalidate_cache_mid_validate_rerun_skipped_when_budget_spent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    """A raced first attempt that consumed the budget returns uncached without a re-run."""
+    """A raced first attempt that left under the re-run floor returns uncached without a re-run."""
     controller = _make_controller(tmp_path)
     controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
-    clock = 1000.0
-
-    def _monotonic() -> float:
-        nonlocal clock
-        clock += 10.0
-        return clock
-
-    monkeypatch.setattr("esphome_device_builder.controllers.editor.time.monotonic", _monotonic)
     calls = 0
 
     async def _raced(*_args: Any, **_kwargs: Any) -> dict:
         nonlocal calls
         calls += 1
+        # Consume enough of the 1.2s budget that the remainder sits
+        # under ``_MIN_RERUN_BUDGET`` (1.0) no matter the jitter.
+        await asyncio.sleep(0.25)
         controller.invalidate_cache()
         return {"yaml_errors": [], "validation_errors": []}
 
     controller._validate_locked = _raced  # type: ignore[method-assign]
 
     result = await controller.validate_yaml(
-        configuration="kitchen.yaml", content="esphome:\n", timeout=5.0
+        configuration="kitchen.yaml", content="esphome:\n", timeout=1.2
     )
 
     assert result == {"yaml_errors": [], "validation_errors": []}

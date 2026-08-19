@@ -48,6 +48,9 @@ _VALIDATE_CACHE_TTL = 60.0
 # user leaves.
 _IDLE_SUBPROCESS_TIMEOUT = 600.0
 _REAP_INTERVAL = 60.0
+# Below this remaining budget a raced re-run is near-certain to time out;
+# skip it and return the raced result uncached instead.
+_MIN_RERUN_BUDGET = 1.0
 # ``_EditorSession.source_fingerprint`` sentinel that matches no real
 # digest, so the next validate respawns the subprocess.
 _STALE_SOURCES = "stale"
@@ -435,18 +438,15 @@ class EditorController:
                 # exception (typed for callers) propagates unchanged.
                 if not ok:
                     await self._terminate_subprocess(session)
-            if retry_left and remaining <= 0.0:
-                _LOGGER.debug(
-                    "Validate of %s raced a config-dir write; budget exhausted, "
-                    "returning the raced result uncached",
-                    configuration,
-                )
-                break
-            _LOGGER.debug(
-                "Validate of %s raced a config-dir write; %s",
+            if retry_left and remaining > _MIN_RERUN_BUDGET:
+                _LOGGER.debug("Validate of %s raced a config-dir write; re-running", configuration)
+                continue
+            _LOGGER.info(
+                "Validate of %s raced a config-dir write; %s, returning the raced result uncached",
                 configuration,
-                "re-running" if retry_left else "returning the raced result uncached",
+                "budget exhausted" if retry_left else "raced again",
             )
+            break
         if result is None:  # pragma: no cover — attempt one either raises or sets result
             raise ValidatorUnavailableError("validator produced no result")
         return result
