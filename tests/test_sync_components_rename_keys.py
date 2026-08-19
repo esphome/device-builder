@@ -395,6 +395,25 @@ def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
     assert _collect_channel_colors_fold(_manifest(schema)) == "nested"
 
 
+def test_channel_colors_fold_carrier_reachable_both_ways_is_nested(cv: ModuleType) -> None:
+    """A fold-carrying node reachable direct and nested classifies nested in either pop order."""
+    fold = _fold_validator()
+    carrier = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), fold)
+    listed = cv.Schema({cv.Optional("strips"): cv.ensure_list(carrier)})
+    for schema in (cv.All(carrier, listed), cv.All(listed, carrier)):
+        sync_components._CHANNEL_COLORS_MEMO.clear()
+        assert _collect_channel_colors_fold(_manifest(schema)) == "nested"
+
+
+def test_rename_carrier_reachable_both_ways_is_nested_in_either_order(cv: ModuleType) -> None:
+    """A rename-carrying node reachable direct and nested classifies nested in either pop order."""
+    rename = cv.rename_key("service", "action")
+    carrier = cv.All(cv.Schema({cv.Optional("action"): cv.string}), rename)
+    listed = cv.Schema({cv.Optional("actions"): cv.ensure_list(carrier)})
+    for schema in (cv.All(carrier, listed), cv.All(listed, carrier)):
+        assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): False}
+
+
 def test_nested_platform_fold_routes_to_the_canary(cv: ModuleType) -> None:
     """The depth-1 runtime fold can't apply a nested fold, so no rule is emitted."""
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())

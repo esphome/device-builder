@@ -9078,7 +9078,7 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], bool]:
     if memoised is not None:
         return memoised[1]
     out: dict[tuple[str, str], bool] = {}
-    visited: set[int] = set()
+    visited: set[tuple[int, bool]] = set()
     capped = False
     stack: list[tuple[Any, int, bool]] = [(schema, 0, True)]
     while stack:
@@ -9096,9 +9096,11 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], bool]:
             # shared closure lets every path vote.
             out[pair] = out.get(pair, True) and direct
             continue
-        if id(node) in visited:
+        # Keyed on placement too, so a node reachable both directly and
+        # nested votes on both paths instead of by pop order.
+        if (id(node), direct) in visited:
             continue
-        visited.add(id(node))
+        visited.add((id(node), direct))
         stack.extend(
             (child, depth + 1, direct and stays_direct)
             for child, stays_direct in _rename_walk_children(node)
@@ -9155,7 +9157,7 @@ def _schema_has_channel_colors_fold(schema: Any) -> str | None:
     if memoised is not None:
         return memoised[1]
     found: str | None = None
-    visited: set[int] = set()
+    visited: set[tuple[int, bool]] = set()
     stack: list[tuple[Any, bool]] = [(schema, True)]
     while stack:
         node, direct = stack.pop()
@@ -9171,9 +9173,11 @@ def _schema_has_channel_colors_fold(schema: Any) -> str | None:
                 break
             found = "direct"
             continue
-        if id(node) in visited:
+        # Keyed on placement too, so a node reachable both directly and
+        # nested votes on both paths instead of by pop order.
+        if (id(node), direct) in visited:
             continue
-        visited.add(id(node))
+        visited.add((id(node), direct))
         stack.extend(
             (child, direct and stays_direct) for child, stays_direct in _rename_walk_children(node)
         )
