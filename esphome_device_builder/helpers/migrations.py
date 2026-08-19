@@ -9,8 +9,7 @@ mid-edit draft that ``automations/parse`` would reject. Bespoke rules
 (``_BESPOKE_RULES``) cover the anchors the generic machinery can't
 express; plain ``cv.rename_key`` pairs arrive data-driven from the
 sync-generated ``migration_rules.index.json``. Every rule carries the
-esphome version that introduced it and is skipped on an older install,
-so the fold never proposes a spelling the user's esphome rejects.
+esphome version that introduced it and is skipped on an older install.
 Exposed as ``editor/migrate_config``; ``has_pending_migrations`` feeds
 the per-device dashboard flag at scanner load time.
 """
@@ -105,11 +104,11 @@ def render_migrations(
     needed migrating; ``changes`` lists the fired rules in fold order.
     """
     out = yaml_text.splitlines(keepends=True)
-    fired: list[MigrationChange] = []
+    changes: list[MigrationChange] = []
     for rule in _bespoke_rules_for(esphome_version):
         respelled = rule.apply(out)
         if respelled != out:
-            fired.append(rule.change)
+            changes.append(_stamp_required(rule.change, esphome_version))
         out = respelled
     generated_fired: list[MigrationRule] = []
     generated = _generated_rules_for(load_migration_rules_index(), esphome_version)
@@ -117,16 +116,11 @@ def render_migrations(
     new_text = "".join(out)
     if new_text == yaml_text:
         return None
-    fired.extend(_generated_change(rule) for rule in dict.fromkeys(generated_fired))
-    changes = tuple(
-        replace(
-            change,
-            required=change.removed_in is not None
-            and version_at_least(esphome_version, change.removed_in),
-        )
-        for change in fired
+    changes.extend(
+        _stamp_required(_generated_change(rule), esphome_version)
+        for rule in dict.fromkeys(generated_fired)
     )
-    return MigrationResult(new_text, _build_diff_for_append(yaml_text, new_text), changes)
+    return MigrationResult(new_text, _build_diff_for_append(yaml_text, new_text), tuple(changes))
 
 
 def has_pending_migrations(
@@ -134,11 +128,8 @@ def has_pending_migrations(
 ) -> bool:
     """Report whether ``render_migrations`` would change *yaml_text*."""
     # Fleet-scan hot path: the token scan is ~300x cheaper than the fold.
-    tokens = frozenset().union(
-        *(r.tokens for r in _bespoke_rules_for(esphome_version)),
-        (r.old for r in _generated_rules_for(load_migration_rules_index(), esphome_version)),
-    )
-    if _legacy_token_re(tokens).search(yaml_text) is None:
+    token_re = _legacy_token_re(load_migration_rules_index(), esphome_version)
+    if token_re.search(yaml_text) is None:
         return False
     return render_migrations(yaml_text, esphome_version) is not None
 
@@ -146,7 +137,11 @@ def has_pending_migrations(
 @cache
 def _bespoke_rules_for(esphome_version: str) -> tuple[_BespokeRule, ...]:
     """Return the bespoke rules *esphome_version* accepts."""
-    return tuple(r for r in _BESPOKE_RULES if _accepted(r.change.since, esphome_version))
+    return tuple(
+        r
+        for r in _BESPOKE_RULES
+        if r.change.since is None or version_at_least(esphome_version, r.change.since)
+    )
 
 
 @cache
@@ -154,12 +149,14 @@ def _generated_rules_for(
     rules: tuple[MigrationRule, ...], esphome_version: str
 ) -> tuple[MigrationRule, ...]:
     """Return the artifact *rules* *esphome_version* accepts."""
-    return tuple(r for r in rules if _accepted(r.since, esphome_version))
+    return tuple(r for r in rules if r.since is None or version_at_least(esphome_version, r.since))
 
 
-def _accepted(since: str | None, esphome_version: str) -> bool:
-    """Whether an install at *esphome_version* takes a rule introduced in *since*."""
-    return since is None or version_at_least(esphome_version, since)
+def _stamp_required(change: MigrationChange, esphome_version: str) -> MigrationChange:
+    """Flag *change* required once *esphome_version* has dropped the old spelling."""
+    if change.removed_in is None or not version_at_least(esphome_version, change.removed_in):
+        return change
+    return replace(change, required=True)
 
 
 _GENERATED_CHANGE_KINDS = {
@@ -184,10 +181,14 @@ def _generated_change(rule: MigrationRule) -> MigrationChange:
 
 
 @cache
-def _legacy_token_re(tokens: frozenset[str]) -> re.Pattern[str]:
-    """Alternation matching every legacy spelling in *tokens* in key position."""
+def _legacy_token_re(rules: tuple[MigrationRule, ...], esphome_version: str) -> re.Pattern[str]:
+    """Alternation matching every accepted rule's legacy spelling in key position."""
     # ``\s*:`` mirrors the loosest matcher (split-on-colon tolerates padding
     # before the colon) so prose mentions don't force the full fold.
+    tokens = frozenset().union(
+        *(r.tokens for r in _bespoke_rules_for(esphome_version)),
+        (r.old for r in _generated_rules_for(rules, esphome_version)),
+    )
     return re.compile("|".join(re.escape(token) + r"\s*:" for token in sorted(tokens)))
 
 
@@ -395,7 +396,7 @@ def _fold_channel_colors_items(
     Fold ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` into ``channel_colors``.
 
     Applied to the *platforms* items of the domain block at *header*;
-    a platform's rule joins *fired* once any of its items folds.
+    a platform's rule joins *fired* for each item it folds.
     ``is_wrgb`` prepends ``W`` to the order, ``is_rgbw`` appends it; a
     deleted flag's trailing comment stays behind as its own line. An
     undecodable item is left alone, as is one already carrying
@@ -404,7 +405,6 @@ def _fold_channel_colors_items(
     end = block_end_index(lines, header)
     in_scalar = _block_scalar_mask(lines)
     out = list(lines)
-    folded_rules: list[MigrationRule] = []
     # Last item first, so earlier items' line indexes stay valid in *out*.
     for item_start in reversed(top_list_item_starts(lines, header, end)):
         # An anchored item may be merged into a sibling via ``<<:``;
@@ -433,7 +433,7 @@ def _fold_channel_colors_items(
         # Deleting the dash line would orphan the rest of the item.
         if item_start in delete:
             continue
-        folded_rules.append(rule)
+        fired.append(rule)
         content = lines[anchor_idx].rstrip("\n\r")
         eol = lines[anchor_idx][len(content) :] or "\n"
         _old_value, comment = _split_value_and_comment(content[anchor_col:].split(":", 1)[1])
@@ -446,7 +446,6 @@ def _fold_channel_colors_items(
                 out[idx] = f"{leading_ws(flag_content)}{flag_comment.lstrip()}{flag_eol}"
             else:
                 del out[idx]
-    fired.extend(reversed(folded_rules))
     return out
 
 

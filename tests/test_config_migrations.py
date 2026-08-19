@@ -948,7 +948,9 @@ def test_prefilter_covers_every_generated_rule_kind(generated_rules: RuleSetter)
         "platform_channel_colors": (_CHANNEL_RULES[0], _LED_STRIP_YAML),
         "component_block_field": (_BLOCK_RULE, "mycomp:\n  old_key: 1\n"),
     }
-    assert set(firing) == set(MIGRATION_RULE_EXTRA_FIELDS)
+    assert (
+        set(firing) == set(MIGRATION_RULE_EXTRA_FIELDS) == set(migrations._GENERATED_CHANGE_KINDS)
+    )
     for kind, (rule, text) in firing.items():
         generated_rules(rule)
         assert render_migrations(text) is not None, kind
@@ -967,15 +969,7 @@ def test_prefilter_agrees_with_fold_on_every_fixture() -> None:
 # Version gating and change records
 # ---------------------------------------------------------------------------
 
-_GATED_VOC_RULE = MigrationRule(
-    kind="platform_item_field",
-    old="voc",
-    new="voc_index",
-    domain="sensor",
-    platform="sgp4x",
-    since="2026.8.0b1",
-    removed_in="2027.2.0",
-)
+_GATED_VOC_RULE = _VOC_RULE._replace(since="2026.8.0b1", removed_in="2027.2.0")
 
 
 @pytest.mark.parametrize(
@@ -1020,15 +1014,15 @@ def test_changes_name_each_fired_rule_once(generated_rules: RuleSetter) -> None:
     )
     result = render_migrations(text, "2026.8.0")
     assert result is not None
-    assert [(c.kind, c.scope, c.old, c.new) for c in result.changes] == [
+    assert sorted((c.kind, c.scope, c.old, c.new) for c in result.changes) == [
         ("field", "api", "services", "actions"),
-        ("key", "", "rp2040", "rp2"),
         ("field", "mycomp", "old_key", "new_key"),
         ("field", "sensor.sgp4x", "voc", "voc_index"),
         ("fold", "light.esp32_rmt_led_strip", "rgb_order", "channel_colors"),
         ("fold", "light.rp2040_pio_led_strip", "rgb_order", "channel_colors"),
+        ("key", "", "rp2040", "rp2"),
     ]
-    voc = result.changes[3]
+    voc = next(c for c in result.changes if c.old == "voc")
     assert (voc.since, voc.removed_in, voc.required) == ("2026.8.0b1", "2027.2.0", False)
 
 

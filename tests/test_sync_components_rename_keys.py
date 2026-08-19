@@ -18,8 +18,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _UNHANDLED_ALIASES,
     _UNHANDLED_CHANNEL_COLORS,
     _UNHANDLED_RENAME_KEYS,
-    ChannelColorsFold,
-    RenameHit,
+    SchemaHit,
     _classify_rename_pairs,
     _collect_channel_colors_fold,
     _collect_rename_keys,
@@ -66,7 +65,7 @@ def test_top_level_rename_is_discovered_direct(cv: ModuleType) -> None:
         cv.rename_key("old_name", "new_name"),
     )
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("old_name", "new_name"): RenameHit(direct=True)
+        ("old_name", "new_name"): SchemaHit(direct=True)
     }
 
 
@@ -77,7 +76,7 @@ def test_nested_list_item_rename_is_discovered_non_direct(cv: ModuleType) -> Non
     )
     schema = cv.Schema({cv.Optional("actions"): cv.ensure_list(item)})
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("service", "action"): RenameHit(direct=False)
+        ("service", "action"): SchemaHit(direct=False)
     }
 
 
@@ -88,7 +87,7 @@ def test_typed_schema_branch_rename_is_discovered_non_direct(cv: ModuleType) -> 
     )
     schema = cv.typed_schema({"MODELA": branch})
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("old_name", "new_name"): RenameHit(direct=False)
+        ("old_name", "new_name"): SchemaHit(direct=False)
     }
 
 
@@ -111,8 +110,8 @@ def test_live_api_pairs_are_discovered_and_handled(cv: ModuleType) -> None:
 
     manifest = _get_esphome_loader().get_component("api")
     assert _collect_rename_keys(manifest) == {
-        ("services", "actions"): RenameHit(direct=True),
-        ("service", "action"): RenameHit(direct=False),
+        ("services", "actions"): SchemaHit(direct=True),
+        ("service", "action"): SchemaHit(direct=False),
     }
     introspect_component("api")
     assert set() == _UNHANDLED_RENAME_KEYS
@@ -172,7 +171,7 @@ def test_handled_list_matches_the_writer_constants() -> None:
 
 
 def test_direct_component_pair_routes_to_the_artifact() -> None:
-    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): RenameHit(direct=True)})
+    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=True)})
     assert {
         ("component_block_field", "sgp4x", "", "", "voc", "voc_index")
     } == _MIGRATION_RULES.keys()
@@ -180,7 +179,7 @@ def test_direct_component_pair_routes_to_the_artifact() -> None:
 
 
 def test_direct_platform_pair_routes_to_the_artifact() -> None:
-    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): RenameHit(direct=True)}, domain="sensor")
+    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=True)}, domain="sensor")
     assert {
         ("platform_item_field", "", "sensor", "sgp4x", "voc", "voc_index")
     } == _MIGRATION_RULES.keys()
@@ -198,7 +197,7 @@ def test_mixed_direct_and_nested_pair_classifies_nested(cv: ModuleType) -> None:
         cv.rename_key("service", "action"),
     )
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("service", "action"): RenameHit(direct=False)
+        ("service", "action"): SchemaHit(direct=False)
     }
 
 
@@ -208,13 +207,13 @@ def test_shared_closure_reachable_both_ways_classifies_nested(cv: ModuleType) ->
     item = cv.All(cv.Schema({cv.Optional("action"): cv.string}), rename)
     schema = cv.All(cv.Schema({cv.Optional("actions"): cv.ensure_list(item)}), rename)
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("service", "action"): RenameHit(direct=False)
+        ("service", "action"): SchemaHit(direct=False)
     }
 
 
 def test_platform_domain_pair_routes_to_the_canary() -> None:
     """A platform-domain block's ``- platform:`` items the block rule can't address."""
-    _classify_rename_pairs("sensor", {("old", "new"): RenameHit(direct=True)}, platform_domain=True)
+    _classify_rename_pairs("sensor", {("old", "new"): SchemaHit(direct=True)}, platform_domain=True)
     assert _MIGRATION_RULES == {}
     assert {("sensor", "old", "new")} == _UNHANDLED_RENAME_KEYS
 
@@ -222,7 +221,7 @@ def test_platform_domain_pair_routes_to_the_canary() -> None:
 def test_multi_conf_component_pair_ships_data_driven() -> None:
     """The block rule handles the list form, so multi_conf pairs emit as rules."""
     _classify_rename_pairs(
-        "xiaomi_rtcgq02lm", {("esp32_ble_id", "ble_hub_id"): RenameHit(direct=True)}
+        "xiaomi_rtcgq02lm", {("esp32_ble_id", "ble_hub_id"): SchemaHit(direct=True)}
     )
     assert {
         ("component_block_field", "xiaomi_rtcgq02lm", "", "", "esp32_ble_id", "ble_hub_id")
@@ -231,28 +230,36 @@ def test_multi_conf_component_pair_ships_data_driven() -> None:
 
 
 def test_non_direct_pair_routes_to_the_canary() -> None:
-    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): RenameHit(direct=False)})
+    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=False)})
     assert _MIGRATION_RULES == {}
     assert {("sgp4x", "voc", "voc_index")} == _UNHANDLED_RENAME_KEYS
 
 
 def test_handled_pair_routes_nowhere_even_when_direct() -> None:
-    _classify_rename_pairs("api", {("services", "actions"): RenameHit(direct=True)})
+    _classify_rename_pairs("api", {("services", "actions"): SchemaHit(direct=True)})
     assert _MIGRATION_RULES == {}
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
 def test_sentinel_pair_routes_to_the_canary_despite_direct() -> None:
     sentinel = "<unreadable rename_key>"
-    _classify_rename_pairs("broken", {(sentinel, sentinel): RenameHit(direct=True)})
+    _classify_rename_pairs("broken", {(sentinel, sentinel): SchemaHit(direct=True)})
     assert _MIGRATION_RULES == {}
     assert {("broken", sentinel, sentinel)} == _UNHANDLED_RENAME_KEYS
 
 
-def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _redirect_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: bytes = b'{"rules": []}'
+) -> Path:
+    """Point the sync's artifact path at a tmp file seeded with *payload*."""
     out_path = tmp_path / "migration_rules.index.json"
     monkeypatch.setattr(sync_components, "_MIGRATION_RULES_INDEX_FILE", out_path)
-    out_path.write_bytes(b'{"rules": []}')
+    out_path.write_bytes(payload)
+    return out_path
+
+
+def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    out_path = _redirect_artifact(tmp_path, monkeypatch)
     _MIGRATION_RULES[("platform_item_field", "", "sensor", "sgp4x", "voc", "voc_index")] = (
         "2027.2.0"
     )
@@ -294,9 +301,9 @@ def test_emit_keeps_the_committed_since_for_a_known_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A row the artifact already carries keeps its first-seen esphome; a new row is stamped."""
-    out_path = tmp_path / "migration_rules.index.json"
-    monkeypatch.setattr(sync_components, "_MIGRATION_RULES_INDEX_FILE", out_path)
-    out_path.write_bytes(
+    out_path = _redirect_artifact(
+        tmp_path,
+        monkeypatch,
         orjson.dumps(
             {
                 "rules": [
@@ -316,7 +323,7 @@ def test_emit_keeps_the_committed_since_for_a_known_row(
                     },
                 ]
             }
-        )
+        ),
     )
     _MIGRATION_RULES[("component_key", "", "", "", "rp2040", "rp2")] = "2027.7.0"
     _MIGRATION_RULES[("component_key", "", "", "", "old", "new")] = None
@@ -331,9 +338,7 @@ def test_emit_keeps_the_committed_since_for_a_known_row(
 def test_emit_writes_the_empty_steady_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    out_path = tmp_path / "migration_rules.index.json"
-    monkeypatch.setattr(sync_components, "_MIGRATION_RULES_INDEX_FILE", out_path)
-    out_path.write_bytes(b'{"rules": []}')
+    out_path = _redirect_artifact(tmp_path, monkeypatch)
     _emit_migration_rules_index("2026.8.0b5")
     assert orjson.loads(out_path.read_bytes()) == {"rules": []}
 
@@ -352,10 +357,11 @@ def _fake_loader(
     manifest: SimpleNamespace | None,
     platform_manifest: SimpleNamespace | None = None,
     legacy: str = "legacy_x",
+    removal_version: str | None = None,
 ) -> None:
     loader = SimpleNamespace(
         get_alias_metadata=lambda: {
-            legacy: SimpleNamespace(canonical=canonical, removal_version=None)
+            legacy: SimpleNamespace(canonical=canonical, removal_version=removal_version)
         },
         get_component=lambda name: manifest,
         get_platform=lambda domain, stem: platform_manifest,
@@ -393,16 +399,11 @@ def test_platform_provider_alias_falls_to_the_canary(
 
 
 def test_alias_rule_carries_the_removal_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    loader = SimpleNamespace(
-        get_alias_metadata=lambda: {
-            "legacy_x": SimpleNamespace(canonical="canon_x", removal_version="2027.7.0")
-        },
-        get_component=lambda name: SimpleNamespace(is_platform_component=False),
-        get_platform=lambda domain, stem: None,
-    )
-    monkeypatch.setattr(sync_components, "_get_esphome_loader", lambda: loader)
-    monkeypatch.setattr(
-        sync_components, "_enumerate_platform_manifests_by_domain", lambda loader, name: []
+    _fake_loader(
+        monkeypatch,
+        canonical="canon_x",
+        manifest=SimpleNamespace(is_platform_component=False),
+        removal_version="2027.7.0",
     )
     _sweep_component_aliases()
     assert _MIGRATION_RULES == {("component_key", "", "", "", "legacy_x", "canon_x"): "2027.7.0"}
@@ -467,7 +468,7 @@ def _fold_validator() -> Callable[[Any], Any]:
 
 def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType) -> None:
     schema = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
-    assert _collect_channel_colors_fold(_manifest(schema)) == ChannelColorsFold("direct")
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=True)
     assert _collect_channel_colors_fold(_manifest(cv.Schema({}))) is None
     assert _collect_channel_colors_fold(SimpleNamespace(config_schema=None)) is None
 
@@ -475,7 +476,7 @@ def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType
 def test_channel_colors_fold_under_a_wrapper_is_nested(cv: ModuleType) -> None:
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
     schema = cv.Schema({cv.Optional("strips"): cv.ensure_list(item)})
-    assert _collect_channel_colors_fold(_manifest(schema)) == ChannelColorsFold("nested")
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=False)
 
 
 def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
@@ -483,7 +484,7 @@ def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
     fold = _fold_validator()
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), fold)
     schema = cv.All(cv.Schema({cv.Optional("strips"): cv.ensure_list(item)}), fold)
-    assert _collect_channel_colors_fold(_manifest(schema)) == ChannelColorsFold("nested")
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=False)
 
 
 def test_channel_colors_fold_carrier_reachable_both_ways_is_nested(cv: ModuleType) -> None:
@@ -493,7 +494,7 @@ def test_channel_colors_fold_carrier_reachable_both_ways_is_nested(cv: ModuleTyp
     listed = cv.Schema({cv.Optional("strips"): cv.ensure_list(carrier)})
     for schema in (cv.All(carrier, listed), cv.All(listed, carrier)):
         sync_components._CHANNEL_COLORS_MEMO.clear()
-        assert _collect_channel_colors_fold(_manifest(schema)) == ChannelColorsFold("nested")
+        assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=False)
 
 
 def test_rename_carrier_reachable_both_ways_is_nested_in_either_order(cv: ModuleType) -> None:
@@ -503,7 +504,7 @@ def test_rename_carrier_reachable_both_ways_is_nested_in_either_order(cv: Module
     listed = cv.Schema({cv.Optional("actions"): cv.ensure_list(carrier)})
     for schema in (cv.All(carrier, listed), cv.All(listed, carrier)):
         assert _collect_rename_keys(_manifest(schema)) == {
-            ("service", "action"): RenameHit(direct=False)
+            ("service", "action"): SchemaHit(direct=False)
         }
 
 
@@ -700,7 +701,7 @@ def test_rename_key_removed_in_is_read_off_the_closure(cv: ModuleType) -> None:
         cv.rename_key("old_name", "new_name", removed_in="2027.1.0", component="x"),
     )
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("old_name", "new_name"): RenameHit(direct=True, removed_in="2027.1.0")
+        ("old_name", "new_name"): SchemaHit(direct=True, removed_in="2027.1.0")
     }
     _classify_rename_pairs("x", _collect_rename_keys(_manifest(schema)))
     assert _MIGRATION_RULES == {
@@ -714,8 +715,8 @@ def test_channel_colors_fold_removed_in_is_read_off_the_closure(cv: ModuleType) 
         pytest.skip("installed esphome predates channel_colors")
     fold = light.migrate_channel_colors(removed_in="2027.3.0", component="x")
     schema = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), fold)
-    assert _collect_channel_colors_fold(_manifest(schema)) == ChannelColorsFold(
-        "direct", "2027.3.0"
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
+        direct=True, removed_in="2027.3.0"
     )
 
 
@@ -727,7 +728,8 @@ def test_unreadable_rename_closure_yields_sentinel_pair() -> None:
 
     validator.__qualname__ = "rename_key.<locals>.validator"
     assert _rename_key_pair(validator) == (
-        ("<unreadable rename_key>", "<unreadable rename_key>"),
+        "<unreadable rename_key>",
+        "<unreadable rename_key>",
         None,
     )
 

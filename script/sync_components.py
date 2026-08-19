@@ -8754,7 +8754,7 @@ _RENAME_SCHEMA_TYPES = (dict, vol.Schema)
 #: id from being reused. Entries sharing a stem re-introspect the same
 #: manifest, so the walk would otherwise repeat thousands of times per
 #: sync.
-_RENAME_KEYS_MEMO: dict[int, tuple[Any, dict[tuple[str, str], RenameHit]]] = {}
+_RENAME_KEYS_MEMO: dict[int, tuple[Any, dict[tuple[str, str], SchemaHit]]] = {}
 
 #: ``(component, old, new)`` rename pairs the dashboard handles with
 #: bespoke code — anchors the generic migration machinery can't
@@ -8777,7 +8777,7 @@ _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
 
 #: Per-schema memo for :func:`_schema_has_channel_colors_fold`; the
 #: stored schema ref keeps the id from being reused.
-_CHANNEL_COLORS_MEMO: dict[int, tuple[Any, ChannelColorsFold | None]] = {}
+_CHANNEL_COLORS_MEMO: dict[int, tuple[Any, SchemaHit | None]] = {}
 
 #: Components acknowledged as bespoke-handled fold carriers. Empty is
 #: the steady state: a platform-schema fold ships data-driven.
@@ -8797,23 +8797,23 @@ _HANDLED_ALIASES: set[str] = set()
 #: spelling also appears as ``- platform:`` values).
 _UNHANDLED_ALIASES: set[tuple[str, str]] = set()
 
-#: ``(kind, component, domain, platform, old, new)`` rows bound for the
-#: migration-rules artifact, each mapped to upstream's ``removed_in``
-#: version (``None`` when it declares none).
+#: Field order of a ``_MIGRATION_RULES`` row.
+_MIGRATION_RULE_ROW_FIELDS = ("kind", "component", "domain", "platform", "old", "new")
+
+#: Rows (see ``_MIGRATION_RULE_ROW_FIELDS``) bound for the migration-rules
+#: artifact, each mapped to upstream's ``removed_in`` version (``None``
+#: when it declares none).
 _MIGRATION_RULES: dict[tuple[str, str, str, str, str, str], str | None] = {}
 
 
-class RenameHit(NamedTuple):
-    """One ``cv.rename_key`` pair's placement and upstream removal version."""
+class SchemaHit(NamedTuple):
+    """A discovered migration validator's placement and upstream removal version.
+
+    *direct* means it sits on the schema's own validator chain (only
+    ``cv.All`` / ``.extend`` between it and the root).
+    """
 
     direct: bool
-    removed_in: str | None = None
-
-
-class ChannelColorsFold(NamedTuple):
-    """A schema's ``light.migrate_channel_colors`` placement and upstream removal version."""
-
-    placement: str
     removed_in: str | None = None
 
 
@@ -8846,7 +8846,7 @@ def _note_unhandled_rename_keys(component_id: str, pairs: Iterable[tuple[str, st
 
 def _classify_rename_pairs(
     component_id: str,
-    pairs: Mapping[tuple[str, str], RenameHit],
+    pairs: Mapping[tuple[str, str], SchemaHit],
     *,
     domain: str | None = None,
     platform_domain: bool = False,
@@ -9049,10 +9049,7 @@ def _committed_migration_rule_since() -> dict[tuple[str, str, str, str, str, str
     for rule in _committed_migration_rules():
         if "since" not in rule:
             continue
-        row = tuple(
-            str(rule.get(name, ""))
-            for name in ("kind", "component", "domain", "platform", "old", "new")
-        )
+        row = tuple(str(rule.get(name, "")) for name in _MIGRATION_RULE_ROW_FIELDS)
         out[row] = rule["since"]
     return out
 
@@ -9089,11 +9086,11 @@ def _fail_on_unhandled_repr_keys() -> None:
     )
 
 
-def _collect_rename_keys(manifest: Any) -> dict[tuple[str, str], RenameHit]:
+def _collect_rename_keys(manifest: Any) -> dict[tuple[str, str], SchemaHit]:
     """
     Walk the live ``CONFIG_SCHEMA`` for ``cv.rename_key`` aliases.
 
-    Returns ``{(old_key, new_key): RenameHit}`` for every rename validator
+    Returns ``{(old_key, new_key): SchemaHit}`` for every rename validator
     reachable from the schema, including list-item and wrapper-closure
     schemas; *direct* means it sits on the schema's own mapping (only a
     ``cv.All`` / ``.extend`` validator chain between it and the root).
@@ -9122,12 +9119,12 @@ def _sweep_registry_rename_keys() -> None:
             _note_unhandled_rename_keys(registry_id, pairs)
 
 
-def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], RenameHit]:
+def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
     """Walk *schema* for rename validators; memoised, don't mutate the result."""
     memoised = _RENAME_KEYS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    out: dict[tuple[str, str], RenameHit] = {}
+    out: dict[tuple[str, str], SchemaHit] = {}
     visited: set[tuple[int, bool]] = set()
     capped = False
     stack: list[tuple[Any, int, bool]] = [(schema, 0, True)]
@@ -9140,13 +9137,14 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], RenameHit]:
             continue
         found = _rename_key_pair(node)
         if found is not None:
-            pair, removed_in = found
+            old_key, new_key, removed_in = found
+            pair = (old_key, new_key)
             # ``and`` so a pair also reachable nested stays inexpressible
             # (fail-loud): the generic rule would cover only the direct
             # occurrence. Rename validators bypass the visited gate so a
             # shared closure lets every path vote.
-            prior = out.get(pair, RenameHit(direct=True))
-            out[pair] = RenameHit(prior.direct and direct, prior.removed_in or removed_in)
+            prior = out.get(pair, SchemaHit(direct=True))
+            out[pair] = SchemaHit(prior.direct and direct, prior.removed_in or removed_in)
             continue
         # Keyed on placement too, so a node reachable both directly and
         # nested votes on both paths instead of by pop order.
@@ -9182,7 +9180,7 @@ def _classify_channel_colors_folds(
         fold = _collect_channel_colors_fold(platform_manifest)
         if fold is None:
             continue
-        if fold.placement == "direct":
+        if fold.direct:
             row = (
                 "platform_channel_colors",
                 "",
@@ -9198,25 +9196,25 @@ def _classify_channel_colors_folds(
         _UNHANDLED_CHANNEL_COLORS.add(component_id)
 
 
-def _collect_channel_colors_fold(manifest: Any) -> ChannelColorsFold | None:
-    """Locate the manifest schema's fold validator (``direct`` / ``nested``), or ``None``."""
+def _collect_channel_colors_fold(manifest: Any) -> SchemaHit | None:
+    """Locate the manifest schema's ``light.migrate_channel_colors`` validator, or ``None``."""
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return None
     return _schema_has_channel_colors_fold(schema)
 
 
-def _schema_has_channel_colors_fold(schema: Any) -> ChannelColorsFold | None:
+def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
     """
     Walk *schema* for ``light.migrate_channel_colors`` closures; memoised.
 
-    ``"direct"`` only when every occurrence sits on the schema's own
-    validator chain; mixed placement stays ``"nested"``.
+    Direct only when every occurrence sits on the schema's own validator
+    chain; mixed placement stays nested.
     """
     memoised = _CHANNEL_COLORS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    found: ChannelColorsFold | None = None
+    found: SchemaHit | None = None
     visited: set[tuple[int, bool]] = set()
     stack: list[tuple[Any, bool]] = [(schema, True)]
     while stack:
@@ -9228,14 +9226,11 @@ def _schema_has_channel_colors_fold(schema: Any) -> ChannelColorsFold | None:
         if isinstance(node, FunctionType) and node.__qualname__.startswith(
             "migrate_channel_colors."
         ):
-            try:
-                removed_in = _closure_version(_closure_nonlocals(node), "removed_in")
-            except ValueError:
-                removed_in = None
+            removed_in = _closure_removed_in(node)
             if not direct:
-                found = ChannelColorsFold("nested", removed_in)
+                found = SchemaHit(direct=False, removed_in=removed_in)
                 break
-            found = ChannelColorsFold("direct", removed_in)
+            found = SchemaHit(direct=True, removed_in=removed_in)
             continue
         # Keyed on placement too, so a node reachable both directly and
         # nested votes on both paths instead of by pop order.
@@ -9249,8 +9244,8 @@ def _schema_has_channel_colors_fold(schema: Any) -> ChannelColorsFold | None:
     return found
 
 
-def _rename_key_pair(node: Any) -> tuple[tuple[str, str], str | None] | None:
-    """Return a ``cv.rename_key`` validator's ``((old, new), removed_in)``, else None.
+def _rename_key_pair(node: Any) -> tuple[str, str, str | None] | None:
+    """Return a ``cv.rename_key`` validator's ``(old, new, removed_in)``, else None.
 
     A rename validator whose closure can't be read yields a sentinel
     pair so the handled-list check fails closed instead of dropping it.
@@ -9260,17 +9255,20 @@ def _rename_key_pair(node: Any) -> tuple[tuple[str, str], str | None] | None:
     try:
         nonlocals = _closure_nonlocals(node)
     except ValueError:
-        return ("<unreadable rename_key>", "<unreadable rename_key>"), None
+        return "<unreadable rename_key>", "<unreadable rename_key>", None
     old_key = nonlocals.get("old_key")
     new_key = nonlocals.get("new_key")
     if isinstance(old_key, str) and isinstance(new_key, str):
-        return (old_key, new_key), _closure_version(nonlocals, "removed_in")
-    return ("<unreadable rename_key>", "<unreadable rename_key>"), None
+        return old_key, new_key, _closure_removed_in(node)
+    return "<unreadable rename_key>", "<unreadable rename_key>", None
 
 
-def _closure_version(nonlocals: Mapping[str, Any], name: str) -> str | None:
-    """Read the non-empty string closure var *name*, else ``None``."""
-    value = nonlocals.get(name)
+def _closure_removed_in(node: Any) -> str | None:
+    """Read a validator's ``removed_in`` closure var; ``None`` when absent or unreadable."""
+    try:
+        value = _closure_nonlocals(node).get("removed_in")
+    except ValueError:
+        return None
     return value if isinstance(value, str) and value else None
 
 
