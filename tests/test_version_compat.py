@@ -12,6 +12,7 @@ from esphome_device_builder.helpers.version_compat import (
     major_versions_match,
     pinnable_version_key,
     release_line_at_least,
+    version_at_least,
     version_satisfies_policy,
     versions_match_exactly,
 )
@@ -36,6 +37,28 @@ from esphome_device_builder.helpers.version_compat import (
 def test_release_line_at_least(version: str, expected: bool) -> None:
     """The ``YYYY.MM`` line compare tolerates pre/dev suffixes; unparseable is a no."""
     assert release_line_at_least(version, (2026, 8)) is expected
+
+
+@pytest.mark.parametrize(
+    ("version", "minimum", "expected"),
+    [
+        pytest.param("2026.8.0b5", "2026.8.0b5", True, id="same_beta"),
+        pytest.param("2026.8.0", "2026.8.0b5", True, id="final_after_beta"),
+        pytest.param("2026.9.1", "2026.8.0b5", True, id="later_release"),
+        pytest.param("2026.8.0b4", "2026.8.0b5", False, id="earlier_beta"),
+        pytest.param("2026.7.3", "2026.8.0b1", False, id="earlier_release"),
+        pytest.param("2026.4.0", "2026.8.0b5", False, id="much_earlier"),
+        pytest.param("2026.9.0-dev", "2026.8.0b5", True, id="dev_later_line"),
+        pytest.param("2026.8.0-dev", "2026.8.0b5", True, id="dev_same_line"),
+        pytest.param("2026.7.0-dev", "2026.8.0b5", False, id="dev_earlier_line"),
+        pytest.param("2026.8.0", "2026.8", True, id="short_minimum"),
+        pytest.param("garbage", "2026.8.0", False, id="unparseable_version"),
+        pytest.param("2026.8.0", "garbage", False, id="unparseable_minimum"),
+    ],
+)
+def test_version_at_least(version: str, minimum: str, expected: bool) -> None:
+    """Pinnable pairs order exactly; a dev build falls back to the release line."""
+    assert version_at_least(version, minimum) is expected
 
 
 @pytest.mark.parametrize(

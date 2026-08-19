@@ -393,7 +393,20 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
                         "old": "voc",
                         "new": "voc_index",
                     },
-                    {"kind": "component_key", "old": "rp2040", "new": "rp2"},
+                    {
+                        "kind": "component_key",
+                        "old": "rp2040",
+                        "new": "rp2",
+                        "since": "2026.7.0",
+                        "removed_in": "2027.7.0",
+                    },
+                    {
+                        "kind": "component_key",
+                        "old": "x",
+                        "new": "y",
+                        "since": None,
+                        "removed_in": None,
+                    },
                 ]
             }
         )
@@ -407,7 +420,10 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
             domain="sensor",
             platform="sgp4x",
         ),
-        MigrationRule(kind="component_key", old="rp2040", new="rp2"),
+        MigrationRule(
+            kind="component_key", old="rp2040", new="rp2", since="2026.7.0", removed_in="2027.7.0"
+        ),
+        MigrationRule(kind="component_key", old="x", new="y"),
     )
 
 
@@ -431,6 +447,14 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
             id="non_string_domain",
         ),
         pytest.param({"kind": "component_key", "old": "rp2040"}, id="component_key_no_new"),
+        pytest.param(
+            {"kind": "component_key", "old": "rp2040", "new": "rp2", "since": 2026},
+            id="non_string_since",
+        ),
+        pytest.param(
+            {"kind": "component_key", "old": "rp2040", "new": "rp2", "removed_in": ""},
+            id="empty_removed_in",
+        ),
     ],
 )
 def test_load_migration_rules_drops_malformed_records(tmp_path: Path, record: object) -> None:

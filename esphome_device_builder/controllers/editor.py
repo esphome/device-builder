@@ -317,15 +317,15 @@ class EditorController:
         **_kwargs: Any,
     ) -> dict:
         """
-        Apply every known migration to *content* in one splice.
+        Apply every migration the installed esphome accepts to *content* in one splice.
 
-        Renamed api and homeassistant spellings plus the ethernet
-        ``clk_mode`` -> ``clk`` conversion; ``yaml_diff`` is ``null``
-        when nothing needed migrating.
+        ``yaml_diff`` is ``null`` and ``changes`` empty when nothing
+        needed migrating.
         """
         result = await run_in_executor(render_migrations, content)
-        diff = result[1] if result is not None else None
-        return MigrateConfigResponse(yaml_diff=diff).to_dict()
+        if result is None:
+            return MigrateConfigResponse().to_dict()
+        return MigrateConfigResponse(yaml_diff=result.diff, changes=list(result.changes)).to_dict()
 
     @api_command("editor/validate_yaml")
     async def validate_yaml(

@@ -4,329 +4,425 @@
       "component": "airthings_ble",
       "kind": "component_block_field",
       "new": "ble_hub_id",
-      "old": "esp32_ble_id"
+      "old": "esp32_ble_id",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "component": "mopeka_ble",
       "kind": "component_block_field",
       "new": "ble_hub_id",
-      "old": "esp32_ble_id"
+      "old": "esp32_ble_id",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "component": "radon_eye_ble",
       "kind": "component_block_field",
       "new": "ble_hub_id",
-      "old": "esp32_ble_id"
+      "old": "esp32_ble_id",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "component": "ruuvi_ble",
       "kind": "component_block_field",
       "new": "ble_hub_id",
-      "old": "esp32_ble_id"
+      "old": "esp32_ble_id",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "component": "xiaomi_ble",
       "kind": "component_block_field",
       "new": "ble_hub_id",
-      "old": "esp32_ble_id"
+      "old": "esp32_ble_id",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "component": "xiaomi_rtcgq02lm",
       "kind": "component_block_field",
       "new": "ble_hub_id",
-      "old": "esp32_ble_id"
+      "old": "esp32_ble_id",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "kind": "component_key",
       "new": "rp2",
-      "old": "rp2040"
+      "old": "rp2040",
+      "removed_in": "2027.7.0",
+      "since": "2026.7.0"
     },
     {
       "domain": "light",
       "kind": "platform_channel_colors",
       "new": "channel_colors",
       "old": "rgb_order",
-      "platform": "beken_spi_led_strip"
+      "platform": "beken_spi_led_strip",
+      "removed_in": "2027.3.0",
+      "since": "2026.8.0b5"
     },
     {
       "domain": "light",
       "kind": "platform_channel_colors",
       "new": "channel_colors",
       "old": "rgb_order",
-      "platform": "esp32_rmt_led_strip"
+      "platform": "esp32_rmt_led_strip",
+      "removed_in": "2027.3.0",
+      "since": "2026.8.0b5"
     },
     {
       "domain": "light",
       "kind": "platform_channel_colors",
       "new": "channel_colors",
       "old": "rgb_order",
-      "platform": "rp2040_pio_led_strip"
+      "platform": "rp2040_pio_led_strip",
+      "removed_in": "2027.3.0",
+      "since": "2026.8.0b5"
     },
     {
       "domain": "binary_sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "ble_presence"
+      "platform": "ble_presence",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "binary_sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_cgpr1"
+      "platform": "xiaomi_cgpr1",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "binary_sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_mjyd02yla"
+      "platform": "xiaomi_mjyd02yla",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "binary_sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_mue4094rt"
+      "platform": "xiaomi_mue4094rt",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "binary_sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_wx08zm"
+      "platform": "xiaomi_wx08zm",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "atc_mithermometer"
+      "platform": "atc_mithermometer",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "b_parasite"
+      "platform": "b_parasite",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "ble_rssi"
+      "platform": "ble_rssi",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "bthome_mithermometer"
+      "platform": "bthome_mithermometer",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "inkbird_ibsth1_mini"
+      "platform": "inkbird_ibsth1_mini",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "mopeka_pro_check"
+      "platform": "mopeka_pro_check",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "mopeka_std_check"
+      "platform": "mopeka_std_check",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "pvvx_mithermometer"
+      "platform": "pvvx_mithermometer",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "ruuvitag"
+      "platform": "ruuvitag",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "nox_index",
       "old": "nox",
-      "platform": "sen5x"
+      "platform": "sen5x",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "voc_index",
       "old": "voc",
-      "platform": "sen5x"
+      "platform": "sen5x",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "nox_index",
       "old": "nox",
-      "platform": "sen6x"
+      "platform": "sen6x",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "voc_index",
       "old": "voc",
-      "platform": "sen6x"
+      "platform": "sen6x",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "nox_index",
       "old": "nox",
-      "platform": "sgp4x"
+      "platform": "sgp4x",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "voc_index",
       "old": "voc",
-      "platform": "sgp4x"
+      "platform": "sgp4x",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "thermopro_ble"
+      "platform": "thermopro_ble",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_cgd1"
+      "platform": "xiaomi_cgd1",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_cgdk2"
+      "platform": "xiaomi_cgdk2",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_cgg1"
+      "platform": "xiaomi_cgg1",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_gcls002"
+      "platform": "xiaomi_gcls002",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_hhccjcy01"
+      "platform": "xiaomi_hhccjcy01",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_hhccjcy10"
+      "platform": "xiaomi_hhccjcy10",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_hhccpot002"
+      "platform": "xiaomi_hhccpot002",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_jqjcy01ym"
+      "platform": "xiaomi_jqjcy01ym",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_lywsd02"
+      "platform": "xiaomi_lywsd02",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_lywsd02mmc"
+      "platform": "xiaomi_lywsd02mmc",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_lywsd03mmc"
+      "platform": "xiaomi_lywsd03mmc",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_lywsdcgq"
+      "platform": "xiaomi_lywsdcgq",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_mhoc303"
+      "platform": "xiaomi_mhoc303",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_mhoc401"
+      "platform": "xiaomi_mhoc401",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_miscale"
+      "platform": "xiaomi_miscale",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "xiaomi_xmwsdj04mmc"
+      "platform": "xiaomi_xmwsdj04mmc",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     },
     {
       "domain": "text_sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
       "old": "esp32_ble_id",
-      "platform": "ble_scanner"
+      "platform": "ble_scanner",
+      "removed_in": "2027.2.0",
+      "since": "2026.8.0b1"
     }
   ]
 }

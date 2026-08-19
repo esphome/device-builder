@@ -166,6 +166,22 @@ def release_line_at_least(version: str, minimum: tuple[int, int]) -> bool:
     return (int(match[1]), int(match[2])) >= minimum
 
 
+def version_at_least(version: str, minimum: str) -> bool:
+    """
+    Whether *version* is at or past *minimum*.
+
+    Two pinnable versions order exactly (``2026.8.0b4 < 2026.8.0b5``);
+    anything else (a ``-dev`` build) orders by ``YYYY.MM`` release line;
+    unparseable is no.
+    """
+    if is_pinnable_version(version) and is_pinnable_version(minimum):
+        return pinnable_version_key(version) >= pinnable_version_key(minimum)
+    match = _RELEASE_LINE_RE.match(minimum)
+    if match is None:
+        return False
+    return release_line_at_least(version, (int(match[1]), int(match[2])))
+
+
 def _release_key(version: str) -> str:
     """Year + month prefix used for cross-release comparison."""
     parts = version.split(".")

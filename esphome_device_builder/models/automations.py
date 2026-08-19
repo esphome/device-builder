@@ -547,7 +547,31 @@ class UpsertResponse(DashboardModel):
 
 
 @dataclass
+class MigrationChange(DashboardModel):
+    """
+    One migration rule ``editor/migrate_config`` applied.
+
+    ``kind`` phrases the edit: ``key`` (a top-level block key), ``field``
+    (a field inside ``scope``), ``fold`` (legacy fields folded into
+    ``new``), ``convert`` (a value reshaped into ``new``), ``action`` (an
+    automation action id). ``since`` is the esphome that introduced the
+    rename, ``removed_in`` the one dropping the old spelling (either may
+    be unknown); ``required`` means the installed esphome already rejects
+    the old spelling.
+    """
+
+    kind: str
+    scope: str
+    old: str
+    new: str
+    since: str | None = None
+    removed_in: str | None = None
+    required: bool = False
+
+
+@dataclass
 class MigrateConfigResponse(DashboardModel):
-    """Migrate's splice diff; ``None`` when nothing needed migrating."""
+    """Migrate's splice diff and the rules behind it; ``None`` / empty when clean."""
 
     yaml_diff: YamlDiff | None = None
+    changes: list[MigrationChange] = field(default_factory=list)

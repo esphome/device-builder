@@ -1512,6 +1512,17 @@ async def test_migrate_config_respells_legacy_content(tmp_path: Path) -> None:
     assert diff is not None
     assert "actions:" in diff["replacement"]
     assert "- action: pause" in diff["replacement"]
+    assert result["changes"] == [
+        {
+            "kind": "field",
+            "scope": "api",
+            "old": "services",
+            "new": "actions",
+            "since": "2024.8.0",
+            "removed_in": None,
+            "required": False,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -1519,7 +1530,7 @@ async def test_migrate_config_null_when_canonical(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     content = "api:\n  actions:\n    - action: pause\n      then: []\n"
     result = await controller.migrate_config(content=content)
-    assert result["yaml_diff"] is None
+    assert result == {"yaml_diff": None, "changes": []}
 
 
 @pytest.mark.asyncio

@@ -13,3 +13,8 @@ MIGRATION_RULE_EXTRA_FIELDS: dict[str, tuple[str, ...]] = {
     "platform_channel_colors": ("domain", "platform"),
     "component_key": (),
 }
+
+#: Per-rule esphome version window, each a version string or ``null``:
+#: ``since`` is the first esphome the sync saw the rule against (the rule
+#: is gated off older installs), ``removed_in`` upstream's removal version.
+MIGRATION_RULE_VERSION_FIELDS: tuple[str, ...] = ("since", "removed_in")

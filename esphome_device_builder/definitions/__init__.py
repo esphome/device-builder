@@ -37,7 +37,7 @@ from ..helpers.lazy_catalog import (
     is_unsafe_manifest_path,
 )
 from ..helpers.yaml import FastestSafeLoader
-from ..migration_rule_kinds import MIGRATION_RULE_EXTRA_FIELDS
+from ..migration_rule_kinds import MIGRATION_RULE_EXTRA_FIELDS, MIGRATION_RULE_VERSION_FIELDS
 from ..models import (
     BoardCatalogEntry,
     BoardCatalogIndex,
@@ -570,6 +570,8 @@ class MigrationRule(NamedTuple):
     component: str = ""
     domain: str = ""
     platform: str = ""
+    since: str | None = None
+    removed_in: str | None = None
 
 
 MIGRATION_RULE_KINDS = frozenset(MIGRATION_RULE_EXTRA_FIELDS)
@@ -635,7 +637,17 @@ def _coerce_migration_rule(record: Any) -> MigrationRule | None:
         if value is None:
             return None
         extra[name] = value
-    return MigrationRule(kind=kind, old=old, new=new, **extra)
+    versions = {name: record.get(name) for name in MIGRATION_RULE_VERSION_FIELDS}
+    if any(v is not None and _field(name) is None for name, v in versions.items()):
+        return None
+    return MigrationRule(
+        kind=kind,
+        old=old,
+        new=new,
+        **extra,
+        since=versions["since"],
+        removed_in=versions["removed_in"],
+    )
 
 
 class PlatformCapabilities(NamedTuple):

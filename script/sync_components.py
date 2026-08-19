@@ -1065,7 +1065,7 @@ def main() -> int:
         _emit_platform_capabilities_index()
         _LOGGER.info("Wrote platform capabilities -> %s", _PLATFORM_CAPABILITIES_INDEX_FILE)
 
-        _emit_migration_rules_index()
+        _emit_migration_rules_index(version)
         _LOGGER.info(
             "Wrote migration rules: %d rules -> %s",
             len(_MIGRATION_RULES),
@@ -4155,17 +4155,24 @@ def _emit_pin_registry_modes_index(registry_modes: dict[str, list[str]]) -> None
     next_path.replace(_PIN_REGISTRY_MODES_INDEX_FILE)
 
 
-def _emit_migration_rules_index() -> None:
+def _emit_migration_rules_index(esphome_version: str) -> None:
     """Write the sync-discovered generic rename rules for ``editor/migrate_config``.
 
-    Always written — empty is the steady state. Atomic temp-then-replace.
+    A row already in the committed artifact keeps its ``since``; a new row
+    is stamped with *esphome_version*, the first esphome the sync saw it
+    against. Always written — empty is the steady state. Atomic
+    temp-then-replace.
     """
+    committed_since = _committed_migration_rule_since()
     rules = []
-    for kind, component, domain, platform, old, new in sorted(_MIGRATION_RULES):
-        record = {"kind": kind, "old": old, "new": new}
+    for row, removed_in in sorted(_MIGRATION_RULES.items()):
+        kind, component, domain, platform, old, new = row
+        record: dict[str, str | None] = {"kind": kind, "old": old, "new": new}
         values = {"component": component, "domain": domain, "platform": platform}
         for name in MIGRATION_RULE_EXTRA_FIELDS[kind]:
             record[name] = values[name]
+        record["since"] = committed_since.get(row, esphome_version)
+        record["removed_in"] = removed_in
         rules.append(record)
     next_path = _MIGRATION_RULES_INDEX_FILE.with_suffix(".json.next")
     next_path.write_bytes(
@@ -8747,7 +8754,7 @@ _RENAME_SCHEMA_TYPES = (dict, vol.Schema)
 #: id from being reused. Entries sharing a stem re-introspect the same
 #: manifest, so the walk would otherwise repeat thousands of times per
 #: sync.
-_RENAME_KEYS_MEMO: dict[int, tuple[Any, dict[tuple[str, str], bool]]] = {}
+_RENAME_KEYS_MEMO: dict[int, tuple[Any, dict[tuple[str, str], RenameHit]]] = {}
 
 #: ``(component, old, new)`` rename pairs the dashboard handles with
 #: bespoke code — anchors the generic migration machinery can't
@@ -8770,7 +8777,7 @@ _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
 
 #: Per-schema memo for :func:`_schema_has_channel_colors_fold`; the
 #: stored schema ref keeps the id from being reused.
-_CHANNEL_COLORS_MEMO: dict[int, tuple[Any, str | None]] = {}
+_CHANNEL_COLORS_MEMO: dict[int, tuple[Any, ChannelColorsFold | None]] = {}
 
 #: Components acknowledged as bespoke-handled fold carriers. Empty is
 #: the steady state: a platform-schema fold ships data-driven.
@@ -8791,8 +8798,24 @@ _HANDLED_ALIASES: set[str] = set()
 _UNHANDLED_ALIASES: set[tuple[str, str]] = set()
 
 #: ``(kind, component, domain, platform, old, new)`` rows bound for the
-#: migration-rules artifact.
-_MIGRATION_RULES: set[tuple[str, str, str, str, str, str]] = set()
+#: migration-rules artifact, each mapped to upstream's ``removed_in``
+#: version (``None`` when it declares none).
+_MIGRATION_RULES: dict[tuple[str, str, str, str, str, str], str | None] = {}
+
+
+class RenameHit(NamedTuple):
+    """One ``cv.rename_key`` pair's placement and upstream removal version."""
+
+    direct: bool
+    removed_in: str | None = None
+
+
+class ChannelColorsFold(NamedTuple):
+    """A schema's ``light.migrate_channel_colors`` placement and upstream removal version."""
+
+    placement: str
+    removed_in: str | None = None
+
 
 #: Manifests the rename sweep actually walked; zero at check time means
 #: introspection's best-effort early returns silenced the canary.
@@ -8823,7 +8846,7 @@ def _note_unhandled_rename_keys(component_id: str, pairs: Iterable[tuple[str, st
 
 def _classify_rename_pairs(
     component_id: str,
-    pairs: Mapping[tuple[str, str], bool],
+    pairs: Mapping[tuple[str, str], RenameHit],
     *,
     domain: str | None = None,
     platform_domain: bool = False,
@@ -8838,14 +8861,15 @@ def _classify_rename_pairs(
     ``component_block_field`` can't address, so its pairs fall to the
     canary.
     """
-    for (old, new), direct in pairs.items():
+    for (old, new), hit in pairs.items():
         if (component_id, old, new) in _HANDLED_RENAME_KEYS:
             continue
-        if direct and not platform_domain and old != new:
+        if hit.direct and not platform_domain and old != new:
             if domain is None:
-                _MIGRATION_RULES.add(("component_block_field", component_id, "", "", old, new))
+                row = ("component_block_field", component_id, "", "", old, new)
             else:
-                _MIGRATION_RULES.add(("platform_item_field", "", domain, component_id, old, new))
+                row = ("platform_item_field", "", domain, component_id, old, new)
+            _MIGRATION_RULES[row] = hit.removed_in
         else:
             _UNHANDLED_RENAME_KEYS.add((component_id, old, new))
 
@@ -8877,7 +8901,9 @@ def _sweep_component_aliases() -> None:
         ):
             _UNHANDLED_ALIASES.add((legacy, meta.canonical))
             continue
-        _MIGRATION_RULES.add(("component_key", "", "", "", legacy, meta.canonical))
+        _MIGRATION_RULES[("component_key", "", "", "", legacy, meta.canonical)] = (
+            meta.removal_version
+        )
 
 
 def _known_target_platform(name: str) -> bool:
@@ -9003,17 +9029,8 @@ def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
 
     Raises ``SystemExit`` on an unreadable or malformed artifact.
     """
-    try:
-        payload = orjson.loads(_MIGRATION_RULES_INDEX_FILE.read_bytes())
-    except (OSError, orjson.JSONDecodeError) as exc:
-        raise SystemExit(f"migration_rules.index.json unreadable: {exc}") from exc
-    rules = payload.get("rules") if isinstance(payload, dict) else None
-    if not isinstance(rules, list):
-        raise SystemExit("migration_rules.index.json: payload must be {'rules': [...]}")
     out: set[tuple[str, str]] = set()
-    for rule in rules:
-        if not isinstance(rule, dict):
-            raise SystemExit("migration_rules.index.json: non-mapping rule row")
+    for rule in _committed_migration_rules():
         if rule.get("kind") != "platform_channel_colors":
             continue
         domain = rule.get("domain")
@@ -9024,6 +9041,35 @@ def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
             )
         out.add((domain, platform))
     return out
+
+
+def _committed_migration_rule_since() -> dict[tuple[str, str, str, str, str, str], str | None]:
+    """``since`` of every committed rule row, keyed like ``_MIGRATION_RULES``; absent rows omitted."""
+    out: dict[tuple[str, str, str, str, str, str], str | None] = {}
+    for rule in _committed_migration_rules():
+        if "since" not in rule:
+            continue
+        row = tuple(
+            str(rule.get(name, ""))
+            for name in ("kind", "component", "domain", "platform", "old", "new")
+        )
+        out[row] = rule["since"]
+    return out
+
+
+def _committed_migration_rules() -> list[dict[str, Any]]:
+    """Read the committed artifact's rule rows; ``SystemExit`` when unreadable or malformed."""
+    try:
+        payload = orjson.loads(_MIGRATION_RULES_INDEX_FILE.read_bytes())
+    except (OSError, orjson.JSONDecodeError) as exc:
+        raise SystemExit(f"migration_rules.index.json unreadable: {exc}") from exc
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        raise SystemExit("migration_rules.index.json: payload must be {'rules': [...]}")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise SystemExit("migration_rules.index.json: non-mapping rule row")
+    return rules
 
 
 def _fail_on_unhandled_repr_keys() -> None:
@@ -9043,11 +9089,11 @@ def _fail_on_unhandled_repr_keys() -> None:
     )
 
 
-def _collect_rename_keys(manifest: Any) -> dict[tuple[str, str], bool]:
+def _collect_rename_keys(manifest: Any) -> dict[tuple[str, str], RenameHit]:
     """
     Walk the live ``CONFIG_SCHEMA`` for ``cv.rename_key`` aliases.
 
-    Returns ``{(old_key, new_key): direct}`` for every rename validator
+    Returns ``{(old_key, new_key): RenameHit}`` for every rename validator
     reachable from the schema, including list-item and wrapper-closure
     schemas; *direct* means it sits on the schema's own mapping (only a
     ``cv.All`` / ``.extend`` validator chain between it and the root).
@@ -9076,12 +9122,12 @@ def _sweep_registry_rename_keys() -> None:
             _note_unhandled_rename_keys(registry_id, pairs)
 
 
-def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], bool]:
+def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], RenameHit]:
     """Walk *schema* for rename validators; memoised, don't mutate the result."""
     memoised = _RENAME_KEYS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    out: dict[tuple[str, str], bool] = {}
+    out: dict[tuple[str, str], RenameHit] = {}
     visited: set[tuple[int, bool]] = set()
     capped = False
     stack: list[tuple[Any, int, bool]] = [(schema, 0, True)]
@@ -9092,13 +9138,15 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], bool]:
         if depth > 10:
             capped = True
             continue
-        pair = _rename_key_pair(node)
-        if pair is not None:
+        found = _rename_key_pair(node)
+        if found is not None:
+            pair, removed_in = found
             # ``and`` so a pair also reachable nested stays inexpressible
             # (fail-loud): the generic rule would cover only the direct
             # occurrence. Rename validators bypass the visited gate so a
             # shared closure lets every path vote.
-            out[pair] = out.get(pair, True) and direct
+            prior = out.get(pair, RenameHit(direct=True))
+            out[pair] = RenameHit(prior.direct and direct, prior.removed_in or removed_in)
             continue
         # Keyed on placement too, so a node reachable both directly and
         # nested votes on both paths instead of by pop order.
@@ -9132,25 +9180,33 @@ def _classify_channel_colors_folds(
     canary = _collect_channel_colors_fold(manifest) is not None
     for domain, platform_manifest in platform_manifests_by_domain:
         fold = _collect_channel_colors_fold(platform_manifest)
-        if fold == "direct":
-            _MIGRATION_RULES.add(
-                ("platform_channel_colors", "", domain, component_id, "rgb_order", "channel_colors")
+        if fold is None:
+            continue
+        if fold.placement == "direct":
+            row = (
+                "platform_channel_colors",
+                "",
+                domain,
+                component_id,
+                "rgb_order",
+                "channel_colors",
             )
-        elif fold == "nested":
+            _MIGRATION_RULES[row] = fold.removed_in
+        else:
             canary = True
     if canary and component_id not in _HANDLED_CHANNEL_COLORS:
         _UNHANDLED_CHANNEL_COLORS.add(component_id)
 
 
-def _collect_channel_colors_fold(manifest: Any) -> str | None:
-    """``"direct"`` / ``"nested"`` placement of the manifest schema's fold validator, or ``None``."""
+def _collect_channel_colors_fold(manifest: Any) -> ChannelColorsFold | None:
+    """Locate the manifest schema's fold validator (``direct`` / ``nested``), or ``None``."""
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return None
     return _schema_has_channel_colors_fold(schema)
 
 
-def _schema_has_channel_colors_fold(schema: Any) -> str | None:
+def _schema_has_channel_colors_fold(schema: Any) -> ChannelColorsFold | None:
     """
     Walk *schema* for ``light.migrate_channel_colors`` closures; memoised.
 
@@ -9160,7 +9216,7 @@ def _schema_has_channel_colors_fold(schema: Any) -> str | None:
     memoised = _CHANNEL_COLORS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    found: str | None = None
+    found: ChannelColorsFold | None = None
     visited: set[tuple[int, bool]] = set()
     stack: list[tuple[Any, bool]] = [(schema, True)]
     while stack:
@@ -9172,10 +9228,14 @@ def _schema_has_channel_colors_fold(schema: Any) -> str | None:
         if isinstance(node, FunctionType) and node.__qualname__.startswith(
             "migrate_channel_colors."
         ):
+            try:
+                removed_in = _closure_version(_closure_nonlocals(node), "removed_in")
+            except ValueError:
+                removed_in = None
             if not direct:
-                found = "nested"
+                found = ChannelColorsFold("nested", removed_in)
                 break
-            found = "direct"
+            found = ChannelColorsFold("direct", removed_in)
             continue
         # Keyed on placement too, so a node reachable both directly and
         # nested votes on both paths instead of by pop order.
@@ -9189,8 +9249,8 @@ def _schema_has_channel_colors_fold(schema: Any) -> str | None:
     return found
 
 
-def _rename_key_pair(node: Any) -> tuple[str, str] | None:
-    """Return the ``(old, new)`` pair of a ``cv.rename_key`` validator, else None.
+def _rename_key_pair(node: Any) -> tuple[tuple[str, str], str | None] | None:
+    """Return a ``cv.rename_key`` validator's ``((old, new), removed_in)``, else None.
 
     A rename validator whose closure can't be read yields a sentinel
     pair so the handled-list check fails closed instead of dropping it.
@@ -9200,12 +9260,18 @@ def _rename_key_pair(node: Any) -> tuple[str, str] | None:
     try:
         nonlocals = _closure_nonlocals(node)
     except ValueError:
-        return "<unreadable rename_key>", "<unreadable rename_key>"
+        return ("<unreadable rename_key>", "<unreadable rename_key>"), None
     old_key = nonlocals.get("old_key")
     new_key = nonlocals.get("new_key")
     if isinstance(old_key, str) and isinstance(new_key, str):
-        return old_key, new_key
-    return "<unreadable rename_key>", "<unreadable rename_key>"
+        return (old_key, new_key), _closure_version(nonlocals, "removed_in")
+    return ("<unreadable rename_key>", "<unreadable rename_key>"), None
+
+
+def _closure_version(nonlocals: Mapping[str, Any], name: str) -> str | None:
+    """Read the non-empty string closure var *name*, else ``None``."""
+    value = nonlocals.get(name)
+    return value if isinstance(value, str) and value else None
 
 
 def _is_rename_wrapper(node: Any) -> bool:

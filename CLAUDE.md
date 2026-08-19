@@ -428,10 +428,23 @@ against legacy behaviour before assuming the simpler version suffices.
   rules, so the fold stays dormant until the catalog syncs against a
   `channel_colors`-aware esphome and new adopting platforms join
   without a code change; a fold validator outside a platform schema
-  fails the sync. The
+  fails the sync. **Every rule is version-gated.** One catalog serves
+  every installed esphome, so a rule carries `since` (the first esphome
+  the sync saw it against — stamped on first sight and carried over
+  from the committed artifact on every re-sync, never re-derived) and
+  `removed_in` (upstream's removal version, read off the `rename_key` /
+  `migrate_channel_colors` closure or `AliasMeta`); the fold skips a
+  rule whose `since` is newer than the installed esphome
+  (`version_compat.version_at_least`), so the nudge never proposes a
+  spelling the user's esphome rejects (a 2026.7 install must not be
+  offered `channel_colors`). Bespoke rules carry the same pair
+  hard-coded on their `MigrationChange`. The
   frontend's migrate nudge drives the
   one-click whole-file update; new migrations extend the artifact or
-  add a rule function — never a new command. The dashboard list
+  add a rule function — never a new command. `editor/migrate_config`
+  also returns the fired rules as `changes` (kind / scope / old / new /
+  since / removed_in / required) so the nudge can say what it will
+  change. The dashboard list
   surfaces the same signal per device via `Device.migration_available`
   (computed at device load).
 - **The long-lived process never imports `esphome.components.*`.**
@@ -986,7 +999,7 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/definitions/boards.index.json` + `board_bodies/<id>.json` + `featured_components.index.json` | Generated; do not hand-edit. Slim board index + per-id lazy bodies (via `BoardCatalog._body_store`) + aggregated featured-components map (read once by the components controller's registry build). |
 | `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited. The body directory is `board_bodies/` (separate from this manifests dir) so the body-swap rmtree can't trample the hand-curated source. |
 | `esphome_device_builder/definitions/platform_capabilities.index.json` | Generated; do not hand-edit. esphome platform metadata the long-lived process reads instead of importing `esphome.components.*` (download routing, wifi-inference no-wifi sets, static download-types). Loaded via `load_platform_capabilities_index`. |
-| `esphome_device_builder/definitions/migration_rules.index.json` | Generated; do not hand-edit. Direct `cv.rename_key` pairs and component-ALIAS key renames the sync discovered, folded as data-driven rules by `editor/migrate_config`. Backend-internal — never shipped over the WS API. Loaded via `load_migration_rules_index`. |
+| `esphome_device_builder/definitions/migration_rules.index.json` | Generated; do not hand-edit. Direct `cv.rename_key` pairs and component-ALIAS key renames the sync discovered, each with its `since` / `removed_in` esphome window, folded as version-gated data-driven rules by `editor/migrate_config`. Backend-internal — never shipped over the WS API. Loaded via `load_migration_rules_index`. |
 | `esphome_device_builder/helper_cli.py` (`device-builder-helper`) | Subprocess for `get_download_types` on build-dir-dependent platforms (libretiny/nrf52), so the child imports `esphome.components.<X>`, not the dashboard process. |
 | `script/update_board.py` | One-step contributor wrapper: regenerate one board's JSON (`sync_boards.py`) + validate (`validate_definitions.py`). Auto-detects the edited board, or takes an id. |
 | `script/sync_boards.py` | Regenerates the split board catalog from the manifests; stamps the generating `esphome_version` into `boards.index.json`. Takes an optional board id to regenerate just one. Both modes guard installed `esphome` against that stamp; `--restamp` opts a full sync out to regenerate against a new esphome. |

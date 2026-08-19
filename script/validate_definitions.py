@@ -44,6 +44,7 @@ from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402
 )
 from esphome_device_builder.migration_rule_kinds import (  # noqa: E402
     MIGRATION_RULE_EXTRA_FIELDS,
+    MIGRATION_RULE_VERSION_FIELDS,
 )
 from script._component_catalog import load_component_catalog  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
@@ -990,6 +991,22 @@ def check_migration_rules() -> list[str]:
                 )
         if record.get("old") == record.get("new"):
             errors.append(f"migration_rules.index.json: rules[{pos}]: old and new are identical")
+        errors.extend(_check_migration_rule_versions(record, pos))
+    return errors
+
+
+def _check_migration_rule_versions(record: dict[str, object], pos: int) -> list[str]:
+    """Check a rule row carries each version field as a version string or ``null``."""
+    errors: list[str] = []
+    for field in MIGRATION_RULE_VERSION_FIELDS:
+        if field not in record:
+            errors.append(f"migration_rules.index.json: rules[{pos}]: {field} is missing")
+        elif record[field] is not None and (
+            not isinstance(record[field], str) or not record[field]
+        ):
+            errors.append(
+                f"migration_rules.index.json: rules[{pos}]: {field} must be a version or null"
+            )
     return errors
 
 
