@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -269,8 +269,10 @@ def test_sweep_keeps_data_dir_while_a_job_is_in_flight(tmp_path: Path, split: bo
     assert data_dir.is_dir()
 
 
-def test_sweep_skips_when_data_root_is_symlink(tmp_path: Path) -> None:
-    """A symlinked ``<data_dir>/.remote_builds`` disables the sweep outright."""
+def test_sweep_leaves_data_dirs_alone_when_data_root_is_symlink(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A symlinked ``<data_dir>/.remote_builds`` is warned about; only the subtree sweep runs."""
     now = 1_000_000.0
     config_dir, data_root = _roots(tmp_path, split=True)
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
@@ -280,12 +282,35 @@ def test_sweep_skips_when_data_root_is_symlink(tmp_path: Path) -> None:
     data_root.mkdir()
     (data_root / REMOTE_BUILDS_NAME).symlink_to(tmp_path / "elsewhere")
 
-    deleted = sweep_remote_builds(
-        config_dir, data_dir=data_root, ttl_seconds=600, in_flight_keys=frozenset(), now=now
-    )
-    assert deleted == 0
-    assert key.subtree(config_dir).is_dir()
+    with caplog.at_level(logging.WARNING):
+        deleted = sweep_remote_builds(
+            config_dir, data_dir=data_root, ttl_seconds=600, in_flight_keys=frozenset(), now=now
+        )
+    assert deleted == 1
+    assert not key.subtree(config_dir).exists()
     assert real.is_dir()
+    assert "is a symlink" in caplog.text
+
+
+def test_sweep_keeps_data_dir_when_dashboard_dir_is_unlistable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``<dashboard_id>/`` that can't be listed counts as live; its data dir stays."""
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    data_dir = key.data_dir(tmp_path / DATA_DIR_NAME)
+    data_dir.mkdir(parents=True)
+    dashboard_dir = data_dir.parent
+    real_iterdir = Path.iterdir
+
+    def _iterdir(self: Path) -> Iterator[Path]:
+        if self == dashboard_dir:
+            raise PermissionError("simulated EACCES")
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", _iterdir)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset())
+    assert deleted == 0
+    assert data_dir.is_dir()
 
 
 def test_sweep_leaves_symlinked_data_dir_and_its_parent_alone(tmp_path: Path) -> None:
@@ -323,17 +348,21 @@ def test_sweep_logs_data_dir_rmtree_failure_and_keeps_parent(
     assert "simulated rmtree failure" in caplog.text
 
 
-def test_sweep_keeps_data_dir_while_a_sibling_subtree_is_warm(tmp_path: Path) -> None:
+@_ROOT_SHAPES
+def test_sweep_keeps_data_dir_while_a_sibling_subtree_is_warm(tmp_path: Path, split: bool) -> None:
     """A warm device under the dashboard keeps its shared build data dir."""
     now = 1_000_000.0
+    config_dir, data_root = _roots(tmp_path, split)
     cold = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
     warm = RemoteBuildPath(dashboard_id="alpha", device_name="garage")
-    _populate(tmp_path, cold, age_seconds=3600, now=now)
-    _populate(tmp_path, warm, age_seconds=60, now=now)
-    data_dir = cold.data_dir(tmp_path / DATA_DIR_NAME)
+    _populate(config_dir, cold, age_seconds=3600, now=now)
+    _populate(config_dir, warm, age_seconds=60, now=now)
+    data_dir = cold.data_dir(data_root)
     data_dir.mkdir(parents=True)
 
-    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = sweep_remote_builds(
+        config_dir, data_dir=data_root, ttl_seconds=600, in_flight_keys=frozenset(), now=now
+    )
     assert deleted == 1
     assert data_dir.is_dir()
 

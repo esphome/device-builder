@@ -101,16 +101,23 @@ def sweep_remote_builds(
     # data dir under a second root; walk the union so a dashboard whose
     # config-root dir was pruned on an earlier sweep is still reclaimed.
     data_root = data_dir / REMOTE_BUILDS_NAME
-    # Skip if either root is a symlink — ``is_dir()`` would
+    # Skip if the root itself is a symlink — ``is_dir()`` would
     # follow it and the sweep would walk into whatever directory
     # the symlink targets, potentially deleting subtrees outside
-    # the canonical layout. The canonical writers (submit_job,
-    # the compile subprocess) create these roots as real
-    # directories; a symlink here is operator-or-attacker-placed
-    # and outside trust scope. Defense-in-depth matching the
-    # symlink skips at the dashboard_dir and entry levels below.
-    if root.is_symlink() or data_root.is_symlink():
+    # the canonical layout. The canonical writer (submit_job)
+    # creates this root as a real directory; a symlink here is
+    # operator-or-attacker-placed and outside trust scope.
+    # Defense-in-depth matching the symlink skips at the
+    # dashboard_dir and entry levels below.
+    if root.is_symlink():
         return 0
+    # Same stance for the data root, scoped to what lives under it:
+    # the config-root subtree sweep still runs.
+    reclaim_data_dirs = not data_root.is_symlink()
+    if not reclaim_data_dirs:
+        _LOGGER.warning(
+            "remote-build cleanup: %s is a symlink; leaving build data dirs alone", data_root
+        )
 
     in_flight_dir_ids = frozenset(key.dir_id for key in in_flight_keys)
     deleted = 0
@@ -138,9 +145,10 @@ def sweep_remote_builds(
             continue
         # Nothing references this offloader any more: reclaim its
         # build data dir, then prune the empty parents on both roots.
-        deleted += _reclaim_dashboard_data_dir(name, data_dir)
+        if reclaim_data_dirs:
+            deleted += _reclaim_dashboard_data_dir(name, data_dir)
+            _prune_empty_dir(data_root / name)
         _prune_empty_dir(dashboard_dir)
-        _prune_empty_dir(data_root / name)
     return deleted
 
 
@@ -155,10 +163,21 @@ def _dashboard_names(*roots: Path) -> set[str]:
 
 
 def _holds_live_entries(dashboard_dir: Path) -> bool:
-    """Return ``True`` while anything but the data dir or macOS metadata sits in *dashboard_dir*."""
+    """
+    Return ``True`` while anything but the data dir or macOS metadata sits in *dashboard_dir*.
+
+    A directory that can't be listed counts as live; a missing one doesn't.
+    """
+    try:
+        entries = list(dashboard_dir.iterdir())
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        _LOGGER.debug("remote-build cleanup: iterdir(%s) failed: %s", dashboard_dir, exc)
+        return True
     return any(
         entry.name.casefold() != DATA_DIR_NAME and not _is_macos_metadata(entry.name)
-        for entry in _safe_iterdir(dashboard_dir)
+        for entry in entries
     )
 
 
