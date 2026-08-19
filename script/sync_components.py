@@ -8960,7 +8960,8 @@ def _fail_on_missing_channel_colors_rules(catalog: list[dict[str, Any]]) -> None
             "migration_rules.index.json or the built catalog were not "
             "emitted:\n"
             f"{rows}\n"
-            "Fix the fold detection, or remove the fold machinery if "
+            "Fix the fold detection, acknowledge a bespoke-handled platform "
+            "in _HANDLED_CHANNEL_COLORS, or remove the fold machinery if "
             "upstream retired the migration."
         )
     if not emitted and not _HANDLED_CHANNEL_COLORS and _installed_esphome_has_channel_colors_fold():

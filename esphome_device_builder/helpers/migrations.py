@@ -365,7 +365,7 @@ def _fold_channel_colors_items(
 def _item_is_anchored(lines: list[str], item_start: int, end: int) -> bool:
     """Report whether the list item at *item_start* carries a ``&`` anchor."""
     rest = lines[item_start].lstrip(" ")[1:].lstrip(" ")
-    if rest.startswith("&"):
+    if _leads_with_anchor(rest):
         return True
     if rest.rstrip("\n\r"):
         return False
@@ -373,7 +373,17 @@ def _item_is_anchored(lines: list[str], item_start: int, end: int) -> bool:
         stripped = lines[idx].strip()
         if not stripped or stripped.startswith("#"):
             continue
-        return stripped.startswith("&")
+        return _leads_with_anchor(stripped)
+    return False
+
+
+def _leads_with_anchor(text: str) -> bool:
+    """Report whether *text* opens with a ``&`` anchor, tags allowed before it."""
+    for token in text.split():
+        if token.startswith("&"):
+            return True
+        if not token.startswith("!"):
+            return False
     return False
 
 
