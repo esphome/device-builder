@@ -46,7 +46,7 @@ from ....helpers.peer_link_bundle import (
     decode_chunk,
 )
 from ....helpers.peer_link_frames import frame_schema, is_valid_frame, safe_job_id
-from ....helpers.remote_build_layout import RemoteBuildPath
+from ....helpers.remote_build_layout import DATA_DIR_NAME, RemoteBuildPath
 from ....helpers.version_compat import coerce_pep440_version
 from ....models import (
     PAIRING_VERSION_MAX_LEN,
@@ -182,8 +182,9 @@ def _validate_configuration_filename(filename: str) -> str | None:
         return None
     # Reject a leaf whose pre-extension stem reduces to ``.`` /
     # ``..`` — both would resolve to the parent dir under
-    # ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/``.
-    if device_name in ("", ".", ".."):
+    # ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/`` — or to
+    # the per-dashboard data dir that sits beside the extracts there.
+    if device_name in ("", ".", "..", DATA_DIR_NAME):
         return None
     return device_name
 

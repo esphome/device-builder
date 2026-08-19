@@ -231,6 +231,7 @@ def test_validate_configuration_filename_accepts_clean_yaml_leaves(
         "kitchen.txt",  # wrong extension
         ".yaml",  # extension only — empty stem
         "..yaml",  # leading-dot escape attempt
+        ".esphome.yaml",  # per-dashboard data dir beside the extracts
         "../etc/passwd.yaml",  # path traversal via ..
         "../../escape.yaml",  # nested path traversal
         "sub/kitchen.yaml",  # forward slash separator
