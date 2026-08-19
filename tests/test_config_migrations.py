@@ -844,11 +844,19 @@ def test_channel_colors_anchored_item_untouched(generated_rules) -> None:
 
 def test_channel_colors_anchor_on_bare_dash_next_line_untouched(generated_rules) -> None:
     generated_rules(*_CHANNEL_RULES)
-    text = (
-        "light:\n  -\n    &strip\n    platform: esp32_rmt_led_strip\n    rgb_order: GRB\n"
-        "  - <<: *strip\n    is_rgbw: true\n"
-    )
-    assert render_migrations(text) is None
+    for lead in ("", "    # note\n"):
+        text = (
+            f"light:\n  -\n{lead}    &strip\n    platform: esp32_rmt_led_strip\n"
+            "    rgb_order: GRB\n"
+            "  - <<: *strip\n    is_rgbw: true\n"
+        )
+        assert render_migrations(text) is None
+
+
+def test_channel_colors_trailing_bare_dash_item_folds_siblings(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = "light:\n  - platform: esp32_rmt_led_strip\n    rgb_order: GRB\n  -\n"
+    assert "    channel_colors: GRB\n" in _respell(text)
 
 
 def test_channel_colors_rgbw_order_item_untouched(generated_rules) -> None:
