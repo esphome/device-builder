@@ -373,41 +373,75 @@ class EditorController:
             cached = session.cached
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
-            # A config-dir write landing mid round-trip means the result was
-            # computed against pre-write state; re-run once so the caller
-            # gets a post-write verdict instead of a known-stale one.
-            for retry_left in (True, False):
-                ok = False
-                epoch = session.invalidation_epoch
-                try:
-                    # Warm the subprocess outside the budget so a cold start
-                    # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
-                    await self._ensure_subprocess(
-                        session, extract_component_source_fingerprint(content)
-                    )
-                    result = await asyncio.wait_for(
-                        self._validate_locked(session, configuration, content),
-                        timeout=timeout,
-                    )
-                    ok = True
-                finally:
-                    # Any failure (timeout, subprocess loss, a bug, cancellation)
-                    # can leave the stateful stdin/stdout protocol mid-message;
-                    # kill it so the next call respawns clean. The exception (typed
-                    # for callers) propagates unchanged.
-                    if not ok:
-                        await self._terminate_subprocess(session)
+            return await self._validate_with_retry(
+                session, configuration, content, content_hash, timeout
+            )
+
+    async def _validate_with_retry(
+        self,
+        session: _EditorSession,
+        configuration: str,
+        content: str,
+        content_hash: int,
+        timeout: float,
+    ) -> dict:
+        """
+        Run the validation round-trip, re-running once when a config-dir write races it.
+
+        Caller must hold ``session.lock``. The re-run gets the remaining
+        *timeout* budget; a re-run failure falls back to the first
+        attempt's verdict, returned uncached.
+        """
+        # A config-dir write landing mid round-trip means the result was
+        # computed against pre-write state; re-run once, on the remaining
+        # budget, so the caller gets a post-write verdict instead of a
+        # known-stale one.
+        deadline = time.monotonic() + timeout
+        result: dict[str, Any] | None = None
+        for retry_left in (True, False):
+            ok = False
+            epoch = session.invalidation_epoch
+            try:
+                # Warm the subprocess outside the budget so a cold start
+                # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
+                await self._ensure_subprocess(
+                    session, extract_component_source_fingerprint(content)
+                )
+                attempt = await asyncio.wait_for(
+                    self._validate_locked(session, configuration, content),
+                    timeout=max(0.0, deadline - time.monotonic()),
+                )
+                result = attempt
+                ok = True
                 if session.invalidation_epoch == epoch:
                     session.cached = _CachedValidation(
-                        content_hash=content_hash, result=result, at=time.monotonic()
+                        content_hash=content_hash, result=attempt, at=time.monotonic()
                     )
                     break
-                if retry_left:
-                    _LOGGER.debug(
-                        "Re-validating %s: config-dir write landed mid round-trip",
-                        configuration,
-                    )
-            return result
+            except Exception:
+                # A failed re-run must not turn the first attempt's
+                # verdict into an error; return it uncached instead.
+                if result is None:
+                    raise
+                _LOGGER.debug(
+                    "Re-validation of %s failed; returning the pre-write result",
+                    configuration,
+                )
+                break
+            finally:
+                # Any failure (timeout, subprocess loss, a bug, cancellation)
+                # can leave the stateful stdin/stdout protocol mid-message;
+                # kill it so the next call respawns clean. A first-attempt
+                # exception (typed for callers) propagates unchanged.
+                if not ok:
+                    await self._terminate_subprocess(session)
+            _LOGGER.debug(
+                "Validate of %s raced a config-dir write; %s",
+                configuration,
+                "re-running" if retry_left else "returning the raced result uncached",
+            )
+        assert result is not None
+        return result
 
     async def _validate_locked(
         self, session: _EditorSession, configuration: str, content: str

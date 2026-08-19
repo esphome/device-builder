@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+import unittest.mock
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -848,7 +849,8 @@ async def test_validate_yaml_warms_subprocess_outside_round_trip_budget(
 
     # Startup happened before the budgeted wait_for, which wrapped only the round-trip.
     assert events == ["ensure", "wait_for", "validate"]
-    assert captured["timeout"] == 0.5
+    # The budget is deadline-derived, so a hair under the requested value.
+    assert captured["timeout"] == pytest.approx(0.5, abs=0.05)
 
 
 async def test_validate_yaml_ignores_client_supplied_timeout(
@@ -877,7 +879,7 @@ async def test_validate_yaml_ignores_client_supplied_timeout(
         configuration="kitchen.yaml", content="", timeout=0.001, client=object()
     )
 
-    assert captured["timeout"] == _VALIDATE_TIMEOUT
+    assert captured["timeout"] == pytest.approx(_VALIDATE_TIMEOUT, abs=0.05)
 
 
 # ---------------------------------------------------------------------------
@@ -1066,6 +1068,65 @@ async def test_invalidate_cache_mid_validate_reruns_once(tmp_path: Path) -> None
     assert result == {"yaml_errors": [], "validation_errors": []}
     assert calls == 2
     assert controller._sessions["kitchen.yaml"].cached is not None
+
+
+async def test_invalidate_cache_mid_validate_rerun_shares_the_budget(tmp_path: Path) -> None:
+    """The re-run gets the remaining budget, not a fresh one."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    timeouts: list[float] = []
+    real_wait_for = asyncio.wait_for
+    calls = 0
+
+    async def _wait_for(awaitable: Any, *, timeout: float) -> Any:
+        timeouts.append(timeout)
+        return await real_wait_for(awaitable, timeout=timeout)
+
+    async def _raced_once(*_args: Any, **_kwargs: Any) -> dict:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await asyncio.sleep(0.05)
+            controller.invalidate_cache()
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _raced_once  # type: ignore[method-assign]
+
+    with unittest.mock.patch(
+        "esphome_device_builder.controllers.editor.asyncio.wait_for", _wait_for
+    ):
+        await controller.validate_yaml(
+            configuration="kitchen.yaml", content="esphome:\n", timeout=1.0
+        )
+
+    assert calls == 2
+    assert timeouts[0] <= 1.0
+    assert timeouts[1] <= timeouts[0] - 0.05
+
+
+async def test_invalidate_cache_mid_validate_rerun_failure_returns_first_result(
+    tmp_path: Path,
+) -> None:
+    """A re-run that fails falls back to the first attempt's verdict, uncached."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    calls = 0
+
+    async def _second_call_dies(*_args: Any, **_kwargs: Any) -> dict:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            controller.invalidate_cache()
+            return {"yaml_errors": [], "validation_errors": []}
+        raise ValidatorUnavailableError("respawn failed")
+
+    controller._validate_locked = _second_call_dies  # type: ignore[method-assign]
+
+    result = await controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+
+    assert result == {"yaml_errors": [], "validation_errors": []}
+    assert calls == 2
+    assert controller._sessions["kitchen.yaml"].cached is None
 
 
 async def test_invalidate_cache_mid_validate_rerun_is_bounded(tmp_path: Path) -> None:
