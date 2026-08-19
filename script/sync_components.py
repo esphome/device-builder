@@ -8963,7 +8963,7 @@ def _fail_on_missing_channel_colors_rules(catalog: list[dict[str, Any]]) -> None
             "Fix the fold detection, or remove the fold machinery if "
             "upstream retired the migration."
         )
-    if not emitted and _installed_esphome_has_channel_colors_fold():
+    if not emitted and not _HANDLED_CHANNEL_COLORS and _installed_esphome_has_channel_colors_fold():
         raise SystemExit(
             "esphome carries light.migrate_channel_colors but introspection "
             "emitted no platform_channel_colors rules; the fold detection is "

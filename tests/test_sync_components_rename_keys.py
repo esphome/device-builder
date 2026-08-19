@@ -562,7 +562,6 @@ def test_acknowledged_fold_platform_does_not_wedge_the_guard(
             "config_entries": [{"key": "rgb_order"}, {"key": "channel_colors"}],
         },
     ]
-    _MIGRATION_RULES.add(_LED_STRIP_RULE_ROW)
     sync_components._fail_on_missing_channel_colors_rules(catalog)
 
 
