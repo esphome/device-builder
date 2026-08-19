@@ -826,6 +826,8 @@ async def test_validate_yaml_warms_subprocess_outside_round_trip_budget(
     events: list[str] = []
 
     async def _ensure(_session: _EditorSession, _fingerprint: str) -> None:
+        # A slow cold start must not shrink the round-trip budget below.
+        await asyncio.sleep(0.02)
         events.append("ensure")
 
     async def _locked(*_args: Any, **_kwargs: Any) -> dict:
@@ -849,8 +851,7 @@ async def test_validate_yaml_warms_subprocess_outside_round_trip_budget(
 
     # Startup happened before the budgeted wait_for, which wrapped only the round-trip.
     assert events == ["ensure", "wait_for", "validate"]
-    # The budget is deadline-derived, so a hair under the requested value.
-    assert captured["timeout"] == pytest.approx(0.5, abs=0.05)
+    assert captured["timeout"] == 0.5
 
 
 async def test_validate_yaml_ignores_client_supplied_timeout(
@@ -879,7 +880,7 @@ async def test_validate_yaml_ignores_client_supplied_timeout(
         configuration="kitchen.yaml", content="", timeout=0.001, client=object()
     )
 
-    assert captured["timeout"] == pytest.approx(_VALIDATE_TIMEOUT, abs=0.05)
+    assert captured["timeout"] == _VALIDATE_TIMEOUT
 
 
 # ---------------------------------------------------------------------------
@@ -1102,6 +1103,39 @@ async def test_invalidate_cache_mid_validate_rerun_shares_the_budget(tmp_path: P
     assert calls == 2
     assert timeouts[0] <= 1.0
     assert timeouts[1] <= timeouts[0] - 0.05
+
+
+async def test_invalidate_cache_mid_validate_rerun_skipped_when_budget_spent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A raced first attempt that consumed the budget returns uncached without a re-run."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    clock = 1000.0
+
+    def _monotonic() -> float:
+        nonlocal clock
+        clock += 10.0
+        return clock
+
+    monkeypatch.setattr("esphome_device_builder.controllers.editor.time.monotonic", _monotonic)
+    calls = 0
+
+    async def _raced(*_args: Any, **_kwargs: Any) -> dict:
+        nonlocal calls
+        calls += 1
+        controller.invalidate_cache()
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _raced  # type: ignore[method-assign]
+
+    result = await controller.validate_yaml(
+        configuration="kitchen.yaml", content="esphome:\n", timeout=5.0
+    )
+
+    assert result == {"yaml_errors": [], "validation_errors": []}
+    assert calls == 1
+    assert controller._sessions["kitchen.yaml"].cached is None
 
 
 async def test_invalidate_cache_mid_validate_rerun_failure_returns_first_result(

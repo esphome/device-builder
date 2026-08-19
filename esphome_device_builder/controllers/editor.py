@@ -388,15 +388,12 @@ class EditorController:
         """
         Run the validation round-trip, re-running once when a config-dir write races it.
 
-        Caller must hold ``session.lock``. The re-run gets the remaining
-        *timeout* budget; a re-run failure falls back to the first
+        Caller must hold ``session.lock``. The re-run gets whatever is
+        left of *timeout* (round-trip only; subprocess startup stays
+        outside the budget); a re-run failure falls back to the first
         attempt's verdict, returned uncached.
         """
-        # A config-dir write landing mid round-trip means the result was
-        # computed against pre-write state; re-run once, on the remaining
-        # budget, so the caller gets a post-write verdict instead of a
-        # known-stale one.
-        deadline = time.monotonic() + timeout
+        remaining = timeout
         result: dict[str, Any] | None = None
         for retry_left in (True, False):
             ok = False
@@ -407,10 +404,12 @@ class EditorController:
                 await self._ensure_subprocess(
                     session, extract_component_source_fingerprint(content)
                 )
+                round_trip_started = time.monotonic()
                 attempt = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
-                    timeout=max(0.0, deadline - time.monotonic()),
+                    timeout=remaining,
                 )
+                remaining -= time.monotonic() - round_trip_started
                 result = attempt
                 ok = True
                 if session.invalidation_epoch == epoch:
@@ -418,14 +417,15 @@ class EditorController:
                         content_hash=content_hash, result=attempt, at=time.monotonic()
                     )
                     break
-            except Exception:
+            except (TimeoutError, ValidatorUnavailableError, OSError) as err:
                 # A failed re-run must not turn the first attempt's
                 # verdict into an error; return it uncached instead.
                 if result is None:
                     raise
-                _LOGGER.debug(
-                    "Re-validation of %s failed; returning the pre-write result",
+                _LOGGER.warning(
+                    "Re-validation of %s failed (%r); returning the pre-write result",
                     configuration,
+                    err,
                 )
                 break
             finally:
@@ -435,12 +435,20 @@ class EditorController:
                 # exception (typed for callers) propagates unchanged.
                 if not ok:
                     await self._terminate_subprocess(session)
+            if retry_left and remaining <= 0.0:
+                _LOGGER.debug(
+                    "Validate of %s raced a config-dir write; budget exhausted, "
+                    "returning the raced result uncached",
+                    configuration,
+                )
+                break
             _LOGGER.debug(
                 "Validate of %s raced a config-dir write; %s",
                 configuration,
                 "re-running" if retry_left else "returning the raced result uncached",
             )
-        assert result is not None
+        if result is None:
+            raise ValidatorUnavailableError("validator produced no result")
         return result
 
     async def _validate_locked(
