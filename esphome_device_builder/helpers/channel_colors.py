@@ -1,11 +1,9 @@
-"""The led-strip ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` to ``channel_colors`` fold.
-
-Stdlib-only — ``script/validate_definitions.py`` imports this from the
-pre-commit env.
-"""
+"""The led-strip ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` to ``channel_colors`` fold."""
 
 from __future__ import annotations
 
+# Stdlib-only: ``script/validate_definitions.py`` imports this from the
+# pre-commit env, which has none of the package's dependencies.
 from itertools import permutations
 
 #: The led-strip keys ``channel_colors`` replaces.

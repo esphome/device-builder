@@ -1135,13 +1135,7 @@ def _fold_channel_colors_item(
     valid_keys: dict[str, dict[str, Any]],
     component_id: str,
 ) -> dict[str, Any] | None:
-    """
-    Rewrite an item's ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` to ``channel_colors``.
-
-    ``channel_colors`` takes ``rgb_order``'s slot; an upstream
-    ``channel_colors`` wins over the legacy keys. ``None`` when the trio
-    doesn't fold (the entry would ship without its required field).
-    """
+    """Fold *item*'s legacy led-strip keys into ``channel_colors``; ``None`` when unfoldable."""
     if "channel_colors" not in valid_keys or "rgb_order" not in item:
         return item
     if "channel_colors" in item:
