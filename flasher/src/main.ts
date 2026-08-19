@@ -214,7 +214,14 @@ function stopReadyRetry(): void {
 }
 
 function sendReady(): void {
-  post({ type: "esphome-web-flash:ready", version: PROTOCOL_VERSION });
+  // Advertise whether this browser can actually flash so the opener can decline
+  // the handoff up front (see ReadyMessage.webSerial in protocol.ts). Same check
+  // that gates the install button below.
+  post({
+    type: "esphome-web-flash:ready",
+    version: PROTOCOL_VERSION,
+    webSerial: "serial" in navigator,
+  });
 }
 
 if (opener && nonce) {

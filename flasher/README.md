@@ -37,7 +37,7 @@ defense in depth the opener should still open the flasher with
 without it the page falls back to `*` until the first inbound frame reveals it.
 
 1. Dashboard opens `…/#nonce=<random>` (ideally also `&origin=<dashboard-origin>`).
-2. Flasher posts `{type:"esphome-web-flash:ready", version}` to its opener (no nonce).
+2. Flasher posts `{type:"esphome-web-flash:ready", version, webSerial}` to its opener (no nonce); `webSerial` is whether this browser can flash, so the opener can decline the handoff up front.
 3. Dashboard posts `{type:"esphome-web-flash:firmware", nonce, name?, erase?, parts:[{address, data:ArrayBuffer}]}`.
 4. User presses **Connect & install**, picks the serial port (the required user
    gesture), and the page flashes via esptool-js.

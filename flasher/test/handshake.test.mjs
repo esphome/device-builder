@@ -64,6 +64,9 @@ try {
   if (!ready) fail("no ready message received by opener");
   else if ("nonce" in ready) fail("ready frame leaked the nonce");
   else if (ready.version !== 1) fail("ready version mismatch");
+  // Headless Chromium on a secure (localhost) origin has Web Serial, so the
+  // capability field must be advertised as true, not omitted.
+  else if (ready.webSerial !== true) fail("ready did not advertise webSerial: true");
   else console.log("PASS: ready received, no nonce echoed, version", ready.version);
 
   // 1b. ready is re-announced until firmware arrives (handshake robustness)
