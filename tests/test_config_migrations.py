@@ -9,6 +9,7 @@ import pytest
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
 from esphome_device_builder.definitions import MigrationRule
 from esphome_device_builder.helpers import migrations
+from esphome_device_builder.helpers.channel_colors import fold_channel_colors_value
 from esphome_device_builder.helpers.migrations import (
     has_pending_migrations,
     render_migrations,
@@ -758,6 +759,24 @@ def test_channel_colors_folds_each_platform_item(generated_rules: RuleSetter) ->
     assert "  - platform: fastled_clockless\n    id: keeps_rgb_order\n    rgb_order: GRB\n" in (
         new_text
     )
+
+
+@pytest.mark.parametrize(
+    ("order", "is_rgbw", "is_wrgb", "expected"),
+    [
+        ("GRB", False, False, "GRB"),
+        ("grb", False, False, "GRB"),
+        ("GRB", True, False, "GRBW"),
+        ("RGB", False, True, "WRGB"),
+        ("GRB", True, True, None),
+        ("GRBW", False, False, None),
+        ("XYZ", False, False, None),
+    ],
+)
+def test_fold_channel_colors_value(
+    order: str, is_rgbw: bool, is_wrgb: bool, expected: str | None
+) -> None:
+    assert fold_channel_colors_value(order, is_rgbw=is_rgbw, is_wrgb=is_wrgb) == expected
 
 
 def test_channel_colors_false_flag_dropped(generated_rules: RuleSetter) -> None:

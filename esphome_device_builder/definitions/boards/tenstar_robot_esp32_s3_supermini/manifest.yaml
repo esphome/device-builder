@@ -37,7 +37,7 @@ featured_components:
     num_leds:
       value: 1
       locked: true
-    rgb_order:
+    channel_colors:
       value: GRB
       locked: true
     restore_mode: ALWAYS_ON

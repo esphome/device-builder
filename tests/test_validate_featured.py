@@ -103,6 +103,43 @@ def test_unknown_field_key(_index: dict | None) -> None:
     assert any("not a config_entry on switch.gpio" in e for e in errors)
 
 
+def test_legacy_led_strip_key_flagged(_index: dict | None) -> None:
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "led_rgb",
+                    "component_id": "light.esp32_rmt_led_strip",
+                    "fields": {"rgb_order": {"value": "GRB", "locked": True}, "is_rgbw": True},
+                }
+            ]
+        ),
+        _pins(),
+        _index,
+    )
+    assert any("fields.rgb_order: legacy led-strip key" in e for e in errors)
+    assert any("fields.is_rgbw: legacy led-strip key" in e for e in errors)
+
+
+def test_rgb_order_allowed_without_channel_colors(_index: dict | None) -> None:
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "led_rgb",
+                    "component_id": "light.fastled_clockless",
+                    "fields": {"rgb_order": "GRB"},
+                }
+            ]
+        ),
+        _pins(),
+        _index,
+    )
+    assert not any("legacy led-strip key" in e for e in errors)
+
+
 def test_pin_not_declared(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",

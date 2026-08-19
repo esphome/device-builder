@@ -1173,7 +1173,7 @@ async def test_add_component_featured_drops_non_manifest_defaults(
     # Manifest-curated fields land in the YAML.
     assert "chipset: WS2812" in yaml
     assert "num_leds: 10" in yaml
-    assert "rgb_order: GRB" in yaml
+    assert "channel_colors: GRB" in yaml
     # Frontend's default-fills are stripped.
     for noise in (
         "gamma_correct",

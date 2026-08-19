@@ -36,6 +36,7 @@ from esphome_device_builder.constants import (  # noqa: E402
     BUS_CATEGORIES,
     FEATURED_EXCLUDED_CATEGORIES,
 )
+from esphome_device_builder.helpers.channel_colors import CHANNEL_COLORS_LEGACY_KEYS  # noqa: E402
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402
     is_external_image_url,
@@ -741,7 +742,7 @@ def _validate_featured_dependencies(
     return out
 
 
-def _validate_featured_component(  # noqa: C901
+def _validate_featured_component(
     board_id: str,
     idx: int,
     entry: dict,
@@ -798,6 +799,22 @@ def _validate_featured_component(  # noqa: C901
             "regular catalog entries"
         )
 
+    errors.extend(
+        _validate_featured_fields(path, component_id, component, entry, pins_by_gpio, is_imported)
+    )
+    return errors
+
+
+def _validate_featured_fields(
+    path: str,
+    component_id: str,
+    component: dict,
+    entry: dict,
+    pins_by_gpio: dict[int, dict],
+    is_imported: bool,
+) -> list[str]:
+    """Validate each ``fields`` preset of a featured entry against its catalog entry."""
+    errors: list[str] = []
     # Map config-entry keys → entry for fast lookup of pin_features / type.
     entries_by_key: dict[str, dict] = {}
     for ce in component.get("config_entries", []) or []:
@@ -806,6 +823,9 @@ def _validate_featured_component(  # noqa: C901
             entries_by_key[key] = ce
 
     for fkey, fval in (entry.get("fields") or {}).items():
+        if fkey in CHANNEL_COLORS_LEGACY_KEYS and "channel_colors" in entries_by_key:
+            errors.append(f"{path}.fields.{fkey}: legacy led-strip key; fold into channel_colors")
+            continue
         if fkey not in entries_by_key:
             # ``id`` is universal across every component; every other field —
             # including ``name`` — must be a declared config entry, mirroring the

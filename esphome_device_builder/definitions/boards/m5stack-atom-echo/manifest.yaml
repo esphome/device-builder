@@ -102,7 +102,7 @@ featured_components:
     chipset:
       value: SK6812
       locked: true
-    rgb_order:
+    channel_colors:
       value: GRB
       locked: true
     num_leds:

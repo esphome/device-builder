@@ -35,7 +35,7 @@ featured_components:
       locked: true
     chipset: WS2812
     num_leds: 60
-    rgb_order: GRB
+    channel_colors: GRB
     id: color_light
     name: Color Light
 - id: output_cw

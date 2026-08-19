@@ -71,7 +71,7 @@ featured_components:
     num_leds:
       value: 1
       locked: true
-    rgb_order:
+    channel_colors:
       value: GRB
       locked: true
     id: light_esp32_rmt_led_strip_1

@@ -55,6 +55,10 @@ from esphome_device_builder.constants import (  # noqa: E402
     DEVICE_IMPORT_SOURCE_TYPE,
     FEATURED_EXCLUDED_CATEGORIES,
 )
+from esphome_device_builder.helpers.channel_colors import (  # noqa: E402
+    CHANNEL_COLORS_LEGACY_KEYS,
+    fold_channel_colors_value,
+)
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from script._board_import import (  # noqa: E402
     ESP32_VARIANT_DEFAULT_BOARD,
@@ -1087,14 +1091,13 @@ def _extract_fields(
     rather than emit a preset that would compile but not run — or, for
     a lost required field, not even compile.
     """
-    valid_keys: dict[str, dict[str, Any]] = {}
-    for ce in component.get("config_entries") or []:
-        key = ce.get("key")
-        if isinstance(key, str):
-            valid_keys[key] = ce
+    valid_keys = _config_entries_by_key(component)
+    item = _fold_channel_colors_item(inline_item, valid_keys, component_id)
+    if item is None:
+        return None
 
     out: dict[str, Any] = {}
-    for fkey, fval in inline_item.items():
+    for fkey, fval in item.items():
         if fkey in _SKIPPED_FIELDS:
             continue
         ce = valid_keys.get(fkey)
@@ -1102,7 +1105,7 @@ def _extract_fields(
             continue
         if _is_placeholder_value(fval):
             return None
-        preset = _coerce_field_preset(ce, fval, fkey, inline_item, gpio_occupancy, component_id)
+        preset = _coerce_field_preset(ce, fval, fkey, item, gpio_occupancy, component_id)
         if preset is None and ce.get("required") and ce.get("type") != "id":
             # id-typed refs are intentionally deferred to pass 2; every
             # other required field the page set but we couldn't carry
@@ -1115,6 +1118,53 @@ def _extract_fields(
             return None
         if preset is not None:
             out[fkey] = preset
+    return out
+
+
+def _config_entries_by_key(component: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Map *component*'s config entries by key."""
+    return {
+        ce["key"]: ce
+        for ce in component.get("config_entries") or []
+        if isinstance(ce.get("key"), str)
+    }
+
+
+def _fold_channel_colors_item(
+    item: dict[str, Any],
+    valid_keys: dict[str, dict[str, Any]],
+    component_id: str,
+) -> dict[str, Any] | None:
+    """
+    Rewrite an item's ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` to ``channel_colors``.
+
+    ``channel_colors`` takes ``rgb_order``'s slot; an upstream
+    ``channel_colors`` wins over the legacy keys. ``None`` when the trio
+    doesn't fold (the entry would ship without its required field).
+    """
+    if "channel_colors" not in valid_keys or "rgb_order" not in item:
+        return item
+    if "channel_colors" in item:
+        return {k: v for k, v in item.items() if k not in CHANNEL_COLORS_LEGACY_KEYS}
+    order = item["rgb_order"]
+    is_rgbw = item.get("is_rgbw", False)
+    is_wrgb = item.get("is_wrgb", False)
+    value = (
+        fold_channel_colors_value(order, is_rgbw=is_rgbw, is_wrgb=is_wrgb)
+        if isinstance(order, str) and isinstance(is_rgbw, bool) and isinstance(is_wrgb, bool)
+        else None
+    )
+    if value is None:
+        _LOGGER.info(
+            "Dropping %s: legacy led-strip keys don't fold into channel_colors", component_id
+        )
+        return None
+    out: dict[str, Any] = {}
+    for key, raw in item.items():
+        if key == "rgb_order":
+            out["channel_colors"] = value
+        elif key not in CHANNEL_COLORS_LEGACY_KEYS:
+            out[key] = raw
     return out
 
 

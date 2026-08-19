@@ -30,7 +30,7 @@ featured_components:
 - id: led_ww
   component_id: light.esp32_rmt_led_strip
   fields:
-    rgb_order:
+    channel_colors:
       value: RGB
       locked: true
     pin:

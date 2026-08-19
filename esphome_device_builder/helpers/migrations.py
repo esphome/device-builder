@@ -19,10 +19,10 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
-from itertools import permutations
 
 from ..definitions import MigrationRule, load_migration_rules_index
 from ..models.automations import YamlDiff
+from .channel_colors import fold_channel_colors_value
 from .yaml import (
     _split_value_and_comment,
     _strip_yaml_quotes,
@@ -300,11 +300,6 @@ def _respell_item_key(
     keys[slot] = (idx, col, new)
 
 
-#: The deprecated ``rgb_order`` key's closed value set — every R/G/B
-#: permutation; anything else must keep failing validation loudly.
-_RGB_ORDERS = frozenset(map("".join, permutations("RGB")))
-
-
 def _fold_channel_colors_items(
     lines: list[str],
     header: int,
@@ -414,15 +409,11 @@ def _fold_channel_colors(
         flags.append(decoded)
         delete.append(entry[0])
     is_rgbw, is_wrgb = flags
-    if is_rgbw and is_wrgb:
+    value = fold_channel_colors_value(
+        _entry_value(lines[order[0]], order[1]), is_rgbw=is_rgbw, is_wrgb=is_wrgb
+    )
+    if value is None:
         return None
-    value = _entry_value(lines[order[0]], order[1]).upper()
-    if value not in _RGB_ORDERS:
-        return None
-    if is_wrgb:
-        value = f"W{value}"
-    elif is_rgbw:
-        value = f"{value}W"
     return order, value, delete
 
 

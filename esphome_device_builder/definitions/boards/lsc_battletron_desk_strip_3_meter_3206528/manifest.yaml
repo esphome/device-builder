@@ -25,7 +25,7 @@ featured_components:
       locked: true
     chipset: WS2812
     num_leds: 36
-    rgb_order: GRB
+    channel_colors: GRB
     id: color_light
     name: Color Light
 source:

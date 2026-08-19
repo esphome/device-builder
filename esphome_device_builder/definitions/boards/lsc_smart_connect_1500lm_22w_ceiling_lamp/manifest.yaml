@@ -29,7 +29,7 @@ featured_components:
       locked: true
     chipset: SM16703
     num_leds: 120
-    rgb_order: RGB
+    channel_colors: RGB
     restore_mode: RESTORE_DEFAULT_ON
     id: light_beken_spi_led_strip_1
     name: Outer RGB

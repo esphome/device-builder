@@ -49,7 +49,7 @@ featured_components:
       num_leds:
         value: 1
         locked: true
-      rgb_order:
+      channel_colors:
         value: RGB
         locked: true
 

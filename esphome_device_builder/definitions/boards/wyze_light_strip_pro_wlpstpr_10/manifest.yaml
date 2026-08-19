@@ -52,7 +52,7 @@ featured_components:
       value: 25
       locked: true
     num_leds: 50
-    rgb_order: BRG
+    channel_colors: BRG
     effects:
       value:
       - random: null
@@ -77,7 +77,7 @@ featured_components:
       value: 26
       locked: true
     num_leds: 50
-    rgb_order: BRG
+    channel_colors: BRG
     effects:
       value:
       - random: null

@@ -280,7 +280,7 @@ featured_components:
 - id: rgb_led
   component_id: light.esp32_rmt_led_strip
   fields:
-    rgb_order:
+    channel_colors:
       value: RGB
       locked: true
     chipset:

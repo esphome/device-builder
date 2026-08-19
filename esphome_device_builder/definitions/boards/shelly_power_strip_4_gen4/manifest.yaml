@@ -138,7 +138,7 @@ featured_components:
     chipset:
       value: WS2812
       locked: true
-    rgb_order:
+    channel_colors:
       value: GRB
       locked: true
     default_transition_length: 0s

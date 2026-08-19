@@ -258,7 +258,7 @@ featured_components:
     num_leds:
       value: 10
       locked: true
-    rgb_order:
+    channel_colors:
       value: GRB
       locked: true
     rmt_symbols:
@@ -281,7 +281,7 @@ featured_components:
     num_leds:
       value: 1
       locked: true
-    rgb_order:
+    channel_colors:
       value: GRB
       locked: true
     rmt_symbols:
