@@ -549,6 +549,23 @@ def test_catalog_capable_platform_without_a_rule_fails_the_guard(
     sync_components._fail_on_missing_channel_colors_rules(catalog)
 
 
+def test_acknowledged_fold_platform_does_not_wedge_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bespoke-acknowledged platform's catalog keys must not demand a rule row."""
+    monkeypatch.setattr(sync_components, "_installed_esphome_has_channel_colors_fold", lambda: True)
+    monkeypatch.setattr(sync_components, "_committed_channel_colors_platforms", set)
+    monkeypatch.setattr(sync_components, "_HANDLED_CHANNEL_COLORS", {"weird_strip"})
+    catalog = [
+        {
+            "id": "light.weird_strip",
+            "config_entries": [{"key": "rgb_order"}, {"key": "channel_colors"}],
+        },
+    ]
+    _MIGRATION_RULES.add(_LED_STRIP_RULE_ROW)
+    sync_components._fail_on_missing_channel_colors_rules(catalog)
+
+
 def _committed_catalog_fold_platforms() -> list[str]:
     """Platform stems whose committed light catalog carries both fold keys."""
     records = [

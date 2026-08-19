@@ -842,6 +842,15 @@ def test_channel_colors_anchored_item_untouched(generated_rules) -> None:
     assert render_migrations(text) is None
 
 
+def test_channel_colors_anchor_on_bare_dash_next_line_untouched(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = (
+        "light:\n  -\n    &strip\n    platform: esp32_rmt_led_strip\n    rgb_order: GRB\n"
+        "  - <<: *strip\n    is_rgbw: true\n"
+    )
+    assert render_migrations(text) is None
+
+
 def test_channel_colors_rgbw_order_item_untouched(generated_rules) -> None:
     # The beta-only rgbw_order key must keep failing validation loudly.
     generated_rules(*_CHANNEL_RULES)

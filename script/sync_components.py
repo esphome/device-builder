@@ -8949,6 +8949,9 @@ def _fail_on_missing_channel_colors_rules(catalog: list[dict[str, Any]]) -> None
         if kind == "platform_channel_colors"
     }
     expected = _committed_channel_colors_platforms() | _catalog_channel_colors_platforms(catalog)
+    # An acknowledged bespoke fold emits no rule; its catalog keys must
+    # not wedge the sync.
+    expected = {(d, p) for d, p in expected if p not in _HANDLED_CHANNEL_COLORS}
     missing = expected - emitted
     if missing:
         rows = "\n".join(f"  {domain}: {platform}" for domain, platform in sorted(missing))

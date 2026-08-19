@@ -326,8 +326,9 @@ def _fold_channel_colors_items(
     for item_start in reversed(top_list_item_starts(lines, header, end)):
         # An anchored item may be merged into a sibling via ``<<:``;
         # folding it would hand that sibling the channel_colors-plus-
-        # legacy-key combination upstream rejects.
-        if lines[item_start].lstrip(" ")[1:].lstrip(" ").startswith("&"):
+        # legacy-key combination upstream rejects. The anchor sits on
+        # the dash line, or on a bare dash's first content line.
+        if _item_is_anchored(lines, item_start, end):
             continue
         keys = _item_child_keys(lines, item_start, end, in_scalar)
         # A merge key (``<<``) or quoted key hides fields from this
@@ -359,6 +360,21 @@ def _fold_channel_colors_items(
             else:
                 del out[idx]
     return out
+
+
+def _item_is_anchored(lines: list[str], item_start: int, end: int) -> bool:
+    """Report whether the list item at *item_start* carries a ``&`` anchor."""
+    rest = lines[item_start].lstrip(" ")[1:].lstrip(" ")
+    if rest.startswith("&"):
+        return True
+    if rest.rstrip("\n\r"):
+        return False
+    for idx in range(item_start + 1, min(end, len(lines))):
+        stripped = lines[idx].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return stripped.startswith("&")
+    return False
 
 
 def _fold_channel_colors(
