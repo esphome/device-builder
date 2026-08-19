@@ -39,12 +39,18 @@ from pathlib import Path
 
 from esphome.helpers import rmtree
 
-from .remote_build_layout import BUNDLE_SUFFIX, REMOTE_BUILDS_SUBDIR, RemoteBuildPath
+from .remote_build_layout import (
+    BUNDLE_SUFFIX,
+    DATA_DIR_NAME,
+    REMOTE_BUILDS_SUBDIR,
+    VENVS_NAME,
+    RemoteBuildPath,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def sweep_remote_builds(  # noqa: C901
+def sweep_remote_builds(
     config_dir: Path,
     *,
     ttl_seconds: float,
@@ -95,6 +101,9 @@ def sweep_remote_builds(  # noqa: C901
 
     deleted = 0
     for dashboard_dir in _safe_iterdir(root):
+        # Standalone-install sibling of the dashboard dirs, not one of them.
+        if dashboard_dir.name == VENVS_NAME:
+            continue
         # Symlinks at any level are skipped outright. ``is_dir()``
         # follows symlinks by default, so a symlink to a directory
         # would pass the next check; ``rmtree`` on that symlink
@@ -111,37 +120,52 @@ def sweep_remote_builds(  # noqa: C901
                 dashboard_dir,
             )
             continue
-        for entry in _safe_iterdir(dashboard_dir):
-            if entry.is_symlink():
-                _LOGGER.debug("remote-build cleanup: skipping symlink %s", entry)
-                continue
-            if entry.is_dir():
-                key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=entry.name)
-                if key in in_flight_keys:
-                    _LOGGER.debug("remote-build cleanup: skipping in-flight %s", key)
-                    continue
-                if not _is_cold(entry, cutoff):
-                    continue
-                if _delete_subtree_and_sibling(key, config_dir):
-                    deleted += 1
-            elif entry.is_file() and entry.name.endswith(BUNDLE_SUFFIX):
-                # Orphan bundle path: a ``.tar.gz`` whose sibling
-                # subtree is missing. Happens when the previous
-                # sweep's ``rmtree`` succeeded but the ``unlink``
-                # failed (logged as warning, sweep continued),
-                # when an operator hand-deleted the subtree, or
-                # any other transient failure that left only the
-                # tarball behind. Without this branch the orphan
-                # would accumulate forever — the subtree-path
-                # above never visits it because that branch
-                # requires ``is_dir()``. Pair with the same
-                # in-flight + cold gates the subtree path uses.
-                _reclaim_orphan_bundle(entry, dashboard_dir, in_flight_keys, cutoff)
+        deleted += _sweep_dashboard_dir(dashboard_dir, config_dir, in_flight_keys, cutoff)
         # An offloader that was paired once and never came back
         # leaves an otherwise-permanent empty dashboard_id dir;
         # prune here so the filesystem stays tidy without a
         # separate housekeeping pass.
         _prune_empty_dir(dashboard_dir)
+    return deleted
+
+
+def _sweep_dashboard_dir(
+    dashboard_dir: Path,
+    config_dir: Path,
+    in_flight_keys: frozenset[RemoteBuildPath],
+    cutoff: float,
+) -> int:
+    """Delete cold device subtrees + orphan bundles under *dashboard_dir*; return the count."""
+    deleted = 0
+    for entry in _safe_iterdir(dashboard_dir):
+        # Standalone-install sibling of the device subtrees, not one of them.
+        if entry.name == DATA_DIR_NAME:
+            continue
+        if entry.is_symlink():
+            _LOGGER.debug("remote-build cleanup: skipping symlink %s", entry)
+            continue
+        if entry.is_dir():
+            key = RemoteBuildPath(dashboard_id=dashboard_dir.name, device_name=entry.name)
+            if key in in_flight_keys:
+                _LOGGER.debug("remote-build cleanup: skipping in-flight %s", key)
+                continue
+            if not _is_cold(entry, cutoff):
+                continue
+            if _delete_subtree_and_sibling(key, config_dir):
+                deleted += 1
+        elif entry.is_file() and entry.name.endswith(BUNDLE_SUFFIX):
+            # Orphan bundle path: a ``.tar.gz`` whose sibling
+            # subtree is missing. Happens when the previous
+            # sweep's ``rmtree`` succeeded but the ``unlink``
+            # failed (logged as warning, sweep continued),
+            # when an operator hand-deleted the subtree, or
+            # any other transient failure that left only the
+            # tarball behind. Without this branch the orphan
+            # would accumulate forever — the subtree-path
+            # above never visits it because that branch
+            # requires ``is_dir()``. Pair with the same
+            # in-flight + cold gates the subtree path uses.
+            _reclaim_orphan_bundle(entry, dashboard_dir, in_flight_keys, cutoff)
     return deleted
 
 

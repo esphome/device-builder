@@ -22,9 +22,11 @@ from esphome_device_builder.helpers.remote_build_cleanup import (
     sweep_remote_builds,
 )
 from esphome_device_builder.helpers.remote_build_layout import (
+    DATA_DIR_NAME,
     REMOTE_BUILDS_SUBDIR,
     RemoteBuildPath,
     parse_from_configuration,
+    venvs_dir,
 )
 
 
@@ -157,6 +159,25 @@ def test_sweep_handles_multiple_dashboards(tmp_path: Path) -> None:
     assert deleted == 1
     assert not alpha_kitchen.subtree(tmp_path).exists()
     assert beta_kitchen.subtree(tmp_path).is_dir()
+
+
+def test_sweep_skips_venv_cache_and_per_dashboard_data_dir(tmp_path: Path) -> None:
+    """Standalone-install siblings of the swept dirs are never deleted."""
+    now = 1_000_000.0
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(tmp_path, key, age_seconds=3600, now=now)
+    venv = venvs_dir(tmp_path / DATA_DIR_NAME) / "esphome-2026.7.4"
+    data_dir = key.data_dir(tmp_path / DATA_DIR_NAME)
+    for cold in (venv, data_dir):
+        cold.mkdir(parents=True)
+        os.utime(cold, (now - 3600, now - 3600))
+
+    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert deleted == 1
+    assert not key.subtree(tmp_path).exists()
+    assert venv.is_dir()
+    assert data_dir.is_dir()
+    assert (tmp_path / REMOTE_BUILDS_SUBDIR / "alpha").is_dir()
 
 
 def test_sweep_ignores_stray_files_under_root(tmp_path: Path) -> None:

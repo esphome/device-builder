@@ -28,10 +28,15 @@ from .paths import resolve_under_root
 # parent tree, alongside the user's own files.
 REMOTE_BUILDS_NAME = ".remote_builds"
 
+# esphome's default data-dir name: ``<config_dir>/.esphome`` on a
+# standalone install, and the per-dashboard ``ESPHOME_DATA_DIR`` leaf
+# under ``<dir_id>/``.
+DATA_DIR_NAME = ".esphome"
+
 # Under ``.esphome/`` so the YAML extract sits in the
 # dashboard's hidden artefacts tree rather than at the top
 # level of ``<config_dir>``.
-REMOTE_BUILDS_SUBDIR = Path(".esphome") / REMOTE_BUILDS_NAME
+REMOTE_BUILDS_SUBDIR = Path(DATA_DIR_NAME) / REMOTE_BUILDS_NAME
 
 # Bundle lives outside the extract target so upstream
 # ``prepare_bundle_for_compile``'s pre-extract wipe doesn't
@@ -40,13 +45,15 @@ BUNDLE_SUFFIX = ".tar.gz"
 
 # Cached per-version esphome venvs the receiver provisions to build a
 # version-mismatched offloader's firmware; a sibling of the per-dashboard
-# extract dirs, keyed by version rather than dashboard.
-_VENVS_NAME = "venvs"
+# extract dirs, keyed by version rather than dashboard. On a standalone
+# install this and the per-dashboard ``DATA_DIR_NAME`` sit inside the
+# cleanup sweep's root; the sweep skips both by name.
+VENVS_NAME = "venvs"
 
 
 def venvs_dir(data_dir: Path) -> Path:
     """Return the base dir for the receiver's cached per-version esphome venvs."""
-    return data_dir / REMOTE_BUILDS_NAME / _VENVS_NAME
+    return data_dir / REMOTE_BUILDS_NAME / VENVS_NAME
 
 
 # POSIX-form parts of ``REMOTE_BUILDS_SUBDIR``, pre-split once.
@@ -137,7 +144,7 @@ class RemoteBuildPath:
         pre-extract wipe off the deep ``build/<env>/.pioenvs``
         tree (PR #578).
         """
-        return dashboard_data_dir / REMOTE_BUILDS_NAME / self.dir_id / ".esphome"
+        return dashboard_data_dir / REMOTE_BUILDS_NAME / self.dir_id / DATA_DIR_NAME
 
 
 def parse_from_configuration(configuration: str) -> RemoteBuildPath | None:
