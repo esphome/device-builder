@@ -532,6 +532,7 @@ jobs:
   benchmarks:
     name: Run benchmarks (CodSpeed)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Benchmarks only run on PRs to ``main`` and pushes to ``main`` —
     # ``workflow_call`` runs (release preflight) skip them since
     # CodSpeed's instrumentation harness adds non-trivial wallclock
@@ -558,6 +559,26 @@ jobs:
 
       - name: Install package + test deps
         run: uv pip install --system -e '.[esphome,test]'
+
+      - name: Install libc6-dbg
+        # The CodSpeed runner installs this itself with a plain apt-get call
+        # that has no timeout, so a slow apt mirror hangs the job until
+        # timeout-minutes kills it. Installing it here with a bounded retry
+        # also lets the runner find it already present after restoring
+        # valgrind from its cache and skip apt entirely.
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 300 sudo apt-get update \
+              && timeout 300 sudo DEBIAN_FRONTEND=noninteractive \
+                apt-get install -y libc6-dbg
+            then
+              exit 0
+            fi
+            echo "apt-get attempt ${attempt} failed, retrying"
+            sudo dpkg --configure -a || true
+            sleep 10
+          done
+          exit 1
 
       - name: Run benchmarks
         # ``simulation`` is the new name for what used to be called
