@@ -4165,12 +4165,12 @@ def _emit_migration_rules_index(esphome_version: str) -> None:
     """
     committed_since = _committed_migration_rule_since()
     rules = []
-    for row, removed_in in sorted(_MIGRATION_RULES.items()):
-        kind, component, domain, platform, old, new = row
-        record: dict[str, str | None] = {"kind": kind, "old": old, "new": new}
-        values = {"component": component, "domain": domain, "platform": platform}
-        for name in MIGRATION_RULE_EXTRA_FIELDS[kind]:
-            record[name] = values[name]
+    for row, removed_in in sorted(
+        _MIGRATION_RULES.items(), key=lambda item: item[0].artifact_order
+    ):
+        record: dict[str, str | None] = {"kind": row.kind, "old": row.old, "new": row.new}
+        for name in MIGRATION_RULE_EXTRA_FIELDS[row.kind]:
+            record[name] = getattr(row, name)
         record["since"] = committed_since.get(row, esphome_version)
         record["removed_in"] = removed_in
         rules.append(record)
@@ -8797,13 +8797,26 @@ _HANDLED_ALIASES: set[str] = set()
 #: spelling also appears as ``- platform:`` values).
 _UNHANDLED_ALIASES: set[tuple[str, str]] = set()
 
-#: Field order of a ``_MIGRATION_RULES`` row.
-_MIGRATION_RULE_ROW_FIELDS = ("kind", "component", "domain", "platform", "old", "new")
 
-#: Rows (see ``_MIGRATION_RULE_ROW_FIELDS``) bound for the migration-rules
-#: artifact, each mapped to upstream's ``removed_in`` version (``None``
-#: when it declares none).
-_MIGRATION_RULES: dict[tuple[str, str, str, str, str, str], str | None] = {}
+class MigrationRuleRow(NamedTuple):
+    """One rule bound for the migration-rules artifact; the per-kind extras default empty."""
+
+    kind: str
+    old: str
+    new: str
+    component: str = ""
+    domain: str = ""
+    platform: str = ""
+
+    @property
+    def artifact_order(self) -> tuple[str, ...]:
+        """Sort key of the emitted artifact: kind, then placement, then the pair."""
+        return (self.kind, self.component, self.domain, self.platform, self.old, self.new)
+
+
+#: Rows bound for the migration-rules artifact, each mapped to upstream's
+#: ``removed_in`` version (``None`` when it declares none).
+_MIGRATION_RULES: dict[MigrationRuleRow, str | None] = {}
 
 
 class SchemaHit(NamedTuple):
@@ -8866,9 +8879,11 @@ def _classify_rename_pairs(
             continue
         if hit.direct and not platform_domain and old != new:
             if domain is None:
-                row = ("component_block_field", component_id, "", "", old, new)
+                row = MigrationRuleRow("component_block_field", old, new, component=component_id)
             else:
-                row = ("platform_item_field", "", domain, component_id, old, new)
+                row = MigrationRuleRow(
+                    "platform_item_field", old, new, domain=domain, platform=component_id
+                )
             _MIGRATION_RULES[row] = hit.removed_in
         else:
             _UNHANDLED_RENAME_KEYS.add((component_id, old, new))
@@ -8901,7 +8916,7 @@ def _sweep_component_aliases() -> None:
         ):
             _UNHANDLED_ALIASES.add((legacy, meta.canonical))
             continue
-        _MIGRATION_RULES[("component_key", "", "", "", legacy, meta.canonical)] = (
+        _MIGRATION_RULES[MigrationRuleRow("component_key", legacy, meta.canonical)] = (
             meta.removal_version
         )
 
@@ -8970,9 +8985,9 @@ def _fail_on_missing_channel_colors_rules(catalog: list[dict[str, Any]]) -> None
     esphome ships the fold but detection emitted nothing.
     """
     emitted = {
-        (domain, platform)
-        for kind, _component, domain, platform, _old, _new in _MIGRATION_RULES
-        if kind == "platform_channel_colors"
+        (row.domain, row.platform)
+        for row in _MIGRATION_RULES
+        if row.kind == "platform_channel_colors"
     }
     expected = _committed_channel_colors_platforms() | _catalog_channel_colors_platforms(catalog)
     # An acknowledged bespoke fold emits no rule; its catalog keys must
@@ -9043,13 +9058,15 @@ def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
     return out
 
 
-def _committed_migration_rule_since() -> dict[tuple[str, str, str, str, str, str], str | None]:
+def _committed_migration_rule_since() -> dict[MigrationRuleRow, str | None]:
     """``since`` of every committed rule row, keyed like ``_MIGRATION_RULES``; absent rows omitted."""
-    out: dict[tuple[str, str, str, str, str, str], str | None] = {}
+    out: dict[MigrationRuleRow, str | None] = {}
     for rule in _committed_migration_rules():
         if "since" not in rule:
             continue
-        row = tuple(str(rule.get(name, "")) for name in _MIGRATION_RULE_ROW_FIELDS)
+        row = MigrationRuleRow(
+            **{name: str(rule.get(name, "")) for name in MigrationRuleRow._fields}
+        )
         out[row] = rule["since"]
     return out
 
@@ -9181,13 +9198,12 @@ def _classify_channel_colors_folds(
         if fold is None:
             continue
         if fold.direct:
-            row = (
+            row = MigrationRuleRow(
                 "platform_channel_colors",
-                "",
-                domain,
-                component_id,
                 "rgb_order",
                 "channel_colors",
+                domain=domain,
+                platform=component_id,
             )
             _MIGRATION_RULES[row] = fold.removed_in
         else:

@@ -18,6 +18,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _UNHANDLED_ALIASES,
     _UNHANDLED_CHANNEL_COLORS,
     _UNHANDLED_RENAME_KEYS,
+    MigrationRuleRow,
     SchemaHit,
     _classify_rename_pairs,
     _collect_channel_colors_fold,
@@ -122,10 +123,10 @@ def test_platform_manifest_renames_never_reach_the_canary(cv: ModuleType) -> Non
     """sgp4x pairs route to the artifact, never the canary, on every esphome channel."""
     introspect_component("sgp4x")
     assert set() == _UNHANDLED_RENAME_KEYS
-    for kind, _component, domain, platform, _old, _new in _MIGRATION_RULES:
-        assert kind == "platform_item_field"
-        assert domain == "sensor"
-        assert platform == "sgp4x"
+    for row in _MIGRATION_RULES:
+        assert row.kind == "platform_item_field"
+        assert row.domain == "sensor"
+        assert row.platform == "sgp4x"
 
 
 def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: ModuleType) -> None:
@@ -173,7 +174,7 @@ def test_handled_list_matches_the_writer_constants() -> None:
 def test_direct_component_pair_routes_to_the_artifact() -> None:
     _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=True)})
     assert {
-        ("component_block_field", "sgp4x", "", "", "voc", "voc_index")
+        MigrationRuleRow("component_block_field", "voc", "voc_index", component="sgp4x")
     } == _MIGRATION_RULES.keys()
     assert set() == _UNHANDLED_RENAME_KEYS
 
@@ -181,7 +182,9 @@ def test_direct_component_pair_routes_to_the_artifact() -> None:
 def test_direct_platform_pair_routes_to_the_artifact() -> None:
     _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=True)}, domain="sensor")
     assert {
-        ("platform_item_field", "", "sensor", "sgp4x", "voc", "voc_index")
+        MigrationRuleRow(
+            "platform_item_field", "voc", "voc_index", domain="sensor", platform="sgp4x"
+        )
     } == _MIGRATION_RULES.keys()
     assert set() == _UNHANDLED_RENAME_KEYS
 
@@ -224,7 +227,9 @@ def test_multi_conf_component_pair_ships_data_driven() -> None:
         "xiaomi_rtcgq02lm", {("esp32_ble_id", "ble_hub_id"): SchemaHit(direct=True)}
     )
     assert {
-        ("component_block_field", "xiaomi_rtcgq02lm", "", "", "esp32_ble_id", "ble_hub_id")
+        MigrationRuleRow(
+            "component_block_field", "esp32_ble_id", "ble_hub_id", component="xiaomi_rtcgq02lm"
+        )
     } == _MIGRATION_RULES.keys()
     assert set() == _UNHANDLED_RENAME_KEYS
 
@@ -260,11 +265,15 @@ def _redirect_artifact(
 
 def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     out_path = _redirect_artifact(tmp_path, monkeypatch)
-    _MIGRATION_RULES[("platform_item_field", "", "sensor", "sgp4x", "voc", "voc_index")] = (
-        "2027.2.0"
-    )
-    _MIGRATION_RULES[("component_block_field", "ethernet", "", "", "old", "new")] = None
-    _MIGRATION_RULES[("component_key", "", "", "", "rp2040", "rp2")] = "2027.7.0"
+    _MIGRATION_RULES[
+        MigrationRuleRow(
+            "platform_item_field", "voc", "voc_index", domain="sensor", platform="sgp4x"
+        )
+    ] = "2027.2.0"
+    _MIGRATION_RULES[
+        MigrationRuleRow("component_block_field", "old", "new", component="ethernet")
+    ] = None
+    _MIGRATION_RULES[MigrationRuleRow("component_key", "rp2040", "rp2")] = "2027.7.0"
     _emit_migration_rules_index("2026.8.0b5")
     payload = orjson.loads(out_path.read_bytes())
     assert payload == {
@@ -325,8 +334,8 @@ def test_emit_keeps_the_committed_since_for_a_known_row(
             }
         ),
     )
-    _MIGRATION_RULES[("component_key", "", "", "", "rp2040", "rp2")] = "2027.7.0"
-    _MIGRATION_RULES[("component_key", "", "", "", "old", "new")] = None
+    _MIGRATION_RULES[MigrationRuleRow("component_key", "rp2040", "rp2")] = "2027.7.0"
+    _MIGRATION_RULES[MigrationRuleRow("component_key", "old", "new")] = None
     _emit_migration_rules_index("2026.8.0b5")
     rules = orjson.loads(out_path.read_bytes())["rules"]
     assert [(r["old"], r["since"], r["removed_in"]) for r in rules] == [
@@ -406,7 +415,9 @@ def test_alias_rule_carries_the_removal_version(monkeypatch: pytest.MonkeyPatch)
         removal_version="2027.7.0",
     )
     _sweep_component_aliases()
-    assert _MIGRATION_RULES == {("component_key", "", "", "", "legacy_x", "canon_x"): "2027.7.0"}
+    assert {
+        MigrationRuleRow("component_key", "legacy_x", "canon_x"): "2027.7.0"
+    } == _MIGRATION_RULES
 
 
 def test_unresolvable_alias_canonical_falls_to_the_canary(
@@ -527,13 +538,12 @@ def test_nested_platform_fold_routes_to_the_canary(cv: ModuleType) -> None:
     assert {"weird_strip"} == _UNHANDLED_CHANNEL_COLORS
 
 
-_LED_STRIP_RULE_ROW = (
+_LED_STRIP_RULE_ROW = MigrationRuleRow(
     "platform_channel_colors",
-    "",
-    "light",
-    "esp32_rmt_led_strip",
     "rgb_order",
     "channel_colors",
+    domain="light",
+    platform="esp32_rmt_led_strip",
 )
 
 
@@ -696,7 +706,9 @@ def test_live_fold_emits_a_rule_for_every_capable_platform(platform: str) -> Non
     if not sync_components._installed_esphome_has_channel_colors_fold():
         pytest.skip("installed esphome predates channel_colors")
     introspect_component(platform)
-    row = ("platform_channel_colors", "", "light", platform, "rgb_order", "channel_colors")
+    row = MigrationRuleRow(
+        "platform_channel_colors", "rgb_order", "channel_colors", domain="light", platform=platform
+    )
     assert row in _MIGRATION_RULES
     # ``removed_in`` is a required argument upstream, so every rule carries it.
     assert _MIGRATION_RULES[row]
@@ -712,9 +724,9 @@ def test_rename_key_removed_in_is_read_off_the_closure(cv: ModuleType) -> None:
         ("old_name", "new_name"): SchemaHit(direct=True, removed_in="2027.1.0")
     }
     _classify_rename_pairs("x", _collect_rename_keys(_manifest(schema)))
-    assert _MIGRATION_RULES == {
-        ("component_block_field", "x", "", "", "old_name", "new_name"): "2027.1.0"
-    }
+    assert {
+        MigrationRuleRow("component_block_field", "old_name", "new_name", component="x"): "2027.1.0"
+    } == _MIGRATION_RULES
 
 
 def test_channel_colors_fold_removed_in_is_read_off_the_closure(cv: ModuleType) -> None:
