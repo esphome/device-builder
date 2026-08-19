@@ -917,6 +917,31 @@ def test_extract_component_source_fingerprint_covers_root_merge_key() -> None:
     )
 
 
+def test_extract_component_source_fingerprint_captures_zero_indent_sequence() -> None:
+    """A zero-indent list under a source block is part of the block; its edits move the digest."""
+    yaml_content = (
+        "external_components:\n"
+        "- source: github://a/b@main\n"
+        "  components: [esp32]\n"
+        "esp32:\n  board: esp32dev\n"
+    )
+    fingerprint = extract_component_source_fingerprint(yaml_content)
+    assert fingerprint != extract_component_source_fingerprint(
+        yaml_content.replace("@main", "@dev")
+    )
+    assert fingerprint != extract_component_source_fingerprint(
+        yaml_content.replace("[esp32]", "[esp32, ota]")
+    )
+
+
+def test_extract_network_address_fingerprint_covers_root_merge_key() -> None:
+    """Repointing a top-level merge include moves the digest."""
+    yaml_content = "esphome:\n  name: dev\n<<: !include base.yaml\nlogger:\n"
+    assert extract_network_address_fingerprint(yaml_content) != extract_network_address_fingerprint(
+        yaml_content.replace("base.yaml", "base2.yaml")
+    )
+
+
 def test_extract_component_source_fingerprint_covers_packages() -> None:
     """A packages edit moves the digest; a package can carry external_components."""
     yaml_content = "esphome:\n  name: dev\npackages:\n  base: !include common/base.yaml\nlogger:\n"

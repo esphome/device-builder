@@ -1037,16 +1037,20 @@ async def test_invalidate_cache_stales_sourced_sessions(
     assert controller._sessions["kitchen.yaml"].proc is spawned[-1]
 
 
-async def test_invalidate_cache_mid_validate_discards_inflight_result(tmp_path: Path) -> None:
-    """A validate overlapping a config-dir write must not reinstate its pre-write result."""
+async def test_invalidate_cache_mid_validate_reruns_once(tmp_path: Path) -> None:
+    """A validate overlapping a config-dir write re-runs once and caches the post-write result."""
     controller = _make_controller(tmp_path)
     controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
     in_flight = asyncio.Event()
     release = asyncio.Event()
+    calls = 0
 
     async def _blocked(*_args: Any, **_kwargs: Any) -> dict:
-        in_flight.set()
-        await release.wait()
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            in_flight.set()
+            await release.wait()
         return {"yaml_errors": [], "validation_errors": []}
 
     controller._validate_locked = _blocked  # type: ignore[method-assign]
@@ -1060,6 +1064,28 @@ async def test_invalidate_cache_mid_validate_discards_inflight_result(tmp_path: 
     result = await task
 
     assert result == {"yaml_errors": [], "validation_errors": []}
+    assert calls == 2
+    assert controller._sessions["kitchen.yaml"].cached is not None
+
+
+async def test_invalidate_cache_mid_validate_rerun_is_bounded(tmp_path: Path) -> None:
+    """Writes landing on every round-trip stop the re-run at one; the result stays uncached."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    calls = 0
+
+    async def _always_raced(*_args: Any, **_kwargs: Any) -> dict:
+        nonlocal calls
+        calls += 1
+        controller.invalidate_cache()
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _always_raced  # type: ignore[method-assign]
+
+    result = await controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+
+    assert result == {"yaml_errors": [], "validation_errors": []}
+    assert calls == 2
     assert controller._sessions["kitchen.yaml"].cached is None
 
 

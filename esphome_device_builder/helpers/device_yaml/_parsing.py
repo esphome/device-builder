@@ -193,10 +193,10 @@ def device_uses_mqtt(yaml_content: str) -> bool:
 # (esphome's ``CORE.address`` reads the first present one), plus the
 # blocks that feed it indirectly: ``esphome:`` (an absent
 # ``use_address`` derives from ``name``), ``substitutions:`` for the
-# ``use_address: ${var}`` spelling, and ``packages:`` for a network
-# block pulled in by reference.
+# ``use_address: ${var}`` spelling, and ``packages:`` / a top-level
+# ``<<:`` merge key for a network block pulled in by reference.
 _ADDRESS_SOURCE_KEYS = frozenset(
-    {"wifi", "ethernet", "openthread", "esphome", "substitutions", "packages"}
+    {"wifi", "ethernet", "openthread", "esphome", "substitutions", "packages", "<<"}
 )
 
 
@@ -689,14 +689,15 @@ def _match_top_level_key(line: str) -> str | None:
     """
     Return the key for a top-level ``key:`` line, or ``None``.
 
-    Skips blank lines, indented lines, comments, and lines without
-    a colon, so a top-level ``# Comment: ...`` doesn't masquerade as
-    a real YAML key and prematurely close the block being scanned.
+    Skips blank lines, indented lines, comments, zero-indent sequence
+    items, and lines without a colon, so neither a top-level
+    ``# Comment: ...`` nor a ``- source: ...`` list item masquerades as
+    a real YAML key and prematurely closes the block being scanned.
     """
     if not line or line[0].isspace():
         return None
     stripped = line.strip()
-    if stripped.startswith("#") or ":" not in stripped:
+    if stripped.startswith(("#", "- ")) or ":" not in stripped:
         return None
     return stripped.split(":", 1)[0].strip()
 

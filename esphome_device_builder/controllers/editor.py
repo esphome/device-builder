@@ -373,30 +373,40 @@ class EditorController:
             cached = session.cached
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
-            ok = False
-            epoch = session.invalidation_epoch
-            try:
-                # Warm the subprocess outside the budget so a cold start
-                # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
-                await self._ensure_subprocess(
-                    session, extract_component_source_fingerprint(content)
-                )
-                result = await asyncio.wait_for(
-                    self._validate_locked(session, configuration, content),
-                    timeout=timeout,
-                )
-                ok = True
-            finally:
-                # Any failure (timeout, subprocess loss, a bug, cancellation)
-                # can leave the stateful stdin/stdout protocol mid-message;
-                # kill it so the next call respawns clean. The exception (typed
-                # for callers) propagates unchanged.
-                if not ok:
-                    await self._terminate_subprocess(session)
-            if session.invalidation_epoch == epoch:
-                session.cached = _CachedValidation(
-                    content_hash=content_hash, result=result, at=time.monotonic()
-                )
+            # A config-dir write landing mid round-trip means the result was
+            # computed against pre-write state; re-run once so the caller
+            # gets a post-write verdict instead of a known-stale one.
+            for retry_left in (True, False):
+                ok = False
+                epoch = session.invalidation_epoch
+                try:
+                    # Warm the subprocess outside the budget so a cold start
+                    # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
+                    await self._ensure_subprocess(
+                        session, extract_component_source_fingerprint(content)
+                    )
+                    result = await asyncio.wait_for(
+                        self._validate_locked(session, configuration, content),
+                        timeout=timeout,
+                    )
+                    ok = True
+                finally:
+                    # Any failure (timeout, subprocess loss, a bug, cancellation)
+                    # can leave the stateful stdin/stdout protocol mid-message;
+                    # kill it so the next call respawns clean. The exception (typed
+                    # for callers) propagates unchanged.
+                    if not ok:
+                        await self._terminate_subprocess(session)
+                if session.invalidation_epoch == epoch:
+                    session.cached = _CachedValidation(
+                        content_hash=content_hash, result=result, at=time.monotonic()
+                    )
+                    break
+                if retry_left:
+                    _LOGGER.debug(
+                        "Re-validating %s: config-dir write landed mid round-trip",
+                        configuration,
+                    )
             return result
 
     async def _validate_locked(
