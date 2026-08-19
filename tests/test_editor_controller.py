@@ -1550,7 +1550,12 @@ async def test_migrate_config_applies_generated_rules(
     from esphome_device_builder.helpers import migrations  # noqa: PLC0415
 
     rule = MigrationRule(
-        kind="platform_item_field", old="voc", new="voc_index", domain="sensor", platform="sgp4x"
+        kind="platform_item_field",
+        old="voc",
+        new="voc_index",
+        since="2024.1.0",
+        domain="sensor",
+        platform="sgp4x",
     )
     monkeypatch.setattr(migrations, "load_migration_rules_index", lambda: (rule,))
     controller = _make_controller(tmp_path)

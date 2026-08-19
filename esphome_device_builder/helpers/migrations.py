@@ -100,10 +100,8 @@ class _BespokeRule:
     apply: Callable[[list[str]], list[str]]
     tokens: frozenset[str]
     changes: tuple[MigrationChange, ...]
-
-    @property
-    def since(self) -> str | None:
-        return self.changes[0].since
+    #: First esphome with the canonical spelling; every record carries the same value.
+    since: str
 
 
 def render_migrations(
@@ -158,9 +156,7 @@ def _bespoke_rules_for(esphome_version: str) -> tuple[_BespokeRule, ...]:
             "Installed esphome version %r is unparseable; config migrations are disabled",
             esphome_version,
         )
-    return tuple(
-        r for r in _BESPOKE_RULES if r.since is None or version_at_least(esphome_version, r.since)
-    )
+    return tuple(r for r in _BESPOKE_RULES if version_at_least(esphome_version, r.since))
 
 
 @cache
@@ -168,7 +164,7 @@ def _generated_rules_for(
     rules: tuple[MigrationRule, ...], esphome_version: str
 ) -> tuple[MigrationRule, ...]:
     """Return the artifact *rules* *esphome_version* accepts."""
-    return tuple(r for r in rules if r.since is None or version_at_least(esphome_version, r.since))
+    return tuple(r for r in rules if version_at_least(esphome_version, r.since))
 
 
 def _fired_bespoke_changes(
@@ -832,6 +828,7 @@ _BESPOKE_RULES: tuple[_BespokeRule, ...] = (
                 "field", "api", api_actions.ITEM_KEYS[1], api_actions.ITEM_KEYS[0], since="2024.8.0"
             ),
         ),
+        since="2024.8.0",
     ),
     *(
         _BespokeRule(
@@ -849,6 +846,7 @@ _BESPOKE_RULES: tuple[_BespokeRule, ...] = (
                     since="2024.8.0",
                 ),
             ),
+            since="2024.8.0",
         )
         for rename, anchor_re in _ANCHOR_RES
     ),
@@ -865,5 +863,6 @@ _BESPOKE_RULES: tuple[_BespokeRule, ...] = (
                 removed_in="2026.9.0",
             ),
         ),
+        since="2025.7.0",
     ),
 )

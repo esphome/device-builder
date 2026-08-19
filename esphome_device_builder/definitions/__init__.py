@@ -568,10 +568,11 @@ class MigrationRule(NamedTuple):
     kind: str
     old: str
     new: str
+    #: First esphome the sync saw the rule against; the fold skips it on older installs.
+    since: str
     component: str = ""
     domain: str = ""
     platform: str = ""
-    since: str | None = None
     removed_in: str | None = None
 
 
@@ -648,7 +649,7 @@ def _coerce_migration_rule(record: Any) -> MigrationRule | None:
         isinstance(removed_in, str) and is_pep440_version(removed_in)
     ):
         return None
-    return MigrationRule(kind=kind, old=old, new=new, **extra, since=since, removed_in=removed_in)
+    return MigrationRule(kind=kind, old=old, new=new, since=since, **extra, removed_in=removed_in)
 
 
 class PlatformCapabilities(NamedTuple):

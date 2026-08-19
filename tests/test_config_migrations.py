@@ -491,7 +491,7 @@ wifi:
 """
 
 
-_RP2_RULE = MigrationRule(kind="component_key", old="rp2040", new="rp2")
+_RP2_RULE = MigrationRule(kind="component_key", old="rp2040", new="rp2", since="2024.1.0")
 
 
 def test_rp2040_platform_key_respelled_to_rp2(generated_rules: RuleSetter) -> None:
@@ -539,10 +539,15 @@ def test_committed_artifact_migrates_rp2040() -> None:
 
 
 _VOC_RULE = MigrationRule(
-    kind="platform_item_field", old="voc", new="voc_index", domain="sensor", platform="sgp4x"
+    kind="platform_item_field",
+    old="voc",
+    new="voc_index",
+    since="2024.1.0",
+    domain="sensor",
+    platform="sgp4x",
 )
 _BLOCK_RULE = MigrationRule(
-    kind="component_block_field", old="old_key", new="new_key", component="mycomp"
+    kind="component_block_field", old="old_key", new="new_key", since="2024.1.0", component="mycomp"
 )
 
 _SGP4X_YAML = """sensor:
@@ -714,6 +719,7 @@ _CHANNEL_RULES = (
         kind="platform_channel_colors",
         old="rgb_order",
         new="channel_colors",
+        since="2024.1.0",
         domain="light",
         platform="esp32_rmt_led_strip",
     ),
@@ -721,6 +727,7 @@ _CHANNEL_RULES = (
         kind="platform_channel_colors",
         old="rgb_order",
         new="channel_colors",
+        since="2024.1.0",
         domain="light",
         platform="rp2040_pio_led_strip",
     ),
@@ -991,11 +998,6 @@ def test_rule_skipped_on_an_esphome_older_than_since(
     generated_rules(_GATED_VOC_RULE)
     assert (render_migrations(_SGP4X_YAML, esphome_version) is not None) is applies
     assert has_pending_migrations(_SGP4X_YAML, esphome_version) is applies
-
-
-def test_rule_without_since_applies_everywhere(generated_rules: RuleSetter) -> None:
-    generated_rules(_VOC_RULE)
-    assert render_migrations(_SGP4X_YAML, "2024.1.0") is not None
 
 
 def test_unparseable_installed_version_disables_migrations_loudly(
