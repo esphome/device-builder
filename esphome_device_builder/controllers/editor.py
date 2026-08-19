@@ -447,7 +447,7 @@ class EditorController:
                 configuration,
                 "re-running" if retry_left else "returning the raced result uncached",
             )
-        if result is None:
+        if result is None:  # pragma: no cover — attempt one either raises or sets result
             raise ValidatorUnavailableError("validator produced no result")
         return result
 
