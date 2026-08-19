@@ -324,6 +324,11 @@ def _fold_channel_colors_items(
     out = list(lines)
     # Last item first, so earlier items' line indexes stay valid in *out*.
     for item_start in reversed(top_list_item_starts(lines, header, end)):
+        # An anchored item may be merged into a sibling via ``<<:``;
+        # folding it would hand that sibling the channel_colors-plus-
+        # legacy-key combination upstream rejects.
+        if lines[item_start].lstrip(" ")[1:].lstrip(" ").startswith("&"):
+            continue
         keys = _item_child_keys(lines, item_start, end, in_scalar)
         # A merge key (``<<``) or quoted key hides fields from this
         # depth-1 view; folding a partial item would emit the
@@ -367,7 +372,8 @@ def _fold_channel_colors(
     closed tables (the config must keep failing validation loudly).
     """
     order = entries.get("rgb_order")
-    if order is None or "channel_colors" in entries:
+    # ``rgbw_order`` existed only in 2026.8 betas.
+    if order is None or "channel_colors" in entries or "rgbw_order" in entries:
         return None
     flags: list[bool] = []
     delete: list[int] = []

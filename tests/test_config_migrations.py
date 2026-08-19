@@ -831,6 +831,25 @@ def test_channel_colors_quoted_flag_key_untouched(generated_rules) -> None:
     assert render_migrations(text) is None
 
 
+def test_channel_colors_anchored_item_untouched(generated_rules) -> None:
+    # A sibling merging the anchor would inherit channel_colors beside
+    # its own legacy key, the combination upstream rejects.
+    generated_rules(*_CHANNEL_RULES)
+    text = (
+        "light:\n  - &strip\n    platform: esp32_rmt_led_strip\n    rgb_order: GRB\n"
+        "  - <<: *strip\n    is_rgbw: true\n"
+    )
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_rgbw_order_item_untouched(generated_rules) -> None:
+    # The beta-only rgbw_order key must keep failing validation loudly.
+    generated_rules(*_CHANNEL_RULES)
+    for extra in ("", "    rgb_order: GRB\n"):
+        text = f"light:\n  - platform: esp32_rmt_led_strip\n    rgbw_order: RWGB\n{extra}"
+        assert render_migrations(text) is None
+
+
 def test_channel_colors_other_domain_untouched(generated_rules) -> None:
     generated_rules(*_CHANNEL_RULES)
     assert render_migrations("output:\n  - platform: esp32_rmt_led_strip\n    pin: 1\n") is None

@@ -981,7 +981,7 @@ def main() -> int:
     _sweep_component_aliases()
     _fail_on_unhandled_renames()
     if not args.limit_component:
-        _fail_on_missing_channel_colors_rules()
+        _fail_on_missing_channel_colors_rules(catalog)
     _fail_on_unhandled_repr_keys()
 
     # Collected (and guarded) before any emit so the abort below leaves
@@ -8770,7 +8770,7 @@ _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
 
 #: Per-schema memo for :func:`_schema_has_channel_colors_fold`; the
 #: stored schema ref keeps the id from being reused.
-_CHANNEL_COLORS_MEMO: dict[int, tuple[Any, bool]] = {}
+_CHANNEL_COLORS_MEMO: dict[int, tuple[Any, str | None]] = {}
 
 #: Components acknowledged as bespoke-handled fold carriers. Empty is
 #: the steady state: a platform-schema fold ships data-driven.
@@ -8934,25 +8934,28 @@ def _fail_on_unhandled_renames() -> None:
         )
 
 
-def _fail_on_missing_channel_colors_rules() -> None:
+def _fail_on_missing_channel_colors_rules(catalog: list[dict[str, Any]]) -> None:
     """
     Abort when the channel-colors fold's rules would silently vanish.
 
-    Fires per platform when the committed artifact carries a rule this
-    sweep didn't re-emit, and when esphome ships the fold but detection
-    emitted nothing.
+    Fires per platform when the committed artifact or the built
+    *catalog* (any platform carrying both ``rgb_order`` and
+    ``channel_colors``) expects a rule this sweep didn't emit, and when
+    esphome ships the fold but detection emitted nothing.
     """
     emitted = {
         (domain, platform)
         for kind, _component, domain, platform, _old, _new in _MIGRATION_RULES
         if kind == "platform_channel_colors"
     }
-    missing = _committed_channel_colors_platforms() - emitted
+    expected = _committed_channel_colors_platforms() | _catalog_channel_colors_platforms(catalog)
+    missing = expected - emitted
     if missing:
         rows = "\n".join(f"  {domain}: {platform}" for domain, platform in sorted(missing))
         raise SystemExit(
-            "platform_channel_colors rules in the committed "
-            "migration_rules.index.json were not re-emitted:\n"
+            "platform_channel_colors rules expected from the committed "
+            "migration_rules.index.json or the built catalog were not "
+            "emitted:\n"
             f"{rows}\n"
             "Fix the fold detection, or remove the fold machinery if "
             "upstream retired the migration."
@@ -8963,6 +8966,20 @@ def _fail_on_missing_channel_colors_rules() -> None:
             "emitted no platform_channel_colors rules; the fold detection is "
             "broken."
         )
+
+
+def _catalog_channel_colors_platforms(catalog: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    """``(domain, platform)`` pairs whose catalog entries carry both fold keys."""
+    out: set[tuple[str, str]] = set()
+    for record in catalog:
+        record_id = record.get("id", "")
+        if "." not in record_id:
+            continue
+        keys = {entry.get("key") for entry in record.get("config_entries") or []}
+        if {"rgb_order", "channel_colors"} <= keys:
+            domain, _, platform = record_id.partition(".")
+            out.add((domain, platform))
+    return out
 
 
 def _installed_esphome_has_channel_colors_fold() -> bool:
@@ -9098,43 +9115,68 @@ def _classify_channel_colors_folds(
     manifest: Any,
     platform_manifests_by_domain: list[tuple[str, Any]],
 ) -> None:
-    """Route discovered ``migrate_channel_colors`` folds: platform schema → rule row, else canary."""
-    if _collect_channel_colors_fold(manifest) and component_id not in _HANDLED_CHANNEL_COLORS:
-        _UNHANDLED_CHANNEL_COLORS.add(component_id)
+    """
+    Route discovered ``migrate_channel_colors`` folds.
+
+    A fold sitting directly on a platform schema emits a rule row;
+    anywhere else — a component manifest, or reachable only through a
+    nested sub-schema the depth-1 runtime fold can't rewrite — falls to
+    the canary.
+    """
+    canary = _collect_channel_colors_fold(manifest) is not None
     for domain, platform_manifest in platform_manifests_by_domain:
-        if _collect_channel_colors_fold(platform_manifest):
+        fold = _collect_channel_colors_fold(platform_manifest)
+        if fold == "direct":
             _MIGRATION_RULES.add(
                 ("platform_channel_colors", "", domain, component_id, "rgb_order", "channel_colors")
             )
+        elif fold == "nested":
+            canary = True
+    if canary and component_id not in _HANDLED_CHANNEL_COLORS:
+        _UNHANDLED_CHANNEL_COLORS.add(component_id)
 
 
-def _collect_channel_colors_fold(manifest: Any) -> bool:
-    """Report whether the manifest schema carries a ``migrate_channel_colors`` validator."""
+def _collect_channel_colors_fold(manifest: Any) -> str | None:
+    """``"direct"`` / ``"nested"`` placement of the manifest schema's fold validator, or ``None``."""
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
-        return False
+        return None
     return _schema_has_channel_colors_fold(schema)
 
 
-def _schema_has_channel_colors_fold(schema: Any) -> bool:
-    """Walk *schema* for ``light.migrate_channel_colors`` closures; memoised."""
+def _schema_has_channel_colors_fold(schema: Any) -> str | None:
+    """
+    Walk *schema* for ``light.migrate_channel_colors`` closures; memoised.
+
+    ``"direct"`` only when every occurrence sits on the schema's own
+    validator chain; mixed placement stays ``"nested"``.
+    """
     memoised = _CHANNEL_COLORS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    found = False
+    found: str | None = None
     visited: set[int] = set()
-    stack: list[Any] = [schema]
+    stack: list[tuple[Any, bool]] = [(schema, True)]
     while stack:
-        node = stack.pop()
-        if node is None or id(node) in visited:
+        node, direct = stack.pop()
+        if node is None:
             continue
-        visited.add(id(node))
+        # Fold closures bypass the visited gate so a shared closure
+        # lets every path vote.
         if isinstance(node, FunctionType) and node.__qualname__.startswith(
             "migrate_channel_colors."
         ):
-            found = True
-            break
-        stack.extend(child for child, _direct in _rename_walk_children(node))
+            if not direct:
+                found = "nested"
+                break
+            found = "direct"
+            continue
+        if id(node) in visited:
+            continue
+        visited.add(id(node))
+        stack.extend(
+            (child, direct and stays_direct) for child, stays_direct in _rename_walk_children(node)
+        )
     _CHANNEL_COLORS_MEMO[id(schema)] = (schema, found)
     return found
 
