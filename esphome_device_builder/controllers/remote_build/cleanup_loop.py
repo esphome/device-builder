@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from esphome.core import CORE
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.remote_build_cleanup import sweep_remote_builds
@@ -31,6 +34,7 @@ async def run_cleanup_loop(controller: ReceiverController) -> None:
     the sleep.
     """
     config_dir = controller._db.settings.config_dir
+    data_dir = Path(CORE.data_dir)
     while True:
         await asyncio.sleep(_CLEANUP_SWEEP_INTERVAL_SECONDS)
         try:
@@ -49,6 +53,7 @@ async def run_cleanup_loop(controller: ReceiverController) -> None:
                 partial(
                     sweep_remote_builds,
                     config_dir,
+                    data_dir=data_dir,
                     ttl_seconds=settings.cleanup_ttl_seconds,
                     in_flight_keys=in_flight_keys,
                 ),

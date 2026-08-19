@@ -24,10 +24,12 @@ from esphome_device_builder.helpers.remote_build_cleanup import (
 )
 from esphome_device_builder.helpers.remote_build_layout import (
     DATA_DIR_NAME,
+    REMOTE_BUILDS_NAME,
     REMOTE_BUILDS_SUBDIR,
     VENVS_NAME,
     RemoteBuildPath,
     parse_from_configuration,
+    venvs_dir,
 )
 
 
@@ -47,9 +49,33 @@ def _populate(config_dir: Path, key: RemoteBuildPath, *, age_seconds: float, now
     os.utime(subtree, (target_mtime, target_mtime))
 
 
+def _sweep(
+    config_dir: Path,
+    *,
+    ttl_seconds: float,
+    in_flight_keys: frozenset[RemoteBuildPath],
+    now: float | None = None,
+) -> int:
+    """Run the sweep in the standalone shape, where ``data_dir`` is ``<config_dir>/.esphome``."""
+    return sweep_remote_builds(
+        config_dir,
+        data_dir=config_dir / DATA_DIR_NAME,
+        ttl_seconds=ttl_seconds,
+        in_flight_keys=in_flight_keys,
+        now=now,
+    )
+
+
+def _roots(tmp_path: Path, split: bool) -> tuple[Path, Path]:
+    """Return ``(config_dir, data_dir)`` for the standalone or add-on on-disk shape."""
+    if split:
+        return tmp_path / "config", tmp_path / "data"
+    return tmp_path, tmp_path / DATA_DIR_NAME
+
+
 def test_sweep_returns_zero_on_missing_remote_builds_root(tmp_path: Path) -> None:
     """A fresh receiver with no submissions yet → no-op + zero deletes."""
-    assert sweep_remote_builds(tmp_path, ttl_seconds=10, in_flight_keys=frozenset()) == 0
+    assert _sweep(tmp_path, ttl_seconds=10, in_flight_keys=frozenset()) == 0
 
 
 def test_sweep_deletes_subtree_and_bundle_when_cold(tmp_path: Path) -> None:
@@ -58,7 +84,7 @@ def test_sweep_deletes_subtree_and_bundle_when_cold(tmp_path: Path) -> None:
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
     _populate(tmp_path, key, age_seconds=3600, now=now)
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 1
     assert not key.subtree(tmp_path).exists()
     assert not key.bundle(tmp_path).exists()
@@ -70,7 +96,7 @@ def test_sweep_keeps_fresh_subtree(tmp_path: Path) -> None:
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
     _populate(tmp_path, key, age_seconds=60, now=now)
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 0
     assert key.subtree(tmp_path).is_dir()
     assert key.bundle(tmp_path).is_file()
@@ -82,7 +108,7 @@ def test_sweep_skips_in_flight_even_when_cold(tmp_path: Path) -> None:
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
     _populate(tmp_path, key, age_seconds=3600, now=now)
 
-    deleted = sweep_remote_builds(
+    deleted = _sweep(
         tmp_path,
         ttl_seconds=600,
         in_flight_keys=frozenset({key}),
@@ -98,7 +124,7 @@ def test_sweep_prunes_empty_dashboard_parent(tmp_path: Path) -> None:
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
     _populate(tmp_path, key, age_seconds=3600, now=now)
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     parent = tmp_path / REMOTE_BUILDS_SUBDIR / "alpha"
     assert not parent.exists()
 
@@ -112,7 +138,7 @@ def test_sweep_prunes_dashboard_parent_with_macos_metadata(tmp_path: Path) -> No
     (dashboard_dir / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
     (dashboard_dir / "._kitchen").write_bytes(b"AppleDouble")
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert not dashboard_dir.exists()
 
 
@@ -127,7 +153,7 @@ def test_sweep_leaves_macos_metadata_alongside_warm_subtree(tmp_path: Path) -> N
     ds_store.write_bytes(b"\x00\x00\x00\x01Bud1")
     apple_double.write_bytes(b"AppleDouble")
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert warm.subtree(tmp_path).is_dir()
     assert ds_store.is_file()
     assert apple_double.is_file()
@@ -141,7 +167,7 @@ def test_sweep_keeps_dashboard_parent_when_sibling_still_warm(tmp_path: Path) ->
     _populate(tmp_path, cold, age_seconds=3600, now=now)
     _populate(tmp_path, warm, age_seconds=60, now=now)
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 1
     assert not cold.subtree(tmp_path).exists()
     assert warm.subtree(tmp_path).is_dir()
@@ -156,7 +182,7 @@ def test_sweep_handles_multiple_dashboards(tmp_path: Path) -> None:
     _populate(tmp_path, alpha_kitchen, age_seconds=3600, now=now)
     _populate(tmp_path, beta_kitchen, age_seconds=60, now=now)
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 1
     assert not alpha_kitchen.subtree(tmp_path).exists()
     assert beta_kitchen.subtree(tmp_path).is_dir()
@@ -166,10 +192,12 @@ def test_sweep_handles_multiple_dashboards(tmp_path: Path) -> None:
 def test_sweep_skips_venv_cache_and_per_dashboard_data_dir(
     tmp_path: Path, spelling: Callable[[str], str]
 ) -> None:
-    """Standalone-install siblings of the swept dirs are never deleted, in any case."""
+    """Standalone-install siblings of the swept dirs are never swept as subtrees, in any case."""
     now = 1_000_000.0
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    warm = RemoteBuildPath(dashboard_id="alpha", device_name="garage")
     _populate(tmp_path, key, age_seconds=3600, now=now)
+    _populate(tmp_path, warm, age_seconds=60, now=now)
     root = tmp_path / REMOTE_BUILDS_SUBDIR
     venv = root / spelling(VENVS_NAME) / "esphome-2026.7.4"
     data_dir = root / "alpha" / spelling(DATA_DIR_NAME)
@@ -177,12 +205,82 @@ def test_sweep_skips_venv_cache_and_per_dashboard_data_dir(
         cold.mkdir(parents=True)
         os.utime(cold, (now - 3600, now - 3600))
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 1
     assert not key.subtree(tmp_path).exists()
     assert venv.is_dir()
     assert data_dir.is_dir()
     assert (tmp_path / REMOTE_BUILDS_SUBDIR / "alpha").is_dir()
+
+
+_ROOT_SHAPES = pytest.mark.parametrize("split", [False, True], ids=["standalone", "addon"])
+
+
+@_ROOT_SHAPES
+def test_sweep_reclaims_data_dir_once_dashboard_is_idle(tmp_path: Path, split: bool) -> None:
+    """With the last device subtree gone, the shared build data dir and both parents go too."""
+    now = 1_000_000.0
+    config_dir, data_root = _roots(tmp_path, split)
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    _populate(config_dir, key, age_seconds=3600, now=now)
+    data_dir = key.data_dir(data_root)
+    (data_dir / "build" / "kitchen").mkdir(parents=True)
+    venv = venvs_dir(data_root) / "esphome-2026.7.4"
+    venv.mkdir(parents=True)
+
+    deleted = sweep_remote_builds(
+        config_dir, data_dir=data_root, ttl_seconds=600, in_flight_keys=frozenset(), now=now
+    )
+    assert deleted == 2
+    assert not (config_dir / REMOTE_BUILDS_SUBDIR / "alpha").exists()
+    assert not data_dir.parent.exists()
+    assert venv.is_dir()
+
+
+@_ROOT_SHAPES
+def test_sweep_reclaims_data_dir_with_no_config_root_dashboard(tmp_path: Path, split: bool) -> None:
+    """A data dir whose ``<dashboard_id>/`` holds nothing else is reclaimed."""
+    config_dir, data_root = _roots(tmp_path, split)
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    data_dir = key.data_dir(data_root)
+    data_dir.mkdir(parents=True)
+
+    deleted = sweep_remote_builds(
+        config_dir, data_dir=data_root, ttl_seconds=600, in_flight_keys=frozenset()
+    )
+    assert deleted == 1
+    assert not data_dir.parent.exists()
+    assert (data_root / REMOTE_BUILDS_NAME).is_dir()
+
+
+@_ROOT_SHAPES
+def test_sweep_keeps_data_dir_while_a_job_is_in_flight(tmp_path: Path, split: bool) -> None:
+    """An in-flight key for the dashboard blocks the data-dir reclaim even with no subtree."""
+    config_dir, data_root = _roots(tmp_path, split)
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    data_dir = key.data_dir(data_root)
+    data_dir.mkdir(parents=True)
+
+    deleted = sweep_remote_builds(
+        config_dir, data_dir=data_root, ttl_seconds=600, in_flight_keys=frozenset({key})
+    )
+    assert deleted == 0
+    assert data_dir.is_dir()
+
+
+def test_sweep_keeps_data_dir_while_a_sibling_subtree_is_warm(tmp_path: Path) -> None:
+    """A warm device under the dashboard keeps its shared build data dir."""
+    now = 1_000_000.0
+    cold = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    warm = RemoteBuildPath(dashboard_id="alpha", device_name="garage")
+    _populate(tmp_path, cold, age_seconds=3600, now=now)
+    _populate(tmp_path, warm, age_seconds=60, now=now)
+    data_dir = cold.data_dir(tmp_path / DATA_DIR_NAME)
+    data_dir.mkdir(parents=True)
+
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    assert deleted == 1
+    assert data_dir.is_dir()
 
 
 def test_sweep_ignores_stray_files_under_root(tmp_path: Path) -> None:
@@ -199,7 +297,7 @@ def test_sweep_ignores_stray_files_under_root(tmp_path: Path) -> None:
     stray = root / "readme.txt"
     stray.write_text("hands off")
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 0
     assert stray.is_file()
 
@@ -223,7 +321,7 @@ def test_sweep_reclaims_cold_orphan_bundle(tmp_path: Path) -> None:
     age_seconds = 3600
     os.utime(bundle, (now - age_seconds, now - age_seconds))
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert not bundle.exists()
 
 
@@ -236,7 +334,7 @@ def test_sweep_keeps_fresh_orphan_bundle(tmp_path: Path) -> None:
     bundle.write_bytes(b"fresh orphan")
     os.utime(bundle, (now - 60, now - 60))
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert bundle.is_file()
 
 
@@ -255,7 +353,7 @@ def test_sweep_skips_in_flight_orphan_bundle(tmp_path: Path) -> None:
     bundle.write_bytes(b"in-flight bundle")
     os.utime(bundle, (now - 3600, now - 3600))
 
-    sweep_remote_builds(
+    _sweep(
         tmp_path,
         ttl_seconds=600,
         in_flight_keys=frozenset({key}),
@@ -282,7 +380,7 @@ def test_sweep_does_not_unlink_bundle_when_subtree_still_exists(tmp_path: Path) 
     assert key.subtree(tmp_path).is_dir()
     assert key.bundle(tmp_path).is_file()
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 1
     assert not key.subtree(tmp_path).exists()
     assert not key.bundle(tmp_path).exists()
@@ -315,7 +413,7 @@ def test_sweep_skips_when_root_itself_is_symlink(tmp_path: Path) -> None:
     (tmp_path / ".esphome").mkdir()
     (tmp_path / ".esphome" / ".remote_builds").symlink_to(real_root)
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 0
     assert (real_root / "alpha" / "kitchen" / "important.txt").is_file()
 
@@ -340,7 +438,7 @@ def test_sweep_skips_symlink_at_dashboard_level(tmp_path: Path) -> None:
     link = root / "alpha"
     link.symlink_to(real_dir)
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     # The symlink stays in place because the dashboard-level
     # ``is_symlink()`` skip in ``sweep_remote_builds`` does
     # ``continue`` before reaching ``_prune_empty_dir``; the
@@ -362,7 +460,7 @@ def test_sweep_skips_symlink_at_subtree_level(tmp_path: Path) -> None:
     link = dashboard_dir / "kitchen"
     link.symlink_to(real_dir)
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert (real_dir / "important.txt").is_file()
 
 
@@ -383,7 +481,7 @@ def test_sweep_leaves_bare_dot_tar_gz_alone(tmp_path: Path) -> None:
     weird.write_bytes(b"weirdo")
     os.utime(weird, (now - 3600, now - 3600))
 
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert weird.is_file()
 
 
@@ -437,7 +535,7 @@ def test_sweep_logs_sibling_unlink_failure_but_still_counts_delete(
 
     monkeypatch.setattr(Path, "unlink", _flaky_unlink)
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert deleted == 1
     assert not key.subtree(tmp_path).exists()
     # Bundle unlink failed → bundle still on disk; the next
@@ -468,7 +566,7 @@ def test_sweep_logs_orphan_unlink_failure(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(Path, "unlink", _flaky_unlink)
 
     # Should not raise.
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert bundle.is_file()
 
 
@@ -494,7 +592,7 @@ def test_sweep_logs_macos_metadata_unlink_failure(
     # Should not raise. Both defensive arms fire: the unlink
     # OSError is logged, then the rmdir OSError (dir still
     # holds the .DS_Store) is logged too.
-    sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     assert dashboard_dir.is_dir()
     assert ds_store.is_file()
 
@@ -528,7 +626,7 @@ def test_sweep_continues_after_subtree_rmtree_failure(
 
     monkeypatch.setattr("esphome_device_builder.helpers.remote_build_cleanup.rmtree", _flaky)
 
-    deleted = sweep_remote_builds(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset(), now=now)
     # One success out of two attempts; the failed subtree still
     # exists, the successful one is gone.
     assert deleted == 1
@@ -550,8 +648,6 @@ def test_sweep_protects_in_flight_subtree_with_long_dashboard_id(tmp_path: Path)
     in_flight = parse_from_configuration(configuration)
     assert in_flight is not None
 
-    deleted = sweep_remote_builds(
-        tmp_path, ttl_seconds=600, in_flight_keys=frozenset({in_flight}), now=now
-    )
+    deleted = _sweep(tmp_path, ttl_seconds=600, in_flight_keys=frozenset({in_flight}), now=now)
     assert deleted == 0
     assert key.subtree(tmp_path).exists()

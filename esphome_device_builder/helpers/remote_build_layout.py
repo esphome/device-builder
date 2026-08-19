@@ -56,6 +56,11 @@ def venvs_dir(data_dir: Path) -> Path:
     return data_dir / REMOTE_BUILDS_NAME / VENVS_NAME
 
 
+def per_dashboard_data_dir(data_dir: Path, dir_id: str) -> Path:
+    """Return the ``ESPHOME_DATA_DIR`` shared by every remote build from one offloader."""
+    return data_dir / REMOTE_BUILDS_NAME / dir_id / DATA_DIR_NAME
+
+
 # POSIX-form parts of ``REMOTE_BUILDS_SUBDIR``, pre-split once.
 # :attr:`FirmwareJob.configuration` is forward-slash on every
 # platform so the reverse parse uses these directly.
@@ -144,7 +149,7 @@ class RemoteBuildPath:
         pre-extract wipe off the deep ``build/<env>/.pioenvs``
         tree (PR #578).
         """
-        return dashboard_data_dir / REMOTE_BUILDS_NAME / self.dir_id / DATA_DIR_NAME
+        return per_dashboard_data_dir(dashboard_data_dir, self.dir_id)
 
 
 def parse_from_configuration(configuration: str) -> RemoteBuildPath | None:
