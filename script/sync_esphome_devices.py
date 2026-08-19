@@ -1136,11 +1136,11 @@ def _fold_channel_colors_item(
     component_id: str,
 ) -> dict[str, Any] | None:
     """Fold *item*'s legacy led-strip keys into ``channel_colors``; ``None`` when unfoldable."""
-    if "channel_colors" not in valid_keys or "rgb_order" not in item:
+    if "channel_colors" not in valid_keys or CHANNEL_COLORS_LEGACY_KEYS.isdisjoint(item):
         return item
     if "channel_colors" in item:
         return {k: v for k, v in item.items() if k not in CHANNEL_COLORS_LEGACY_KEYS}
-    order = item["rgb_order"]
+    order = item.get("rgb_order")
     is_rgbw = item.get("is_rgbw", False)
     is_wrgb = item.get("is_wrgb", False)
     value = (

@@ -48,7 +48,14 @@ def test_legacy_keys_fold_into_channel_colors(
     assert list(folded) == list(expected)
 
 
-@pytest.mark.parametrize("item", [{"rgb_order": "GRBW"}, {"rgb_order": "GRB", "is_rgbw": "maybe"}])
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"rgb_order": "GRBW"},
+        {"rgb_order": "GRB", "is_rgbw": "maybe"},
+        {"is_rgbw": True, "num_leds": 3},
+    ],
+)
 def test_unfoldable_legacy_keys_drop_the_entry(item: dict[str, Any]) -> None:
     assert _extract(item, _STRIP) is None
 
