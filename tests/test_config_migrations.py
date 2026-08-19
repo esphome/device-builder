@@ -95,9 +95,9 @@ def test_prefilter_covers_every_bespoke_rule() -> None:
     }
     rules = {}
     for rule in migrations._BESPOKE_RULES:
-        assert rule.tokens, rule.change
-        assert rule.change.since is not None, rule.change
-        rules[rule.change.scope, rule.change.old] = rule
+        assert rule.tokens, rule.changes
+        assert all(change.since is not None for change in rule.changes), rule.changes
+        rules[rule.changes[0].scope, rule.changes[0].old] = rule
     assert set(rules) == set(fixtures)
     for key, text in fixtures.items():
         lines = text.splitlines(keepends=True)
@@ -1015,6 +1015,7 @@ def test_changes_name_each_fired_rule_once(generated_rules: RuleSetter) -> None:
     result = render_migrations(text, "2026.8.0")
     assert result is not None
     assert sorted((c.kind, c.scope, c.old, c.new) for c in result.changes) == [
+        ("field", "api", "service", "action"),
         ("field", "api", "services", "actions"),
         ("field", "mycomp", "old_key", "new_key"),
         ("field", "sensor.sgp4x", "voc", "voc_index"),
@@ -1031,8 +1032,50 @@ def test_changes_carry_the_bespoke_versions() -> None:
     assert result is not None
     assert [(c.kind, c.scope, c.old, c.new, c.since, c.removed_in) for c in result.changes] == [
         ("action", "", "homeassistant.service", "homeassistant.action", "2024.8.0", None),
+        ("field", "homeassistant.action", "service", "action", "2024.8.0", None),
         ("convert", "ethernet", "clk_mode", "clk", "2025.7.0", "2026.9.0"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "api:\n  actions:\n    - service: hi\n      then: []\n",
+            [("api", "service", "action")],
+            id="api_item_only",
+        ),
+        pytest.param(
+            "api:\n  services:\n    - action: hi\n      then: []\n",
+            [("api", "services", "actions")],
+            id="api_block_only",
+        ),
+        pytest.param(
+            _on_boot("      - homeassistant.action:", "          service: light.turn_on"),
+            [("homeassistant.action", "service", "action")],
+            id="homeassistant_field_only",
+        ),
+        pytest.param(
+            _on_boot("      - homeassistant.service:", "          action: light.turn_on"),
+            [("", "homeassistant.service", "homeassistant.action")],
+            id="homeassistant_id_only",
+        ),
+        pytest.param(
+            _on_boot("      - homeassistant.service: {service: light.turn_on}"),
+            [
+                ("", "homeassistant.service", "homeassistant.action"),
+                ("homeassistant.action", "service", "action"),
+            ],
+            id="homeassistant_flow_both",
+        ),
+    ],
+)
+def test_multi_edit_bespoke_rules_report_only_the_edits_made(
+    text: str, expected: list[tuple[str, str, str]]
+) -> None:
+    result = render_migrations(text)
+    assert result is not None
+    assert [(c.scope, c.old, c.new) for c in result.changes] == expected
 
 
 def test_change_is_required_once_the_install_drops_the_old_spelling(

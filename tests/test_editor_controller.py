@@ -1521,7 +1521,16 @@ async def test_migrate_config_respells_legacy_content(tmp_path: Path) -> None:
             "since": "2024.8.0",
             "removed_in": None,
             "required": False,
-        }
+        },
+        {
+            "kind": "field",
+            "scope": "api",
+            "old": "service",
+            "new": "action",
+            "since": "2024.8.0",
+            "removed_in": None,
+            "required": False,
+        },
     ]
 
 

@@ -36,6 +36,7 @@ from ..helpers.lazy_catalog import (
     is_unsafe_catalog_id,
     is_unsafe_manifest_path,
 )
+from ..helpers.version_compat import is_pep440_version
 from ..helpers.yaml import FastestSafeLoader
 from ..migration_rule_kinds import MIGRATION_RULE_EXTRA_FIELDS
 from ..models import (
@@ -639,7 +640,10 @@ def _coerce_migration_rule(record: Any) -> MigrationRule | None:
         extra[name] = value
     since = record.get("since")
     removed_in = record.get("removed_in")
-    if any(v is not None and not (isinstance(v, str) and v) for v in (since, removed_in)):
+    if any(
+        v is not None and not (isinstance(v, str) and is_pep440_version(v))
+        for v in (since, removed_in)
+    ):
         return None
     return MigrationRule(kind=kind, old=old, new=new, **extra, since=since, removed_in=removed_in)
 

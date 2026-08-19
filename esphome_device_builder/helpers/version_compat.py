@@ -170,8 +170,10 @@ def version_at_least(version: str, minimum: str) -> bool:
 
     Two pinnable versions order exactly (``2026.8.0b4 < 2026.8.0b5``);
     anything else (a ``-dev`` build) orders by ``YYYY.MM`` release line;
-    unparseable is no.
+    unparseable is no. A local segment (``+abc``) never affects the order.
     """
+    version = version.split("+", 1)[0]
+    minimum = minimum.split("+", 1)[0]
     if is_pinnable_version(version) and is_pinnable_version(minimum):
         return pinnable_version_key(version) >= pinnable_version_key(minimum)
     floor = _release_line(minimum)

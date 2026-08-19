@@ -455,6 +455,10 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
             {"kind": "component_key", "old": "rp2040", "new": "rp2", "removed_in": ""},
             id="empty_removed_in",
         ),
+        pytest.param(
+            {"kind": "component_key", "old": "rp2040", "new": "rp2", "since": "2026.8.0bX"},
+            id="non_pep440_since",
+        ),
     ],
 )
 def test_load_migration_rules_drops_malformed_records(tmp_path: Path, record: object) -> None:

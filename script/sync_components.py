@@ -9226,7 +9226,7 @@ def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
         if isinstance(node, FunctionType) and node.__qualname__.startswith(
             "migrate_channel_colors."
         ):
-            removed_in = _closure_removed_in(node)
+            removed_in = _closure_removed_in(node, required=True)
             if not direct:
                 found = SchemaHit(direct=False, removed_in=removed_in)
                 break
@@ -9263,13 +9263,24 @@ def _rename_key_pair(node: Any) -> tuple[str, str, str | None] | None:
     return "<unreadable rename_key>", "<unreadable rename_key>", None
 
 
-def _closure_removed_in(node: Any) -> str | None:
-    """Read a validator's ``removed_in`` closure var; ``None`` when absent or unreadable."""
+def _closure_removed_in(node: Any, *, required: bool = False) -> str | None:
+    """
+    Read a validator's ``removed_in`` closure var; ``None`` when it declares none.
+
+    ``SystemExit`` on an unreadable closure, or on an absent value when
+    *required* (the validator's signature makes it mandatory upstream).
+    """
     try:
         value = _closure_nonlocals(node).get("removed_in")
-    except ValueError:
-        return None
-    return value if isinstance(value, str) and value else None
+    except ValueError as exc:
+        raise SystemExit(
+            f"{node.__qualname__}: closure unreadable, removed_in lost: {exc}"
+        ) from exc
+    if isinstance(value, str) and value:
+        return value
+    if required:
+        raise SystemExit(f"{node.__qualname__}: removed_in missing from the validator closure")
+    return None
 
 
 def _is_rename_wrapper(node: Any) -> bool:

@@ -87,11 +87,20 @@ class MigrationResult(NamedTuple):
 
 @dataclass(frozen=True)
 class _BespokeRule:
-    """A hand-written rule: its fold, the legacy tokens it needs present, and its change record."""
+    """
+    A hand-written rule: its fold, the legacy tokens it needs present, and its change records.
+
+    A multi-edit rule carries one record per edit; a record is reported
+    when a line the fold changed carries its ``old`` key.
+    """
 
     apply: Callable[[list[str]], list[str]]
     tokens: frozenset[str]
-    change: MigrationChange
+    changes: tuple[MigrationChange, ...]
+
+    @property
+    def since(self) -> str | None:
+        return self.changes[0].since
 
 
 def render_migrations(
@@ -108,7 +117,10 @@ def render_migrations(
     for rule in _bespoke_rules_for(esphome_version):
         respelled = rule.apply(out)
         if respelled != out:
-            changes.append(_stamp_required(rule.change, esphome_version))
+            changes.extend(
+                _stamp_required(change, esphome_version)
+                for change in _fired_bespoke_changes(rule, out, respelled)
+            )
         out = respelled
     generated_fired: list[MigrationRule] = []
     generated = _generated_rules_for(load_migration_rules_index(), esphome_version)
@@ -138,9 +150,7 @@ def has_pending_migrations(
 def _bespoke_rules_for(esphome_version: str) -> tuple[_BespokeRule, ...]:
     """Return the bespoke rules *esphome_version* accepts."""
     return tuple(
-        r
-        for r in _BESPOKE_RULES
-        if r.change.since is None or version_at_least(esphome_version, r.change.since)
+        r for r in _BESPOKE_RULES if r.since is None or version_at_least(esphome_version, r.since)
     )
 
 
@@ -150,6 +160,24 @@ def _generated_rules_for(
 ) -> tuple[MigrationRule, ...]:
     """Return the artifact *rules* *esphome_version* accepts."""
     return tuple(r for r in rules if r.since is None or version_at_least(esphome_version, r.since))
+
+
+def _fired_bespoke_changes(
+    rule: _BespokeRule, before: list[str], after: list[str]
+) -> tuple[MigrationChange, ...]:
+    """Return the records of *rule* whose ``old`` key sits on a line the fold changed."""
+    changed = [b for b, a in zip(before, after, strict=False) if b != a]
+    fired = tuple(
+        c for c in rule.changes if any(_legacy_key_re(c.old).search(line) for line in changed)
+    )
+    # A fold that changed only lines no record names still reports the rule.
+    return fired or rule.changes
+
+
+@cache
+def _legacy_key_re(key: str) -> re.Pattern[str]:
+    """Match *key* in key position, not as a suffix of a dotted or longer key."""
+    return re.compile(rf"(?<![\w.]){re.escape(key)}\s*:")
 
 
 def _stamp_required(change: MigrationChange, esphome_version: str) -> MigrationChange:
@@ -189,6 +217,9 @@ def _legacy_token_re(rules: tuple[MigrationRule, ...], esphome_version: str) -> 
         *(r.tokens for r in _bespoke_rules_for(esphome_version)),
         (r.old for r in _generated_rules_for(rules, esphome_version)),
     )
+    if not tokens:
+        # The empty alternation matches everywhere; no rule means no candidate.
+        return re.compile(r"(?!)")
     return re.compile("|".join(re.escape(token) + r"\s*:" for token in sorted(tokens)))
 
 
@@ -256,7 +287,7 @@ def _apply_generated_renames(
     headers = top_level_key_index(out)
     # Key respells first, so a same-release field rename inside the
     # renamed block still converges in this single fold pass.
-    fired.extend(r for r in key_rules if _respell_top_level_key(out, headers, r.old, r.new))
+    _respell_top_level_keys(out, headers, key_rules, fired)
 
     in_scalar: list[bool] | None = None
 
@@ -339,7 +370,9 @@ def _apply_component_block_fields(
         return
     for item_start in top_list_item_starts(lines, header, end):
         keys = _item_child_keys(lines, item_start, end, in_scalar)
-        fired.extend(r for r in rules if _respell_item_key(lines, keys, r.old, r.new))
+        for rule in rules:
+            if _respell_item_key(lines, keys, rule.old, rule.new):
+                fired.append(rule)  # noqa: PERF401 — the respell is the point, not the append
 
 
 def _apply_platform_item_fields(
@@ -359,11 +392,9 @@ def _apply_platform_item_fields(
         )
         if platform is None:
             continue
-        fired.extend(
-            r
-            for r in rules_by_platform.get(platform, ())
-            if _respell_item_key(lines, keys, r.old, r.new)
-        )
+        for rule in rules_by_platform.get(platform, ()):
+            if _respell_item_key(lines, keys, rule.old, rule.new):
+                fired.append(rule)  # noqa: PERF401 — the respell is the point, not the append
 
 
 def _respell_item_key(
@@ -584,6 +615,18 @@ def _child_block_span(
     return None
 
 
+def _respell_top_level_keys(
+    lines: list[str],
+    headers: dict[str, int],
+    rules: list[MigrationRule],
+    fired: list[MigrationRule],
+) -> None:
+    """Apply each ``component_key`` rule in place, appending the ones that fired to *fired*."""
+    for rule in rules:
+        if _respell_top_level_key(lines, headers, rule.old, rule.new):
+            fired.append(rule)  # noqa: PERF401 — the respell is the point, not the append
+
+
 def _respell_top_level_key(
     lines: list[str],
     headers: dict[str, int],
@@ -764,28 +807,50 @@ _BESPOKE_RULES: tuple[_BespokeRule, ...] = (
     _BespokeRule(
         _canonicalize_api_actions,
         frozenset((*api_actions.BLOCK_KEYS[1:], *api_actions.ITEM_KEYS[1:])),
-        MigrationChange(
-            "field", "api", api_actions.BLOCK_KEYS[1], api_actions.BLOCK_KEYS[0], since="2024.8.0"
+        (
+            MigrationChange(
+                "field",
+                "api",
+                api_actions.BLOCK_KEYS[1],
+                api_actions.BLOCK_KEYS[0],
+                since="2024.8.0",
+            ),
+            MigrationChange(
+                "field", "api", api_actions.ITEM_KEYS[1], api_actions.ITEM_KEYS[0], since="2024.8.0"
+            ),
         ),
     ),
     *(
         _BespokeRule(
             partial(_apply_action_node_rename, rename=rename, anchor_re=anchor_re),
             frozenset((rename.legacy_id, rename.legacy_field)),
-            MigrationChange("action", "", rename.legacy_id, rename.canonical_id, since="2024.8.0"),
+            (
+                MigrationChange(
+                    "action", "", rename.legacy_id, rename.canonical_id, since="2024.8.0"
+                ),
+                MigrationChange(
+                    "field",
+                    rename.canonical_id,
+                    rename.legacy_field,
+                    rename.canonical_field,
+                    since="2024.8.0",
+                ),
+            ),
         )
         for rename, anchor_re in _ANCHOR_RES
     ),
     _BespokeRule(
         _migrate_ethernet_clk,
         frozenset((_ETHERNET_CLK_MODE_KEY,)),
-        MigrationChange(
-            "convert",
-            "ethernet",
-            _ETHERNET_CLK_MODE_KEY,
-            "clk",
-            since="2025.7.0",
-            removed_in="2026.9.0",
+        (
+            MigrationChange(
+                "convert",
+                "ethernet",
+                _ETHERNET_CLK_MODE_KEY,
+                "clk",
+                since="2025.7.0",
+                removed_in="2026.9.0",
+            ),
         ),
     ),
 )

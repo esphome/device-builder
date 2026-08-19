@@ -42,6 +42,7 @@ from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402
     is_external_image_url,
     is_unsafe_manifest_path,
 )
+from esphome_device_builder.helpers.version_compat import is_pep440_version  # noqa: E402
 from esphome_device_builder.migration_rule_kinds import (  # noqa: E402
     MIGRATION_RULE_EXTRA_FIELDS,
 )
@@ -990,12 +991,23 @@ def check_migration_rules() -> list[str]:
                 )
         if record.get("old") == record.get("new"):
             errors.append(f"migration_rules.index.json: rules[{pos}]: old and new are identical")
-        for field in ("since", "removed_in"):
-            value = record.get(field, "")
-            if value is not None and (not isinstance(value, str) or not value):
-                errors.append(
-                    f"migration_rules.index.json: rules[{pos}]: {field} must be a version or null"
-                )
+        errors.extend(_check_migration_rule_versions(record, pos))
+    return errors
+
+
+def _check_migration_rule_versions(record: dict[str, object], pos: int) -> list[str]:
+    """Check a rule row carries a PEP 440 ``since`` and a PEP 440 or ``null`` ``removed_in``."""
+    errors: list[str] = []
+    for field, nullable in (("since", False), ("removed_in", True)):
+        if field not in record:
+            errors.append(f"migration_rules.index.json: rules[{pos}]: {field} is required")
+            continue
+        value = record[field]
+        if value is None and nullable:
+            continue
+        if not isinstance(value, str) or not is_pep440_version(value):
+            allowed = "a version or null" if nullable else "a version"
+            errors.append(f"migration_rules.index.json: rules[{pos}]: {field} must be {allowed}")
     return errors
 
 

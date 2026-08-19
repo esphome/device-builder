@@ -456,11 +456,11 @@ def test_handled_pairs_do_not_fail_the_sync() -> None:
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
-def _fold_validator() -> Callable[[Any], Any]:
-    """Return a closure whose qualname matches the fold detector."""
+def _fold_validator(removed_in: str | None = "2027.3.0") -> Callable[[Any], Any]:
+    """Return a closure whose qualname matches the fold detector and carries *removed_in*."""
 
     def validator(value: Any) -> Any:
-        return value
+        return value, removed_in
 
     validator.__qualname__ = "migrate_channel_colors.<locals>.validator"
     return validator
@@ -468,7 +468,9 @@ def _fold_validator() -> Callable[[Any], Any]:
 
 def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType) -> None:
     schema = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
-    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=True)
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
+        direct=True, removed_in="2027.3.0"
+    )
     assert _collect_channel_colors_fold(_manifest(cv.Schema({}))) is None
     assert _collect_channel_colors_fold(SimpleNamespace(config_schema=None)) is None
 
@@ -476,7 +478,9 @@ def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType
 def test_channel_colors_fold_under_a_wrapper_is_nested(cv: ModuleType) -> None:
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
     schema = cv.Schema({cv.Optional("strips"): cv.ensure_list(item)})
-    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=False)
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
+        direct=False, removed_in="2027.3.0"
+    )
 
 
 def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
@@ -484,7 +488,9 @@ def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
     fold = _fold_validator()
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), fold)
     schema = cv.All(cv.Schema({cv.Optional("strips"): cv.ensure_list(item)}), fold)
-    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=False)
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
+        direct=False, removed_in="2027.3.0"
+    )
 
 
 def test_channel_colors_fold_carrier_reachable_both_ways_is_nested(cv: ModuleType) -> None:
@@ -494,7 +500,9 @@ def test_channel_colors_fold_carrier_reachable_both_ways_is_nested(cv: ModuleTyp
     listed = cv.Schema({cv.Optional("strips"): cv.ensure_list(carrier)})
     for schema in (cv.All(carrier, listed), cv.All(listed, carrier)):
         sync_components._CHANNEL_COLORS_MEMO.clear()
-        assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(direct=False)
+        assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
+            direct=False, removed_in="2027.3.0"
+        )
 
 
 def test_rename_carrier_reachable_both_ways_is_nested_in_either_order(cv: ModuleType) -> None:
@@ -718,6 +726,12 @@ def test_channel_colors_fold_removed_in_is_read_off_the_closure(cv: ModuleType) 
     assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
         direct=True, removed_in="2027.3.0"
     )
+
+
+def test_fold_without_removed_in_fails_the_sync(cv: ModuleType) -> None:
+    schema = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator(None))
+    with pytest.raises(SystemExit, match="removed_in"):
+        _collect_channel_colors_fold(_manifest(schema))
 
 
 def test_unreadable_rename_closure_yields_sentinel_pair() -> None:
