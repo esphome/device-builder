@@ -102,7 +102,7 @@ def sweep_remote_builds(
     deleted = 0
     for dashboard_dir in _safe_iterdir(root):
         # Standalone-install sibling of the dashboard dirs, not one of them.
-        if dashboard_dir.name == VENVS_NAME:
+        if dashboard_dir.name.casefold() == VENVS_NAME:
             continue
         # Symlinks at any level are skipped outright. ``is_dir()``
         # follows symlinks by default, so a symlink to a directory
@@ -139,7 +139,7 @@ def _sweep_dashboard_dir(
     deleted = 0
     for entry in _safe_iterdir(dashboard_dir):
         # Standalone-install sibling of the device subtrees, not one of them.
-        if entry.name == DATA_DIR_NAME:
+        if entry.name.casefold() == DATA_DIR_NAME:
             continue
         if entry.is_symlink():
             _LOGGER.debug("remote-build cleanup: skipping symlink %s", entry)

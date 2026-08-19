@@ -184,7 +184,7 @@ def _validate_configuration_filename(filename: str) -> str | None:
     # ``..`` — both would resolve to the parent dir under
     # ``<config_dir>/.esphome/.remote_builds/<dashboard_id>/`` — or to
     # the per-dashboard data dir that sits beside the extracts there.
-    if device_name in ("", ".", "..", DATA_DIR_NAME):
+    if device_name in ("", ".", "..") or device_name.casefold() == DATA_DIR_NAME:
         return None
     return device_name
 
