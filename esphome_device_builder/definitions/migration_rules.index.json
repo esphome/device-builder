@@ -42,6 +42,27 @@
       "old": "rp2040"
     },
     {
+      "domain": "light",
+      "kind": "platform_channel_colors",
+      "new": "channel_colors",
+      "old": "rgb_order",
+      "platform": "beken_spi_led_strip"
+    },
+    {
+      "domain": "light",
+      "kind": "platform_channel_colors",
+      "new": "channel_colors",
+      "old": "rgb_order",
+      "platform": "esp32_rmt_led_strip"
+    },
+    {
+      "domain": "light",
+      "kind": "platform_channel_colors",
+      "new": "channel_colors",
+      "old": "rgb_order",
+      "platform": "rp2040_pio_led_strip"
+    },
+    {
       "domain": "binary_sensor",
       "kind": "platform_item_field",
       "new": "ble_hub_id",
