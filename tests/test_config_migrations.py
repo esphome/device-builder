@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 import pytest
@@ -97,6 +98,8 @@ def test_prefilter_covers_every_bespoke_rule() -> None:
     for rule in migrations._BESPOKE_RULES:
         assert rule.tokens, rule.changes
         assert all(change.since is not None for change in rule.changes), rule.changes
+        # The gate reads the first record's since; every record must agree.
+        assert len({change.since for change in rule.changes}) == 1, rule.changes
         rules[rule.changes[0].scope, rule.changes[0].old] = rule
     assert set(rules) == set(fixtures)
     for key, text in fixtures.items():
@@ -993,6 +996,16 @@ def test_rule_skipped_on_an_esphome_older_than_since(
 def test_rule_without_since_applies_everywhere(generated_rules: RuleSetter) -> None:
     generated_rules(_VOC_RULE)
     assert render_migrations(_SGP4X_YAML, "2024.1.0") is not None
+
+
+def test_unparseable_installed_version_disables_migrations_loudly(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    migrations._bespoke_rules_for.cache_clear()
+    with caplog.at_level(logging.WARNING):
+        assert has_pending_migrations(_LEGACY_API_YAML, "0.0.0-fork-x") is False
+        assert render_migrations(_LEGACY_API_YAML, "0.0.0-fork-x") is None
+    assert "unparseable" in caplog.text
 
 
 def test_bespoke_rules_are_gated_too() -> None:

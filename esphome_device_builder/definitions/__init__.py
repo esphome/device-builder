@@ -638,11 +638,14 @@ def _coerce_migration_rule(record: Any) -> MigrationRule | None:
         if value is None:
             return None
         extra[name] = value
+    # ``since`` is the version gate: a row without one is not "apply
+    # everywhere" but malformed, so it is dropped like any other bad row.
     since = record.get("since")
     removed_in = record.get("removed_in")
-    if any(
-        v is not None and not (isinstance(v, str) and is_pep440_version(v))
-        for v in (since, removed_in)
+    if not (isinstance(since, str) and is_pep440_version(since)):
+        return None
+    if removed_in is not None and not (
+        isinstance(removed_in, str) and is_pep440_version(removed_in)
     ):
         return None
     return MigrationRule(kind=kind, old=old, new=new, **extra, since=since, removed_in=removed_in)

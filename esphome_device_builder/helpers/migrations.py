@@ -16,6 +16,7 @@ the per-device dashboard flag at scanner load time.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -27,7 +28,7 @@ from esphome.const import __version__ as _installed_esphome_version
 from ..definitions import MigrationRule, load_migration_rules_index
 from ..models.automations import MigrationChange, YamlDiff
 from .channel_colors import fold_channel_colors_value
-from .version_compat import version_at_least
+from .version_compat import is_pep440_version, version_at_least
 from .yaml import (
     _split_value_and_comment,
     _strip_yaml_quotes,
@@ -46,6 +47,8 @@ from .yaml.writing_layout import (
     _build_diff_for_append,
     _locate_singleton_block,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -149,6 +152,12 @@ def has_pending_migrations(
 @cache
 def _bespoke_rules_for(esphome_version: str) -> tuple[_BespokeRule, ...]:
     """Return the bespoke rules *esphome_version* accepts."""
+    if not is_pep440_version(esphome_version):
+        # Cached per version, so this logs once: every gated rule is off.
+        _LOGGER.warning(
+            "Installed esphome version %r is unparseable; config migrations are disabled",
+            esphome_version,
+        )
     return tuple(
         r for r in _BESPOKE_RULES if r.since is None or version_at_least(esphome_version, r.since)
     )
@@ -166,7 +175,11 @@ def _fired_bespoke_changes(
     rule: _BespokeRule, before: list[str], after: list[str]
 ) -> tuple[MigrationChange, ...]:
     """Return the records of *rule* whose ``old`` key sits on a line the fold changed."""
-    changed = [b for b, a in zip(before, after, strict=False) if b != a]
+    # Only the single-record ethernet fold changes the line count; a
+    # positional compare means nothing then, and the one record is the answer.
+    if len(before) != len(after):
+        return rule.changes
+    changed = [b for b, a in zip(before, after, strict=True) if b != a]
     fired = tuple(
         c for c in rule.changes if any(_legacy_key_re(c.old).search(line) for line in changed)
     )

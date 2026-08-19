@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -716,6 +717,8 @@ def test_live_fold_emits_a_rule_for_every_capable_platform(platform: str) -> Non
 
 
 def test_rename_key_removed_in_is_read_off_the_closure(cv: ModuleType) -> None:
+    if "removed_in" not in inspect.signature(cv.rename_key).parameters:
+        pytest.skip("installed esphome predates rename_key(removed_in=)")
     schema = cv.All(
         cv.Schema({cv.Optional("new_name"): cv.string}),
         cv.rename_key("old_name", "new_name", removed_in="2027.1.0", component="x"),
@@ -738,6 +741,30 @@ def test_channel_colors_fold_removed_in_is_read_off_the_closure(cv: ModuleType) 
     assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
         direct=True, removed_in="2027.3.0"
     )
+
+
+def test_conflicting_removed_in_across_paths_fails_the_sync(cv: ModuleType) -> None:
+    if "removed_in" not in inspect.signature(cv.rename_key).parameters:
+        pytest.skip("installed esphome predates rename_key(removed_in=)")
+    schema = cv.All(
+        cv.Schema({cv.Optional("new_name"): cv.string}),
+        cv.rename_key("old_name", "new_name", removed_in="2027.1.0", component="x"),
+        cv.rename_key("old_name", "new_name", removed_in="2027.2.0", component="x"),
+    )
+    with pytest.raises(SystemExit, match="conflicting removed_in"):
+        _collect_rename_keys(_manifest(schema))
+
+
+def test_malformed_committed_row_fails_the_since_carry_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _redirect_artifact(
+        tmp_path,
+        monkeypatch,
+        orjson.dumps({"rules": [{"kind": "component_key", "old": "a", "new": "b", "since": None}]}),
+    )
+    with pytest.raises(SystemExit, match="malformed committed row"):
+        _emit_migration_rules_index("2026.8.0b5")
 
 
 def test_fold_without_removed_in_fails_the_sync(cv: ModuleType) -> None:

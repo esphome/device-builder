@@ -9058,16 +9058,15 @@ def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
     return out
 
 
-def _committed_migration_rule_since() -> dict[MigrationRuleRow, str | None]:
-    """``since`` of every committed rule row, keyed like ``_MIGRATION_RULES``; absent rows omitted."""
-    out: dict[MigrationRuleRow, str | None] = {}
+def _committed_migration_rule_since() -> dict[MigrationRuleRow, str]:
+    """``since`` of every committed rule row, keyed like ``_MIGRATION_RULES``; ``SystemExit`` on a malformed row."""
+    out: dict[MigrationRuleRow, str] = {}
     for rule in _committed_migration_rules():
-        if "since" not in rule:
-            continue
-        row = MigrationRuleRow(
-            **{name: str(rule.get(name, "")) for name in MigrationRuleRow._fields}
-        )
-        out[row] = rule["since"]
+        fields = {name: rule.get(name, "") for name in MigrationRuleRow._fields}
+        since = rule.get("since")
+        if not isinstance(since, str) or not all(isinstance(v, str) for v in fields.values()):
+            raise SystemExit(f"migration_rules.index.json: malformed committed row {rule!r}")
+        out[MigrationRuleRow(**fields)] = since
     return out
 
 
@@ -9161,6 +9160,11 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
             # occurrence. Rename validators bypass the visited gate so a
             # shared closure lets every path vote.
             prior = out.get(pair, SchemaHit(direct=True))
+            if None not in (prior.removed_in, removed_in) and prior.removed_in != removed_in:
+                raise SystemExit(
+                    f"rename_key {pair}: conflicting removed_in "
+                    f"{prior.removed_in!r} vs {removed_in!r} across paths"
+                )
             out[pair] = SchemaHit(prior.direct and direct, prior.removed_in or removed_in)
             continue
         # Keyed on placement too, so a node reachable both directly and
