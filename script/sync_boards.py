@@ -883,6 +883,12 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     served by an id-keyed catalog, so it's skipped with a warning rather than
     shadowed onto the other platform's pinout. Also deduped on display name so a
     curated nRF52 board claiming a Zephyr id under a different id isn't twinned.
+
+    Some ``BOARDS_ZEPHYR`` names carry a Zephyr Hardware Model v2 qualifier, e.g.
+    ``adafruit_itsybitsy/nrf52840`` -- the flat, id-keyed on-disk catalog rejects
+    any id containing ``/`` as traversal-shaped, so ``catalog_id`` substitutes
+    ``_`` for ``/`` while ``esphome.board`` keeps the literal Zephyr board string
+    ESPHome expects.
     """
     platform_by_id = {b.id: b.esphome.platform.value for b in boards}
     _, names = _generation_dedup_keys(boards)
@@ -890,24 +896,25 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     const_module = importlib.import_module("esphome.components.nrf52.const")
     adc_gpios = set(const_module.AIN_TO_GPIO.values())
     for name in boards_module.BOARDS_ZEPHYR:
-        owner = platform_by_id.get(name)
+        catalog_id = name.replace("/", "_")
+        owner = platform_by_id.get(catalog_id)
         if owner is not None:
             if owner != _NRF52_PLATFORM:
                 _LOGGER.warning(
                     "nRF52 board %r shares a catalog id with an existing %s board; "
                     "not generating it (an id-keyed catalog can't serve both — needs "
                     "platform-aware board resolution)",
-                    name,
+                    catalog_id,
                     owner,
                 )
             continue
         display = _NRF52_BOARD_NAMES.get(name, name)
         if _name_already_listed(Platform.NRF52, name, display, names):
             continue
-        boards.append(
-            _generated_board(Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios))
-        )
-        platform_by_id[name] = _NRF52_PLATFORM
+        board = _generated_board(Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios))
+        board.id = catalog_id
+        boards.append(board)
+        platform_by_id[catalog_id] = _NRF52_PLATFORM
         names.add((Platform.NRF52, display))
 
 
