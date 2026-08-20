@@ -78,3 +78,27 @@ def test_nrf52_hwmv2_qualified_name_flattens_id_but_not_board_or_label(
     assert board.id == "adafruit_itsybitsy_nrf52840"
     assert board.esphome.board == "adafruit_itsybitsy/nrf52840"
     assert board.name == _NRF52_BOARD_NAMES["adafruit_itsybitsy_nrf52840"]
+
+
+def test_nrf52_flatten_collision_keeps_first_and_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A legacy flat key and its '/'-qualified spelling collapse to one catalog id.
+    import esphome.components.nrf52.boards as boards_module  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        boards_module,
+        "BOARDS_ZEPHYR",
+        {"adafruit_itsybitsy_nrf52840": {}, "adafruit_itsybitsy/nrf52840": {}},
+    )
+    boards: list[BoardCatalogEntry] = []
+    with caplog.at_level(logging.WARNING, logger="script.sync_boards"):
+        _augment_nrf52_boards(boards)
+    assert len(boards) == 1
+    assert boards[0].esphome.board == "adafruit_itsybitsy_nrf52840"
+    assert any(
+        "flatten to the same catalog id" in r.getMessage()
+        and "adafruit_itsybitsy/nrf52840" in r.getMessage()
+        for r in caplog.records
+    )
