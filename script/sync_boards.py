@@ -308,8 +308,8 @@ def _name_already_listed(
     Return True when ``(platform, display)`` is already in the catalog; log the skip.
 
     A curated/generated twin today; the log surfaces a future upstream board
-    shadowed by a name collision (generated ``id == board key``, so it would
-    otherwise vanish without a catalog entry).
+    shadowed by a name collision that would otherwise vanish without a
+    catalog entry.
     """
     if (platform, display) not in names:
         return False
