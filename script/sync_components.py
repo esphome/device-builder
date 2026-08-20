@@ -2340,15 +2340,17 @@ def _find_docs_page_by_content(
     A config-example match wins and carries the section slug; a component
     documented without one (a supported-platforms table row) matches on an
     inline ``<stem>`` code span with no slug. Either scan bails unless
-    exactly one page matches.
+    exactly one page matches; an ambiguous config-example scan first narrows
+    to pages under the component's own domain directory.
     """
     matches: list[tuple[str, str]] = []
     for path, text in pages.items():
         slug = _find_component_section(text, component_id)
         if slug is not None:
             matches.append((path, slug))
-            if len(matches) > 1:
-                break
+    if len(matches) > 1 and "." in component_id:
+        domain = component_id.split(".", 1)[0]
+        matches = [m for m in matches if m[0].split("/", 1)[0] == domain] or matches
     if len(matches) == 1:
         return matches[0]
     # Blockquote mentions are commentary about the component, not its docs.
