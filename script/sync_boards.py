@@ -277,10 +277,12 @@ def _generated_board(
     display_name: str,
     pins: list[BoardPin],
     variant: str | None = None,
+    *,
+    board_id: str | None = None,
 ) -> BoardCatalogEntry:
     """Build a minimal catalog entry (identity + derived pins) for an unmanifested board."""
     return BoardCatalogEntry(
-        id=name,
+        id=board_id or name,
         name=display_name,
         description="",
         manufacturer="",
@@ -306,8 +308,8 @@ def _name_already_listed(
     Return True when ``(platform, display)`` is already in the catalog; log the skip.
 
     A curated/generated twin today; the log surfaces a future upstream board
-    shadowed by a name collision (generated ``id == board key``, so it would
-    otherwise vanish without a catalog entry).
+    shadowed by a name collision that would otherwise vanish without a
+    catalog entry.
     """
     if (platform, display) not in names:
         return False
@@ -883,31 +885,47 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     served by an id-keyed catalog, so it's skipped with a warning rather than
     shadowed onto the other platform's pinout. Also deduped on display name so a
     curated nRF52 board claiming a Zephyr id under a different id isn't twinned.
+
+    Hardware Model v2 ``/`` qualifiers become ``_`` only in catalog ids.
     """
     platform_by_id = {b.id: b.esphome.platform.value for b in boards}
     _, names = _generation_dedup_keys(boards)
     boards_module = importlib.import_module("esphome.components.nrf52.boards")
     const_module = importlib.import_module("esphome.components.nrf52.const")
     adc_gpios = set(const_module.AIN_TO_GPIO.values())
+    generated_from: dict[str, str] = {}
     for name in boards_module.BOARDS_ZEPHYR:
-        owner = platform_by_id.get(name)
+        catalog_id = name.replace("/", "_")
+        owner = platform_by_id.get(catalog_id)
         if owner is not None:
             if owner != _NRF52_PLATFORM:
                 _LOGGER.warning(
-                    "nRF52 board %r shares a catalog id with an existing %s board; "
-                    "not generating it (an id-keyed catalog can't serve both — needs "
-                    "platform-aware board resolution)",
+                    "nRF52 board %r (catalog id %r) shares a catalog id with an existing "
+                    "%s board; not generating it (an id-keyed catalog can't serve both — "
+                    "needs platform-aware board resolution)",
                     name,
+                    catalog_id,
                     owner,
                 )
+            elif catalog_id in generated_from:
+                _LOGGER.warning(
+                    "nRF52 boards %r and %r flatten to the same catalog id %r; keeping %r",
+                    generated_from[catalog_id],
+                    name,
+                    catalog_id,
+                    generated_from[catalog_id],
+                )
             continue
-        display = _NRF52_BOARD_NAMES.get(name, name)
+        display = _NRF52_BOARD_NAMES.get(catalog_id, name)
         if _name_already_listed(Platform.NRF52, name, display, names):
             continue
         boards.append(
-            _generated_board(Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios))
+            _generated_board(
+                Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios), board_id=catalog_id
+            )
         )
-        platform_by_id[name] = _NRF52_PLATFORM
+        platform_by_id[catalog_id] = _NRF52_PLATFORM
+        generated_from[catalog_id] = name
         names.add((Platform.NRF52, display))
 
 
