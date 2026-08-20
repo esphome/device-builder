@@ -844,10 +844,10 @@ def test_extract_config_content_fingerprint_tracks_any_content_edit() -> None:
     )
 
 
-def test_extract_config_content_fingerprint_ignores_comments_and_blanks() -> None:
-    """Cosmetic edits must not schedule a regen."""
+def test_extract_config_content_fingerprint_ignores_comments_blanks_and_trailing_ws() -> None:
+    """Blank lines, full-line comments, and trailing whitespace don't move the digest."""
     plain = "wifi:\n  ssid: s\nota:\n"
-    cosmetic = "# header\nwifi:\n# a comment\n\n  ssid: s\nota:\n"
+    cosmetic = "# header\nwifi:\n# a comment\n\n  ssid: s  \nota:\n"
     assert extract_config_content_fingerprint(plain) == extract_config_content_fingerprint(cosmetic)
 
 

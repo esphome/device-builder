@@ -695,9 +695,12 @@ def _match_top_level_key(line: str) -> str | None:
 
 
 def _significant_lines(yaml_content: str) -> list[str]:
-    """Return the non-blank, non-comment lines of *yaml_content*, in file order."""
+    """Return the non-blank, non-comment lines of *yaml_content*, rstripped, in file order."""
+    # rstrip so an editor's trailing-whitespace trim can't queue a
+    # fleet of regens; the cost is missing an edit that only changes
+    # trailing spaces inside a block scalar.
     return [
-        line
+        line.rstrip()
         for line in yaml_content.splitlines()
         if (stripped := line.lstrip()) and not stripped.startswith("#")
     ]
