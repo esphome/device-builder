@@ -6,8 +6,8 @@ import logging
 
 import pytest
 
-from esphome_device_builder.models import BoardCatalogResponse, PinFeature
-from script.sync_boards import _derive_nrf52_pins
+from esphome_device_builder.models import BoardCatalogEntry, BoardCatalogResponse, PinFeature
+from script.sync_boards import _NRF52_BOARD_NAMES, _augment_nrf52_boards, _derive_nrf52_pins
 
 pytestmark = pytest.mark.xdist_group("board_sync")
 
@@ -62,3 +62,19 @@ def test_nrf52_id_clash_logs_warning(
         "adafruit_itsybitsy" in r.getMessage() and "shares a catalog id" in r.getMessage()
         for r in records
     )
+
+
+def test_nrf52_hwmv2_qualified_name_flattens_id_but_not_board_or_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The pinned ESPHome has no '/'-qualified BOARDS_ZEPHYR entry yet.
+    import esphome.components.nrf52.boards as boards_module  # noqa: PLC0415
+
+    monkeypatch.setattr(boards_module, "BOARDS_ZEPHYR", {"adafruit_itsybitsy/nrf52840": {}})
+    boards: list[BoardCatalogEntry] = []
+    _augment_nrf52_boards(boards)
+    assert len(boards) == 1
+    board = boards[0]
+    assert board.id == "adafruit_itsybitsy_nrf52840"
+    assert board.esphome.board == "adafruit_itsybitsy/nrf52840"
+    assert board.name == _NRF52_BOARD_NAMES["adafruit_itsybitsy_nrf52840"]

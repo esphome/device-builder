@@ -884,11 +884,7 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     shadowed onto the other platform's pinout. Also deduped on display name so a
     curated nRF52 board claiming a Zephyr id under a different id isn't twinned.
 
-    Some ``BOARDS_ZEPHYR`` names carry a Zephyr Hardware Model v2 qualifier, e.g.
-    ``adafruit_itsybitsy/nrf52840`` -- the flat, id-keyed on-disk catalog rejects
-    any id containing ``/`` as traversal-shaped, so ``catalog_id`` substitutes
-    ``_`` for ``/`` while ``esphome.board`` keeps the literal Zephyr board string
-    ESPHome expects.
+    Hardware Model v2 ``/`` qualifiers become ``_`` only in catalog ids.
     """
     platform_by_id = {b.id: b.esphome.platform.value for b in boards}
     _, names = _generation_dedup_keys(boards)
@@ -908,7 +904,7 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
                     owner,
                 )
             continue
-        display = _NRF52_BOARD_NAMES.get(name, name)
+        display = _NRF52_BOARD_NAMES.get(catalog_id, name)
         if _name_already_listed(Platform.NRF52, name, display, names):
             continue
         board = _generated_board(Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios))
