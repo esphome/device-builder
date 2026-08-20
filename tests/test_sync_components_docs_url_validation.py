@@ -124,6 +124,16 @@ def test_ambiguous_config_example_within_own_domain_yields_no_link() -> None:
     assert _resolve_docs_url("", "sensor.xiaomi_lywsd03mmc", pages) == ("", None)
 
 
+def test_config_example_outranks_own_domain_stem_heading() -> None:
+    pages = {
+        "sensor/other": "## Xiaomi Lywsd03mmc\n\ntext\n",
+        "ble/real": _XIAOMI_PAGE,
+    }
+    url, anchor = _resolve_docs_url("", "sensor.xiaomi_lywsd03mmc", pages)
+    assert url == "https://esphome.io/components/ble/real"
+    assert anchor == ("ble/real", "lywsd03mmc")
+
+
 def test_undocumented_component_yields_no_link() -> None:
     assert _resolve_docs_url("", "climate.coolix", {"light": ""}) == ("", None)
 

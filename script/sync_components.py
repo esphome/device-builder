@@ -2255,6 +2255,14 @@ def _page_anchor_set(text: str) -> frozenset[str]:
     return frozenset(slug for _, slug in headings) | explicit
 
 
+def _component_example_re(component_id: str) -> re.Pattern[str]:
+    """Matcher for a config example naming *component_id* in a docs page."""
+    stem = component_id.split(".", 1)[-1]
+    if "." in component_id:
+        return re.compile(rf"^\s*-\s+platform:\s+{re.escape(stem)}\s*$", re.MULTILINE)
+    return re.compile(rf"^{re.escape(component_id)}:\s*$", re.MULTILINE)
+
+
 def _find_component_section(text: str, component_id: str) -> str | None:
     """
     Anchor slug of the section documenting *component_id* inside a docs page.
@@ -2266,10 +2274,7 @@ def _find_component_section(text: str, component_id: str) -> str | None:
     """
     stem = component_id.split(".", 1)[-1]
     body = _strip_mdx_frontmatter(text)
-    if "." in component_id:
-        example = re.compile(rf"^\s*-\s+platform:\s+{re.escape(stem)}\s*$", re.MULTILINE)
-    else:
-        example = re.compile(rf"^{re.escape(component_id)}:\s*$", re.MULTILINE)
+    example = _component_example_re(component_id)
     headings, _ = _page_anchor_index(text)
     if m := example.search(body):
         preceding = [slug for start, slug in headings if start <= m.start()]
@@ -2339,15 +2344,23 @@ def _find_docs_page_by_content(
 
     A config-example match wins and carries the section slug; a component
     documented without one (a supported-platforms table row) matches on an
-    inline ``<stem>`` code span with no slug. Either scan bails unless
-    exactly one page matches; an ambiguous config-example scan first narrows
-    to pages under the component's own domain directory.
+    inline ``<stem>`` code span with no slug. Section matches rank
+    config-example pages above stem-heading pages, then narrow an ambiguous
+    set to pages under the component's own domain directory; either scan
+    bails unless exactly one page remains.
     """
-    matches: list[tuple[str, str]] = []
+    example = _component_example_re(component_id)
+    example_matches: list[tuple[str, str]] = []
+    heading_matches: list[tuple[str, str]] = []
     for path, text in pages.items():
         slug = _find_component_section(text, component_id)
-        if slug is not None:
-            matches.append((path, slug))
+        if slug is None:
+            continue
+        bucket = (
+            example_matches if example.search(_strip_mdx_frontmatter(text)) else heading_matches
+        )
+        bucket.append((path, slug))
+    matches = example_matches or heading_matches
     if len(matches) > 1 and "." in component_id:
         domain = component_id.split(".", 1)[0]
         matches = [m for m in matches if m[0].split("/", 1)[0] == domain] or matches
