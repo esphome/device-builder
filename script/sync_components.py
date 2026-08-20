@@ -2256,8 +2256,14 @@ def _page_anchor_set(text: str) -> frozenset[str]:
 
 
 def _find_component_section(text: str, component_id: str) -> str | None:
+    """Anchor slug of the section documenting *component_id* inside a docs page."""
+    found = _find_component_section_kinded(text, component_id)
+    return found[0] if found else None
+
+
+def _find_component_section_kinded(text: str, component_id: str) -> tuple[str, bool] | None:
     """
-    Anchor slug of the section documenting *component_id* inside a docs page.
+    ``(slug, from_example)`` of the section documenting *component_id* inside a docs page.
 
     Matched on the first config example naming it (``- platform: <stem>``
     for a dotted id, a top-level ``<id>:`` key otherwise) → the nearest
@@ -2273,11 +2279,11 @@ def _find_component_section(text: str, component_id: str) -> str | None:
     headings, _ = _page_anchor_index(text)
     if m := example.search(body):
         preceding = [slug for start, slug in headings if start <= m.start()]
-        return preceding[-1] if preceding else ""
+        return (preceding[-1] if preceding else ""), True
     names = {stem, stem.replace("_", "-")}
     for _, slug in headings:
         if slug in names:
-            return slug
+            return slug, False
     return None
 
 
@@ -2339,16 +2345,23 @@ def _find_docs_page_by_content(
 
     A config-example match wins and carries the section slug; a component
     documented without one (a supported-platforms table row) matches on an
-    inline ``<stem>`` code span with no slug. Either scan bails unless
-    exactly one page matches.
+    inline ``<stem>`` code span with no slug. Section matches rank
+    config-example pages above stem-heading pages, then narrow an ambiguous
+    set to pages under the component's own domain directory; either scan
+    bails unless exactly one page remains.
     """
-    matches: list[tuple[str, str]] = []
+    example_matches: list[tuple[str, str]] = []
+    heading_matches: list[tuple[str, str]] = []
     for path, text in pages.items():
-        slug = _find_component_section(text, component_id)
-        if slug is not None:
-            matches.append((path, slug))
-            if len(matches) > 1:
-                break
+        found = _find_component_section_kinded(text, component_id)
+        if found is None:
+            continue
+        slug, from_example = found
+        (example_matches if from_example else heading_matches).append((path, slug))
+    matches = example_matches or heading_matches
+    if len(matches) > 1 and "." in component_id:
+        domain = component_id.split(".", 1)[0]
+        matches = [m for m in matches if m[0].split("/", 1)[0] == domain] or matches
     if len(matches) == 1:
         return matches[0]
     # Blockquote mentions are commentary about the component, not its docs.

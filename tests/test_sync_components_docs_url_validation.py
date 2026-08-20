@@ -108,6 +108,39 @@ def test_ambiguous_config_example_yields_no_link() -> None:
     assert _resolve_docs_url("", "weikai", {"a": _WEIKAI_PAGE, "b": _WEIKAI_PAGE}) == ("", None)
 
 
+def test_ambiguous_config_example_prefers_own_domain_page() -> None:
+    pages = {
+        "sensor/xiaomi_ble": _XIAOMI_PAGE,
+        "bk72xx_ble_tracker": _XIAOMI_PAGE,
+        "ln882h_ble_tracker": _XIAOMI_PAGE,
+    }
+    url, anchor = _resolve_docs_url("", "sensor.xiaomi_lywsd03mmc", pages)
+    assert url == "https://esphome.io/components/sensor/xiaomi_ble"
+    assert anchor == ("sensor/xiaomi_ble", "lywsd03mmc")
+
+
+def test_ambiguous_config_example_within_own_domain_yields_no_link() -> None:
+    pages = {"sensor/a": _XIAOMI_PAGE, "sensor/b": _XIAOMI_PAGE}
+    assert _resolve_docs_url("", "sensor.xiaomi_lywsd03mmc", pages) == ("", None)
+
+
+def test_ambiguous_stem_heading_prefers_own_domain_page() -> None:
+    pages = {"sensor/p": "## Foo\n", "light/q": "## Foo\n"}
+    url, anchor = _resolve_docs_url("", "sensor.foo", pages)
+    assert url == "https://esphome.io/components/sensor/p"
+    assert anchor == ("sensor/p", "foo")
+
+
+def test_config_example_outranks_own_domain_stem_heading() -> None:
+    pages = {
+        "sensor/other": "## Xiaomi Lywsd03mmc\n\ntext\n",
+        "ble/real": _XIAOMI_PAGE,
+    }
+    url, anchor = _resolve_docs_url("", "sensor.xiaomi_lywsd03mmc", pages)
+    assert url == "https://esphome.io/components/ble/real"
+    assert anchor == ("ble/real", "lywsd03mmc")
+
+
 def test_undocumented_component_yields_no_link() -> None:
     assert _resolve_docs_url("", "climate.coolix", {"light": ""}) == ("", None)
 
