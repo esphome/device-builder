@@ -124,6 +124,13 @@ def test_ambiguous_config_example_within_own_domain_yields_no_link() -> None:
     assert _resolve_docs_url("", "sensor.xiaomi_lywsd03mmc", pages) == ("", None)
 
 
+def test_ambiguous_stem_heading_prefers_own_domain_page() -> None:
+    pages = {"sensor/p": "## Foo\n", "light/q": "## Foo\n"}
+    url, anchor = _resolve_docs_url("", "sensor.foo", pages)
+    assert url == "https://esphome.io/components/sensor/p"
+    assert anchor == ("sensor/p", "foo")
+
+
 def test_config_example_outranks_own_domain_stem_heading() -> None:
     pages = {
         "sensor/other": "## Xiaomi Lywsd03mmc\n\ntext\n",

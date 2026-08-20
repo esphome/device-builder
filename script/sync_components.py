@@ -2255,17 +2255,15 @@ def _page_anchor_set(text: str) -> frozenset[str]:
     return frozenset(slug for _, slug in headings) | explicit
 
 
-def _component_example_re(component_id: str) -> re.Pattern[str]:
-    """Matcher for a config example naming *component_id* in a docs page."""
-    stem = component_id.split(".", 1)[-1]
-    if "." in component_id:
-        return re.compile(rf"^\s*-\s+platform:\s+{re.escape(stem)}\s*$", re.MULTILINE)
-    return re.compile(rf"^{re.escape(component_id)}:\s*$", re.MULTILINE)
-
-
 def _find_component_section(text: str, component_id: str) -> str | None:
+    """Anchor slug of the section documenting *component_id* inside a docs page."""
+    found = _find_component_section_kinded(text, component_id)
+    return found[0] if found else None
+
+
+def _find_component_section_kinded(text: str, component_id: str) -> tuple[str, bool] | None:
     """
-    Anchor slug of the section documenting *component_id* inside a docs page.
+    ``(slug, from_example)`` of the section documenting *component_id* inside a docs page.
 
     Matched on the first config example naming it (``- platform: <stem>``
     for a dotted id, a top-level ``<id>:`` key otherwise) → the nearest
@@ -2274,15 +2272,18 @@ def _find_component_section(text: str, component_id: str) -> str | None:
     """
     stem = component_id.split(".", 1)[-1]
     body = _strip_mdx_frontmatter(text)
-    example = _component_example_re(component_id)
+    if "." in component_id:
+        example = re.compile(rf"^\s*-\s+platform:\s+{re.escape(stem)}\s*$", re.MULTILINE)
+    else:
+        example = re.compile(rf"^{re.escape(component_id)}:\s*$", re.MULTILINE)
     headings, _ = _page_anchor_index(text)
     if m := example.search(body):
         preceding = [slug for start, slug in headings if start <= m.start()]
-        return preceding[-1] if preceding else ""
+        return (preceding[-1] if preceding else ""), True
     names = {stem, stem.replace("_", "-")}
     for _, slug in headings:
         if slug in names:
-            return slug
+            return slug, False
     return None
 
 
@@ -2349,17 +2350,14 @@ def _find_docs_page_by_content(
     set to pages under the component's own domain directory; either scan
     bails unless exactly one page remains.
     """
-    example = _component_example_re(component_id)
     example_matches: list[tuple[str, str]] = []
     heading_matches: list[tuple[str, str]] = []
     for path, text in pages.items():
-        slug = _find_component_section(text, component_id)
-        if slug is None:
+        found = _find_component_section_kinded(text, component_id)
+        if found is None:
             continue
-        bucket = (
-            example_matches if example.search(_strip_mdx_frontmatter(text)) else heading_matches
-        )
-        bucket.append((path, slug))
+        slug, from_example = found
+        (example_matches if from_example else heading_matches).append((path, slug))
     matches = example_matches or heading_matches
     if len(matches) > 1 and "." in component_id:
         domain = component_id.split(".", 1)[0]
