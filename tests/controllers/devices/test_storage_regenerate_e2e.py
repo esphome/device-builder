@@ -31,6 +31,7 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController, storage_regen
 from esphome_device_builder.controllers.devices._state import RegenState
+from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wait_until
@@ -157,12 +158,12 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     assert controller.state.regen.pending == set()
 
 
-async def test_out_of_band_network_edit_spawns_only_generate(
+async def test_out_of_band_content_edit_spawns_only_generate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A scanner UPDATED with a moved network block regenerates StorageJSON (#2486)."""
+    """A scanner UPDATED with changed config text regenerates StorageJSON (#2486)."""
     controller = make_controller(
         tmp_path,
         with_state_monitor=True,
@@ -181,11 +182,18 @@ async def test_out_of_band_network_edit_spawns_only_generate(
     )
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    _seed_store(controller, "kitchen.yaml", network_fingerprint="pre-edit-digest")
+    _seed_store(
+        controller,
+        "kitchen.yaml",
+        content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}pre-edit-digest",
+    )
 
     controller._on_scan_change(
         ScanChange.UPDATED,
-        make_device(name="kitchen", network_fingerprint="post-edit-digest"),
+        make_device(
+            name="kitchen",
+            content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}post-edit-digest",
+        ),
     )
     await _drain(controller)
 

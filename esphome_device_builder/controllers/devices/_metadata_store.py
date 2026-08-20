@@ -28,7 +28,7 @@ STORE_FIELDS: frozenset[str] = frozenset(
         "queued_update",
         "api_encryption_active",
         "expected_config_hash",
-        "network_fingerprint",
+        "content_fingerprint",
         "build_size_bytes",
         "build_size_dir_mtime",
         "build_size_info_mtime",
@@ -37,6 +37,11 @@ STORE_FIELDS: frozenset[str] = frozenset(
         "regen_failed_attempts",
     }
 )
+
+
+def _own_fields(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return the store-owned fields of a raw *entry*."""
+    return {k: v for k, v in entry.items() if k in STORE_FIELDS}
 
 
 def _encode(data: dict[str, dict[str, Any]]) -> bytes:
@@ -51,7 +56,13 @@ def _decode(raw: bytes) -> dict[str, dict[str, Any]]:
         return {}
     if not isinstance(obj, dict):
         return {}
-    return {k: v for k, v in obj.items() if isinstance(k, str) and isinstance(v, dict)}
+    # Drop fields the store no longer owns so renamed / retired keys
+    # don't linger on disk past the next debounced save.
+    return {
+        k: kept
+        for k, v in obj.items()
+        if isinstance(k, str) and isinstance(v, dict) and (kept := _own_fields(v))
+    }
 
 
 class DeviceMetadataStore:
@@ -223,8 +234,7 @@ class DeviceMetadataStore:
                 continue
             if not isinstance(value, dict):
                 continue
-            store_fields = {k: v for k, v in value.items() if k in STORE_FIELDS}
-            if store_fields:
+            if store_fields := _own_fields(value):
                 migrated[key] = store_fields
         return migrated
 

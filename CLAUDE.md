@@ -668,12 +668,14 @@ against legacy behaviour before assuming the simpler version suffices.
     instead of latching ONLINE off the dashboard host — while the DNS
     cache still returns literal loopback verbatim, keeping SSH-tunnel
     OTA workflows working. Out-of-band edits (git pull, external
-    editor) that move an address-source block (network blocks,
-    `esphome:`, `substitutions:`, `packages:`) schedule a StorageJSON
-    regen via the `network_fingerprint` digest — compared against the
+    editor) that change the config text schedule a StorageJSON
+    regen via the `content_fingerprint` digest — compared against the
     metadata store, so edits made while the dashboard was down are
     caught on the cold-start ADDED (API-path writes already regen on
-    every save; RELOADED only re-seeds the stored value). An edit to a
+    every save; RELOADED only re-seeds the stored value). The digest
+    is version-prefixed; a stored value from an older algorithm
+    re-seeds silently instead of regenerating, so an upgrade can't
+    spawn fleet-wide regens (#2612). An edit to a
     referenced package or `!include`d *file* stays uncovered — it
     changes no device YAML, so no scan event fires.
   - **`_http._tcp` identity fallback** (`MdnsSource._on_http_service_state_change`,
