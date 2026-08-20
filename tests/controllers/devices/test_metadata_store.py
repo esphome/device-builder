@@ -106,6 +106,20 @@ async def test_async_load_skips_migration_when_new_file_exists(tmp_path: Path) -
     }
 
 
+async def test_async_load_drops_retired_fields(tmp_path: Path) -> None:
+    """Fields the store no longer owns are dropped on load, empty entries with them."""
+    new_path = tmp_path / ".device-builder-devices.json"
+    new_path.write_bytes(
+        b'{"kitchen.yaml": {"ip": "10.0.0.1", "network_fingerprint": "abc"},'
+        b' "attic.yaml": {"network_fingerprint": "def"}}'
+    )
+
+    store = _make_store(tmp_path)
+    await store.async_load()
+
+    assert store.snapshot_all() == {"kitchen.yaml": {"ip": "10.0.0.1"}}
+
+
 async def test_async_load_drops_shared_entry_with_only_store_fields(tmp_path: Path) -> None:
     """A shared-sidecar entry holding only store-shaped fields collapses out."""
     await asyncio.to_thread(
@@ -601,7 +615,7 @@ def test_store_fields_pinned() -> None:
                 "queued_update",
                 "api_encryption_active",
                 "expected_config_hash",
-                "network_fingerprint",
+                "content_fingerprint",
                 "build_size_bytes",
                 "build_size_dir_mtime",
                 "build_size_info_mtime",

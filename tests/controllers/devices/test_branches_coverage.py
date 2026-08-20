@@ -39,6 +39,7 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
+from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     AdoptableDevice,
@@ -1227,6 +1228,11 @@ def test_on_scan_change_address_change_retargets_monitor(
     assert ("address_retargeted", "kitchen") in controller._state_monitor.calls
 
 
+def _fp(token: str) -> str:
+    """Return *token* carrying the current algorithm-version prefix."""
+    return f"{CONTENT_FINGERPRINT_VERSION}{token}"
+
+
 def _fingerprint_rig(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -1235,7 +1241,7 @@ def _fingerprint_rig(
 ) -> tuple[Any, list[str]]:
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
     if stored is not None:
-        controller._metadata_store._state["kitchen.yaml"] = {"network_fingerprint": stored}
+        controller._metadata_store._state["kitchen.yaml"] = {"content_fingerprint": stored}
     regenerated: list[str] = []
     monkeypatch.setattr(
         controller, "_schedule_storage_regenerate", regenerated.append, raising=False
@@ -1243,41 +1249,41 @@ def _fingerprint_rig(
     return controller, regenerated
 
 
-async def test_on_scan_change_updated_network_change_schedules_regen(
+async def test_on_scan_change_updated_content_change_schedules_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An out-of-band edit that moves the fingerprint schedules ``--only-generate``."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "old")
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("old"))
 
     controller._on_scan_change(
         ScanChange.UPDATED,
         make_device(
             name="kitchen",
-            network_fingerprint="new",
+            content_fingerprint=_fp("new"),
             loaded_integrations=["wifi"],
             expected_config_hash="abcd1234",
         ),
     )
 
     assert regenerated == ["kitchen.yaml"]
-    assert controller._metadata_store.get("kitchen.yaml")["network_fingerprint"] == "new"
+    assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
 
 
-async def test_on_scan_change_added_network_change_schedules_regen(
+async def test_on_scan_change_added_content_change_schedules_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An edit made while the dashboard was down is caught on the cold-start ADDED."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "old")
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("old"))
 
     controller._on_scan_change(
         ScanChange.ADDED,
         make_device(
             name="kitchen",
-            network_fingerprint="new",
+            content_fingerprint=_fp("new"),
             loaded_integrations=["wifi"],
             expected_config_hash="abcd1234",
         ),
@@ -1292,10 +1298,10 @@ async def test_on_scan_change_updated_missing_fields_schedules_regen(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An out-of-band edit of a config with missing fields schedules a regen."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("same"))
 
     controller._on_scan_change(
-        ScanChange.UPDATED, make_device(name="kitchen", network_fingerprint="same")
+        ScanChange.UPDATED, make_device(name="kitchen", content_fingerprint=_fp("same"))
     )
 
     assert regenerated == ["kitchen.yaml"]
@@ -1307,10 +1313,10 @@ async def test_on_scan_change_reloaded_missing_fields_skips_regen(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A metadata reload never schedules a regen, missing fields or not."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("same"))
 
     controller._on_scan_change(
-        ScanChange.RELOADED, make_device(name="kitchen", network_fingerprint="same")
+        ScanChange.RELOADED, make_device(name="kitchen", content_fingerprint=_fp("same"))
     )
 
     assert regenerated == []
@@ -1322,7 +1328,7 @@ async def test_on_scan_change_updated_reschedules_cancelled_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An edit that cancels an armed retry respawns the ladder for the new content."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("same"))
     handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
     controller.state.regen.retry_timers["kitchen.yaml"] = handle
 
@@ -1330,7 +1336,7 @@ async def test_on_scan_change_updated_reschedules_cancelled_retry(
         ScanChange.UPDATED,
         make_device(
             name="kitchen",
-            network_fingerprint="same",
+            content_fingerprint=_fp("same"),
             loaded_integrations=["wifi"],
             expected_config_hash="abcd1234",
         ),
@@ -1340,19 +1346,19 @@ async def test_on_scan_change_updated_reschedules_cancelled_retry(
     assert regenerated == ["kitchen.yaml"]
 
 
-async def test_on_scan_change_updated_same_network_skips_regen(
+async def test_on_scan_change_updated_same_content_skips_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An out-of-band edit leaving the address sources alone schedules nothing."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
+    """A cosmetic out-of-band edit leaving the digest unchanged schedules nothing."""
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("same"))
 
     controller._on_scan_change(
         ScanChange.UPDATED,
         make_device(
             name="kitchen",
-            network_fingerprint="same",
+            content_fingerprint=_fp("same"),
             loaded_integrations=["wifi"],
             expected_config_hash="abcd1234",
         ),
@@ -1367,20 +1373,20 @@ async def test_on_scan_change_empty_fingerprint_is_no_information(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An unreadable YAML neither schedules a regen nor clobbers the stored digest."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "old")
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("old"))
 
     controller._on_scan_change(
         ScanChange.UPDATED,
         make_device(
             name="kitchen",
-            network_fingerprint="",
+            content_fingerprint="",
             loaded_integrations=["wifi"],
             expected_config_hash="abcd1234",
         ),
     )
 
     assert regenerated == []
-    assert controller._metadata_store.get("kitchen.yaml")["network_fingerprint"] == "old"
+    assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("old")
 
 
 async def test_on_scan_change_first_sight_seeds_without_regen(
@@ -1395,30 +1401,52 @@ async def test_on_scan_change_first_sight_seeds_without_regen(
         ScanChange.ADDED,
         make_device(
             name="kitchen",
-            network_fingerprint="first",
+            content_fingerprint=_fp("first"),
             loaded_integrations=["wifi"],
             expected_config_hash="abcd1234",
         ),
     )
 
     assert regenerated == []
-    assert controller._metadata_store.get("kitchen.yaml")["network_fingerprint"] == "first"
+    assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("first")
 
 
-async def test_on_scan_change_reloaded_network_change_reseeds_without_regen(
+async def test_on_scan_change_stale_digest_version_reseeds_without_regen(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stored digest from an older algorithm re-seeds silently, no regen (#2612)."""
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "d" * 64)
+
+    controller._on_scan_change(
+        ScanChange.ADDED,
+        make_device(
+            name="kitchen",
+            content_fingerprint=_fp("new"),
+            loaded_integrations=["wifi"],
+            expected_config_hash="abcd1234",
+        ),
+    )
+
+    assert regenerated == []
+    assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
+
+
+async def test_on_scan_change_reloaded_content_change_reseeds_without_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Our own requested reload re-seeds the stored value but never schedules."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "old")
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("old"))
 
     controller._on_scan_change(
-        ScanChange.RELOADED, make_device(name="kitchen", network_fingerprint="new")
+        ScanChange.RELOADED, make_device(name="kitchen", content_fingerprint=_fp("new"))
     )
 
     assert regenerated == []
-    assert controller._metadata_store.get("kitchen.yaml")["network_fingerprint"] == "new"
+    assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
 
 
 def test_on_scan_change_removed_revisits_importables(

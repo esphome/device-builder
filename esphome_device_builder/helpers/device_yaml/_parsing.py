@@ -189,27 +189,19 @@ def device_uses_mqtt(yaml_content: str) -> bool:
     return yaml_has_top_level_block(yaml_content, "mqtt")
 
 
-# The network blocks whose ``use_address`` feeds ``StorageJSON.address``
-# (esphome's ``CORE.address`` reads the first present one), plus the
-# blocks that feed it indirectly: ``esphome:`` (an absent
-# ``use_address`` derives from ``name``), ``substitutions:`` for the
-# ``use_address: ${var}`` spelling, and ``packages:`` / a top-level
-# ``<<:`` merge key for a network block pulled in by reference.
-_ADDRESS_SOURCE_KEYS = frozenset(
-    {"wifi", "ethernet", "openthread", "esphome", "substitutions", "packages", "<<"}
-)
+# Prefix on every stored digest; bump when the algorithm changes.
+CONTENT_FINGERPRINT_VERSION = "1:"
 
 
-def extract_network_address_fingerprint(yaml_content: str) -> str:
-    """
-    Digest of the top-level blocks that can carry or derive ``use_address``.
+def extract_config_content_fingerprint(yaml_content: str) -> str:
+    """Versioned digest of the YAML's significant lines; empty when there are none."""
+    digest = _digest_lines(_significant_lines(yaml_content))
+    return f"{CONTENT_FINGERPRINT_VERSION}{digest}" if digest else ""
 
-    Full-line comments and blank lines don't move it (inline comments
-    and reindentation do). An edit to a referenced package or
-    ``!include``d *file* stays invisible — it changes no device YAML,
-    so no scan event fires. Empty when no block exists.
-    """
-    return _digest_lines(_capture_top_level_lines(yaml_content, _ADDRESS_SOURCE_KEYS))
+
+def content_fingerprint_is_current(stored: object) -> bool:
+    """Return True when *stored* is a digest the current algorithm produced."""
+    return isinstance(stored, str) and stored.startswith(CONTENT_FINGERPRINT_VERSION)
 
 
 # The blocks that decide *which* component modules esphome loads:
@@ -702,15 +694,24 @@ def _match_top_level_key(line: str) -> str | None:
     return stripped.split(":", 1)[0].strip()
 
 
+def _significant_lines(yaml_content: str) -> list[str]:
+    """Return the non-blank, non-comment lines of *yaml_content*, in file order."""
+    return [
+        line
+        for line in yaml_content.splitlines()
+        if (stripped := line.lstrip()) and not stripped.startswith("#")
+    ]
+
+
 def _capture_top_level_lines(yaml_content: str, keys: frozenset[str]) -> list[str]:
-    """Return the non-blank, non-comment lines of the top-level *keys* blocks, in file order."""
+    """Return the significant lines of the top-level *keys* blocks, in file order."""
     captured: list[str] = []
     in_block = False
-    for line in yaml_content.splitlines():
+    for line in _significant_lines(yaml_content):
         key = _match_top_level_key(line)
         if key is not None:
             in_block = key in keys
-        if in_block and line.strip() and not line.lstrip().startswith("#"):
+        if in_block:
             captured.append(line)
     return captured
 

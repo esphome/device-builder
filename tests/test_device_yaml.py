@@ -44,13 +44,15 @@ from esphome_device_builder.helpers.device_yaml import (
 )
 from esphome_device_builder.helpers.device_yaml._loading import _snapshot_source_files
 from esphome_device_builder.helpers.device_yaml._parsing import (
+    CONTENT_FINGERPRINT_VERSION,
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
+    content_fingerprint_is_current,
     device_ap_label,
     extract_component_source_fingerprint,
+    extract_config_content_fingerprint,
     extract_logger_baud_rate,
     extract_logger_interface,
-    extract_network_address_fingerprint,
     extract_ota_partition_access,
     resolve_esp32_variant,
     yaml_has_name_add_mac_suffix,
@@ -829,49 +831,37 @@ def test_extract_meta_from_config_no_esphome_block(config: Any) -> None:
     assert extract_esphome_meta_from_config(config) == (None, None, None, None)
 
 
-def test_extract_network_address_fingerprint_tracks_network_edits_only() -> None:
-    """The digest moves with the network blocks, not with surrounding edits."""
+def test_extract_config_content_fingerprint_tracks_any_content_edit() -> None:
+    """Every non-cosmetic edit moves the digest, address-relevant or not."""
     base = "esphome:\n  name: dev\nwifi:\n  ssid: s\n  use_address: 10.0.0.9\napi:\n"
-    assert extract_network_address_fingerprint(base) != extract_network_address_fingerprint(
+    fingerprint = extract_config_content_fingerprint(base)
+    assert fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert fingerprint != extract_config_content_fingerprint(
         base.replace("  use_address: 10.0.0.9\n", "")
     )
-    assert extract_network_address_fingerprint(base) == extract_network_address_fingerprint(
+    assert fingerprint != extract_config_content_fingerprint(
         base.replace("api:\n", "api:\n  encryption:\n    key: k\n")
     )
 
 
-def test_extract_network_address_fingerprint_covers_all_source_blocks() -> None:
-    """Ethernet, openthread, substitutions, and packages edits each move the digest."""
-    yaml_content = (
-        "esphome:\n  name: dev\n"
-        "substitutions:\n  addr: 10.0.0.9\n"
-        "packages:\n  base: !include common/wifi.yaml\n"
-        "ethernet:\n  type: lan8720\nlogger:\nopenthread:\n  channel: 15\n"
-    )
-    for edit in (
-        ("  addr: 10.0.0.9", "  addr: 10.0.0.10"),
-        ("common/wifi.yaml", "common/wifi2.yaml"),
-        ("  type: lan8720", "  type: lan8721"),
-        ("  channel: 15", "  channel: 16"),
-        ("  name: dev", "  name: dev2"),
-    ):
-        assert extract_network_address_fingerprint(
-            yaml_content
-        ) != extract_network_address_fingerprint(yaml_content.replace(*edit))
-
-
-def test_extract_network_address_fingerprint_ignores_comments_and_blanks() -> None:
-    """Cosmetic edits inside a network block must not schedule a regen."""
+def test_extract_config_content_fingerprint_ignores_comments_and_blanks() -> None:
+    """Cosmetic edits must not schedule a regen."""
     plain = "wifi:\n  ssid: s\nota:\n"
-    cosmetic = "wifi:\n# a comment\n\n  ssid: s\nota:\n"
-    assert extract_network_address_fingerprint(plain) == extract_network_address_fingerprint(
-        cosmetic
-    )
+    cosmetic = "# header\nwifi:\n# a comment\n\n  ssid: s\nota:\n"
+    assert extract_config_content_fingerprint(plain) == extract_config_content_fingerprint(cosmetic)
 
 
-def test_extract_network_address_fingerprint_without_address_blocks() -> None:
-    """No address-source block yields the empty fingerprint."""
-    assert extract_network_address_fingerprint("logger:\napi:\n  reboot_timeout: 0s\n") == ""
+def test_extract_config_content_fingerprint_without_content() -> None:
+    """Empty or comments-only YAML yields the empty fingerprint."""
+    assert extract_config_content_fingerprint("") == ""
+    assert extract_config_content_fingerprint("# only a comment\n\n") == ""
+
+
+def test_content_fingerprint_is_current() -> None:
+    """Only a digest carrying the current version prefix is current."""
+    assert content_fingerprint_is_current(extract_config_content_fingerprint("wifi:\n"))
+    assert not content_fingerprint_is_current("d" * 64)
+    assert not content_fingerprint_is_current(None)
 
 
 _EXTERNAL_COMPONENTS_YAML = (
@@ -931,14 +921,6 @@ def test_extract_component_source_fingerprint_captures_zero_indent_sequence() ->
     )
     assert fingerprint != extract_component_source_fingerprint(
         yaml_content.replace("[esp32]", "[esp32, ota]")
-    )
-
-
-def test_extract_network_address_fingerprint_covers_root_merge_key() -> None:
-    """Repointing a top-level merge include moves the digest."""
-    yaml_content = "esphome:\n  name: dev\n<<: !include base.yaml\nlogger:\n"
-    assert extract_network_address_fingerprint(yaml_content) != extract_network_address_fingerprint(
-        yaml_content.replace("base.yaml", "base2.yaml")
     )
 
 
@@ -1333,7 +1315,7 @@ def test_load_device_from_storage_shallow_matches_deep_for_inline_meta(tmp_path:
     assert shallow.friendly_name == deep.friendly_name == "Kitchen Sensor"
     assert shallow.comment == deep.comment == "window sill"
     assert shallow.area == deep.area == "kitchen"
-    assert shallow.network_fingerprint == deep.network_fingerprint != ""
+    assert shallow.content_fingerprint == deep.content_fingerprint != ""
 
 
 def test_load_device_from_storage_shallow_degrades_package_fields(tmp_path: Path) -> None:

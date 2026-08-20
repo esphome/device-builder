@@ -165,9 +165,8 @@ class Device(DashboardModel):
     board_id: str = ""
     target_platform: str = ""
     address: str = ""  # mDNS hostname from StorageJSON (e.g. "my_device.local")
-    # Digest of the top-level blocks that can carry ``use_address``;
-    # change detector for out-of-band edits.
-    network_fingerprint: str = field(default="", metadata={"serialize": "omit"})
+    # Versioned digest of the config YAML text; out-of-band-edit detector.
+    content_fingerprint: str = field(default="", metadata={"serialize": "omit"})
     # Last-known resolved IP — primary IPv4 when available, else the
     # first scoped IPv6. Populated by mDNS resolution and DNS
     # pre-resolve in the ping sweep, persisted through the device-builder
