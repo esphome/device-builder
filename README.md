@@ -414,23 +414,41 @@ clicked Accept. Step 2 is the prerequisite, not the wrap-up.
    the receiving side flips that toggle. (HA add-on instances
    stay silent on the network; two add-on dashboards on the same
    LAN need the manual-entry flow below.)
-2. **On the receiving dashboard**, open **Settings → Build
-   server → Pairing requests**. This opens the pairing window;
-   the receiver will refuse any pair request that arrives while
-   this screen isn't mounted. Leave the screen open through
-   step 4.
+
+   ![Enabling Build server on the receiving dashboard](docs/images/toggle-on-remote-build.gif)
+2. **On the receiving dashboard**, open **Settings → Pairing
+   requests**. This opens the pairing window; the receiver will
+   refuse any pair request that arrives while this screen isn't
+   mounted. The window shows as **Open** alongside a countdown,
+   and **Extend** restarts it if you run out of time. Leave the
+   screen open through step 4.
 3. **On the sending dashboard**, open **Settings → Send builds →
    Known dashboards**, find the receiver in the list, and click
-   **Pair**. Both dashboards now display a pairing **fingerprint**
-   rendered as an emoji grid. Compare the two fingerprints out
-   of band; they must match for the pairing to be safe to
-   accept. Hex bytes are tucked behind a **Show hex bytes**
-   disclosure if you prefer that form, but the emoji grid is the
-   primary verification surface.
+   **Pair**. **Confirm receiver** opens with the receiver's
+   identity fingerprint, a name for your own paired-receivers
+   list, and the name this dashboard introduces itself by; click
+   **Send pair request**. **Pair request sent** then shows this
+   dashboard's own **fingerprint** rendered as an emoji grid.
+   Leave it on screen for step 4. Hex bytes are tucked behind a
+   **Show hex bytes** disclosure if you prefer that form, but
+   the emoji grid is the primary verification surface.
+
+   ![Sending a pair request from the sending dashboard](docs/images/initiate-build-server-pairing.gif)
 4. Back on the receiving dashboard's still-open **Pairing
-   requests** screen, the new request now shows up — click
-   **Accept**. The pairing persists on both sides and survives
-   restarts.
+   requests** screen, the new request now shows up with the
+   sender's name and originating IP — click **Review**. Compare
+   the **OOB fingerprint** in that dialog against the grid the
+   sending dashboard is still showing; the two must match for
+   the pairing to be safe to accept. Then click **Accept**. The
+   pairing persists on both sides and survives restarts.
+
+   ![Reviewing and accepting the pair request](docs/images/review-accept-pair-request.gif)
+
+Once accepted, the receiver appears under **Paired build
+servers** on the sending dashboard marked **Connected**, with
+the ESPHome version each side runs:
+
+![A connected build server on the sending dashboard](docs/images/successful-pairing.png)
 
 If a dashboard you expected to show up doesn't appear in
 **Known dashboards**, run `esphome-device-builder-discover` on
