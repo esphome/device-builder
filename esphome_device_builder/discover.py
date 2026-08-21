@@ -29,6 +29,7 @@ from zeroconf import IPVersion, ServiceStateChange, Zeroconf
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
 from .helpers.dashboard_advertise import SERVICE_TYPE
+from .helpers.hostname import valid_mdns_service_name
 
 _FORMAT = "{: <7}|{: <24}|{: <21}|{: <18}|{: <16}|{: <12}|{: <16}"
 _COLUMN_NAMES = (
@@ -198,9 +199,11 @@ def _on_service_state_change(
     :mod:`controllers._device_state_monitor` /
     :mod:`controllers.remote_build.controller`).
     """
-    # The mDNS service name is peer-controlled; sanitize before printing so a
-    # hostile broadcaster can't inject ANSI escapes / newlines / null bytes
-    # into the terminal via the instance label.
+    if not valid_mdns_service_name(name):
+        return
+    # Control characters never get past the guard above, but the instance
+    # label is still peer-controlled Unicode; strip the rest of the
+    # non-printables and length-cap before it reaches the terminal.
     short_name = _safe_label(name.partition(".")[0], _MAX_NAME_DISPLAY)
     state = "OFFLINE" if state_change is ServiceStateChange.Removed else "ONLINE"
     info = AsyncServiceInfo(service_type, name)

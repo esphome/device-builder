@@ -29,7 +29,7 @@ from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 
 from ...helpers.async_ import create_logged_task, drain_tasks
-from ...helpers.hostname import normalize_hostname
+from ...helpers.hostname import normalize_hostname, valid_mdns_service_name
 from ...helpers.ip import drop_unusable_addresses
 from ...models import DeviceState
 from .._reachability_tracker import MdnsCacheInfo
@@ -495,6 +495,8 @@ class MdnsSource:
         # inner handler only sees the events it cares about,
         # letting the upstream ``DashboardImportDiscovery``
         # piggy-back on the same dispatch path.
+        if not valid_mdns_service_name(name):
+            return
         importable = self._monitor.importable
         if service_type == _ESPHOME_SERVICE_TYPE:
             self._on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)

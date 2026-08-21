@@ -130,26 +130,18 @@ def test_per_column_caps_match_format_widths() -> None:
     assert _MAX_PIN_DISPLAY == 64
 
 
-def test_on_service_state_change_sanitizes_hostile_service_name(
+def test_on_service_state_change_drops_hostile_service_name(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """ESC bytes in the mDNS instance name don't reach stdout."""
-    fake_info = MagicMock()
-    fake_info.properties = {}
-    fake_info.ip_addresses_by_version.return_value = ["192.168.1.10"]
-    fake_info.port = 6052
+    """A control-character instance name prints no row at all (#2620)."""
+    _on_service_state_change(
+        MagicMock(),
+        "_esphomebuilder._tcp.local.",
+        "\x1b[2Jevil._esphomebuilder._tcp.local.",
+        ServiceStateChange.Added,
+    )
 
-    with patch("esphome_device_builder.discover.AsyncServiceInfo", return_value=fake_info):
-        _on_service_state_change(
-            MagicMock(),
-            "_esphomebuilder._tcp.local.",
-            "\x1b[2Jevil._esphomebuilder._tcp.local.",
-            ServiceStateChange.Added,
-        )
-
-    captured = capsys.readouterr().out
-    assert "\x1b" not in captured
-    assert "[2Jevil" in captured
+    assert capsys.readouterr().out == ""
 
 
 def test_on_service_state_change_sanitizes_hostile_txt_values(
