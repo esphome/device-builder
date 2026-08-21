@@ -9,6 +9,7 @@ import pytest
 from esphome_device_builder.controllers.devices import mutations_yaml
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode
 
 
 @pytest.mark.parametrize(
@@ -104,3 +105,60 @@ def test_packages_block_span_bounds() -> None:
     # EOF-unbounded span must fail closed, not classify every trailing error.
     assert mutations_yaml.packages_block_span("esphome:\n  name: x\npackages:\n  a: b\n") is None
     assert mutations_yaml.packages_block_span("packages:\n  a: b\nesphome:\n  name: x\n") == (0, 2)
+
+
+_SECRETS_DUP_KEY = (
+    'Duplicate key "wifi_password"\n'
+    '  in "C:\\Users\\prose\\esphome\\secrets.yaml", line 7, column 1\n'
+    "NOTE: Previous declaration here:\n"
+    '  in "C:\\Users\\prose\\esphome\\secrets.yaml", line 5, column 1'
+)
+
+
+def test_secrets_file_failure_summarises_secrets_marks() -> None:
+    """A mark inside secrets.yaml is attributed, paths trimmed to the basename, on one line."""
+    assert mutations_yaml.secrets_file_failure([_SECRETS_DUP_KEY]) == (
+        'Duplicate key "wifi_password" in secrets.yaml, line 7, column 1 '
+        "NOTE: Previous declaration here: in secrets.yaml, line 5, column 1"
+    )
+
+
+@pytest.mark.parametrize(
+    "errors",
+    [
+        [],
+        ["[esphome] generator regression"],
+        ['mapping values are not allowed here\n  in "/config/kitchen.yaml", line 3, column 5'],
+        ["Secret 'wifi_ssid' not defined\n  in \"/config/kitchen.yaml\", line 9, column 11"],
+    ],
+)
+def test_secrets_file_failure_ignores_other_documents(errors: list[str]) -> None:
+    assert mutations_yaml.secrets_file_failure(errors) is None
+
+
+async def test_secrets_parse_error_is_invalid_args_even_for_generator_output() -> None:
+    """A broken user secrets.yaml never reads as a generator bug."""
+    editor = MagicMock()
+    editor.validate_yaml = AsyncMock(
+        return_value={"yaml_errors": [{"message": _SECRETS_DUP_KEY}], "validation_errors": []}
+    )
+    cleanup = Mock()
+
+    with pytest.raises(CommandError) as excinfo:
+        await mutations_yaml.validate_rewritten_yaml_or_raise(
+            editor,
+            "kitchen.yaml",
+            "esphome:\n",
+            action="create",
+            on_failure=ErrorCode.INTERNAL_ERROR,
+            on_error_cleanup=cleanup,
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    message = excinfo.value.message
+    assert message.startswith("Can't create — secrets.yaml doesn't parse: Duplicate key")
+    assert "secrets.yaml, line 7, column 1" in message
+    assert "Secrets page" in message
+    assert "report" not in message.lower()
+    assert "C:\\" not in message
+    cleanup.assert_called_once()

@@ -1110,6 +1110,28 @@ async def test_set_wifi_credentials_preserves_other_secrets_and_comments(tmp_pat
     assert 'wifi_password: "secret"' in content
 
 
+async def test_set_wifi_credentials_twice_with_hash_password_keeps_one_key(tmp_path: Path) -> None:
+    """A ``#`` in the stored password must not make the rewrite append a duplicate key."""
+    controller = _make_controller(tmp_path)
+    await controller.set_wifi_credentials(ssid="home", password="P@ss#1")
+    await controller.set_wifi_credentials(ssid="home", password="P@ss#2")
+    content = (tmp_path / "secrets.yaml").read_text()
+    assert content.count("wifi_password:") == 1
+    assert 'wifi_password: "P@ss#2"' in content
+
+
+async def test_set_wifi_credentials_maps_corrupt_secrets_to_invalid_args(tmp_path: Path) -> None:
+    """A secrets.yaml that still won't parse after the rewrite is refused, not written."""
+    original = "dup: 1\ndup: 2\n"
+    (tmp_path / "secrets.yaml").write_text(original, "utf-8")
+    controller = _make_controller(tmp_path)
+    with pytest.raises(CommandError) as excinfo:
+        await controller.set_wifi_credentials(ssid="home", password="hunter2")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Duplicate key" in excinfo.value.message
+    assert (tmp_path / "secrets.yaml").read_text("utf-8") == original
+
+
 async def test_set_wifi_credentials_creates_file_when_missing(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     await controller.set_wifi_credentials(ssid="MyAP", password="secret")

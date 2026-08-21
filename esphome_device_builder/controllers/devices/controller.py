@@ -682,11 +682,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             # that the next device reuses, not per-device state.
             try:
                 validate_wifi_credentials(ssid, psk)
+                await self._db.write_secrets_locked(
+                    write_wifi_secrets, self._db.settings.config_dir, ssid, psk
+                )
             except SecretsContentError as err:
                 raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
-            await self._db.write_secrets_locked(
-                write_wifi_secrets, self._db.settings.config_dir, ssid, psk
-            )
             ssid, psk = "", ""  # force the !secret path in the generator
             wifi_requested = True
         else:

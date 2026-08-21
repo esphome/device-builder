@@ -570,12 +570,57 @@ def test_replace_or_append_secret_handles_bare_key() -> None:
     assert result == 'wifi_ssid: "MyAP"\n'
 
 
-def test_replace_or_append_secret_value_with_hash_in_quotes_is_misparsed() -> None:
-    """Known limitation: ``# `` inside a quoted value confuses the regex.
-
-    The result is still valid YAML; the spurious tail is preserved as a
-    comment. Pin the behaviour so a future regex tightening that fixes it
-    has a green-then-red breadcrumb.
-    """
+def test_replace_or_append_secret_value_with_hash_in_quotes_keeps_no_comment() -> None:
+    """``# `` inside a quoted value is part of the value, not a trailing comment."""
     result = _replace_or_append_secret('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
-    assert result == 'wifi_ssid: "MyAP" # bar"\n'
+    assert result == 'wifi_ssid: "MyAP"\n'
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'wifi_password: "P@ss#1"',
+        "wifi_password: 'P@ss#1'",
+        "wifi_password: P@ss#1",
+        '"wifi_password": old',
+        "'wifi_password': old",
+    ],
+)
+def test_replace_or_append_secret_replaces_hash_values_and_quoted_keys_in_place(
+    line: str,
+) -> None:
+    """A ``#`` inside the value or quotes around the key still match the line."""
+    result = _replace_or_append_secret(f"{line}\napi_key: ABC\n", "wifi_password", "new")
+    assert result == 'wifi_password: "new"\napi_key: ABC\n'
+
+
+def test_replace_or_append_secret_collapses_duplicate_keys() -> None:
+    """A key defined twice collapses to the first line (comment kept); later duplicates drop."""
+    content = 'wifi_ssid: home\nwifi_password: "old"  # note\napi_key: ABC\nwifi_password: "dup"\n'
+    result = _replace_or_append_secret(content, "wifi_password", "new")
+    assert result == 'wifi_ssid: home\nwifi_password: "new"  # note\napi_key: ABC\n'
+
+
+def test_write_wifi_secrets_heals_duplicated_password(tmp_path: Path) -> None:
+    """A secrets.yaml the old writer duplicated collapses to one key on the next write."""
+    _secrets(tmp_path).write_text(
+        'wifi_ssid: "home"\nwifi_password: "P@ss#1"\napi_key: ABC\nwifi_password: "P@ss#1"\n',
+        "utf-8",
+    )
+    write_wifi_secrets(tmp_path, "home", "P@ss#1")
+    content = _secrets(tmp_path).read_text("utf-8")
+    assert content == 'wifi_ssid: "home"\nwifi_password: "P@ss#1"\napi_key: ABC\n'
+    assert read_secrets_yaml(tmp_path) == {
+        "wifi_ssid": "home",
+        "wifi_password": "P@ss#1",
+        "api_key": "ABC",
+    }
+
+
+def test_write_wifi_secrets_refuses_unparsable_rewrite(tmp_path: Path) -> None:
+    """A file that still won't parse after the rewrite is left untouched."""
+    original = "dup: 1\ndup: 2\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    with pytest.raises(SecretsContentError, match="Duplicate key"):
+        write_wifi_secrets(tmp_path, "home", "hunter2")
+    assert _secrets(tmp_path).read_text("utf-8") == original

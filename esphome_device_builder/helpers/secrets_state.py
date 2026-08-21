@@ -159,24 +159,21 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
     write_user_yaml(dest, existing_text + separator + buf.getvalue())
 
 
-# ``key: value`` line. Captures: 1=indent, 2=key, 3=trailing
-# ``  # comment`` (with at least one space before the ``#``).
-# Permissive on value shape so we match both ``wifi_ssid: ""``
-# and bare ``wifi_ssid:`` — the value itself is discarded on
-# rewrite, only indent / key / trailing comment carry over.
-#
-# Known limitation: a ``#`` *inside a quoted value* preceded by
-# whitespace (e.g. ``wifi_ssid: "foo # bar"``) is mis-parsed as
-# a trailing comment. The rewrite still produces valid YAML
-# because the new value is re-quoted, but the spurious tail is
-# preserved as a comment. See the dedicated regression test in
-# ``tests/test_secrets_state.py``. Realistic impact is
-# low — ``#`` in SSIDs is uncommon and the user's hand-edit has
-# to land before they re-run the wizard.
-_SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
+# ``key: value`` line. Named groups: ``indent``, ``key``, ``comment`` (a
+# trailing ``  # comment``, at least one space before the ``#``). The key
+# may be quoted; the value may be a quoted scalar (a ``#`` inside the
+# quotes is not a comment) or a plain scalar (``#`` starts a comment only
+# after whitespace). Permissive on value shape so ``wifi_ssid: ""`` and a
+# bare ``wifi_ssid:`` both match — the value is discarded on rewrite, only
+# indent / key / trailing comment carry over.
+_SECRET_LINE_RE = re.compile(
+    r"^(?P<indent>\s*)(?P<q>[\"']?)(?P<key>[a-zA-Z_]\w*)(?P=q)\s*:"
+    r"\s*(?:\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\n]|'')*'|[^\n]*?)"
+    r"(?P<comment>\s+#.*)?\s*$"
+)
 
-# A settable secret key. Anchored to the same shape ``_SECRET_LINE_RE``'s key
-# group matches, so "what we accept" tracks "what the line-based setter can
+# A settable secret key. Anchored to the same shape ``_SECRET_LINE_RE``'s
+# ``key`` group matches, so "what we accept" tracks "what the line-based setter can
 # find and replace" — a key the setter could never locate must not be written.
 _SECRET_KEY_RE = re.compile(r"[a-zA-Z_]\w*\Z")
 
@@ -251,7 +248,7 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
     updated = "\n".join(
         line
         for line in original.split("\n")
-        if not ((m := _SECRET_LINE_RE.match(line)) and m.group(2) in drop)
+        if not ((m := _SECRET_LINE_RE.match(line)) and m["key"] in drop)
     )
     if updated != original:
         write_user_yaml(secrets_path, updated)
@@ -262,10 +259,9 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
 
     Line-based rewrite preserves comments and any other secrets the
-    user has added. Falls back to creating the file with just the
-    two keys if it doesn't exist (the bootstrap should have created
-    it on startup, but a user who deleted it shouldn't be stuck
-    here).
+    user has added; creates the file with just the two keys when it
+    doesn't exist. Raises ``SecretsContentError`` (nothing written) when
+    the rewritten file wouldn't parse.
     """
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
@@ -275,6 +271,7 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
         "wifi_password",
         password,
     )
+    validate_secrets_content(updated, secrets_path)
     write_user_yaml(secrets_path, updated)
 
 
@@ -301,7 +298,7 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
 def _has_secret_key(content: str, key: str) -> bool:
     """Whether *content* already defines top-level *key* (setter's match rule)."""
     return any(
-        (m := _SECRET_LINE_RE.match(line)) is not None and m.group(2) == key
+        (m := _SECRET_LINE_RE.match(line)) is not None and m["key"] == key
         for line in content.split("\n")
     )
 
@@ -310,24 +307,21 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
     """
     Set ``key`` to ``value`` in YAML *content*, in place.
 
-    Replaces the value on **every** line whose key matches — a
-    duplicated key in ``secrets.yaml`` is malformed (PyYAML keeps
-    only the last on read), but writing only the first match
-    would leave the stale duplicate as the live value and
-    onboarding would stay PENDING after a "successful" save. Any
-    inline ``# comment`` trailing the matched line is preserved
-    so a power-user with ``wifi_ssid: home  # Apt 4B router``
-    keeps the annotation. If no line matches, appends
-    ``key: "value"`` at the end with a trailing newline.
+    The first line whose key matches is rewritten (indent and any inline
+    ``# comment`` preserved) and every later duplicate of the key is
+    dropped, so a file that already carries the key twice collapses to one
+    valid definition. If no line matches, appends ``key: "value"`` at the
+    end with a trailing newline.
     """
     encoded = _quote_yaml_string(value)
-    lines = content.split("\n")
+    lines: list[str] = []
     matched = False
-    for i, line in enumerate(lines):
+    for line in content.split("\n"):
         m = _SECRET_LINE_RE.match(line)
-        if m and m.group(2) == key:
-            trailing_comment = m.group(3) or ""
-            lines[i] = f"{m.group(1)}{key}: {encoded}{trailing_comment}"
+        if m is None or m["key"] != key:
+            lines.append(line)
+        elif not matched:
+            lines.append(f"{m['indent']}{key}: {encoded}{m['comment'] or ''}")
             matched = True
     if matched:
         return "\n".join(lines)
