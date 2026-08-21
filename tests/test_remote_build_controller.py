@@ -280,6 +280,15 @@ def test_on_service_state_change_filters_own_advertise(tmp_path: Path) -> None:
     assert controller.offloader.state.peers == {}
 
 
+def test_on_service_state_change_drops_malformed_name(tmp_path: Path) -> None:
+    """A wire name zeroconf's ServiceInfo rejects is ignored instead of raising (#2620)."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._on_service_state_change(
+        MagicMock(), SERVICE_TYPE, f"IRIS\x10evil.{SERVICE_TYPE}", ServiceStateChange.Added
+    )
+    assert controller.offloader.state.peers == {}
+
+
 def test_is_self_endpoint_matches_advertised_host_and_port(tmp_path: Path) -> None:
     """A ``(host, port)`` matching the advertiser's published endpoint reports True.
 

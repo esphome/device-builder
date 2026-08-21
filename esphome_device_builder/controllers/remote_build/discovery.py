@@ -21,6 +21,7 @@ from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 
 from ...helpers.dashboard_advertise import SERVICE_TYPE
+from ...helpers.hostname import valid_mdns_service_name
 from ...models import EventType, RemoteBuildHostRemovedData
 from ._mdns import endpoints_equal, peer_from_service_info
 
@@ -99,6 +100,8 @@ def on_service_state_change(
     :meth:`_resolve_and_apply` once the SRV / TXT round-trip
     completes).
     """
+    if not valid_mdns_service_name(name):
+        return
     if name == controller.state.own_instance_name:
         return
     if state_change == ServiceStateChange.Removed:
