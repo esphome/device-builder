@@ -125,7 +125,8 @@ def validate_secrets_content(content: str, path: Path) -> dict:
     except Exception as err:
         # A self-referential ``!secret`` inside secrets.yaml recurses in the
         # loader (it crashes the real reader too); reject instead of 500ing.
-        _LOGGER.warning("secrets.yaml at %s could not be parsed: %r", path, err)
+        # Type only: the loader's message can quote a line of the secrets file.
+        _LOGGER.warning("secrets.yaml at %s could not be parsed (%s)", path, type(err).__name__)
         raise SecretsContentError(f"secrets.yaml could not be parsed: {err}") from err
     if data is not None and not isinstance(data, dict):
         raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
