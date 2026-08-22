@@ -448,7 +448,7 @@ def test_migrate_placeholder_wifi_drops_only_placeholder_key(tmp_path: Path) -> 
     assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home"}
 
 
-def test_migrate_placeholder_wifi_leaves_nested_lines_and_refuses_a_broken_rewrite(
+def test_migrate_placeholder_wifi_leaves_nested_lines(
     tmp_path: Path,
 ) -> None:
     content = (
@@ -706,11 +706,11 @@ def test_write_validated_secrets_refuses_when_the_key_does_not_resolve(tmp_path:
     assert not _secrets(tmp_path).exists()
 
 
-def test_write_validated_secrets_reports_the_rewrite_error_when_the_original_parses(
+def test_write_validated_secrets_reports_the_rewrite_error_without_an_original_error(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(SecretsContentError, match="top-level mapping"):
-        _write_validated_secrets(_secrets(tmp_path), "just a scalar\n", {}, original="a: 1\n")
+        _write_validated_secrets(_secrets(tmp_path), "just a scalar\n", {})
     assert not _secrets(tmp_path).exists()
 
 

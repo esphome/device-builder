@@ -315,13 +315,13 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     resolved = _resolved_keys(original, secrets_path)
     updated = original
     for key, value in (("wifi_ssid", ssid), ("wifi_password", password)):
-        defined = None if resolved is None else key in resolved
+        defined = key in resolved if isinstance(resolved, set) else None
         updated = _replace_or_append_secret(updated, key, value, defined=defined)
     _write_validated_secrets(
         secrets_path,
         updated,
         {"wifi_ssid": ssid, "wifi_password": password},
-        original=original,
+        original_error=resolved if isinstance(resolved, SecretsContentError) else None,
     )
 
 
@@ -337,28 +337,39 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
     resolved = _resolved_keys(original, secrets_path)
-    if resolved is None and not overwrite:
+    if isinstance(resolved, SecretsContentError):
         # "Already exists" can't be answered from a file esphome won't read.
-        validate_secrets_content(original, secrets_path)
-    existed = key in resolved if resolved is not None else _line_defines_key(original, key)
+        if not overwrite:
+            raise resolved
+        existed, defined = _line_defines_key(original, key), None
+    else:
+        existed = defined = key in resolved
     if existed and not overwrite:
         return False
-    defined = None if resolved is None else existed
     updated = _replace_or_append_secret(original, key, value, defined=defined)
-    _write_validated_secrets(secrets_path, updated, {key: value}, original=original)
+    _write_validated_secrets(
+        secrets_path,
+        updated,
+        {key: value},
+        original_error=resolved if isinstance(resolved, SecretsContentError) else None,
+    )
     return not existed
 
 
 def _write_validated_secrets(
-    secrets_path: Path, content: str, expected: dict[str, str], *, original: str | None = None
+    secrets_path: Path,
+    content: str,
+    expected: dict[str, str],
+    *,
+    original_error: SecretsContentError | None = None,
 ) -> None:
     """Write *content* to *secrets_path* once it parses and resolves every *expected* key."""
     try:
         data = validate_secrets_content(content, secrets_path)
     except SecretsContentError:
         # A collapse shifts lines; report the on-disk file's own error when it has one.
-        if original is not None:
-            validate_secrets_content(original, secrets_path)
+        if original_error is not None:
+            raise original_error from None
         raise
     for key, value in expected.items():
         if data.get(key) != value:
@@ -369,12 +380,12 @@ def _write_validated_secrets(
     write_user_yaml(secrets_path, content)
 
 
-def _resolved_keys(content: str, path: Path) -> set[str] | None:
-    """Return the secret names *content* resolves, or ``None`` when it won't parse."""
+def _resolved_keys(content: str, path: Path) -> set[str] | SecretsContentError:
+    """Return the secret names *content* resolves, or the error when it won't parse."""
     try:
         return set(validate_secrets_content(content, path))
-    except SecretsContentError:
-        return None
+    except SecretsContentError as err:
+        return err
 
 
 def _line_defines_key(content: str, key: str) -> bool:
