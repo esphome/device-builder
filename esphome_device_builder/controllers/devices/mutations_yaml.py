@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
@@ -17,6 +16,8 @@ from ...helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
+from ...helpers.secrets_state import secrets_unparsable_message
+from ...helpers.yaml.marks import marked_documents, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
@@ -29,10 +30,6 @@ if TYPE_CHECKING:
     from ..editor import EditorController
 
 _LOGGER = logging.getLogger(__name__)
-
-# PyYAML mark ``in "<path>", line N, column M`` — the only file attribution a
-# ``yaml_errors`` entry carries.
-_YAML_MARK_RE = re.compile(r'in "(?P<path>[^"\n]+)", line (?P<line>\d+), column (?P<col>\d+)')
 
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
@@ -239,13 +236,11 @@ def _raise_validation_failure(
     failure_tail: str | None,
 ) -> NoReturn:
     """Raise the refusal ``CommandError`` for a failed validation."""
-    if (secrets_summary := secrets_file_failure(errors)) is not None:
+    if (secrets_summary := _secrets_file_failure(errors)) is not None:
         # A parse error inside the user's secrets.yaml is theirs to fix,
         # never a generator bug — whatever ``on_failure`` the caller chose.
         raise CommandError(
-            ErrorCode.INVALID_ARGS,
-            f"Can't {action} — secrets.yaml doesn't parse: {secrets_summary}. "
-            "Fix secrets.yaml on the Secrets page and try again.",
+            ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, secrets_summary)
         )
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
@@ -260,17 +255,6 @@ def _raise_validation_failure(
         on_failure,
         f"Can't {action} — config doesn't validate: " + _summarise(errors) + message_tail,
     )
-
-
-def secrets_file_failure(errors: list[str]) -> str | None:
-    """Summarise *errors* when any is marked inside ``secrets.yaml``, else ``None``."""
-    if not any(
-        _mark_basename(m["path"]) == SECRETS_FILENAME
-        for msg in errors
-        for m in _YAML_MARK_RE.finditer(msg)
-    ):
-        return None
-    return _summarise([_trim_marks(msg) for msg in errors])
 
 
 def packages_block_span(content: str) -> tuple[int, int] | None:
@@ -329,18 +313,11 @@ def _summarise(errors: list[str]) -> str:
     return ("; ".join(shown) + suffix).removesuffix(".")
 
 
-def _trim_marks(message: str) -> str:
-    """Rewrite PyYAML marks to ``in <basename>, line N, column M`` on one line."""
-    trimmed = _YAML_MARK_RE.sub(
-        lambda m: f"in {_mark_basename(m['path'])}, line {m['line']}, column {m['col']}",
-        message,
-    )
-    return " ".join(trimmed.split())
-
-
-def _mark_basename(path: str) -> str:
-    """Return the final path segment of a mark path, whichever host style wrote it."""
-    return re.split(r"[\\/]", path)[-1]
+def _secrets_file_failure(errors: list[str]) -> str | None:
+    """Summarise *errors* with marks trimmed when any sits in ``secrets.yaml``, else ``None``."""
+    if not any(SECRETS_FILENAME in marked_documents(msg) for msg in errors):
+        return None
+    return _summarise([trim_marks(msg) for msg in errors])
 
 
 def _entry_confined_to_packages(

@@ -21,7 +21,7 @@ import asyncio
 import io
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,14 +32,19 @@ from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
 
 from ..constants import SECRETS_FILENAME
+from ..models import ErrorCode
+from .api import CommandError
 from .async_ import run_in_executor
 from .yaml import load_yaml_fast_then_esphome, write_user_yaml
+from .yaml.marks import trim_marks
 
 _LOGGER = logging.getLogger(__name__)
 
 # The exact refs generated YAML uses for the shared Wi-Fi credentials.
 WIFI_SSID_SECRET_REF = "!secret wifi_ssid"  # noqa: S105 — secret reference, not a credential
 WIFI_PASSWORD_SECRET_REF = "!secret wifi_password"  # noqa: S105 — secret reference, not a credential
+
+SECRETS_FIX_HINT = "Fix secrets.yaml on the Secrets page and try again."
 
 
 async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *args: Any) -> T:
@@ -81,6 +86,14 @@ class SecretsContentError(ValueError):
     """``secrets.yaml`` content failed to parse or isn't a top-level mapping."""
 
 
+def secrets_unparsable_message(action: str, detail: str) -> str:
+    """Return the user-facing refusal for *action* when ``secrets.yaml`` doesn't parse."""
+    return (
+        f"Can't {action} — secrets.yaml doesn't parse: {detail.removesuffix('.')}. "
+        f"{SECRETS_FIX_HINT}"
+    )
+
+
 def validate_secrets_content(content: str, path: Path) -> None:
     """
     Raise ``SecretsContentError`` unless *content* is a valid ``secrets.yaml``.
@@ -95,7 +108,7 @@ def validate_secrets_content(content: str, path: Path) -> None:
     try:
         data = yaml_util.parse_yaml(path, io.StringIO(content))
     except EsphomeError as err:
-        raise SecretsContentError(str(err)) from err
+        raise SecretsContentError(trim_marks(str(err))) from err
     except Exception as err:
         # A self-referential ``!secret`` inside secrets.yaml recurses in the
         # loader (it crashes the real reader too); reject instead of 500ing.
@@ -159,17 +172,13 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
     write_user_yaml(dest, existing_text + separator + buf.getvalue())
 
 
-# ``key: value`` line. Named groups: ``indent``, ``key``, ``comment`` (a
-# trailing ``  # comment``, at least one space before the ``#``). The key
-# may be quoted; the value may be a quoted scalar (a ``#`` inside the
-# quotes is not a comment) or a plain scalar (``#`` starts a comment only
-# after whitespace). Permissive on value shape so ``wifi_ssid: ""`` and a
-# bare ``wifi_ssid:`` both match — the value is discarded on rewrite, only
-# indent / key / trailing comment carry over.
+# ``key: value`` line; a ``#`` inside a quoted value is not a comment and the
+# key may be quoted. The value is discarded on rewrite — only indent / key /
+# trailing comment carry over.
 _SECRET_LINE_RE = re.compile(
-    r"^(?P<indent>\s*)(?P<q>[\"']?)(?P<key>[a-zA-Z_]\w*)(?P=q)\s*:"
-    r"\s*(?:\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\n]|'')*'|[^\n]*?)"
-    r"(?P<comment>\s+#.*)?\s*$"
+    r"""^(?P<indent>\s*)(?P<q>["']?)(?P<key>[a-zA-Z_]\w*)(?P=q)\s*:"""
+    r"""\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|.*?)"""
+    r"""(?P<comment>\s+#.*)?\s*$"""
 )
 
 # A settable secret key. Anchored to the same shape ``_SECRET_LINE_RE``'s
@@ -254,6 +263,27 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
         write_user_yaml(secrets_path, updated)
 
 
+async def set_wifi_secrets(
+    write_locked: Callable[..., Awaitable[Any]], config_dir: Path, ssid: str, password: str
+) -> None:
+    """
+    Validate *ssid* / *password* and persist them through *write_locked*.
+
+    Refusals (bad credentials, or a ``secrets.yaml`` that still wouldn't
+    parse after the rewrite) surface as ``CommandError(INVALID_ARGS)``.
+    """
+    try:
+        validate_wifi_credentials(ssid, password)
+    except SecretsContentError as err:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+    try:
+        await write_locked(write_wifi_secrets, config_dir, ssid, password)
+    except SecretsContentError as err:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS, secrets_unparsable_message("save Wi-Fi credentials", str(err))
+        ) from err
+
+
 def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
     Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
@@ -271,8 +301,7 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
         "wifi_password",
         password,
     )
-    validate_secrets_content(updated, secrets_path)
-    write_user_yaml(secrets_path, updated)
+    _write_validated_secrets(secrets_path, updated)
 
 
 def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = True) -> bool:
@@ -290,9 +319,14 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
     if existed and not overwrite:
         return False
     updated = _replace_or_append_secret(original, key, value)
-    validate_secrets_content(updated, secrets_path)
-    write_user_yaml(secrets_path, updated)
+    _write_validated_secrets(secrets_path, updated)
     return not existed
+
+
+def _write_validated_secrets(secrets_path: Path, content: str) -> None:
+    """Write *content* to *secrets_path* only after it parses as a secrets.yaml."""
+    validate_secrets_content(content, secrets_path)
+    write_user_yaml(secrets_path, content)
 
 
 def _has_secret_key(content: str, key: str) -> bool:

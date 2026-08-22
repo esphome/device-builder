@@ -16,9 +16,8 @@ from ...helpers.secrets_state import (
     SecretsContentError,
     is_valid_secret_key,
     read_secrets_yaml,
-    validate_wifi_credentials,
+    set_wifi_secrets,
     write_secret,
-    write_wifi_secrets,
 )
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
 from ...helpers.storage_path import resolve_storage_path
@@ -187,12 +186,9 @@ class ConfigController:
         the next ``compile``, and preserves any other secret keys + the
         file's comments via a line-based rewrite.
         """
-        config_dir = self._db.settings.config_dir
-        try:
-            validate_wifi_credentials(ssid, password)
-            await self._db.write_secrets_locked(write_wifi_secrets, config_dir, ssid, password)
-        except SecretsContentError as err:
-            raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+        await set_wifi_secrets(
+            self._db.write_secrets_locked, self._db.settings.config_dir, ssid, password
+        )
         return {}
 
     @api_command("config/get_info")

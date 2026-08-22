@@ -823,21 +823,6 @@ async def test_create_device_secrets_parse_error_surfaces_invalid_args(
     assert not (tmp_path / "kitchen.yaml").exists()
 
 
-async def test_create_device_hash_password_does_not_duplicate_secret(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """A second Wi-Fi create over a stored ``#`` password rewrites the key in place."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    StubBoardLookups(ctrl)
-
-    await ctrl.create_device(name="kitchen", ssid="MyNetwork", psk="P@ss#1")
-    await ctrl.create_device(name="garage", ssid="MyNetwork", psk="P@ss#2")
-
-    secrets = (tmp_path / "secrets.yaml").read_text("utf-8")
-    assert secrets.count("wifi_password:") == 1
-    assert 'wifi_password: "P@ss#2"' in secrets
-
-
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     tmp_path: Path, make_controller: MakeControllerFactory

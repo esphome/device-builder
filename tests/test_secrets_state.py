@@ -119,8 +119,12 @@ def test_validate_secrets_content_rejects_malformed_yaml(tmp_path: Path) -> None
 
 def test_validate_secrets_content_rejects_duplicate_keys(tmp_path: Path) -> None:
     """ESPHome's loader rejects duplicate keys the plain SafeLoader would accept."""
-    with pytest.raises(SecretsContentError, match="Duplicate key"):
+    with pytest.raises(SecretsContentError, match="Duplicate key") as excinfo:
         validate_secrets_content("wifi_ssid: a\nwifi_ssid: b\n", tmp_path / "secrets.yaml")
+    # Marks are trimmed to the basename on one line; no host path leaks.
+    assert "in secrets.yaml, line 2, column 1" in str(excinfo.value)
+    assert str(tmp_path) not in str(excinfo.value)
+    assert "\n" not in str(excinfo.value)
 
 
 def test_validate_secrets_content_rejects_non_mapping_top_level(tmp_path: Path) -> None:
