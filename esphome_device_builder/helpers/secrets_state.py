@@ -127,7 +127,7 @@ def validate_secrets_content(content: str, path: Path) -> dict:
         # loader (it crashes the real reader too); reject instead of 500ing.
         # Nothing derived from the file: the loader's message can quote a secret.
         _LOGGER.warning("secrets.yaml could not be parsed by the esphome loader; rejecting")
-        raise SecretsContentError(f"secrets.yaml could not be parsed: {err}") from err
+        raise SecretsContentError(trim_marks(f"secrets.yaml could not be parsed: {err}")) from err
     if data is not None and not isinstance(data, dict):
         raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
     return data or {}
@@ -272,10 +272,18 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
     updated = "\n".join(
         line
         for line in original.split("\n")
-        if not ((m := _SECRET_LINE_RE.match(line)) and m["key"] in drop)
+        if not ((m := _SECRET_LINE_RE.match(line)) and not m["indent"] and m["key"] in drop)
     )
-    if updated != original:
-        write_user_yaml(secrets_path, updated)
+    if updated == original:
+        return
+    try:
+        validate_secrets_content(updated, secrets_path)
+    except SecretsContentError:
+        _LOGGER.warning(
+            "Leaving the placeholder Wi-Fi secrets in place; the rewrite wouldn't parse"
+        )
+        return
+    write_user_yaml(secrets_path, updated)
 
 
 async def set_wifi_secrets(
@@ -309,7 +317,12 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     for key, value in (("wifi_ssid", ssid), ("wifi_password", password)):
         defined = None if resolved is None else key in resolved
         updated = _replace_or_append_secret(updated, key, value, defined=defined)
-    _write_validated_secrets(secrets_path, updated, {"wifi_ssid": ssid, "wifi_password": password})
+    _write_validated_secrets(
+        secrets_path,
+        updated,
+        {"wifi_ssid": ssid, "wifi_password": password},
+        original=original,
+    )
 
 
 def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = True) -> bool:
@@ -324,18 +337,29 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
     resolved = _resolved_keys(original, secrets_path)
+    if resolved is None and not overwrite:
+        # "Already exists" can't be answered from a file esphome won't read.
+        validate_secrets_content(original, secrets_path)
     existed = key in resolved if resolved is not None else _line_defines_key(original, key)
     if existed and not overwrite:
         return False
     defined = None if resolved is None else existed
     updated = _replace_or_append_secret(original, key, value, defined=defined)
-    _write_validated_secrets(secrets_path, updated, {key: value})
+    _write_validated_secrets(secrets_path, updated, {key: value}, original=original)
     return not existed
 
 
-def _write_validated_secrets(secrets_path: Path, content: str, expected: dict[str, str]) -> None:
+def _write_validated_secrets(
+    secrets_path: Path, content: str, expected: dict[str, str], *, original: str | None = None
+) -> None:
     """Write *content* to *secrets_path* once it parses and resolves every *expected* key."""
-    data = validate_secrets_content(content, secrets_path)
+    try:
+        data = validate_secrets_content(content, secrets_path)
+    except SecretsContentError:
+        # A collapse shifts lines; report the on-disk file's own error when it has one.
+        if original is not None:
+            validate_secrets_content(original, secrets_path)
+        raise
     for key, value in expected.items():
         if data.get(key) != value:
             raise SecretsContentError(

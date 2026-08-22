@@ -448,6 +448,18 @@ def test_migrate_placeholder_wifi_drops_only_placeholder_key(tmp_path: Path) -> 
     assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home"}
 
 
+def test_migrate_placeholder_wifi_leaves_nested_lines_and_refuses_a_broken_rewrite(
+    tmp_path: Path,
+) -> None:
+    content = (
+        f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\nmqtt:\n  wifi_ssid: nested\n'
+        f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n'
+    )
+    _secrets(tmp_path).write_text(content, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == "mqtt:\n  wifi_ssid: nested\n"
+
+
 def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
     migrate_placeholder_wifi_secrets(tmp_path)
     assert not _secrets(tmp_path).exists()
@@ -700,6 +712,22 @@ def test_replace_or_append_secret_appends_when_the_key_is_known_unresolved() -> 
     assert _replace_or_append_secret('  api_key: "a"\n', "api_key", "new", defined=True) == (
         '  api_key: "new"\n'
     )
+
+
+def test_write_secret_create_if_absent_refuses_an_unparsable_file(tmp_path: Path) -> None:
+    original = "dup: 1\ndup: 2\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    with pytest.raises(SecretsContentError, match="Duplicate key"):
+        write_secret(tmp_path, "api_key", "x", overwrite=False)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
+def test_write_secret_reports_the_on_disk_line_after_a_collapse(tmp_path: Path) -> None:
+    """A second error below a collapsed duplicate is reported at its line in the file on disk."""
+    _secrets(tmp_path).write_text("wifi_password: a\nwifi_password: b\nxx:xxx\na:a\n", "utf-8")
+    with pytest.raises(SecretsContentError) as excinfo:
+        write_secret(tmp_path, "wifi_password", "c")
+    assert "line 4" in str(excinfo.value)
 
 
 def test_write_secret_heals_a_duplicated_key(tmp_path: Path) -> None:
