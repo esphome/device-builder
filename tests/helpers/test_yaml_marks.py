@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from esphome_device_builder.helpers.yaml.marks import marked_documents, trim_marks
+from esphome_device_builder.helpers.yaml.marks import marked_paths, trim_marks
 
 _DUP_KEY = (
     'Duplicate key "wifi_password"\n'
@@ -12,9 +12,12 @@ _DUP_KEY = (
 )
 
 
-def test_marked_documents_reports_basenames_for_both_path_styles() -> None:
-    assert marked_documents(_DUP_KEY) == {"secrets.yaml", "kitchen.yaml"}
-    assert marked_documents("[esphome] generator regression") == set()
+def test_marked_paths_reports_every_marked_document() -> None:
+    assert marked_paths(_DUP_KEY) == {
+        "C:\\Users\\prose\\esphome\\secrets.yaml",
+        "/config/kitchen.yaml",
+    }
+    assert marked_paths("[esphome] generator regression") == set()
 
 
 def test_trim_marks_keeps_line_and_column_on_one_line() -> None:

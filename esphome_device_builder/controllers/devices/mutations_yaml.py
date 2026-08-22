@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
-from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
@@ -17,7 +16,7 @@ from ...helpers.device_yaml import (
     generate_minimal_stub_yaml,
 )
 from ...helpers.secrets_state import secrets_unparsable_message
-from ...helpers.yaml.marks import marked_documents, trim_marks
+from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
@@ -142,6 +141,7 @@ async def validate_rewritten_yaml_or_raise(
     packages_span: tuple[int, int] | None = None,
     packages_root: Path | None = None,
     failure_tail: str | None = None,
+    secrets_path: Path | None = None,
 ) -> str | None:
     """
     Schema-validate *content* via the editor; raise if invalid.
@@ -166,7 +166,8 @@ async def validate_rewritten_yaml_or_raise(
     off-loop (``CORE.data_dir`` stats the disk).
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
-    sentence.
+    sentence. *secrets_path* is the config dir's ``secrets.yaml``; an
+    error marked inside it refuses as ``INVALID_ARGS`` naming that file.
     """
     if editor is None:
         return None
@@ -214,7 +215,11 @@ async def validate_rewritten_yaml_or_raise(
             succeeded = True
             return warning
         _raise_validation_failure(
-            errors, action=action, on_failure=on_failure, failure_tail=failure_tail
+            errors,
+            action=action,
+            on_failure=on_failure,
+            failure_tail=failure_tail,
+            secrets_path=secrets_path,
         )
     finally:
         if not succeeded and on_error_cleanup is not None:
@@ -234,9 +239,10 @@ def _raise_validation_failure(
     action: str,
     on_failure: ErrorCode,
     failure_tail: str | None,
+    secrets_path: Path | None,
 ) -> NoReturn:
     """Raise the refusal ``CommandError`` for a failed validation."""
-    if (secrets_summary := _secrets_file_failure(errors)) is not None:
+    if (secrets_summary := _secrets_file_failure(errors, secrets_path)) is not None:
         # A parse error inside the user's secrets.yaml is theirs to fix,
         # never a generator bug — whatever ``on_failure`` the caller chose.
         raise CommandError(
@@ -313,9 +319,12 @@ def _summarise(errors: list[str]) -> str:
     return ("; ".join(shown) + suffix).removesuffix(".")
 
 
-def _secrets_file_failure(errors: list[str]) -> str | None:
-    """Summarise *errors* with marks trimmed when any sits in ``secrets.yaml``, else ``None``."""
-    if not any(SECRETS_FILENAME in marked_documents(msg) for msg in errors):
+def _secrets_file_failure(errors: list[str], secrets_path: Path | None) -> str | None:
+    """Summarise *errors* with marks trimmed when any is marked inside *secrets_path*."""
+    if secrets_path is None:
+        return None
+    target = secrets_path.resolve()
+    if not any(Path(p).resolve() == target for msg in errors for p in marked_paths(msg)):
         return None
     return _summarise([trim_marks(msg) for msg in errors])
 

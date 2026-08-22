@@ -9,9 +9,9 @@ from ..cross_os_path import cross_os_basename
 _MARK_RE = re.compile(r'in "(?P<path>[^"\n]+)", line (?P<line>\d+), column (?P<col>\d+)')
 
 
-def marked_documents(message: str) -> set[str]:
-    """Return the basename of every document a mark in *message* points at."""
-    return {cross_os_basename(m["path"]) for m in _MARK_RE.finditer(message)}
+def marked_paths(message: str) -> set[str]:
+    """Return every document path a mark in *message* points at, verbatim."""
+    return {m["path"] for m in _MARK_RE.finditer(message)}
 
 
 def trim_marks(message: str) -> str:

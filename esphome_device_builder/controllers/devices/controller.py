@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.core import CORE
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
-from ...constants import is_secrets_file
+from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
@@ -733,6 +733,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             packages_span=packages_span,
             packages_root=self._packages_root,
             failure_tail=failure_tail,
+            secrets_path=self._db.settings.config_dir / SECRETS_FILENAME,
         )
 
     @api_command("devices/delete")

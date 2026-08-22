@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -106,19 +107,30 @@ def test_packages_block_span_bounds() -> None:
     assert mutations_yaml.packages_block_span("packages:\n  a: b\nesphome:\n  name: x\n") == (0, 2)
 
 
-_SECRETS_DUP_KEY = (
-    'Duplicate key "wifi_password"\n'
-    '  in "C:\\Users\\prose\\esphome\\secrets.yaml", line 7, column 1\n'
-    "NOTE: Previous declaration here:\n"
-    '  in "C:\\Users\\prose\\esphome\\secrets.yaml", line 5, column 1'
-)
+def _dup_key_in(secrets: Path) -> str:
+    return (
+        'Duplicate key "wifi_password"\n'
+        f'  in "{secrets}", line 7, column 1\n'
+        "NOTE: Previous declaration here:\n"
+        f'  in "{secrets}", line 5, column 1'
+    )
 
 
-def test_secrets_file_failure_summarises_secrets_marks() -> None:
-    """A mark inside secrets.yaml is attributed, paths trimmed to the basename, on one line."""
-    assert mutations_yaml._secrets_file_failure([_SECRETS_DUP_KEY]) == (
+def test_secrets_file_failure_summarises_marks_in_the_config_secrets(tmp_path: Path) -> None:
+    """A mark inside the config dir's secrets.yaml is attributed, paths trimmed, on one line."""
+    secrets = tmp_path / "secrets.yaml"
+    assert mutations_yaml._secrets_file_failure([_dup_key_in(secrets)], secrets) == (
         'Duplicate key "wifi_password" in secrets.yaml, line 7, column 1 '
         "NOTE: Previous declaration here: in secrets.yaml, line 5, column 1"
+    )
+
+
+def test_secrets_file_failure_ignores_a_same_named_file_elsewhere(tmp_path: Path) -> None:
+    """A package-cache secrets.yaml is not the file the Secrets page edits."""
+    cached = tmp_path / ".esphome" / "packages" / "abc" / "secrets.yaml"
+    assert (
+        mutations_yaml._secrets_file_failure([_dup_key_in(cached)], tmp_path / "secrets.yaml")
+        is None
     )
 
 
@@ -131,5 +143,5 @@ def test_secrets_file_failure_summarises_secrets_marks() -> None:
         ["Secret 'wifi_ssid' not defined\n  in \"/config/kitchen.yaml\", line 9, column 11"],
     ],
 )
-def test_secrets_file_failure_ignores_other_documents(errors: list[str]) -> None:
-    assert mutations_yaml._secrets_file_failure(errors) is None
+def test_secrets_file_failure_ignores_other_documents(errors: list[str], tmp_path: Path) -> None:
+    assert mutations_yaml._secrets_file_failure(errors, tmp_path / "secrets.yaml") is None
