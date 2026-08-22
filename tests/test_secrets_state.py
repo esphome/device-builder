@@ -30,6 +30,7 @@ from esphome_device_builder.helpers.secrets_state import (
     merge_secrets_file,
     migrate_placeholder_wifi_secrets,
     read_secrets_yaml,
+    secrets_problem,
     secrets_unparsable_message,
     validate_secrets_content,
     validate_wifi_credentials,
@@ -111,33 +112,30 @@ def test_read_secrets_yaml_returns_dict_for_valid_file(tmp_path: Path) -> None:
     assert data["api_key"] == "ABC"
 
 
-def test_secrets_unparsable_message_folds_duplicate_key_marks() -> None:
-    detail = (
-        'Duplicate key "api_key" in secrets.yaml, line 5, column 1 '
-        "NOTE: Previous declaration here: in secrets.yaml, line 4, column 1"
-    )
-    assert secrets_unparsable_message("create", detail) == (
-        'Can\'t create: secrets.yaml has a duplicate key "api_key" (lines 4 and 5). '
+@pytest.mark.parametrize(
+    ("detail", "problem"),
+    [
+        (
+            (
+                'Duplicate key "api_key"\n  in "/config/secrets.yaml", line 5, column 1\n'
+                'NOTE: Previous declaration here:\n  in "/config/secrets.yaml", line 4, column 1'
+            ),
+            'has a duplicate key "api_key" (lines 4 and 5)',
+        ),
+        (
+            'mapping values are not allowed here\n  in "/config/secrets.yaml", line 3, column 5',
+            "doesn't parse: mapping values are not allowed here in secrets.yaml, line 3, column 5",
+        ),
+    ],
+)
+def test_secrets_problem_folds_the_loader_error(detail: str, problem: str) -> None:
+    assert secrets_problem(detail) == problem
+
+
+def test_secrets_unparsable_message_composes_the_sentence() -> None:
+    assert secrets_unparsable_message("create", 'has a duplicate key "a" (lines 1 and 2)') == (
+        'Can\'t create: secrets.yaml has a duplicate key "a" (lines 1 and 2). '
         "Fix it on the Secrets page and try again."
-    )
-
-
-def test_secrets_unparsable_message_uses_the_problem_clause_when_given() -> None:
-    assert secrets_unparsable_message(
-        "save Wi-Fi credentials",
-        '"wifi_password" is defined where the dashboard can\'t rewrite it',
-        problem='defines "wifi_password" where the dashboard can\'t rewrite it',
-    ) == (
-        'Can\'t save Wi-Fi credentials: secrets.yaml defines "wifi_password" where the '
-        "dashboard can't rewrite it. Fix it on the Secrets page and try again."
-    )
-
-
-def test_secrets_unparsable_message_keeps_other_parse_errors() -> None:
-    detail = "mapping values are not allowed here in secrets.yaml, line 3, column 5"
-    assert secrets_unparsable_message("rename", detail) == (
-        "Can't rename: secrets.yaml doesn't parse: mapping values are not allowed here "
-        "in secrets.yaml, line 3, column 5. Fix it on the Secrets page and try again."
     )
 
 
@@ -301,6 +299,10 @@ def test_merge_secrets_leaves_unreadable_untouched(
 # ---------------------------------------------------------------------------
 
 
+def _rep(content: str, key: str, value: str) -> str:
+    return _replace_or_append_secret(content, key, value)[0]
+
+
 def _secrets(tmp_path: Path) -> Path:
     return tmp_path / "secrets.yaml"
 
@@ -460,12 +462,12 @@ def test_migrate_placeholder_wifi_leaves_nested_lines(
     assert _secrets(tmp_path).read_text("utf-8") == "mqtt:\n  wifi_ssid: nested\n"
 
 
-def test_migrate_placeholder_wifi_noop_when_only_nested_lines_match(tmp_path: Path) -> None:
-    """A uniformly indented root mapping resolves the placeholder but has no top-level line."""
-    original = f'  wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n  api_key: ABC\n'
-    _secrets(tmp_path).write_text(original, "utf-8")
+def test_migrate_placeholder_wifi_follows_the_root_indent(tmp_path: Path) -> None:
+    """A uniformly indented root mapping is cleaned at its own indent."""
+    content = f'  wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n  api_key: ABC\n'
+    _secrets(tmp_path).write_text(content, "utf-8")
     migrate_placeholder_wifi_secrets(tmp_path)
-    assert _secrets(tmp_path).read_text("utf-8") == original
+    assert _secrets(tmp_path).read_text("utf-8") == "  api_key: ABC\n"
 
 
 def test_migrate_placeholder_wifi_keeps_the_file_when_the_rewrite_would_not_parse(
@@ -580,66 +582,62 @@ def test_write_secret_creates_missing_file_with_default_mode(tmp_path: Path) -> 
 
 def test_replace_or_append_secret_appends_when_key_absent_in_existing_file() -> None:
     """File exists with other keys — new key gets appended, not inlined."""
-    result = _replace_or_append_secret("api_key: ABC\n", "wifi_ssid", "MyAP")
+    result = _rep("api_key: ABC\n", "wifi_ssid", "MyAP")
     assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
 
 
 def test_replace_or_append_secret_appends_to_file_without_trailing_newline() -> None:
     """No trailing newline on input — helper adds one before appending."""
-    result = _replace_or_append_secret("api_key: ABC", "wifi_ssid", "MyAP")
+    result = _rep("api_key: ABC", "wifi_ssid", "MyAP")
     assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
 
 
 def test_replace_or_append_secret_appends_to_empty_content() -> None:
     """Empty input behaves like the missing-file path."""
-    assert _replace_or_append_secret("", "wifi_ssid", "MyAP") == 'wifi_ssid: "MyAP"\n'
+    assert _rep("", "wifi_ssid", "MyAP") == 'wifi_ssid: "MyAP"\n'
 
 
 def test_replace_or_append_secret_preserves_indent() -> None:
     """Indented secret lines keep their indent on rewrite."""
-    result = _replace_or_append_secret('  wifi_ssid: "old"\n', "wifi_ssid", "new")
+    result = _rep('  wifi_ssid: "old"\n', "wifi_ssid", "new")
     assert result == '  wifi_ssid: "new"\n'
 
 
 def test_replace_or_append_secret_quotes_special_characters() -> None:
     """Backslash and double-quote in the value get escaped, others pass through."""
-    result = _replace_or_append_secret('wifi_password: "old"\n', "wifi_password", 'p\\a"s s')
+    result = _rep('wifi_password: "old"\n', "wifi_password", 'p\\a"s s')
     assert result == 'wifi_password: "p\\\\a\\"s s"\n'
 
 
 def test_replace_or_append_secret_only_matches_full_key_name() -> None:
     r"""``wifi_ssid_backup`` is not the same key as ``wifi_ssid``."""
-    result = _replace_or_append_secret('wifi_ssid_backup: "keep"\n', "wifi_ssid", "MyAP")
+    result = _rep('wifi_ssid_backup: "keep"\n', "wifi_ssid", "MyAP")
     assert 'wifi_ssid_backup: "keep"' in result
     assert 'wifi_ssid: "MyAP"' in result
 
 
 def test_replace_or_append_secret_ignores_pure_comment_lines() -> None:
     """A standalone ``# wifi_ssid: foo`` comment is not a key."""
-    result = _replace_or_append_secret(
-        '# wifi_ssid: "example"\napi_key: ABC\n', "wifi_ssid", "MyAP"
-    )
+    result = _rep('# wifi_ssid: "example"\napi_key: ABC\n', "wifi_ssid", "MyAP")
     assert '# wifi_ssid: "example"' in result
     assert 'wifi_ssid: "MyAP"' in result
 
 
 def test_replace_or_append_secret_preserves_inline_comment_with_special_chars() -> None:
     """Trailing ``# comment with : colons`` round-trips intact."""
-    result = _replace_or_append_secret(
-        'wifi_ssid: "old"  # see ticket: ABC-123\n', "wifi_ssid", "MyAP"
-    )
+    result = _rep('wifi_ssid: "old"  # see ticket: ABC-123\n', "wifi_ssid", "MyAP")
     assert result == 'wifi_ssid: "MyAP"  # see ticket: ABC-123\n'
 
 
 def test_replace_or_append_secret_handles_bare_key() -> None:
     """``wifi_ssid:`` with no value still matches and gets the new value."""
-    result = _replace_or_append_secret("wifi_ssid:\n", "wifi_ssid", "MyAP")
+    result = _rep("wifi_ssid:\n", "wifi_ssid", "MyAP")
     assert result == 'wifi_ssid: "MyAP"\n'
 
 
 def test_replace_or_append_secret_value_with_hash_in_quotes_keeps_no_comment() -> None:
     """``# `` inside a quoted value is part of the value, not a trailing comment."""
-    result = _replace_or_append_secret('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
+    result = _rep('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
     assert result == 'wifi_ssid: "MyAP"\n'
 
 
@@ -657,14 +655,14 @@ def test_replace_or_append_secret_replaces_hash_values_and_quoted_keys_in_place(
     line: str,
 ) -> None:
     """A ``#`` inside the value or quotes around the key still match the line."""
-    result = _replace_or_append_secret(f"{line}\napi_key: ABC\n", "wifi_password", "new")
+    result = _rep(f"{line}\napi_key: ABC\n", "wifi_password", "new")
     assert result == 'wifi_password: "new"\napi_key: ABC\n'
 
 
 def test_replace_or_append_secret_collapses_duplicate_keys() -> None:
     """A key defined twice collapses to the first line (comment kept); later duplicates drop."""
     content = 'wifi_ssid: home\nwifi_password: "old"  # note\napi_key: ABC\nwifi_password: "dup"\n'
-    result = _replace_or_append_secret(content, "wifi_password", "new")
+    result = _rep(content, "wifi_password", "new")
     assert result == 'wifi_ssid: home\nwifi_password: "new"  # note\napi_key: ABC\n'
 
 
@@ -684,7 +682,7 @@ def test_replace_or_append_secret_collapses_duplicate_keys() -> None:
 def test_replace_or_append_secret_collapses_only_at_the_matched_indent(
     content: str, expected: str
 ) -> None:
-    assert _replace_or_append_secret(content, "api_key", "new") == expected
+    assert _rep(content, "api_key", "new") == expected
 
 
 def test_write_wifi_secrets_appends_past_a_same_named_line_in_a_block_scalar(
@@ -721,24 +719,21 @@ def test_write_secret_create_if_absent_ignores_a_nested_same_named_key(tmp_path:
     assert read_secrets_yaml(tmp_path) == {"prod": {"api_key": "abc"}, "api_key": "new"}
 
 
-def test_replace_or_append_secret_never_drops_nested_lines() -> None:
-    """With no top-level match the first nested line is rewritten and nothing is removed."""
+def test_replace_or_append_secret_never_touches_nested_lines() -> None:
+    """With no root-level match the key is appended at the root; nested lines are untouched."""
     content = "mqtt:\n  api_key: a\nhttp:\n  api_key: b\n"
-    assert _replace_or_append_secret(content, "api_key", "new") == (
-        'mqtt:\n  api_key: "new"\nhttp:\n  api_key: b\n'
+    assert _rep(content, "api_key", "new") == (
+        'mqtt:\n  api_key: a\nhttp:\n  api_key: b\napi_key: "new"\n'
     )
 
 
-def test_replace_or_append_secret_appends_when_the_key_is_known_unresolved() -> None:
-    """A nested same-named line is not the secret; an unresolved key gets a top-level line."""
+def test_replace_or_append_secret_follows_the_root_indent() -> None:
+    """The root mapping's indent decides what is top-level, not column zero."""
     content = "mqtt:\n  api_key: a\n"
-    assert _replace_or_append_secret(content, "api_key", "new", defined=False) == (
-        'mqtt:\n  api_key: a\napi_key: "new"\n'
-    )
-    # A uniformly indented root mapping does resolve the key: rewrite in place.
-    assert _replace_or_append_secret('  api_key: "a"\n', "api_key", "new", defined=True) == (
-        '  api_key: "new"\n'
-    )
+    assert _rep(content, "api_key", "new") == 'mqtt:\n  api_key: a\napi_key: "new"\n'
+    # A uniformly indented root mapping is rewritten (and appended to) at its indent.
+    assert _rep('  api_key: "a"\n', "api_key", "new") == '  api_key: "new"\n'
+    assert _rep('  api_key: "a"\n', "other", "x") == '  api_key: "a"\n  other: "x"\n'
 
 
 def test_write_secret_create_if_absent_refuses_an_unparsable_file(tmp_path: Path) -> None:

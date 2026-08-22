@@ -167,7 +167,7 @@ class ConfigController:
         except SecretsContentError as err:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
-                secrets_unparsable_message("save the secret", str(err), problem=err.problem),
+                secrets_unparsable_message("save the secret", err.problem),
             ) from err
         return {"created": created}
 

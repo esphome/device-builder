@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
@@ -16,7 +15,7 @@ from ...helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
-from ...helpers.secrets_state import secrets_unparsable_message
+from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
@@ -243,11 +242,9 @@ def _raise_validation_failure(
     secrets_path: Path | None,
 ) -> NoReturn:
     """Raise the refusal ``CommandError`` for a failed validation."""
-    if (secrets_summary := _secrets_file_failure(errors, secrets_path)) is not None:
+    if (problem := _secrets_file_problem(errors, secrets_path)) is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
-        raise CommandError(
-            ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, secrets_summary)
-        )
+        raise CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
             ". Please report this with a redacted snippet of just the "
@@ -319,22 +316,17 @@ def _summarise(errors: list[str]) -> str:
     return ("; ".join(shown) + suffix).removesuffix(".")
 
 
-def _secrets_file_failure(errors: list[str], secrets_path: Path | None) -> str | None:
-    """Summarise *errors* with marks trimmed when every one is marked inside *secrets_path*."""
-    if secrets_path is None:
+def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str | None:
+    """Return the ``secrets.yaml <problem>`` clause when every error is marked inside it."""
+    if secrets_path is None or not errors:
         return None
-    # String-only: this runs on the event loop, and both sides carry the same config_dir string.
-    target = _normalized(str(secrets_path))
-    if not errors or not all(
-        any(_normalized(p) == target for p in marked_paths(msg)) for msg in errors
-    ):
+    # Path equality is string-only (this runs on the event loop); both sides
+    # carry the same config_dir string, relative or not.
+    if not all(any(Path(p) == secrets_path for p in marked_paths(msg)) for msg in errors):
         return None
-    return _summarise([trim_marks(msg) for msg in errors])
-
-
-def _normalized(path: str) -> str:
-    """Return *path* normalised for equality without touching the filesystem."""
-    return os.path.normcase(os.path.normpath(path))
+    if len(errors) == 1:
+        return secrets_problem(errors[0])
+    return f"doesn't parse: {_summarise([trim_marks(msg) for msg in errors])}"
 
 
 def _entry_confined_to_packages(

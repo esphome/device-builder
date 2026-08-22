@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 from ..cross_os_path import cross_os_basename
 
 _MARK_RE = re.compile(r'in "(?P<path>[^"\n]+)", line (?P<line>\d+), column (?P<col>\d+)')
 
 
+class Mark(NamedTuple):
+    """One PyYAML mark: the document path verbatim plus its 1-based line and column."""
+
+    path: str
+    line: int
+    column: int
+
+
+def parse_marks(message: str) -> list[Mark]:
+    """Return every mark in *message*, in order."""
+    return [Mark(m["path"], int(m["line"]), int(m["col"])) for m in _MARK_RE.finditer(message)]
+
+
 def marked_paths(message: str) -> set[str]:
     """Return every document path a mark in *message* points at, verbatim."""
-    return {m["path"] for m in _MARK_RE.finditer(message)}
+    return {mark.path for mark in parse_marks(message)}
 
 
 def trim_marks(message: str) -> str:

@@ -35,8 +35,8 @@ from ..constants import SECRETS_FILENAME
 from ..models import ErrorCode
 from .api import CommandError
 from .async_ import run_in_executor
-from .yaml import load_yaml_fast_then_esphome, write_user_yaml
-from .yaml.marks import trim_marks
+from .yaml import _split_value_and_comment, load_yaml_fast_then_esphome, write_user_yaml
+from .yaml.marks import parse_marks, trim_marks
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,12 +45,6 @@ WIFI_SSID_SECRET_REF = "!secret wifi_ssid"  # noqa: S105 — secret reference, n
 WIFI_PASSWORD_SECRET_REF = "!secret wifi_password"  # noqa: S105 — secret reference, not a credential
 
 SECRETS_FIX_HINT = "Fix it on the Secrets page and try again."
-
-# The trimmed PyYAML duplicate-key error, folded to the two line numbers.
-_DUPLICATE_KEY_RE = re.compile(
-    r'Duplicate key "(?P<key>[^"]+)" in secrets\.yaml, line (?P<second>\d+), column \d+ '
-    r"NOTE: Previous declaration here: in secrets\.yaml, line (?P<first>\d+), column \d+"
-)
 
 
 async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *args: Any) -> T:
@@ -93,17 +87,22 @@ class SecretsContentError(ValueError):
 
     def __init__(self, message: str, *, problem: str | None = None) -> None:
         super().__init__(message)
-        # User-facing ``secrets.yaml <problem>`` clause when the file itself parses.
-        self.problem = problem
+        # The user-facing ``secrets.yaml <problem>`` clause; input-validation
+        # errors (bad credentials) never reach a secrets.yaml sentence.
+        self.problem = problem if problem is not None else f"doesn't parse: {message}"
 
 
-def secrets_unparsable_message(action: str, detail: str, *, problem: str | None = None) -> str:
-    """Return the user-facing refusal for *action* when ``secrets.yaml`` is unusable."""
-    detail = detail.removesuffix(".")
-    if problem is None and (m := _DUPLICATE_KEY_RE.fullmatch(detail)) is not None:
-        problem = f'has a duplicate key "{m["key"]}" (lines {m["first"]} and {m["second"]})'
-    if problem is None:
-        problem = f"doesn't parse: {detail}"
+def secrets_problem(detail: str) -> str:
+    """Return the ``secrets.yaml <problem>`` clause for a raw loader error *detail*."""
+    if detail.startswith('Duplicate key "') and len(marks := parse_marks(detail)) == 2:
+        key = detail.removeprefix('Duplicate key "').split('"', 1)[0]
+        first, second = sorted(mark.line for mark in marks)
+        return f'has a duplicate key "{key}" (lines {first} and {second})'
+    return f"doesn't parse: {trim_marks(detail).removesuffix('.')}"
+
+
+def secrets_unparsable_message(action: str, problem: str) -> str:
+    """Return the user-facing refusal for *action* given a ``secrets.yaml`` *problem* clause."""
     return f"Can't {action}: secrets.yaml {problem}. {SECRETS_FIX_HINT}"
 
 
@@ -121,15 +120,17 @@ def validate_secrets_content(content: str, path: Path) -> dict:
     try:
         data = yaml_util.parse_yaml(path, io.StringIO(content))
     except EsphomeError as err:
-        raise SecretsContentError(trim_marks(str(err))) from err
+        raise SecretsContentError(trim_marks(str(err)), problem=secrets_problem(str(err))) from err
     except Exception as err:
         # A self-referential ``!secret`` inside secrets.yaml recurses in the
         # loader (it crashes the real reader too); reject instead of 500ing.
         # Nothing derived from the file: the loader's message can quote a secret.
         _LOGGER.warning("secrets.yaml could not be parsed by the esphome loader; rejecting")
-        raise SecretsContentError(trim_marks(f"secrets.yaml could not be parsed: {err}")) from err
+        detail = trim_marks(f"could not be parsed: {err}")
+        raise SecretsContentError(f"secrets.yaml {detail}", problem=detail) from err
     if data is not None and not isinstance(data, dict):
-        raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
+        problem = "must be a top-level mapping of name: value entries"
+        raise SecretsContentError(f"secrets.yaml {problem}", problem=problem)
     return data or {}
 
 
@@ -188,12 +189,10 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
     write_user_yaml(dest, existing_text + separator + buf.getvalue())
 
 
-# ``key: value`` line; quoted values may contain ``#`` and the key may be
-# quoted. Only indent / key / trailing comment survive a rewrite.
+# ``key: value`` line, key optionally quoted; ``rest`` is split into value
+# and trailing comment by the quote-aware ``_split_value_and_comment``.
 _SECRET_LINE_RE = re.compile(
-    r"""^(?P<indent>\s*)(?P<q>["']?)(?P<key>[a-zA-Z_]\w*)(?P=q)\s*:"""
-    r"""\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|.*?)"""
-    r"""(?P<comment>\s+#.*)?\s*$"""
+    r"""^(?P<indent>\s*)(?P<q>["']?)(?P<key>[a-zA-Z_]\w*)(?P=q)\s*:(?P<rest>.*)$"""
 )
 
 # A settable secret key. Anchored to the same shape ``_SECRET_LINE_RE``'s
@@ -269,10 +268,12 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
     if not drop:
         return
     original = secrets_path.read_text(encoding="utf-8")
+    lines = original.split("\n")
+    root = _root_indent(lines)
     updated = "\n".join(
         line
-        for line in original.split("\n")
-        if not ((m := _SECRET_LINE_RE.match(line)) and not m["indent"] and m["key"] in drop)
+        for line in lines
+        if not ((m := _SECRET_LINE_RE.match(line)) and m["indent"] == root and m["key"] in drop)
     )
     if updated == original:
         return
@@ -299,7 +300,7 @@ async def set_wifi_secrets(
     except SecretsContentError as err:
         raise CommandError(
             ErrorCode.INVALID_ARGS,
-            secrets_unparsable_message("save Wi-Fi credentials", str(err), problem=err.problem),
+            secrets_unparsable_message("save Wi-Fi credentials", err.problem),
         ) from err
 
 
@@ -311,17 +312,14 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     parse or doesn't resolve either key to the new value.
     """
     secrets_path = config_dir / SECRETS_FILENAME
-    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
-    resolved = _resolved_keys(original, secrets_path)
-    updated = original
-    for key, value in (("wifi_ssid", ssid), ("wifi_password", password)):
-        defined = key in resolved if isinstance(resolved, set) else None
-        updated = _replace_or_append_secret(updated, key, value, defined=defined)
+    original, _resolved, error = _read_secrets(secrets_path)
+    updated, _ = _replace_or_append_secret(original, "wifi_ssid", ssid)
+    updated, _ = _replace_or_append_secret(updated, "wifi_password", password)
     _write_validated_secrets(
         secrets_path,
         updated,
         {"wifi_ssid": ssid, "wifi_password": password},
-        original_error=resolved if isinstance(resolved, SecretsContentError) else None,
+        original_error=error,
     )
 
 
@@ -335,25 +333,25 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
     single-key sets don't lose each other's update.
     """
     secrets_path = config_dir / SECRETS_FILENAME
-    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
-    resolved = _resolved_keys(original, secrets_path)
-    if isinstance(resolved, SecretsContentError):
+    original, resolved, error = _read_secrets(secrets_path)
+    if error is not None and not overwrite:
         # "Already exists" can't be answered from a file esphome won't read.
-        if not overwrite:
-            raise resolved
-        existed, defined = _line_defines_key(original, key), None
-    else:
-        existed = defined = key in resolved
+        raise error
+    updated, replaced = _replace_or_append_secret(original, key, value)
+    existed = key in resolved if resolved is not None else replaced
     if existed and not overwrite:
         return False
-    updated = _replace_or_append_secret(original, key, value, defined=defined)
-    _write_validated_secrets(
-        secrets_path,
-        updated,
-        {key: value},
-        original_error=resolved if isinstance(resolved, SecretsContentError) else None,
-    )
+    _write_validated_secrets(secrets_path, updated, {key: value}, original_error=error)
     return not existed
+
+
+def _read_secrets(secrets_path: Path) -> tuple[str, set[str] | None, SecretsContentError | None]:
+    """Return the file's text plus the names it resolves, or the parse error instead."""
+    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
+    try:
+        return original, set(validate_secrets_content(original, secrets_path)), None
+    except SecretsContentError as err:
+        return original, None, err
 
 
 def _write_validated_secrets(
@@ -380,58 +378,40 @@ def _write_validated_secrets(
     write_user_yaml(secrets_path, content)
 
 
-def _resolved_keys(content: str, path: Path) -> set[str] | SecretsContentError:
-    """Return the secret names *content* resolves, or the error when it won't parse."""
-    try:
-        return set(validate_secrets_content(content, path))
-    except SecretsContentError as err:
-        return err
+def _root_indent(lines: list[str]) -> str:
+    """Return the indent of the root mapping: that of the first ``key:`` line, else none."""
+    return next((m["indent"] for line in lines if (m := _SECRET_LINE_RE.match(line))), "")
 
 
-def _line_defines_key(content: str, key: str) -> bool:
-    """Whether any line of *content* is a ``key:`` line (the setter's match rule)."""
-    return any(
-        (m := _SECRET_LINE_RE.match(line)) is not None and m["key"] == key
-        for line in content.split("\n")
-    )
-
-
-def _replace_or_append_secret(
-    content: str, key: str, value: str, *, defined: bool | None = None
-) -> str:
+def _replace_or_append_secret(content: str, key: str, value: str) -> tuple[str, bool]:
     """
-    Set ``key`` to ``value`` in *content* in place, or append ``key: "value"``.
+    Set ``key`` to ``value`` in *content*; return the text and whether a line was rewritten.
 
-    Rewrites the top-level match and drops later top-level duplicates; with
-    none, rewrites the first nested match unless *defined* says the parsed
-    file doesn't resolve *key*, in which case a top-level line is appended.
+    Rewrites the first root-level match (keeping its inline comment), drops
+    later root-level duplicates, and otherwise appends at the root indent.
     """
     encoded = _quote_yaml_string(value)
     lines = content.split("\n")
-    matches = [
+    root = _root_indent(lines)
+    hits = [
         (i, m)
         for i, line in enumerate(lines)
-        if (m := _SECRET_LINE_RE.match(line)) is not None and m["key"] == key
+        if (m := _SECRET_LINE_RE.match(line)) and m["indent"] == root and m["key"] == key
     ]
-    top_level = [(i, m) for i, m in matches if not m["indent"]]
-    target: tuple[int, re.Match[str]] | None = None
-    drop: set[int] = set()
-    if top_level:
-        target, drop = top_level[0], {i for i, _ in top_level[1:]}
-    elif matches and defined is not False:
-        target = matches[0]
-    if target is not None:
-        index, m = target
-        lines[index] = f"{m['indent']}{key}: {encoded}{m['comment'] or ''}"
-        return "\n".join(line for i, line in enumerate(lines) if i not in drop)
+    if hits:
+        (first, match), *duplicates = hits
+        _value, comment = _split_value_and_comment(match["rest"])
+        lines[first] = f"{root}{key}: {encoded}{comment}"
+        drop = {i for i, _ in duplicates}
+        return "\n".join(line for i, line in enumerate(lines) if i not in drop), True
     # Append. Empty input gets the line on its own (no leading
     # blank); any other input gets a single ``\n`` separator if it
     # doesn't already end with one.
     if not content:
-        return f"{key}: {encoded}\n"
+        return f"{root}{key}: {encoded}\n", False
     if not content.endswith("\n"):
         content = content + "\n"
-    return f"{content}{key}: {encoded}\n"
+    return f"{content}{root}{key}: {encoded}\n", False
 
 
 _YAML_DQ_ESCAPES: dict[str, str] = {

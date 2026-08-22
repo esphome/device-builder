@@ -116,35 +116,26 @@ def _dup_key_in(secrets: Path) -> str:
     )
 
 
-def test_secrets_file_failure_summarises_marks_in_the_config_secrets(tmp_path: Path) -> None:
-    """A mark inside the config dir's secrets.yaml is attributed, paths trimmed, on one line."""
+def test_secrets_file_problem_folds_a_duplicate_key_in_the_config_secrets(tmp_path: Path) -> None:
     secrets = tmp_path / "secrets.yaml"
-    assert mutations_yaml._secrets_file_failure([_dup_key_in(secrets)], secrets) == (
-        'Duplicate key "wifi_password" in secrets.yaml, line 7, column 1 '
-        "NOTE: Previous declaration here: in secrets.yaml, line 5, column 1"
+    assert mutations_yaml._secrets_file_problem([_dup_key_in(secrets)], secrets) == (
+        'has a duplicate key "wifi_password" (lines 5 and 7)'
     )
 
 
-def test_secrets_file_failure_matches_a_relative_config_dir() -> None:
+def test_secrets_file_problem_matches_a_relative_config_dir() -> None:
     """``--dev configs`` leaves config_dir relative; the mark carries the same string."""
     secrets = Path("configs") / "secrets.yaml"
-    assert mutations_yaml._secrets_file_failure([_dup_key_in(secrets)], secrets) is not None
+    assert mutations_yaml._secrets_file_problem([_dup_key_in(secrets)], secrets) is not None
 
 
-def test_secrets_file_failure_needs_every_error_in_secrets(tmp_path: Path) -> None:
-    """A co-occurring generator error keeps the generic (report it) path."""
+def test_secrets_file_problem_summarises_several_errors(tmp_path: Path) -> None:
     secrets = tmp_path / "secrets.yaml"
-    errors = [_dup_key_in(secrets), "[esphome] generator regression"]
-    assert mutations_yaml._secrets_file_failure(errors, secrets) is None
-
-
-def test_secrets_file_failure_ignores_a_same_named_file_elsewhere(tmp_path: Path) -> None:
-    """A package-cache secrets.yaml is not the file the Secrets page edits."""
-    cached = tmp_path / ".esphome" / "packages" / "abc" / "secrets.yaml"
-    assert (
-        mutations_yaml._secrets_file_failure([_dup_key_in(cached)], tmp_path / "secrets.yaml")
-        is None
-    )
+    other = f'mapping values are not allowed here\n  in "{secrets}", line 3, column 5'
+    problem = mutations_yaml._secrets_file_problem([_dup_key_in(secrets), other], secrets)
+    assert problem is not None
+    assert problem.startswith('doesn\'t parse: Duplicate key "wifi_password" in secrets.yaml')
+    assert "mapping values are not allowed here in secrets.yaml, line 3, column 5" in problem
 
 
 @pytest.mark.parametrize(
@@ -154,7 +145,13 @@ def test_secrets_file_failure_ignores_a_same_named_file_elsewhere(tmp_path: Path
         ["[esphome] generator regression"],
         ['mapping values are not allowed here\n  in "/config/kitchen.yaml", line 3, column 5'],
         ["Secret 'wifi_ssid' not defined\n  in \"/config/kitchen.yaml\", line 9, column 11"],
+        # A co-occurring generator error keeps the generic (report it) path.
+        [_dup_key_in(Path("/config/secrets.yaml")), "[esphome] generator regression"],
+        # A package-cache secrets.yaml is not the file the Secrets page edits.
+        [_dup_key_in(Path("/config/.esphome/packages/abc/secrets.yaml"))],
     ],
 )
-def test_secrets_file_failure_ignores_other_documents(errors: list[str], tmp_path: Path) -> None:
-    assert mutations_yaml._secrets_file_failure(errors, tmp_path / "secrets.yaml") is None
+def test_secrets_file_problem_is_none_unless_every_error_sits_in_the_config_secrets(
+    errors: list[str],
+) -> None:
+    assert mutations_yaml._secrets_file_problem(errors, Path("/config/secrets.yaml")) is None
