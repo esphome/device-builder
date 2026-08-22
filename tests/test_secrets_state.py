@@ -507,7 +507,7 @@ def test_migrate_placeholder_wifi_warns_when_the_placeholder_has_no_root_line(
     _secrets(tmp_path).write_text(original, "utf-8")
     migrate_placeholder_wifi_secrets(tmp_path)
     assert _secrets(tmp_path).read_text("utf-8") == original
-    assert "['wifi_ssid'] have no root-level line" in caplog.text
+    assert "['wifi_ssid'] come from an included document" in caplog.text
 
 
 def test_migrate_placeholder_wifi_is_quiet_on_the_bootstrapped_comment_only_file(
@@ -534,7 +534,15 @@ def test_migrate_placeholder_wifi_survives_an_unreadable_file(
     _secrets(tmp_path).write_text("dup: 1\ndup: 2\n", "utf-8")
     monkeypatch.setattr(Path, "read_text", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
     migrate_placeholder_wifi_secrets(tmp_path)  # no raise
-    assert "doesn't parse" not in caplog.text
+    assert "secrets.yaml can't be read" in caplog.text
+
+
+def test_migrate_placeholder_wifi_survives_a_non_utf8_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _secrets(tmp_path).write_bytes(b"wifi_ssid: \xe9\xe9\n")
+    migrate_placeholder_wifi_secrets(tmp_path)  # no raise
+    assert _secrets(tmp_path).read_bytes() == b"wifi_ssid: \xe9\xe9\n"
 
 
 def test_migrate_placeholder_wifi_warns_when_the_placeholder_still_resolves(

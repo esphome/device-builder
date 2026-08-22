@@ -22,7 +22,6 @@ import io
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -265,11 +264,13 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
     data = read_secrets_yaml(config_dir)
     if not data:
         # Diagnostic only (a comment-only bootstrap file is fine); never abort boot.
-        with suppress(OSError):
-            try:
-                validate_secrets_content(secrets_path.read_text(encoding="utf-8"), secrets_path)
-            except SecretsContentError:
-                _LOGGER.warning("Skipping placeholder Wi-Fi cleanup; secrets.yaml doesn't parse")
+        try:
+            text = secrets_path.read_text(encoding="utf-8", errors="replace")
+            validate_secrets_content(text, secrets_path)
+        except OSError:
+            _LOGGER.warning("Skipping placeholder Wi-Fi cleanup; secrets.yaml can't be read")
+        except SecretsContentError:
+            _LOGGER.warning("Skipping placeholder Wi-Fi cleanup; secrets.yaml doesn't parse")
         return
     drop = {
         key
@@ -291,7 +292,8 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
     )
     if updated == original:
         _LOGGER.warning(
-            "Placeholder Wi-Fi secrets %s have no root-level line to drop", sorted(drop)
+            "Placeholder Wi-Fi secrets %s come from an included document; edit it there",
+            sorted(drop),
         )
         return
     try:
@@ -387,7 +389,9 @@ def _write_validated_secrets(
     except SecretsContentError as err:
         # A collapse shifts lines; report the on-disk file's own error when it has one.
         if original_error is not None:
-            _LOGGER.debug("The rewritten secrets.yaml also failed to parse; reporting the original")
+            _LOGGER.warning(
+                "The rewritten secrets.yaml also failed to parse; reporting the original"
+            )
             raise original_error from err
         # The file parsed and our line rewrite broke it (a block-scalar value, say).
         raise SecretsContentError(str(err), problem=_unrewritable(expected)) from err
