@@ -167,8 +167,8 @@ async def validate_rewritten_yaml_or_raise(
     off-loop (``CORE.data_dir`` stats the disk).
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
-    sentence. *secrets_path* is the config dir's ``secrets.yaml``; an
-    error marked inside it refuses as ``INVALID_ARGS`` naming that file.
+    sentence. An error marked inside *secrets_path* (the config dir's
+    ``secrets.yaml``) refuses as ``INVALID_ARGS`` naming that file.
     """
     if editor is None:
         return None
@@ -244,8 +244,7 @@ def _raise_validation_failure(
 ) -> NoReturn:
     """Raise the refusal ``CommandError`` for a failed validation."""
     if (secrets_summary := _secrets_file_failure(errors, secrets_path)) is not None:
-        # A parse error inside the user's secrets.yaml is theirs to fix,
-        # never a generator bug — whatever ``on_failure`` the caller chose.
+        # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         raise CommandError(
             ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, secrets_summary)
         )
@@ -324,9 +323,7 @@ def _secrets_file_failure(errors: list[str], secrets_path: Path | None) -> str |
     """Summarise *errors* with marks trimmed when any is marked inside *secrets_path*."""
     if secrets_path is None:
         return None
-    # String-only normalisation (this runs on the event loop): the validator
-    # subprocess derives the mark from the same ``config_dir`` string the
-    # caller passes here, relative or not, so no resolving on either side.
+    # String-only: this runs on the event loop, and both sides carry the same config_dir string.
     target = _normalized(str(secrets_path))
     if not any(_normalized(p) == target for msg in errors for p in marked_paths(msg)):
         return None

@@ -181,9 +181,8 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
     write_user_yaml(dest, existing_text + separator + buf.getvalue())
 
 
-# ``key: value`` line; a ``#`` inside a quoted value is not a comment and the
-# key may be quoted. The value is discarded on rewrite — only indent / key /
-# trailing comment carry over.
+# ``key: value`` line; quoted values may contain ``#`` and the key may be
+# quoted. Only indent / key / trailing comment survive a rewrite.
 _SECRET_LINE_RE = re.compile(
     r"""^(?P<indent>\s*)(?P<q>["']?)(?P<key>[a-zA-Z_]\w*)(?P=q)\s*:"""
     r"""\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|.*?)"""
@@ -275,12 +274,7 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
 async def set_wifi_secrets(
     write_locked: Callable[..., Awaitable[Any]], config_dir: Path, ssid: str, password: str
 ) -> None:
-    """
-    Validate *ssid* / *password* and persist them through *write_locked*.
-
-    Refusals (bad credentials, or a ``secrets.yaml`` that still wouldn't
-    parse after the rewrite) surface as ``CommandError(INVALID_ARGS)``.
-    """
+    """Validate and store Wi-Fi credentials via *write_locked*; refusals raise ``CommandError``."""
     try:
         validate_wifi_credentials(ssid, password)
     except SecretsContentError as err:
@@ -295,12 +289,9 @@ async def set_wifi_secrets(
 
 def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
-    Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
+    Set ``wifi_ssid`` / ``wifi_password`` in ``secrets.yaml`` in place.
 
-    Line-based rewrite preserves comments and any other secrets the
-    user has added; creates the file with just the two keys when it
-    doesn't exist. Raises ``SecretsContentError`` (nothing written) when
-    the rewritten file wouldn't parse.
+    Raises ``SecretsContentError`` (nothing written) when the result wouldn't parse.
     """
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
@@ -353,14 +344,10 @@ def _has_secret_key(content: str, key: str) -> bool:
 
 def _replace_or_append_secret(content: str, key: str, value: str) -> str:
     """
-    Set ``key`` to ``value`` in YAML *content*, in place.
+    Set ``key`` to ``value`` in *content* in place, or append ``key: "value"``.
 
-    The top-level line whose key matches (else the first matching line) is
-    rewritten with its indent and inline ``# comment`` preserved, and every
-    later duplicate at that same indent is dropped, so a file that carries
-    the key twice collapses to one definition; lines at another indent are
-    left alone. If no line matches, appends ``key: "value"`` at the end
-    with a trailing newline.
+    Rewrites the top-level match (else the first), keeping its indent and
+    inline comment, and drops later duplicates at that indent only.
     """
     encoded = _quote_yaml_string(value)
     lines = content.split("\n")
