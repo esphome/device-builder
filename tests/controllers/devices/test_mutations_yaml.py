@@ -125,6 +125,12 @@ def test_secrets_file_failure_summarises_marks_in_the_config_secrets(tmp_path: P
     )
 
 
+def test_secrets_file_failure_matches_a_relative_config_dir() -> None:
+    """``--dev configs`` leaves config_dir relative; the mark carries the same string."""
+    secrets = Path("configs") / "secrets.yaml"
+    assert mutations_yaml._secrets_file_failure([_dup_key_in(secrets)], secrets) is not None
+
+
 def test_secrets_file_failure_ignores_a_same_named_file_elsewhere(tmp_path: Path) -> None:
     """A package-cache secrets.yaml is not the file the Secrets page edits."""
     cached = tmp_path / ".esphome" / "packages" / "abc" / "secrets.yaml"

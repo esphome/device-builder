@@ -324,8 +324,9 @@ def _secrets_file_failure(errors: list[str], secrets_path: Path | None) -> str |
     """Summarise *errors* with marks trimmed when any is marked inside *secrets_path*."""
     if secrets_path is None:
         return None
-    # String-only normalisation: this runs on the event loop, and the marks
-    # are absolute paths esphome derived from the same config dir.
+    # String-only normalisation (this runs on the event loop): the validator
+    # subprocess derives the mark from the same ``config_dir`` string the
+    # caller passes here, relative or not, so no resolving on either side.
     target = _normalized(str(secrets_path))
     if not any(_normalized(p) == target for msg in errors for p in marked_paths(msg)):
         return None

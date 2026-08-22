@@ -625,6 +625,40 @@ def test_replace_or_append_secret_collapses_duplicate_keys() -> None:
     assert result == 'wifi_ssid: home\nwifi_password: "new"  # note\napi_key: ABC\n'
 
 
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        # A nested same-named key is not a duplicate of the top-level secret.
+        ("mqtt:\n  api_key: nested\napi_key: real\n", 'mqtt:\n  api_key: nested\napi_key: "new"\n'),
+        ("api_key: real\nmqtt:\n  api_key: nested\n", 'api_key: "new"\nmqtt:\n  api_key: nested\n'),
+        # A same-named line inside a block scalar is left alone too.
+        (
+            "cert: |\n  api_key: inside\n  more\napi_key: old\n",
+            'cert: |\n  api_key: inside\n  more\napi_key: "new"\n',
+        ),
+    ],
+)
+def test_replace_or_append_secret_collapses_only_at_the_matched_indent(
+    content: str, expected: str
+) -> None:
+    assert _replace_or_append_secret(content, "api_key", "new") == expected
+
+
+def test_write_wifi_secrets_refuses_when_the_key_does_not_resolve(tmp_path: Path) -> None:
+    """A rewrite that lands inside a block scalar leaves the key undefined; nothing is written."""
+    original = "cert: |\n  wifi_password: inside\n  more\nwifi_ssid: home\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    with pytest.raises(SecretsContentError, match='could not set "wifi_password"'):
+        write_wifi_secrets(tmp_path, "home", "hunter2")
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
+def test_write_secret_heals_a_duplicated_key(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("api_key: a\nother: x\napi_key: b\n", "utf-8")
+    assert write_secret(tmp_path, "api_key", "c") is False
+    assert _secrets(tmp_path).read_text("utf-8") == 'api_key: "c"\nother: x\n'
+
+
 def test_write_wifi_secrets_heals_duplicated_password(tmp_path: Path) -> None:
     """A secrets.yaml the old writer duplicated collapses to one key on the next write."""
     _secrets(tmp_path).write_text(

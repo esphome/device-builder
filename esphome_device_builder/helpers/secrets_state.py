@@ -102,9 +102,9 @@ def secrets_unparsable_message(action: str, detail: str) -> str:
     return f"Can't {action}: secrets.yaml {problem}. {SECRETS_FIX_HINT}"
 
 
-def validate_secrets_content(content: str, path: Path) -> None:
+def validate_secrets_content(content: str, path: Path) -> dict:
     """
-    Raise ``SecretsContentError`` unless *content* is a valid ``secrets.yaml``.
+    Return *content* parsed as a ``secrets.yaml`` mapping, or raise ``SecretsContentError``.
 
     Parsed through ESPHome's own loader, keyed on the real on-disk *path*,
     so ``!include`` / ``!secret`` / merge keys resolve against the config
@@ -123,6 +123,7 @@ def validate_secrets_content(content: str, path: Path) -> None:
         raise SecretsContentError(f"secrets.yaml could not be parsed: {err}") from err
     if data is not None and not isinstance(data, dict):
         raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
+    return data or {}
 
 
 def wifi_secrets_defined(secrets: dict | None) -> bool:
@@ -309,7 +310,7 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
         "wifi_password",
         password,
     )
-    _write_validated_secrets(secrets_path, updated)
+    _write_validated_secrets(secrets_path, updated, {"wifi_ssid": ssid, "wifi_password": password})
 
 
 def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = True) -> bool:
@@ -327,13 +328,18 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
     if existed and not overwrite:
         return False
     updated = _replace_or_append_secret(original, key, value)
-    _write_validated_secrets(secrets_path, updated)
+    _write_validated_secrets(secrets_path, updated, {key: value})
     return not existed
 
 
-def _write_validated_secrets(secrets_path: Path, content: str) -> None:
-    """Write *content* to *secrets_path* only after it parses as a secrets.yaml."""
-    validate_secrets_content(content, secrets_path)
+def _write_validated_secrets(secrets_path: Path, content: str, expected: dict[str, str]) -> None:
+    """Write *content* to *secrets_path* once it parses and resolves every *expected* key."""
+    data = validate_secrets_content(content, secrets_path)
+    for key, value in expected.items():
+        if data.get(key) != value:
+            raise SecretsContentError(
+                f'the rewrite could not set "{key}" (another definition takes precedence)'
+            )
     write_user_yaml(secrets_path, content)
 
 
@@ -349,24 +355,25 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
     """
     Set ``key`` to ``value`` in YAML *content*, in place.
 
-    The first line whose key matches is rewritten (indent and any inline
-    ``# comment`` preserved) and every later duplicate of the key is
-    dropped, so a file that already carries the key twice collapses to one
-    valid definition. If no line matches, appends ``key: "value"`` at the
-    end with a trailing newline.
+    The top-level line whose key matches (else the first matching line) is
+    rewritten with its indent and inline ``# comment`` preserved, and every
+    later duplicate at that same indent is dropped, so a file that carries
+    the key twice collapses to one definition; lines at another indent are
+    left alone. If no line matches, appends ``key: "value"`` at the end
+    with a trailing newline.
     """
     encoded = _quote_yaml_string(value)
-    lines: list[str] = []
-    matched = False
-    for line in content.split("\n"):
-        m = _SECRET_LINE_RE.match(line)
-        if m is None or m["key"] != key:
-            lines.append(line)
-        elif not matched:
-            lines.append(f"{m['indent']}{key}: {encoded}{m['comment'] or ''}")
-            matched = True
-    if matched:
-        return "\n".join(lines)
+    lines = content.split("\n")
+    matches = [
+        (i, m)
+        for i, line in enumerate(lines)
+        if (m := _SECRET_LINE_RE.match(line)) is not None and m["key"] == key
+    ]
+    if matches:
+        target_index, target = next(((i, m) for i, m in matches if not m["indent"]), matches[0])
+        lines[target_index] = f"{target['indent']}{key}: {encoded}{target['comment'] or ''}"
+        drop = {i for i, m in matches if i != target_index and m["indent"] == target["indent"]}
+        return "\n".join(line for i, line in enumerate(lines) if i not in drop)
     # Append. Empty input gets the line on its own (no leading
     # blank); any other input gets a single ``\n`` separator if it
     # doesn't already end with one.
