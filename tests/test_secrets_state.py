@@ -29,6 +29,7 @@ from esphome_device_builder.helpers.secrets_state import (
     merge_secrets_file,
     migrate_placeholder_wifi_secrets,
     read_secrets_yaml,
+    secrets_unparsable_message,
     validate_secrets_content,
     validate_wifi_credentials,
     wifi_secrets_defined,
@@ -107,6 +108,25 @@ def test_read_secrets_yaml_returns_dict_for_valid_file(tmp_path: Path) -> None:
     assert data is not None
     assert data["wifi_ssid"] == "home"
     assert data["api_key"] == "ABC"
+
+
+def test_secrets_unparsable_message_folds_duplicate_key_marks() -> None:
+    detail = (
+        'Duplicate key "api_key" in secrets.yaml, line 5, column 1 '
+        "NOTE: Previous declaration here: in secrets.yaml, line 4, column 1"
+    )
+    assert secrets_unparsable_message("create", detail) == (
+        'Can\'t create: secrets.yaml has a duplicate key "api_key" (lines 4 and 5). '
+        "Fix it on the Secrets page and try again."
+    )
+
+
+def test_secrets_unparsable_message_keeps_other_parse_errors() -> None:
+    detail = "mapping values are not allowed here in secrets.yaml, line 3, column 5"
+    assert secrets_unparsable_message("rename", detail) == (
+        "Can't rename: secrets.yaml doesn't parse: mapping values are not allowed here "
+        "in secrets.yaml, line 3, column 5. Fix it on the Secrets page and try again."
+    )
 
 
 def test_validate_secrets_content_rejects_malformed_yaml(tmp_path: Path) -> None:

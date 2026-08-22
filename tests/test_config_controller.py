@@ -1128,10 +1128,10 @@ async def test_set_wifi_credentials_maps_corrupt_secrets_to_invalid_args(tmp_pat
     with pytest.raises(CommandError) as excinfo:
         await controller.set_wifi_credentials(ssid="home", password="hunter2")
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert excinfo.value.message.startswith(
-        "Can't save Wi-Fi credentials — secrets.yaml doesn't parse: Duplicate key"
+    assert excinfo.value.message == (
+        'Can\'t save Wi-Fi credentials: secrets.yaml has a duplicate key "dup" '
+        "(lines 1 and 2). Fix it on the Secrets page and try again."
     )
-    assert "in secrets.yaml, line 2" in excinfo.value.message
     assert str(tmp_path) not in excinfo.value.message
     assert (tmp_path / "secrets.yaml").read_text("utf-8") == original
 

@@ -817,7 +817,9 @@ async def test_create_device_secrets_parse_error_surfaces_invalid_args(
         await ctrl.create_device(name="kitchen", ssid="MyNetwork", psk="hunter2")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "secrets.yaml doesn't parse" in excinfo.value.message
+    assert (
+        'secrets.yaml has a duplicate key "wifi_password" (lines 5 and 7)' in excinfo.value.message
+    )
     assert "report" not in excinfo.value.message.lower()
     assert str(tmp_path) not in excinfo.value.message
     assert not (tmp_path / "kitchen.yaml").exists()

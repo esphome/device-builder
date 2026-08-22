@@ -44,7 +44,13 @@ _LOGGER = logging.getLogger(__name__)
 WIFI_SSID_SECRET_REF = "!secret wifi_ssid"  # noqa: S105 — secret reference, not a credential
 WIFI_PASSWORD_SECRET_REF = "!secret wifi_password"  # noqa: S105 — secret reference, not a credential
 
-SECRETS_FIX_HINT = "Fix secrets.yaml on the Secrets page and try again."
+SECRETS_FIX_HINT = "Fix it on the Secrets page and try again."
+
+# The trimmed PyYAML duplicate-key error, folded to the two line numbers.
+_DUPLICATE_KEY_RE = re.compile(
+    r'Duplicate key "(?P<key>[^"]+)" in secrets\.yaml, line (?P<second>\d+), column \d+ '
+    r"NOTE: Previous declaration here: in secrets\.yaml, line (?P<first>\d+), column \d+"
+)
 
 
 async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *args: Any) -> T:
@@ -88,10 +94,12 @@ class SecretsContentError(ValueError):
 
 def secrets_unparsable_message(action: str, detail: str) -> str:
     """Return the user-facing refusal for *action* when ``secrets.yaml`` doesn't parse."""
-    return (
-        f"Can't {action} — secrets.yaml doesn't parse: {detail.removesuffix('.')}. "
-        f"{SECRETS_FIX_HINT}"
-    )
+    detail = detail.removesuffix(".")
+    if (m := _DUPLICATE_KEY_RE.fullmatch(detail)) is not None:
+        problem = f'has a duplicate key "{m["key"]}" (lines {m["first"]} and {m["second"]})'
+    else:
+        problem = f"doesn't parse: {detail}"
+    return f"Can't {action}: secrets.yaml {problem}. {SECRETS_FIX_HINT}"
 
 
 def validate_secrets_content(content: str, path: Path) -> None:
