@@ -276,12 +276,15 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
         if not ((m := _SECRET_LINE_RE.match(line)) and m["indent"] == root and m["key"] in drop)
     )
     if updated == original:
+        _LOGGER.warning(
+            "Placeholder Wi-Fi secrets %s have no root-level line to drop", sorted(drop)
+        )
         return
     try:
         validate_secrets_content(updated, secrets_path)
     except SecretsContentError:
         _LOGGER.warning(
-            "Leaving the placeholder Wi-Fi secrets in place; the rewrite wouldn't parse"
+            "Keeping placeholder Wi-Fi secrets %s; the rewrite wouldn't parse", sorted(drop)
         )
         return
     write_user_yaml(secrets_path, updated)
@@ -364,23 +367,34 @@ def _write_validated_secrets(
     """Write *content* to *secrets_path* once it parses and resolves every *expected* key."""
     try:
         data = validate_secrets_content(content, secrets_path)
-    except SecretsContentError:
+    except SecretsContentError as err:
         # A collapse shifts lines; report the on-disk file's own error when it has one.
         if original_error is not None:
-            raise original_error from None
-        raise
+            raise original_error from err
+        # The file parsed and our line rewrite broke it (a block-scalar value, say).
+        raise SecretsContentError(str(err), problem=_unrewritable(expected)) from err
     for key, value in expected.items():
         if data.get(key) != value:
             raise SecretsContentError(
                 f'"{key}" is defined where the dashboard can\'t rewrite it',
-                problem=f'defines "{key}" where the dashboard can\'t rewrite it',
+                problem=_unrewritable({key: value}),
             )
     write_user_yaml(secrets_path, content)
 
 
+def _unrewritable(keys: dict[str, str]) -> str:
+    """Return the ``secrets.yaml <problem>`` clause for keys the line rewrite can't reach."""
+    listed = ", ".join(f'"{key}"' for key in keys)
+    return f"defines {listed} where the dashboard can't rewrite it"
+
+
 def _root_indent(lines: list[str]) -> str:
-    """Return the indent of the root mapping: that of the first ``key:`` line, else none."""
-    return next((m["indent"] for line in lines if (m := _SECRET_LINE_RE.match(line))), "")
+    """Return the root mapping's indent: that of the first content line (comments skipped)."""
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith(("#", "---", "%")):
+            return line[: len(line) - len(line.lstrip())]
+    return ""
 
 
 def _replace_or_append_secret(content: str, key: str, value: str) -> tuple[str, bool]:

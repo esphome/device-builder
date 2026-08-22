@@ -478,7 +478,19 @@ def test_migrate_placeholder_wifi_keeps_the_file_when_the_rewrite_would_not_pars
     _secrets(tmp_path).write_text(original, "utf-8")
     migrate_placeholder_wifi_secrets(tmp_path)
     assert _secrets(tmp_path).read_text("utf-8") == original
-    assert "placeholder Wi-Fi secrets" in caplog.text
+    assert "Keeping placeholder Wi-Fi secrets ['wifi_ssid']" in caplog.text
+
+
+def test_migrate_placeholder_wifi_warns_when_the_placeholder_has_no_root_line(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A placeholder pulled in through ``!include`` can't be dropped line-wise; say so."""
+    (tmp_path / "wifi.yaml").write_text(f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n', "utf-8")
+    original = "<<: !include wifi.yaml\napi_key: ABC\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+    assert "['wifi_ssid'] have no root-level line" in caplog.text
 
 
 def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
@@ -727,6 +739,30 @@ def test_replace_or_append_secret_never_touches_nested_lines() -> None:
     )
 
 
+def test_replace_or_append_secret_keeps_the_comment_after_a_plain_value_with_a_quote() -> None:
+    assert _rep("wifi_password: bob's  # router note\n", "wifi_password", "x") == (
+        'wifi_password: "x"  # router note\n'
+    )
+
+
+def test_replace_or_append_secret_root_indent_ignores_the_first_key_shape() -> None:
+    """The root indent comes from the first content line, even a key the setter can't name."""
+    content = '"mqtt-settings":\n  wifi_ssid: nested\nwifi_ssid: old\n'
+    assert _rep(content, "wifi_ssid", "new") == (
+        '"mqtt-settings":\n  wifi_ssid: nested\nwifi_ssid: "new"\n'
+    )
+
+
+def test_write_secret_reports_a_value_the_rewrite_cannot_reach(tmp_path: Path) -> None:
+    """Rewriting a block-scalar header orphans its body; the refusal says so, nothing is written."""
+    original = "cert: |\n  -----BEGIN-----\n  abc\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    with pytest.raises(SecretsContentError) as excinfo:
+        write_secret(tmp_path, "cert", "x")
+    assert excinfo.value.problem == 'defines "cert" where the dashboard can\'t rewrite it'
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
 def test_replace_or_append_secret_follows_the_root_indent() -> None:
     """The root mapping's indent decides what is top-level, not column zero."""
     content = "mqtt:\n  api_key: a\n"
@@ -750,6 +786,8 @@ def test_write_secret_reports_the_on_disk_line_after_a_collapse(tmp_path: Path) 
     with pytest.raises(SecretsContentError) as excinfo:
         write_secret(tmp_path, "wifi_password", "c")
     assert "line 4" in str(excinfo.value)
+    # The rewrite's own error stays on the chain for diagnosis.
+    assert isinstance(excinfo.value.__cause__, SecretsContentError)
 
 
 def test_write_secret_heals_a_duplicated_key(tmp_path: Path) -> None:

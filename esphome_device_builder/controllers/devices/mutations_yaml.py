@@ -244,6 +244,10 @@ def _raise_validation_failure(
     """Raise the refusal ``CommandError`` for a failed validation."""
     if (problem := _secrets_file_problem(errors, secrets_path)) is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
+        if on_failure is ErrorCode.INTERNAL_ERROR:
+            _LOGGER.info(
+                "Refusing %s on the user's secrets.yaml (%s), not the generator", action, problem
+            )
         raise CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (

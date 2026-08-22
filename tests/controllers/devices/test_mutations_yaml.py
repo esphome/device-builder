@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock
 
@@ -10,6 +11,7 @@ import pytest
 from esphome_device_builder.controllers.devices import mutations_yaml
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode
 
 
 @pytest.mark.parametrize(
@@ -155,3 +157,28 @@ def test_secrets_file_problem_is_none_unless_every_error_sits_in_the_config_secr
     errors: list[str],
 ) -> None:
     assert mutations_yaml._secrets_file_problem(errors, Path("/config/secrets.yaml")) is None
+
+
+@pytest.mark.parametrize(
+    ("on_failure", "logged"),
+    [(ErrorCode.INTERNAL_ERROR, True), (ErrorCode.INVALID_ARGS, False)],
+)
+async def test_secrets_reclassification_logs_only_a_would_be_generator_bug(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, on_failure: ErrorCode, logged: bool
+) -> None:
+    secrets = tmp_path / "secrets.yaml"
+    editor = MagicMock()
+    editor.validate_yaml = AsyncMock(
+        return_value={"yaml_errors": [{"message": _dup_key_in(secrets)}], "validation_errors": []}
+    )
+    with caplog.at_level(logging.INFO), pytest.raises(CommandError) as excinfo:
+        await mutations_yaml.validate_rewritten_yaml_or_raise(
+            editor,
+            "kitchen.yaml",
+            "esphome:\n",
+            action="create",
+            on_failure=on_failure,
+            secrets_path=secrets,
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert ("not the generator" in caplog.text) is logged

@@ -41,6 +41,7 @@ from esphome_device_builder.helpers.yaml import (
     _safe_yaml_scalar,
     _splice_into_domain_block,
     _splice_into_multi_conf_block,
+    _split_value_and_comment,
     _strip_yaml_quotes,
     child_block_end,
     fallback_ap_ssid,
@@ -2450,3 +2451,9 @@ def test_top_level_key_index_matches_find_block_header() -> None:
     assert index == {"esphome": 0, "sensor": 1, "logger": 3, '"quoted"': 4, "a:b": 5}
     for key in (*index, "wifi", "quoted", "a", "nested", "dash", "script", "fake", "ota"):
         assert index.get(key) == find_block_header(lines, key)
+
+
+def test_split_value_and_comment_treats_a_quote_inside_a_plain_scalar_as_literal() -> None:
+    assert _split_value_and_comment(" bob's  # router note") == (" bob's", "  # router note")
+    assert _split_value_and_comment(' "a # b"  # note') == (' "a # b"', "  # note")
+    assert _split_value_and_comment(" 'it''s # ok' # c") == (" 'it''s # ok'", " # c")

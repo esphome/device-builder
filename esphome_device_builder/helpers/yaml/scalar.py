@@ -111,6 +111,7 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
     trailing comment was found.
     """
     quote: str | None = None
+    started = False
     i = 0
     n = len(rest)
     while i < n:
@@ -128,11 +129,15 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
                     i += 2
                     continue
                 quote = None
-        elif ch in ('"', "'"):
-            quote = ch
         elif ch == "#" and i > 0 and rest[i - 1] in " \t":
             value = rest[:i].rstrip(" \t")
             return value, rest[len(value) :]
+        elif not started and ch not in " \t":
+            # Only a quote that opens the scalar starts a quoted run; a
+            # quote inside a plain scalar (``bob's``) is literal.
+            started = True
+            if ch in ('"', "'"):
+                quote = ch
         i += 1
     return rest, ""
 
