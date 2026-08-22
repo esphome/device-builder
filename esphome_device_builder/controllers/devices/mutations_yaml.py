@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
@@ -323,10 +324,17 @@ def _secrets_file_failure(errors: list[str], secrets_path: Path | None) -> str |
     """Summarise *errors* with marks trimmed when any is marked inside *secrets_path*."""
     if secrets_path is None:
         return None
-    target = secrets_path.resolve()
-    if not any(Path(p).resolve() == target for msg in errors for p in marked_paths(msg)):
+    # String-only normalisation: this runs on the event loop, and the marks
+    # are absolute paths esphome derived from the same config dir.
+    target = _normalized(str(secrets_path))
+    if not any(_normalized(p) == target for msg in errors for p in marked_paths(msg)):
         return None
     return _summarise([trim_marks(msg) for msg in errors])
+
+
+def _normalized(path: str) -> str:
+    """Return *path* normalised for equality without touching the filesystem."""
+    return os.path.normcase(os.path.normpath(path))
 
 
 def _entry_confined_to_packages(
