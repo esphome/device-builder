@@ -25,6 +25,7 @@ from esphome_device_builder.helpers.secrets_state import (
     SecretsContentError,
     _quote_yaml_string,
     _replace_or_append_secret,
+    _write_validated_secrets,
     is_valid_secret_key,
     merge_secrets_file,
     migrate_placeholder_wifi_secrets,
@@ -655,14 +656,50 @@ def test_replace_or_append_secret_collapses_only_at_the_matched_indent(
     assert _replace_or_append_secret(content, "api_key", "new") == expected
 
 
-def test_write_wifi_secrets_refuses_when_the_key_does_not_resolve(tmp_path: Path) -> None:
-    """A rewrite that lands inside a block scalar leaves the key undefined; nothing is written."""
-    original = "cert: |\n  wifi_password: inside\n  more\nwifi_ssid: home\n"
-    _secrets(tmp_path).write_text(original, "utf-8")
-    with pytest.raises(SecretsContentError, match='"wifi_password" is defined where') as excinfo:
-        write_wifi_secrets(tmp_path, "home", "hunter2")
-    assert excinfo.value.problem == 'defines "wifi_password" where the dashboard can\'t rewrite it'
-    assert _secrets(tmp_path).read_text("utf-8") == original
+def test_write_wifi_secrets_appends_past_a_same_named_line_in_a_block_scalar(
+    tmp_path: Path,
+) -> None:
+    """A ``wifi_password:`` line inside a block scalar is not the secret; the key is appended."""
+    cert = "cert: |\n  wifi_password: inside\n  more\n"
+    _secrets(tmp_path).write_text(cert + "wifi_ssid: home\n", "utf-8")
+    write_wifi_secrets(tmp_path, "home", "hunter2")
+    content = _secrets(tmp_path).read_text("utf-8")
+    assert content == cert + 'wifi_ssid: "home"\nwifi_password: "hunter2"\n'
+
+
+def test_write_validated_secrets_refuses_when_the_key_does_not_resolve(tmp_path: Path) -> None:
+    """The post-condition refuses a rewrite whose key didn't land where esphome reads it."""
+    with pytest.raises(SecretsContentError, match='"api_key" is defined where') as excinfo:
+        _write_validated_secrets(_secrets(tmp_path), "mqtt:\n  api_key: x\n", {"api_key": "x"})
+    assert excinfo.value.problem == 'defines "api_key" where the dashboard can\'t rewrite it'
+    assert not _secrets(tmp_path).exists()
+
+
+def test_write_secret_create_if_absent_ignores_a_nested_same_named_key(tmp_path: Path) -> None:
+    """A nested ``api_key`` is not the secret; create-if-absent appends the top-level one."""
+    _secrets(tmp_path).write_text("prod:\n  api_key: abc\n", "utf-8")
+    assert write_secret(tmp_path, "api_key", "new", overwrite=False) is True
+    assert read_secrets_yaml(tmp_path) == {"prod": {"api_key": "abc"}, "api_key": "new"}
+
+
+def test_replace_or_append_secret_never_drops_nested_lines() -> None:
+    """With no top-level match the first nested line is rewritten and nothing is removed."""
+    content = "mqtt:\n  api_key: a\nhttp:\n  api_key: b\n"
+    assert _replace_or_append_secret(content, "api_key", "new") == (
+        'mqtt:\n  api_key: "new"\nhttp:\n  api_key: b\n'
+    )
+
+
+def test_replace_or_append_secret_appends_when_the_key_is_known_unresolved() -> None:
+    """A nested same-named line is not the secret; an unresolved key gets a top-level line."""
+    content = "mqtt:\n  api_key: a\n"
+    assert _replace_or_append_secret(content, "api_key", "new", defined=False) == (
+        'mqtt:\n  api_key: a\napi_key: "new"\n'
+    )
+    # A uniformly indented root mapping does resolve the key: rewrite in place.
+    assert _replace_or_append_secret('  api_key: "a"\n', "api_key", "new", defined=True) == (
+        '  api_key: "new"\n'
+    )
 
 
 def test_write_secret_heals_a_duplicated_key(tmp_path: Path) -> None:

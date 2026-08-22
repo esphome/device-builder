@@ -320,12 +320,14 @@ def _summarise(errors: list[str]) -> str:
 
 
 def _secrets_file_failure(errors: list[str], secrets_path: Path | None) -> str | None:
-    """Summarise *errors* with marks trimmed when any is marked inside *secrets_path*."""
+    """Summarise *errors* with marks trimmed when every one is marked inside *secrets_path*."""
     if secrets_path is None:
         return None
     # String-only: this runs on the event loop, and both sides carry the same config_dir string.
     target = _normalized(str(secrets_path))
-    if not any(_normalized(p) == target for msg in errors for p in marked_paths(msg)):
+    if not errors or not all(
+        any(_normalized(p) == target for p in marked_paths(msg)) for msg in errors
+    ):
         return None
     return _summarise([trim_marks(msg) for msg in errors])
 

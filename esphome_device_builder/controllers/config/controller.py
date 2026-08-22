@@ -16,6 +16,7 @@ from ...helpers.secrets_state import (
     SecretsContentError,
     is_valid_secret_key,
     read_secrets_yaml,
+    secrets_unparsable_message,
     set_wifi_secrets,
     write_secret,
 )
@@ -165,7 +166,8 @@ class ConfigController:
             )
         except SecretsContentError as err:
             raise CommandError(
-                ErrorCode.INVALID_ARGS, f"refusing to save invalid secrets.yaml: {err}"
+                ErrorCode.INVALID_ARGS,
+                secrets_unparsable_message("save the secret", str(err), problem=err.problem),
             ) from err
         return {"created": created}
 

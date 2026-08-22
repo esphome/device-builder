@@ -131,6 +131,13 @@ def test_secrets_file_failure_matches_a_relative_config_dir() -> None:
     assert mutations_yaml._secrets_file_failure([_dup_key_in(secrets)], secrets) is not None
 
 
+def test_secrets_file_failure_needs_every_error_in_secrets(tmp_path: Path) -> None:
+    """A co-occurring generator error keeps the generic (report it) path."""
+    secrets = tmp_path / "secrets.yaml"
+    errors = [_dup_key_in(secrets), "[esphome] generator regression"]
+    assert mutations_yaml._secrets_file_failure(errors, secrets) is None
+
+
 def test_secrets_file_failure_ignores_a_same_named_file_elsewhere(tmp_path: Path) -> None:
     """A package-cache secrets.yaml is not the file the Secrets page edits."""
     cached = tmp_path / ".esphome" / "packages" / "abc" / "secrets.yaml"

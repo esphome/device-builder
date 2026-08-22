@@ -125,6 +125,7 @@ def validate_secrets_content(content: str, path: Path) -> dict:
     except Exception as err:
         # A self-referential ``!secret`` inside secrets.yaml recurses in the
         # loader (it crashes the real reader too); reject instead of 500ing.
+        _LOGGER.warning("secrets.yaml at %s could not be parsed: %r", path, err)
         raise SecretsContentError(f"secrets.yaml could not be parsed: {err}") from err
     if data is not None and not isinstance(data, dict):
         raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
@@ -302,12 +303,11 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
-
-    updated = _replace_or_append_secret(
-        _replace_or_append_secret(original, "wifi_ssid", ssid),
-        "wifi_password",
-        password,
-    )
+    resolved = _resolved_keys(original, secrets_path)
+    updated = original
+    for key, value in (("wifi_ssid", ssid), ("wifi_password", password)):
+        defined = None if resolved is None else key in resolved
+        updated = _replace_or_append_secret(updated, key, value, defined=defined)
     _write_validated_secrets(secrets_path, updated, {"wifi_ssid": ssid, "wifi_password": password})
 
 
@@ -322,10 +322,12 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
     """
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
-    existed = _has_secret_key(original, key)
+    resolved = _resolved_keys(original, secrets_path)
+    existed = key in resolved if resolved is not None else _line_defines_key(original, key)
     if existed and not overwrite:
         return False
-    updated = _replace_or_append_secret(original, key, value)
+    defined = None if resolved is None else existed
+    updated = _replace_or_append_secret(original, key, value, defined=defined)
     _write_validated_secrets(secrets_path, updated, {key: value})
     return not existed
 
@@ -342,20 +344,31 @@ def _write_validated_secrets(secrets_path: Path, content: str, expected: dict[st
     write_user_yaml(secrets_path, content)
 
 
-def _has_secret_key(content: str, key: str) -> bool:
-    """Whether *content* already defines top-level *key* (setter's match rule)."""
+def _resolved_keys(content: str, path: Path) -> set[str] | None:
+    """Return the secret names *content* resolves, or ``None`` when it won't parse."""
+    try:
+        return set(validate_secrets_content(content, path))
+    except SecretsContentError:
+        return None
+
+
+def _line_defines_key(content: str, key: str) -> bool:
+    """Whether any line of *content* is a ``key:`` line (the setter's match rule)."""
     return any(
         (m := _SECRET_LINE_RE.match(line)) is not None and m["key"] == key
         for line in content.split("\n")
     )
 
 
-def _replace_or_append_secret(content: str, key: str, value: str) -> str:
+def _replace_or_append_secret(
+    content: str, key: str, value: str, *, defined: bool | None = None
+) -> str:
     """
     Set ``key`` to ``value`` in *content* in place, or append ``key: "value"``.
 
-    Rewrites the top-level match (else the first), keeping its indent and
-    inline comment, and drops later duplicates at that indent only.
+    Rewrites the top-level match and drops later top-level duplicates; with
+    none, rewrites the first nested match unless *defined* says the parsed
+    file doesn't resolve *key*, in which case a top-level line is appended.
     """
     encoded = _quote_yaml_string(value)
     lines = content.split("\n")
@@ -364,10 +377,16 @@ def _replace_or_append_secret(content: str, key: str, value: str) -> str:
         for i, line in enumerate(lines)
         if (m := _SECRET_LINE_RE.match(line)) is not None and m["key"] == key
     ]
-    if matches:
-        target_index, target = next(((i, m) for i, m in matches if not m["indent"]), matches[0])
-        lines[target_index] = f"{target['indent']}{key}: {encoded}{target['comment'] or ''}"
-        drop = {i for i, m in matches if i != target_index and m["indent"] == target["indent"]}
+    top_level = [(i, m) for i, m in matches if not m["indent"]]
+    target: tuple[int, re.Match[str]] | None = None
+    drop: set[int] = set()
+    if top_level:
+        target, drop = top_level[0], {i for i, _ in top_level[1:]}
+    elif matches and defined is not False:
+        target = matches[0]
+    if target is not None:
+        index, m = target
+        lines[index] = f"{m['indent']}{key}: {encoded}{m['comment'] or ''}"
         return "\n".join(line for i, line in enumerate(lines) if i not in drop)
     # Append. Empty input gets the line on its own (no leading
     # blank); any other input gets a single ``\n`` separator if it
