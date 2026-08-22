@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.core import CORE
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
-from ...constants import is_secrets_file
+from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
@@ -26,10 +26,9 @@ from ...helpers.event_bus import Event
 from ...helpers.secrets_state import (
     SecretsContentError,
     read_secrets_yaml,
+    set_wifi_secrets,
     validate_secrets_content,
-    validate_wifi_credentials,
     wifi_secrets_defined,
-    write_wifi_secrets,
 )
 from ...helpers.sibling_cli import find_esphome_cmd
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
@@ -680,12 +679,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             # that's benign — ``wifi_ssid`` / ``wifi_password`` is a shared,
             # idempotent upsert (identical to ``config/set_wifi_credentials``)
             # that the next device reuses, not per-device state.
-            try:
-                validate_wifi_credentials(ssid, psk)
-            except SecretsContentError as err:
-                raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
-            await self._db.write_secrets_locked(
-                write_wifi_secrets, self._db.settings.config_dir, ssid, psk
+            await set_wifi_secrets(
+                self._db.write_secrets_locked, self._db.settings.config_dir, ssid, psk
             )
             ssid, psk = "", ""  # force the !secret path in the generator
             wifi_requested = True
@@ -738,6 +733,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             packages_span=packages_span,
             packages_root=self._packages_root,
             failure_tail=failure_tail,
+            secrets_path=self._db.settings.config_dir / SECRETS_FILENAME,
         )
 
     @api_command("devices/delete")

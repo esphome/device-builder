@@ -15,6 +15,8 @@ from ...helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
+from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
+from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
@@ -139,6 +141,7 @@ async def validate_rewritten_yaml_or_raise(
     packages_span: tuple[int, int] | None = None,
     packages_root: Path | None = None,
     failure_tail: str | None = None,
+    secrets_path: Path | None = None,
 ) -> str | None:
     """
     Schema-validate *content* via the editor; raise if invalid.
@@ -163,7 +166,8 @@ async def validate_rewritten_yaml_or_raise(
     off-loop (``CORE.data_dir`` stats the disk).
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
-    sentence.
+    sentence. An error marked inside *secrets_path* (the config dir's
+    ``secrets.yaml``) refuses as ``INVALID_ARGS`` naming that file.
     """
     if editor is None:
         return None
@@ -211,7 +215,11 @@ async def validate_rewritten_yaml_or_raise(
             succeeded = True
             return warning
         _raise_validation_failure(
-            errors, action=action, on_failure=on_failure, failure_tail=failure_tail
+            errors,
+            action=action,
+            on_failure=on_failure,
+            failure_tail=failure_tail,
+            secrets_path=secrets_path,
         )
     finally:
         if not succeeded and on_error_cleanup is not None:
@@ -231,8 +239,17 @@ def _raise_validation_failure(
     action: str,
     on_failure: ErrorCode,
     failure_tail: str | None,
+    secrets_path: Path | None,
 ) -> NoReturn:
     """Raise the refusal ``CommandError`` for a failed validation."""
+    if (problem := _secrets_file_problem(errors, secrets_path)) is not None:
+        # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
+        if on_failure is ErrorCode.INTERNAL_ERROR:
+            # Action only: the clause names keys from the user's secrets file.
+            _LOGGER.warning(
+                "Refusing %s: errors sit in the user's secrets.yaml, not the generator", action
+            )
+        raise CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
             ". Please report this with a redacted snippet of just the "
@@ -302,6 +319,19 @@ def _summarise(errors: list[str]) -> str:
     # esphome messages often end with their own period; the caller's
     # tail brings the sentence break.
     return ("; ".join(shown) + suffix).removesuffix(".")
+
+
+def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str | None:
+    """Return the ``secrets.yaml <problem>`` clause when every error is marked inside it."""
+    if secrets_path is None or not errors:
+        return None
+    # Path equality is string-only (this runs on the event loop); both sides
+    # carry the same config_dir string, relative or not.
+    if not all(any(Path(p) == secrets_path for p in marked_paths(msg)) for msg in errors):
+        return None
+    if len(errors) == 1 and all(Path(p) == secrets_path for p in marked_paths(errors[0])):
+        return secrets_problem(errors[0])
+    return f"doesn't parse: {_summarise([trim_marks(msg) for msg in errors])}"
 
 
 def _entry_confined_to_packages(

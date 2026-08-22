@@ -89,9 +89,11 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
     Split *rest* into ``(value, comment)`` at a real ``\s+#`` separator.
 
     A ``#`` only opens a comment when preceded by whitespace
-    *and* outside any quoted scalar. Without the quote-state
-    check, ``friendly_name: "Bedroom #2"`` would mis-split as
-    ``"Bedroom`` (value) + ``" #2"`` (comment).
+    *and* outside a quoted scalar that *opens* the value. Without
+    the quote-state check, ``friendly_name: "Bedroom #2"`` would
+    mis-split as ``"Bedroom`` (value) + ``" #2"`` (comment); a quote
+    inside a plain scalar (``bob's``) is literal. Leaf scalars only:
+    flow collections (``["a # b"]``) are not tracked.
 
     Honours both YAML quote-escape conventions so the splitter
     survives a round-trip through our own ``_quote`` (which emits
@@ -111,6 +113,7 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
     trailing comment was found.
     """
     quote: str | None = None
+    started = False
     i = 0
     n = len(rest)
     while i < n:
@@ -128,13 +131,29 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
                     i += 2
                     continue
                 quote = None
-        elif ch in ('"', "'"):
-            quote = ch
         elif ch == "#" and i > 0 and rest[i - 1] in " \t":
             value = rest[:i].rstrip(" \t")
             return value, rest[len(value) :]
+        elif not started and ch not in " \t":
+            if ch in "!&":
+                # A leading ``!tag`` / ``&anchor`` token; the scalar starts after it.
+                i = _token_end(rest, i)
+                continue
+            # Only a quote that opens the scalar starts a quoted run; a
+            # quote inside a plain scalar (``bob's``) is literal.
+            started = True
+            if ch in ('"', "'"):
+                quote = ch
         i += 1
     return rest, ""
+
+
+def _token_end(text: str, start: int) -> int:
+    """Return the index just past the whitespace-delimited token starting at *start*."""
+    end = start
+    while end < len(text) and text[end] not in " \t":
+        end += 1
+    return end
 
 
 # Sentinel pushed onto the path stack when we descend into a list

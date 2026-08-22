@@ -25,10 +25,13 @@ from esphome_device_builder.helpers.secrets_state import (
     SecretsContentError,
     _quote_yaml_string,
     _replace_or_append_secret,
+    _write_validated_secrets,
     is_valid_secret_key,
     merge_secrets_file,
     migrate_placeholder_wifi_secrets,
     read_secrets_yaml,
+    secrets_problem,
+    secrets_unparsable_message,
     validate_secrets_content,
     validate_wifi_credentials,
     wifi_secrets_defined,
@@ -109,6 +112,50 @@ def test_read_secrets_yaml_returns_dict_for_valid_file(tmp_path: Path) -> None:
     assert data["api_key"] == "ABC"
 
 
+@pytest.mark.parametrize(
+    ("detail", "problem"),
+    [
+        (
+            (
+                'Duplicate key "api_key"\n  in "/config/secrets.yaml", line 5, column 1\n'
+                'NOTE: Previous declaration here:\n  in "/config/secrets.yaml", line 4, column 1'
+            ),
+            'has a duplicate key "api_key" (lines 4 and 5)',
+        ),
+        (
+            'mapping values are not allowed here\n  in "/config/secrets.yaml", line 3, column 5',
+            "doesn't parse: mapping values are not allowed here in secrets.yaml, line 3, column 5",
+        ),
+    ],
+)
+def test_secrets_problem_folds_the_loader_error(detail: str, problem: str) -> None:
+    assert secrets_problem(detail) == problem
+
+
+def test_secrets_problem_does_not_fold_same_named_files() -> None:
+    """Two different files both named secrets.yaml are not one file."""
+    detail = (
+        'Duplicate key "a"\n  in "/config/secrets.yaml", line 5, column 1\n'
+        'NOTE: Previous declaration here:\n  in "/config/packages/secrets.yaml", line 4, column 1'
+    )
+    assert secrets_problem(detail).startswith('doesn\'t parse: Duplicate key "a" in secrets.yaml')
+
+
+def test_secrets_problem_keeps_an_included_duplicate_in_its_own_file(tmp_path: Path) -> None:
+    """A duplicate inside an ``!include``d fragment names that file, not secrets.yaml lines."""
+    (tmp_path / "wifi.yaml").write_text("a: 1\na: 2\n", "utf-8")
+    with pytest.raises(SecretsContentError) as excinfo:
+        validate_secrets_content("<<: !include wifi.yaml\n", tmp_path / "secrets.yaml")
+    assert excinfo.value.problem.startswith('doesn\'t parse: Duplicate key "a" in wifi.yaml')
+
+
+def test_secrets_unparsable_message_composes_the_sentence() -> None:
+    assert secrets_unparsable_message("create", 'has a duplicate key "a" (lines 1 and 2)') == (
+        'Can\'t create: secrets.yaml has a duplicate key "a" (lines 1 and 2). '
+        "Fix it on the Secrets page and try again."
+    )
+
+
 def test_validate_secrets_content_rejects_malformed_yaml(tmp_path: Path) -> None:
     """The issue's no-space-after-colon example raises with line info."""
     bad = 'wifi_ssid: "myssid"\nwifi_password: "mypassword"\nxx:xxx\na:a\n'
@@ -119,8 +166,12 @@ def test_validate_secrets_content_rejects_malformed_yaml(tmp_path: Path) -> None
 
 def test_validate_secrets_content_rejects_duplicate_keys(tmp_path: Path) -> None:
     """ESPHome's loader rejects duplicate keys the plain SafeLoader would accept."""
-    with pytest.raises(SecretsContentError, match="Duplicate key"):
+    with pytest.raises(SecretsContentError, match="Duplicate key") as excinfo:
         validate_secrets_content("wifi_ssid: a\nwifi_ssid: b\n", tmp_path / "secrets.yaml")
+    # Marks are trimmed to the basename on one line; no host path leaks.
+    assert "in secrets.yaml, line 2, column 1" in str(excinfo.value)
+    assert str(tmp_path) not in str(excinfo.value)
+    assert "\n" not in str(excinfo.value)
 
 
 def test_validate_secrets_content_rejects_non_mapping_top_level(tmp_path: Path) -> None:
@@ -263,6 +314,10 @@ def test_merge_secrets_leaves_unreadable_untouched(
 # ---------------------------------------------------------------------------
 # write_secret — single-key setter
 # ---------------------------------------------------------------------------
+
+
+def _rep(content: str, key: str, value: str) -> str:
+    return _replace_or_append_secret(content, key, value)[0]
 
 
 def _secrets(tmp_path: Path) -> Path:
@@ -412,6 +467,96 @@ def test_migrate_placeholder_wifi_drops_only_placeholder_key(tmp_path: Path) -> 
     assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home"}
 
 
+def test_migrate_placeholder_wifi_leaves_nested_lines(
+    tmp_path: Path,
+) -> None:
+    content = (
+        f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\nmqtt:\n  wifi_ssid: nested\n'
+        f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n'
+    )
+    _secrets(tmp_path).write_text(content, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == "mqtt:\n  wifi_ssid: nested\n"
+
+
+def test_migrate_placeholder_wifi_follows_the_root_indent(tmp_path: Path) -> None:
+    """A uniformly indented root mapping is cleaned at its own indent."""
+    content = f'  wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n  api_key: ABC\n'
+    _secrets(tmp_path).write_text(content, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == "  api_key: ABC\n"
+
+
+def test_migrate_placeholder_wifi_keeps_the_file_when_the_rewrite_would_not_parse(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Dropping an anchored placeholder would orphan its alias; the file is left as is."""
+    original = f'wifi_ssid: &ph "{PLACEHOLDER_WIFI_SSID}"\nwifi_password: *ph\napi_key: ABC\n'
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+    assert "Keeping placeholder Wi-Fi secrets ['wifi_ssid']" in caplog.text
+
+
+def test_migrate_placeholder_wifi_warns_when_the_placeholder_has_no_root_line(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A placeholder pulled in through ``!include`` can't be dropped line-wise; say so."""
+    (tmp_path / "wifi.yaml").write_text(f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n', "utf-8")
+    original = "<<: !include wifi.yaml\napi_key: ABC\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+    assert "['wifi_ssid'] come from an included document" in caplog.text
+
+
+def test_migrate_placeholder_wifi_is_quiet_on_the_bootstrapped_comment_only_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _secrets(tmp_path).write_text("# Secrets\n# Add Wi-Fi credentials here\n", "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert "doesn't parse" not in caplog.text
+
+
+def test_migrate_placeholder_wifi_warns_when_the_file_does_not_parse(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    original = "dup: 1\ndup: 2\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+    assert "secrets.yaml doesn't parse" in caplog.text
+
+
+def test_migrate_placeholder_wifi_survives_an_unreadable_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _secrets(tmp_path).write_text("dup: 1\ndup: 2\n", "utf-8")
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    migrate_placeholder_wifi_secrets(tmp_path)  # no raise
+    assert "secrets.yaml can't be read" in caplog.text
+
+
+def test_migrate_placeholder_wifi_survives_a_non_utf8_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _secrets(tmp_path).write_bytes(b"wifi_ssid: \xe9\xe9\n")
+    migrate_placeholder_wifi_secrets(tmp_path)  # no raise
+    assert _secrets(tmp_path).read_bytes() == b"wifi_ssid: \xe9\xe9\n"
+
+
+def test_migrate_placeholder_wifi_warns_when_the_placeholder_still_resolves(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The root line goes; an ``!include`` that still supplies the placeholder is called out."""
+    (tmp_path / "wifi.yaml").write_text(f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n', "utf-8")
+    content = f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n<<: !include wifi.yaml\n'
+    _secrets(tmp_path).write_text(content, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == "<<: !include wifi.yaml\n"
+    assert "['wifi_ssid'] still resolve" in caplog.text
+
+
 def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
     migrate_placeholder_wifi_secrets(tmp_path)
     assert not _secrets(tmp_path).exists()
@@ -513,69 +658,228 @@ def test_write_secret_creates_missing_file_with_default_mode(tmp_path: Path) -> 
 
 def test_replace_or_append_secret_appends_when_key_absent_in_existing_file() -> None:
     """File exists with other keys — new key gets appended, not inlined."""
-    result = _replace_or_append_secret("api_key: ABC\n", "wifi_ssid", "MyAP")
+    result = _rep("api_key: ABC\n", "wifi_ssid", "MyAP")
     assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
 
 
 def test_replace_or_append_secret_appends_to_file_without_trailing_newline() -> None:
     """No trailing newline on input — helper adds one before appending."""
-    result = _replace_or_append_secret("api_key: ABC", "wifi_ssid", "MyAP")
+    result = _rep("api_key: ABC", "wifi_ssid", "MyAP")
     assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
 
 
 def test_replace_or_append_secret_appends_to_empty_content() -> None:
     """Empty input behaves like the missing-file path."""
-    assert _replace_or_append_secret("", "wifi_ssid", "MyAP") == 'wifi_ssid: "MyAP"\n'
+    assert _rep("", "wifi_ssid", "MyAP") == 'wifi_ssid: "MyAP"\n'
 
 
 def test_replace_or_append_secret_preserves_indent() -> None:
     """Indented secret lines keep their indent on rewrite."""
-    result = _replace_or_append_secret('  wifi_ssid: "old"\n', "wifi_ssid", "new")
+    result = _rep('  wifi_ssid: "old"\n', "wifi_ssid", "new")
     assert result == '  wifi_ssid: "new"\n'
 
 
 def test_replace_or_append_secret_quotes_special_characters() -> None:
     """Backslash and double-quote in the value get escaped, others pass through."""
-    result = _replace_or_append_secret('wifi_password: "old"\n', "wifi_password", 'p\\a"s s')
+    result = _rep('wifi_password: "old"\n', "wifi_password", 'p\\a"s s')
     assert result == 'wifi_password: "p\\\\a\\"s s"\n'
 
 
 def test_replace_or_append_secret_only_matches_full_key_name() -> None:
     r"""``wifi_ssid_backup`` is not the same key as ``wifi_ssid``."""
-    result = _replace_or_append_secret('wifi_ssid_backup: "keep"\n', "wifi_ssid", "MyAP")
+    result = _rep('wifi_ssid_backup: "keep"\n', "wifi_ssid", "MyAP")
     assert 'wifi_ssid_backup: "keep"' in result
     assert 'wifi_ssid: "MyAP"' in result
 
 
 def test_replace_or_append_secret_ignores_pure_comment_lines() -> None:
     """A standalone ``# wifi_ssid: foo`` comment is not a key."""
-    result = _replace_or_append_secret(
-        '# wifi_ssid: "example"\napi_key: ABC\n', "wifi_ssid", "MyAP"
-    )
+    result = _rep('# wifi_ssid: "example"\napi_key: ABC\n', "wifi_ssid", "MyAP")
     assert '# wifi_ssid: "example"' in result
     assert 'wifi_ssid: "MyAP"' in result
 
 
 def test_replace_or_append_secret_preserves_inline_comment_with_special_chars() -> None:
     """Trailing ``# comment with : colons`` round-trips intact."""
-    result = _replace_or_append_secret(
-        'wifi_ssid: "old"  # see ticket: ABC-123\n', "wifi_ssid", "MyAP"
-    )
+    result = _rep('wifi_ssid: "old"  # see ticket: ABC-123\n', "wifi_ssid", "MyAP")
     assert result == 'wifi_ssid: "MyAP"  # see ticket: ABC-123\n'
 
 
 def test_replace_or_append_secret_handles_bare_key() -> None:
     """``wifi_ssid:`` with no value still matches and gets the new value."""
-    result = _replace_or_append_secret("wifi_ssid:\n", "wifi_ssid", "MyAP")
+    result = _rep("wifi_ssid:\n", "wifi_ssid", "MyAP")
     assert result == 'wifi_ssid: "MyAP"\n'
 
 
-def test_replace_or_append_secret_value_with_hash_in_quotes_is_misparsed() -> None:
-    """Known limitation: ``# `` inside a quoted value confuses the regex.
+def test_replace_or_append_secret_value_with_hash_in_quotes_keeps_no_comment() -> None:
+    """``# `` inside a quoted value is part of the value, not a trailing comment."""
+    result = _rep('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
+    assert result == 'wifi_ssid: "MyAP"\n'
 
-    The result is still valid YAML; the spurious tail is preserved as a
-    comment. Pin the behaviour so a future regex tightening that fixes it
-    has a green-then-red breadcrumb.
-    """
-    result = _replace_or_append_secret('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
-    assert result == 'wifi_ssid: "MyAP" # bar"\n'
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'wifi_password: "P@ss#1"',
+        "wifi_password: 'P@ss#1'",
+        "wifi_password: P@ss#1",
+        '"wifi_password": old',
+        "'wifi_password': old",
+    ],
+)
+def test_replace_or_append_secret_replaces_hash_values_and_quoted_keys_in_place(
+    line: str,
+) -> None:
+    """A ``#`` inside the value or quotes around the key still match the line."""
+    result = _rep(f"{line}\napi_key: ABC\n", "wifi_password", "new")
+    assert result == 'wifi_password: "new"\napi_key: ABC\n'
+
+
+def test_replace_or_append_secret_collapses_duplicate_keys() -> None:
+    """A key defined twice collapses to the first line (comment kept); later duplicates drop."""
+    content = 'wifi_ssid: home\nwifi_password: "old"  # note\napi_key: ABC\nwifi_password: "dup"\n'
+    result = _rep(content, "wifi_password", "new")
+    assert result == 'wifi_ssid: home\nwifi_password: "new"  # note\napi_key: ABC\n'
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        # A nested same-named key is not a duplicate of the top-level secret.
+        ("mqtt:\n  api_key: nested\napi_key: real\n", 'mqtt:\n  api_key: nested\napi_key: "new"\n'),
+        ("api_key: real\nmqtt:\n  api_key: nested\n", 'api_key: "new"\nmqtt:\n  api_key: nested\n'),
+        # A same-named line inside a block scalar is left alone too.
+        (
+            "cert: |\n  api_key: inside\n  more\napi_key: old\n",
+            'cert: |\n  api_key: inside\n  more\napi_key: "new"\n',
+        ),
+    ],
+)
+def test_replace_or_append_secret_collapses_only_at_the_matched_indent(
+    content: str, expected: str
+) -> None:
+    assert _rep(content, "api_key", "new") == expected
+
+
+def test_write_wifi_secrets_appends_past_a_same_named_line_in_a_block_scalar(
+    tmp_path: Path,
+) -> None:
+    """A ``wifi_password:`` line inside a block scalar is not the secret; the key is appended."""
+    cert = "cert: |\n  wifi_password: inside\n  more\n"
+    _secrets(tmp_path).write_text(cert + "wifi_ssid: home\n", "utf-8")
+    write_wifi_secrets(tmp_path, "home", "hunter2")
+    content = _secrets(tmp_path).read_text("utf-8")
+    assert content == cert + 'wifi_ssid: "home"\nwifi_password: "hunter2"\n'
+
+
+def test_write_validated_secrets_refuses_when_the_key_does_not_resolve(tmp_path: Path) -> None:
+    """The post-condition refuses a rewrite whose key didn't land where esphome reads it."""
+    with pytest.raises(SecretsContentError, match='"api_key" is defined where') as excinfo:
+        _write_validated_secrets(_secrets(tmp_path), "mqtt:\n  api_key: x\n", {"api_key": "x"})
+    assert excinfo.value.problem == 'defines "api_key" where the dashboard can\'t rewrite it'
+    assert not _secrets(tmp_path).exists()
+
+
+def test_write_validated_secrets_reports_the_rewrite_error_without_an_original_error(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(SecretsContentError, match="top-level mapping"):
+        _write_validated_secrets(_secrets(tmp_path), "just a scalar\n", {})
+    assert not _secrets(tmp_path).exists()
+
+
+def test_write_secret_create_if_absent_ignores_a_nested_same_named_key(tmp_path: Path) -> None:
+    """A nested ``api_key`` is not the secret; create-if-absent appends the top-level one."""
+    _secrets(tmp_path).write_text("prod:\n  api_key: abc\n", "utf-8")
+    assert write_secret(tmp_path, "api_key", "new", overwrite=False) is True
+    assert read_secrets_yaml(tmp_path) == {"prod": {"api_key": "abc"}, "api_key": "new"}
+
+
+def test_replace_or_append_secret_never_touches_nested_lines() -> None:
+    """With no root-level match the key is appended at the root; nested lines are untouched."""
+    content = "mqtt:\n  api_key: a\nhttp:\n  api_key: b\n"
+    assert _rep(content, "api_key", "new") == (
+        'mqtt:\n  api_key: a\nhttp:\n  api_key: b\napi_key: "new"\n'
+    )
+
+
+def test_replace_or_append_secret_keeps_the_comment_after_a_plain_value_with_a_quote() -> None:
+    assert _rep("wifi_password: bob's  # router note\n", "wifi_password", "x") == (
+        'wifi_password: "x"  # router note\n'
+    )
+
+
+def test_replace_or_append_secret_root_indent_ignores_the_first_key_shape() -> None:
+    """The root indent comes from the first content line, even a key the setter can't name."""
+    content = '"mqtt-settings":\n  wifi_ssid: nested\nwifi_ssid: old\n'
+    assert _rep(content, "wifi_ssid", "new") == (
+        '"mqtt-settings":\n  wifi_ssid: nested\nwifi_ssid: "new"\n'
+    )
+
+
+def test_write_secret_reports_a_value_the_rewrite_cannot_reach(tmp_path: Path) -> None:
+    """Rewriting a block-scalar header orphans its body; the refusal says so, nothing is written."""
+    original = "cert: |\n  -----BEGIN-----\n  abc\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    with pytest.raises(SecretsContentError) as excinfo:
+        write_secret(tmp_path, "cert", "x")
+    assert excinfo.value.problem == 'defines "cert" where the dashboard can\'t rewrite it'
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
+def test_replace_or_append_secret_follows_the_root_indent() -> None:
+    """The root mapping's indent decides what is top-level, not column zero."""
+    content = "mqtt:\n  api_key: a\n"
+    assert _rep(content, "api_key", "new") == 'mqtt:\n  api_key: a\napi_key: "new"\n'
+    # A uniformly indented root mapping is rewritten (and appended to) at its indent.
+    assert _rep('  api_key: "a"\n', "api_key", "new") == '  api_key: "new"\n'
+    assert _rep('  api_key: "a"\n', "other", "x") == '  api_key: "a"\n  other: "x"\n'
+
+
+def test_write_secret_create_if_absent_refuses_an_unparsable_file(tmp_path: Path) -> None:
+    original = "dup: 1\ndup: 2\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    with pytest.raises(SecretsContentError, match="Duplicate key"):
+        write_secret(tmp_path, "api_key", "x", overwrite=False)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
+def test_write_secret_reports_the_on_disk_line_after_a_collapse(tmp_path: Path) -> None:
+    """A second error below a collapsed duplicate is reported at its line in the file on disk."""
+    _secrets(tmp_path).write_text("wifi_password: a\nwifi_password: b\nxx:xxx\na:a\n", "utf-8")
+    with pytest.raises(SecretsContentError) as excinfo:
+        write_secret(tmp_path, "wifi_password", "c")
+    assert "line 4" in str(excinfo.value)
+    # The rewrite's own error stays on the chain for diagnosis.
+    assert isinstance(excinfo.value.__cause__, SecretsContentError)
+
+
+def test_write_secret_heals_a_duplicated_key(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("api_key: a\nother: x\napi_key: b\n", "utf-8")
+    assert write_secret(tmp_path, "api_key", "c") is False
+    assert _secrets(tmp_path).read_text("utf-8") == 'api_key: "c"\nother: x\n'
+
+
+def test_write_wifi_secrets_heals_duplicated_password(tmp_path: Path) -> None:
+    """A secrets.yaml the old writer duplicated collapses to one key on the next write."""
+    _secrets(tmp_path).write_text(
+        'wifi_ssid: "home"\nwifi_password: "P@ss#1"\napi_key: ABC\nwifi_password: "P@ss#1"\n',
+        "utf-8",
+    )
+    write_wifi_secrets(tmp_path, "home", "P@ss#1")
+    content = _secrets(tmp_path).read_text("utf-8")
+    assert content == 'wifi_ssid: "home"\nwifi_password: "P@ss#1"\napi_key: ABC\n'
+    assert read_secrets_yaml(tmp_path) == {
+        "wifi_ssid": "home",
+        "wifi_password": "P@ss#1",
+        "api_key": "ABC",
+    }
+
+
+def test_write_wifi_secrets_refuses_unparsable_rewrite(tmp_path: Path) -> None:
+    """A file that still won't parse after the rewrite is left untouched."""
+    original = "dup: 1\ndup: 2\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    with pytest.raises(SecretsContentError, match="Duplicate key"):
+        write_wifi_secrets(tmp_path, "home", "hunter2")
+    assert _secrets(tmp_path).read_text("utf-8") == original

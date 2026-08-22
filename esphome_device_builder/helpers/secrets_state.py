@@ -21,7 +21,7 @@ import asyncio
 import io
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,14 +32,20 @@ from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
 
 from ..constants import SECRETS_FILENAME
+from ..models import ErrorCode
+from .api import CommandError
 from .async_ import run_in_executor
-from .yaml import load_yaml_fast_then_esphome, write_user_yaml
+from .cross_os_path import cross_os_basename
+from .yaml import _split_value_and_comment, load_yaml_fast_then_esphome, write_user_yaml
+from .yaml.marks import parse_marks, trim_marks
 
 _LOGGER = logging.getLogger(__name__)
 
 # The exact refs generated YAML uses for the shared Wi-Fi credentials.
 WIFI_SSID_SECRET_REF = "!secret wifi_ssid"  # noqa: S105 — secret reference, not a credential
 WIFI_PASSWORD_SECRET_REF = "!secret wifi_password"  # noqa: S105 — secret reference, not a credential
+
+SECRETS_FIX_HINT = "Fix it on the Secrets page and try again."
 
 
 async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *args: Any) -> T:
@@ -78,12 +84,38 @@ def read_secrets_yaml(config_dir: Path) -> dict | None:
 
 
 class SecretsContentError(ValueError):
-    """``secrets.yaml`` content failed to parse or isn't a top-level mapping."""
+    """``secrets.yaml`` content failed to parse, or a rewrite left a key unresolved."""
+
+    def __init__(self, message: str, *, problem: str | None = None) -> None:
+        super().__init__(message)
+        # The user-facing ``secrets.yaml <problem>`` clause; input-validation
+        # errors (bad credentials) never reach a secrets.yaml sentence.
+        self.problem = problem if problem is not None else f"doesn't parse: {message}"
 
 
-def validate_secrets_content(content: str, path: Path) -> None:
+def secrets_problem(detail: str) -> str:
+    """Return the ``secrets.yaml <problem>`` clause for a raw loader error *detail*."""
+    marks = parse_marks(detail) if detail.startswith('Duplicate key "') else []
+    # Fold only when both marks sit in secrets.yaml itself, not an !included fragment.
+    if (
+        len(marks) == 2
+        and marks[0].path == marks[1].path
+        and cross_os_basename(marks[0].path) == SECRETS_FILENAME
+    ):
+        key = detail.removeprefix('Duplicate key "').split('"', 1)[0]
+        first, second = sorted(mark.line for mark in marks)
+        return f'has a duplicate key "{key}" (lines {first} and {second})'
+    return f"doesn't parse: {trim_marks(detail).removesuffix('.')}"
+
+
+def secrets_unparsable_message(action: str, problem: str) -> str:
+    """Return the user-facing refusal for *action* given a ``secrets.yaml`` *problem* clause."""
+    return f"Can't {action}: secrets.yaml {problem}. {SECRETS_FIX_HINT}"
+
+
+def validate_secrets_content(content: str, path: Path) -> dict:
     """
-    Raise ``SecretsContentError`` unless *content* is a valid ``secrets.yaml``.
+    Return *content* parsed as a ``secrets.yaml`` mapping, or raise ``SecretsContentError``.
 
     Parsed through ESPHome's own loader, keyed on the real on-disk *path*,
     so ``!include`` / ``!secret`` / merge keys resolve against the config
@@ -95,13 +127,18 @@ def validate_secrets_content(content: str, path: Path) -> None:
     try:
         data = yaml_util.parse_yaml(path, io.StringIO(content))
     except EsphomeError as err:
-        raise SecretsContentError(str(err)) from err
+        raise SecretsContentError(trim_marks(str(err)), problem=secrets_problem(str(err))) from err
     except Exception as err:
         # A self-referential ``!secret`` inside secrets.yaml recurses in the
         # loader (it crashes the real reader too); reject instead of 500ing.
-        raise SecretsContentError(f"secrets.yaml could not be parsed: {err}") from err
+        # Nothing derived from the file: the loader's message can quote a secret.
+        _LOGGER.warning("secrets.yaml could not be parsed by the esphome loader; rejecting")
+        detail = trim_marks(f"could not be parsed: {err}")
+        raise SecretsContentError(f"secrets.yaml {detail}", problem=detail) from err
     if data is not None and not isinstance(data, dict):
-        raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
+        problem = "must be a top-level mapping of name: value entries"
+        raise SecretsContentError(f"secrets.yaml {problem}", problem=problem)
+    return data or {}
 
 
 def wifi_secrets_defined(secrets: dict | None) -> bool:
@@ -159,24 +196,14 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
     write_user_yaml(dest, existing_text + separator + buf.getvalue())
 
 
-# ``key: value`` line. Captures: 1=indent, 2=key, 3=trailing
-# ``  # comment`` (with at least one space before the ``#``).
-# Permissive on value shape so we match both ``wifi_ssid: ""``
-# and bare ``wifi_ssid:`` — the value itself is discarded on
-# rewrite, only indent / key / trailing comment carry over.
-#
-# Known limitation: a ``#`` *inside a quoted value* preceded by
-# whitespace (e.g. ``wifi_ssid: "foo # bar"``) is mis-parsed as
-# a trailing comment. The rewrite still produces valid YAML
-# because the new value is re-quoted, but the spurious tail is
-# preserved as a comment. See the dedicated regression test in
-# ``tests/test_secrets_state.py``. Realistic impact is
-# low — ``#`` in SSIDs is uncommon and the user's hand-edit has
-# to land before they re-run the wizard.
-_SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
+# ``key: value`` line, key optionally quoted; ``rest`` is split into value
+# and trailing comment by the quote-aware ``_split_value_and_comment``.
+_SECRET_LINE_RE = re.compile(
+    r"""^(?P<indent>\s*)(?P<q>["']?)(?P<key>[a-zA-Z_]\w*)(?P=q)\s*:(?P<rest>.*)$"""
+)
 
-# A settable secret key. Anchored to the same shape ``_SECRET_LINE_RE``'s key
-# group matches, so "what we accept" tracks "what the line-based setter can
+# A settable secret key. Anchored to the same shape ``_SECRET_LINE_RE``'s
+# ``key`` group matches, so "what we accept" tracks "what the line-based setter can
 # find and replace" — a key the setter could never locate must not be written.
 _SECRET_KEY_RE = re.compile(r"[a-zA-Z_]\w*\Z")
 
@@ -236,6 +263,14 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
         return
     data = read_secrets_yaml(config_dir)
     if not data:
+        # Diagnostic only (a comment-only bootstrap file is fine); never abort boot.
+        try:
+            text = secrets_path.read_text(encoding="utf-8", errors="replace")
+            validate_secrets_content(text, secrets_path)
+        except OSError:
+            _LOGGER.warning("Skipping placeholder Wi-Fi cleanup; secrets.yaml can't be read")
+        except SecretsContentError:
+            _LOGGER.warning("Skipping placeholder Wi-Fi cleanup; secrets.yaml doesn't parse")
         return
     drop = {
         key
@@ -248,34 +283,66 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
     if not drop:
         return
     original = secrets_path.read_text(encoding="utf-8")
+    lines = original.split("\n")
+    root = _root_indent(lines)
     updated = "\n".join(
         line
-        for line in original.split("\n")
-        if not ((m := _SECRET_LINE_RE.match(line)) and m.group(2) in drop)
+        for line in lines
+        if not ((m := _SECRET_LINE_RE.match(line)) and m["indent"] == root and m["key"] in drop)
     )
-    if updated != original:
-        write_user_yaml(secrets_path, updated)
+    if updated == original:
+        _LOGGER.warning(
+            "Placeholder Wi-Fi secrets %s come from an included document; edit it there",
+            sorted(drop),
+        )
+        return
+    try:
+        after = validate_secrets_content(updated, secrets_path)
+    except SecretsContentError:
+        _LOGGER.warning(
+            "Keeping placeholder Wi-Fi secrets %s; the rewrite wouldn't parse", sorted(drop)
+        )
+        return
+    if still := sorted(key for key in drop if key in after):
+        # An ``!include`` / alias still supplies it; the root line is gone regardless.
+        _LOGGER.warning("Placeholder Wi-Fi secrets %s still resolve after the cleanup", still)
+    write_user_yaml(secrets_path, updated)
+
+
+async def set_wifi_secrets(
+    write_locked: Callable[..., Awaitable[Any]], config_dir: Path, ssid: str, password: str
+) -> None:
+    """Validate and store Wi-Fi credentials via *write_locked*; refusals raise ``CommandError``."""
+    try:
+        validate_wifi_credentials(ssid, password)
+    except SecretsContentError as err:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+    try:
+        await write_locked(write_wifi_secrets, config_dir, ssid, password)
+    except SecretsContentError as err:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            secrets_unparsable_message("save Wi-Fi credentials", err.problem),
+        ) from err
 
 
 def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
-    Update ``wifi_ssid`` and ``wifi_password`` in ``secrets.yaml`` in place.
+    Set ``wifi_ssid`` / ``wifi_password`` in ``secrets.yaml`` in place.
 
-    Line-based rewrite preserves comments and any other secrets the
-    user has added. Falls back to creating the file with just the
-    two keys if it doesn't exist (the bootstrap should have created
-    it on startup, but a user who deleted it shouldn't be stuck
-    here).
+    Raises ``SecretsContentError`` (nothing written) when the result wouldn't
+    parse or doesn't resolve either key to the new value.
     """
     secrets_path = config_dir / SECRETS_FILENAME
-    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
-
-    updated = _replace_or_append_secret(
-        _replace_or_append_secret(original, "wifi_ssid", ssid),
-        "wifi_password",
-        password,
+    original, _resolved, error = _read_secrets(secrets_path)
+    updated, _ = _replace_or_append_secret(original, "wifi_ssid", ssid)
+    updated, _ = _replace_or_append_secret(updated, "wifi_password", password)
+    _write_validated_secrets(
+        secrets_path,
+        updated,
+        {"wifi_ssid": ssid, "wifi_password": password},
+        original_error=error,
     )
-    write_user_yaml(secrets_path, updated)
 
 
 def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = True) -> bool:
@@ -288,57 +355,99 @@ def write_secret(config_dir: Path, key: str, value: str, *, overwrite: bool = Tr
     single-key sets don't lose each other's update.
     """
     secrets_path = config_dir / SECRETS_FILENAME
-    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
-    existed = _has_secret_key(original, key)
+    original, resolved, error = _read_secrets(secrets_path)
+    if error is not None and not overwrite:
+        # "Already exists" can't be answered from a file esphome won't read.
+        raise error
+    updated, replaced = _replace_or_append_secret(original, key, value)
+    existed = key in resolved if resolved is not None else replaced
     if existed and not overwrite:
         return False
-    updated = _replace_or_append_secret(original, key, value)
-    validate_secrets_content(updated, secrets_path)
-    write_user_yaml(secrets_path, updated)
+    _write_validated_secrets(secrets_path, updated, {key: value}, original_error=error)
     return not existed
 
 
-def _has_secret_key(content: str, key: str) -> bool:
-    """Whether *content* already defines top-level *key* (setter's match rule)."""
-    return any(
-        (m := _SECRET_LINE_RE.match(line)) is not None and m.group(2) == key
-        for line in content.split("\n")
-    )
+def _read_secrets(secrets_path: Path) -> tuple[str, set[str] | None, SecretsContentError | None]:
+    """Return the file's text plus the names it resolves, or the parse error instead."""
+    original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
+    try:
+        return original, set(validate_secrets_content(original, secrets_path)), None
+    except SecretsContentError as err:
+        return original, None, err
 
 
-def _replace_or_append_secret(content: str, key: str, value: str) -> str:
+def _write_validated_secrets(
+    secrets_path: Path,
+    content: str,
+    expected: dict[str, str],
+    *,
+    original_error: SecretsContentError | None = None,
+) -> None:
+    """Write *content* to *secrets_path* once it parses and resolves every *expected* key."""
+    try:
+        data = validate_secrets_content(content, secrets_path)
+    except SecretsContentError as err:
+        # A collapse shifts lines; report the on-disk file's own error when it has one.
+        if original_error is not None:
+            _LOGGER.warning(
+                "The rewritten secrets.yaml also failed to parse; reporting the original"
+            )
+            raise original_error from err
+        # The file parsed and our line rewrite broke it (a block-scalar value, say).
+        raise SecretsContentError(str(err), problem=_unrewritable(expected)) from err
+    for key, value in expected.items():
+        if data.get(key) != value:
+            raise SecretsContentError(
+                f'"{key}" is defined where the dashboard can\'t rewrite it',
+                problem=_unrewritable({key: value}),
+            )
+    write_user_yaml(secrets_path, content)
+
+
+def _unrewritable(keys: dict[str, str]) -> str:
+    """Return the ``secrets.yaml <problem>`` clause for keys the line rewrite can't reach."""
+    listed = ", ".join(f'"{key}"' for key in keys)
+    return f"defines {listed} where the dashboard can't rewrite it"
+
+
+def _root_indent(lines: list[str]) -> str:
+    """Return the root mapping's indent: that of the first content line (comments skipped)."""
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith(("#", "---", "%")):
+            return line[: len(line) - len(line.lstrip())]
+    return ""
+
+
+def _replace_or_append_secret(content: str, key: str, value: str) -> tuple[str, bool]:
     """
-    Set ``key`` to ``value`` in YAML *content*, in place.
+    Set ``key`` to ``value`` in *content*; return the text and whether a line was rewritten.
 
-    Replaces the value on **every** line whose key matches — a
-    duplicated key in ``secrets.yaml`` is malformed (PyYAML keeps
-    only the last on read), but writing only the first match
-    would leave the stale duplicate as the live value and
-    onboarding would stay PENDING after a "successful" save. Any
-    inline ``# comment`` trailing the matched line is preserved
-    so a power-user with ``wifi_ssid: home  # Apt 4B router``
-    keeps the annotation. If no line matches, appends
-    ``key: "value"`` at the end with a trailing newline.
+    Rewrites the first root-level match (keeping its inline comment), drops
+    later root-level duplicates, and otherwise appends at the root indent.
     """
     encoded = _quote_yaml_string(value)
     lines = content.split("\n")
-    matched = False
-    for i, line in enumerate(lines):
-        m = _SECRET_LINE_RE.match(line)
-        if m and m.group(2) == key:
-            trailing_comment = m.group(3) or ""
-            lines[i] = f"{m.group(1)}{key}: {encoded}{trailing_comment}"
-            matched = True
-    if matched:
-        return "\n".join(lines)
+    root = _root_indent(lines)
+    hits = [
+        (i, m)
+        for i, line in enumerate(lines)
+        if (m := _SECRET_LINE_RE.match(line)) and m["indent"] == root and m["key"] == key
+    ]
+    if hits:
+        (first, match), *duplicates = hits
+        _value, comment = _split_value_and_comment(match["rest"])
+        lines[first] = f"{root}{key}: {encoded}{comment}"
+        drop = {i for i, _ in duplicates}
+        return "\n".join(line for i, line in enumerate(lines) if i not in drop), True
     # Append. Empty input gets the line on its own (no leading
     # blank); any other input gets a single ``\n`` separator if it
     # doesn't already end with one.
     if not content:
-        return f"{key}: {encoded}\n"
+        return f"{root}{key}: {encoded}\n", False
     if not content.endswith("\n"):
         content = content + "\n"
-    return f"{content}{key}: {encoded}\n"
+    return f"{content}{root}{key}: {encoded}\n", False
 
 
 _YAML_DQ_ESCAPES: dict[str, str] = {

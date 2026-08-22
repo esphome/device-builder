@@ -793,6 +793,38 @@ async def test_create_device_rejects_file_content_with_nul(
     assert ctrl._scanner.calls == []
 
 
+async def test_create_device_secrets_parse_error_surfaces_invalid_args(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A duplicate key in the user's secrets.yaml is theirs to fix, not a generator bug."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [
+                {
+                    "message": 'Duplicate key "wifi_password"\n'
+                    f'  in "{tmp_path / "secrets.yaml"}", line 7, column 1\n'
+                    "NOTE: Previous declaration here:\n"
+                    f'  in "{tmp_path / "secrets.yaml"}", line 5, column 1'
+                }
+            ],
+            "validation_errors": [],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", ssid="MyNetwork", psk="hunter2")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert (
+        'secrets.yaml has a duplicate key "wifi_password" (lines 5 and 7)' in excinfo.value.message
+    )
+    assert "report" not in excinfo.value.message.lower()
+    assert str(tmp_path) not in excinfo.value.message
+    assert not (tmp_path / "kitchen.yaml").exists()
+
+
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     tmp_path: Path, make_controller: MakeControllerFactory
