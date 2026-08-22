@@ -135,6 +135,10 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
             value = rest[:i].rstrip(" \t")
             return value, rest[len(value) :]
         elif not started and ch not in " \t":
+            if ch in "!&":
+                # A leading ``!tag`` / ``&anchor`` token; the scalar starts after it.
+                i = _token_end(rest, i)
+                continue
             # Only a quote that opens the scalar starts a quoted run; a
             # quote inside a plain scalar (``bob's``) is literal.
             started = True
@@ -142,6 +146,14 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
                 quote = ch
         i += 1
     return rest, ""
+
+
+def _token_end(text: str, start: int) -> int:
+    """Return the index just past the whitespace-delimited token starting at *start*."""
+    end = start
+    while end < len(text) and text[end] not in " \t":
+        end += 1
+    return end
 
 
 # Sentinel pushed onto the path stack when we descend into a list

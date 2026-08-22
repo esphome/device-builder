@@ -132,6 +132,15 @@ def test_secrets_problem_folds_the_loader_error(detail: str, problem: str) -> No
     assert secrets_problem(detail) == problem
 
 
+def test_secrets_problem_does_not_fold_same_named_files() -> None:
+    """Two different files both named secrets.yaml are not one file."""
+    detail = (
+        'Duplicate key "a"\n  in "/config/secrets.yaml", line 5, column 1\n'
+        'NOTE: Previous declaration here:\n  in "/config/packages/secrets.yaml", line 4, column 1'
+    )
+    assert secrets_problem(detail).startswith('doesn\'t parse: Duplicate key "a" in secrets.yaml')
+
+
 def test_secrets_problem_keeps_an_included_duplicate_in_its_own_file(tmp_path: Path) -> None:
     """A duplicate inside an ``!include``d fragment names that file, not secrets.yaml lines."""
     (tmp_path / "wifi.yaml").write_text("a: 1\na: 2\n", "utf-8")
@@ -499,6 +508,14 @@ def test_migrate_placeholder_wifi_warns_when_the_placeholder_has_no_root_line(
     migrate_placeholder_wifi_secrets(tmp_path)
     assert _secrets(tmp_path).read_text("utf-8") == original
     assert "['wifi_ssid'] have no root-level line" in caplog.text
+
+
+def test_migrate_placeholder_wifi_is_quiet_on_the_bootstrapped_comment_only_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _secrets(tmp_path).write_text("# Secrets\n# Add Wi-Fi credentials here\n", "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert "doesn't parse" not in caplog.text
 
 
 def test_migrate_placeholder_wifi_warns_when_the_file_does_not_parse(

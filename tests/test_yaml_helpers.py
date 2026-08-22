@@ -2457,3 +2457,7 @@ def test_split_value_and_comment_treats_a_quote_inside_a_plain_scalar_as_literal
     assert _split_value_and_comment(" bob's  # router note") == (" bob's", "  # router note")
     assert _split_value_and_comment(' "a # b"  # note') == (' "a # b"', "  # note")
     assert _split_value_and_comment(" 'it''s # ok' # c") == (" 'it''s # ok'", " # c")
+    # A tag or anchor before the scalar doesn't hide its opening quote.
+    assert _split_value_and_comment(' !secret "my # pass" # c') == (' !secret "my # pass"', " # c")
+    assert _split_value_and_comment(" &a 'x # y'  # c") == (" &a 'x # y'", "  # c")
+    assert _split_value_and_comment(" !secret pw  # c") == (" !secret pw", "  # c")

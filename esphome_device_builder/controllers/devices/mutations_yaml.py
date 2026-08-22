@@ -246,7 +246,7 @@ def _raise_validation_failure(
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         if on_failure is ErrorCode.INTERNAL_ERROR:
             # Action only: the clause names keys from the user's secrets file.
-            _LOGGER.info(
+            _LOGGER.warning(
                 "Refusing %s: errors sit in the user's secrets.yaml, not the generator", action
             )
         raise CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))

@@ -98,7 +98,11 @@ def secrets_problem(detail: str) -> str:
     """Return the ``secrets.yaml <problem>`` clause for a raw loader error *detail*."""
     marks = parse_marks(detail) if detail.startswith('Duplicate key "') else []
     # Fold only when both marks sit in secrets.yaml itself, not an !included fragment.
-    if len(marks) == 2 and {cross_os_basename(m.path) for m in marks} == {SECRETS_FILENAME}:
+    if (
+        len(marks) == 2
+        and marks[0].path == marks[1].path
+        and cross_os_basename(marks[0].path) == SECRETS_FILENAME
+    ):
         key = detail.removeprefix('Duplicate key "').split('"', 1)[0]
         first, second = sorted(mark.line for mark in marks)
         return f'has a duplicate key "{key}" (lines {first} and {second})'
@@ -260,12 +264,12 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
         return
     data = read_secrets_yaml(config_dir)
     if not data:
-        # Diagnostic only; a startup log line must not be able to abort boot.
+        # Diagnostic only (a comment-only bootstrap file is fine); never abort boot.
         with suppress(OSError):
-            if secrets_path.read_text(encoding="utf-8", errors="replace").strip():
-                _LOGGER.warning(
-                    "Skipping the placeholder Wi-Fi cleanup; secrets.yaml doesn't parse"
-                )
+            try:
+                validate_secrets_content(secrets_path.read_text(encoding="utf-8"), secrets_path)
+            except SecretsContentError:
+                _LOGGER.warning("Skipping placeholder Wi-Fi cleanup; secrets.yaml doesn't parse")
         return
     drop = {
         key
@@ -383,6 +387,7 @@ def _write_validated_secrets(
     except SecretsContentError as err:
         # A collapse shifts lines; report the on-disk file's own error when it has one.
         if original_error is not None:
+            _LOGGER.debug("The rewritten secrets.yaml also failed to parse; reporting the original")
             raise original_error from err
         # The file parsed and our line rewrite broke it (a block-scalar value, say).
         raise SecretsContentError(str(err), problem=_unrewritable(expected)) from err
