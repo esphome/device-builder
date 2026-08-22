@@ -22,6 +22,7 @@ import io
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,7 @@ from ..constants import SECRETS_FILENAME
 from ..models import ErrorCode
 from .api import CommandError
 from .async_ import run_in_executor
+from .cross_os_path import cross_os_basename
 from .yaml import _split_value_and_comment, load_yaml_fast_then_esphome, write_user_yaml
 from .yaml.marks import parse_marks, trim_marks
 
@@ -94,7 +96,9 @@ class SecretsContentError(ValueError):
 
 def secrets_problem(detail: str) -> str:
     """Return the ``secrets.yaml <problem>`` clause for a raw loader error *detail*."""
-    if detail.startswith('Duplicate key "') and len(marks := parse_marks(detail)) == 2:
+    marks = parse_marks(detail) if detail.startswith('Duplicate key "') else []
+    # Fold only when both marks sit in secrets.yaml itself, not an !included fragment.
+    if len(marks) == 2 and {cross_os_basename(m.path) for m in marks} == {SECRETS_FILENAME}:
         key = detail.removeprefix('Duplicate key "').split('"', 1)[0]
         first, second = sorted(mark.line for mark in marks)
         return f'has a duplicate key "{key}" (lines {first} and {second})'
@@ -256,8 +260,12 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
         return
     data = read_secrets_yaml(config_dir)
     if not data:
-        if secrets_path.read_text(encoding="utf-8").strip():
-            _LOGGER.warning("Skipping the placeholder Wi-Fi cleanup; secrets.yaml doesn't parse")
+        # Diagnostic only; a startup log line must not be able to abort boot.
+        with suppress(OSError):
+            if secrets_path.read_text(encoding="utf-8", errors="replace").strip():
+                _LOGGER.warning(
+                    "Skipping the placeholder Wi-Fi cleanup; secrets.yaml doesn't parse"
+                )
         return
     drop = {
         key

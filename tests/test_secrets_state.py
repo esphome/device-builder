@@ -132,6 +132,14 @@ def test_secrets_problem_folds_the_loader_error(detail: str, problem: str) -> No
     assert secrets_problem(detail) == problem
 
 
+def test_secrets_problem_keeps_an_included_duplicate_in_its_own_file(tmp_path: Path) -> None:
+    """A duplicate inside an ``!include``d fragment names that file, not secrets.yaml lines."""
+    (tmp_path / "wifi.yaml").write_text("a: 1\na: 2\n", "utf-8")
+    with pytest.raises(SecretsContentError) as excinfo:
+        validate_secrets_content("<<: !include wifi.yaml\n", tmp_path / "secrets.yaml")
+    assert excinfo.value.problem.startswith('doesn\'t parse: Duplicate key "a" in wifi.yaml')
+
+
 def test_secrets_unparsable_message_composes_the_sentence() -> None:
     assert secrets_unparsable_message("create", 'has a duplicate key "a" (lines 1 and 2)') == (
         'Can\'t create: secrets.yaml has a duplicate key "a" (lines 1 and 2). '
@@ -501,6 +509,15 @@ def test_migrate_placeholder_wifi_warns_when_the_file_does_not_parse(
     migrate_placeholder_wifi_secrets(tmp_path)
     assert _secrets(tmp_path).read_text("utf-8") == original
     assert "secrets.yaml doesn't parse" in caplog.text
+
+
+def test_migrate_placeholder_wifi_survives_an_unreadable_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _secrets(tmp_path).write_text("dup: 1\ndup: 2\n", "utf-8")
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    migrate_placeholder_wifi_secrets(tmp_path)  # no raise
+    assert "doesn't parse" not in caplog.text
 
 
 def test_migrate_placeholder_wifi_warns_when_the_placeholder_still_resolves(
