@@ -460,6 +460,25 @@ def test_migrate_placeholder_wifi_leaves_nested_lines_and_refuses_a_broken_rewri
     assert _secrets(tmp_path).read_text("utf-8") == "mqtt:\n  wifi_ssid: nested\n"
 
 
+def test_migrate_placeholder_wifi_noop_when_only_nested_lines_match(tmp_path: Path) -> None:
+    """A uniformly indented root mapping resolves the placeholder but has no top-level line."""
+    original = f'  wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n  api_key: ABC\n'
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
+def test_migrate_placeholder_wifi_keeps_the_file_when_the_rewrite_would_not_parse(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Dropping an anchored placeholder would orphan its alias; the file is left as is."""
+    original = f'wifi_ssid: &ph "{PLACEHOLDER_WIFI_SSID}"\nwifi_password: *ph\napi_key: ABC\n'
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+    assert "placeholder Wi-Fi secrets" in caplog.text
+
+
 def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
     migrate_placeholder_wifi_secrets(tmp_path)
     assert not _secrets(tmp_path).exists()
@@ -684,6 +703,14 @@ def test_write_validated_secrets_refuses_when_the_key_does_not_resolve(tmp_path:
     with pytest.raises(SecretsContentError, match='"api_key" is defined where') as excinfo:
         _write_validated_secrets(_secrets(tmp_path), "mqtt:\n  api_key: x\n", {"api_key": "x"})
     assert excinfo.value.problem == 'defines "api_key" where the dashboard can\'t rewrite it'
+    assert not _secrets(tmp_path).exists()
+
+
+def test_write_validated_secrets_reports_the_rewrite_error_when_the_original_parses(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(SecretsContentError, match="top-level mapping"):
+        _write_validated_secrets(_secrets(tmp_path), "just a scalar\n", {}, original="a: 1\n")
     assert not _secrets(tmp_path).exists()
 
 
