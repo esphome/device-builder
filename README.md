@@ -415,7 +415,7 @@ clicked Accept. Step 2 is the prerequisite, not the wrap-up.
    stay silent on the network; two add-on dashboards on the same
    LAN need the manual-entry flow below.)
 
-   ![Enabling Build server on the receiving dashboard](docs/images/toggle-on-remote-build.gif)
+   ![Enabling Build server on the receiving dashboard](https://raw.githubusercontent.com/esphome/device-builder/main/docs/images/toggle-on-remote-build.gif)
 2. **On the receiving dashboard**, open **Settings → Pairing
    requests**. This opens the pairing window; the receiver will
    refuse any pair request that arrives while this screen isn't
@@ -433,7 +433,7 @@ clicked Accept. Step 2 is the prerequisite, not the wrap-up.
    **Show hex bytes** disclosure if you prefer that form, but
    the emoji grid is the primary verification surface.
 
-   ![Sending a pair request from the sending dashboard](docs/images/initiate-build-server-pairing.gif)
+   ![Sending a pair request from the sending dashboard](https://raw.githubusercontent.com/esphome/device-builder/main/docs/images/initiate-build-server-pairing.gif)
 4. Back on the receiving dashboard's still-open **Pairing
    requests** screen, the new request now shows up with the
    sender's name and originating IP — click **Review**. Compare
@@ -442,13 +442,13 @@ clicked Accept. Step 2 is the prerequisite, not the wrap-up.
    the pairing to be safe to accept. Then click **Accept**. The
    pairing persists on both sides and survives restarts.
 
-   ![Reviewing and accepting the pair request](docs/images/review-accept-pair-request.gif)
+   ![Reviewing and accepting the pair request](https://raw.githubusercontent.com/esphome/device-builder/main/docs/images/review-accept-pair-request.gif)
 
 Once accepted, the receiver appears under **Paired build
 servers** on the sending dashboard marked **Connected**, with
 the ESPHome version each side runs:
 
-![A connected build server on the sending dashboard](docs/images/successful-pairing.png)
+![A connected build server on the sending dashboard](https://raw.githubusercontent.com/esphome/device-builder/main/docs/images/successful-pairing.png)
 
 If a dashboard you expected to show up doesn't appear in
 **Known dashboards**, run `esphome-device-builder-discover` on
