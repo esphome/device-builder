@@ -329,7 +329,7 @@ def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str |
     # carry the same config_dir string, relative or not.
     if not all(any(Path(p) == secrets_path for p in marked_paths(msg)) for msg in errors):
         return None
-    if len(errors) == 1:
+    if len(errors) == 1 and all(Path(p) == secrets_path for p in marked_paths(errors[0])):
         return secrets_problem(errors[0])
     return f"doesn't parse: {_summarise([trim_marks(msg) for msg in errors])}"
 

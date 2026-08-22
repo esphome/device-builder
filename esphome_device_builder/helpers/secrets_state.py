@@ -256,6 +256,8 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
         return
     data = read_secrets_yaml(config_dir)
     if not data:
+        if secrets_path.read_text(encoding="utf-8").strip():
+            _LOGGER.warning("Skipping the placeholder Wi-Fi cleanup; secrets.yaml doesn't parse")
         return
     drop = {
         key
@@ -281,12 +283,15 @@ def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
         )
         return
     try:
-        validate_secrets_content(updated, secrets_path)
+        after = validate_secrets_content(updated, secrets_path)
     except SecretsContentError:
         _LOGGER.warning(
             "Keeping placeholder Wi-Fi secrets %s; the rewrite wouldn't parse", sorted(drop)
         )
         return
+    if still := sorted(key for key in drop if key in after):
+        # An ``!include`` / alias still supplies it; the root line is gone regardless.
+        _LOGGER.warning("Placeholder Wi-Fi secrets %s still resolve after the cleanup", still)
     write_user_yaml(secrets_path, updated)
 
 

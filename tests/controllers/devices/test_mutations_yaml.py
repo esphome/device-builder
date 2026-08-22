@@ -131,6 +131,21 @@ def test_secrets_file_problem_matches_a_relative_config_dir() -> None:
     assert mutations_yaml._secrets_file_problem([_dup_key_in(secrets)], secrets) is not None
 
 
+def test_secrets_file_problem_does_not_fold_marks_that_straddle_files(tmp_path: Path) -> None:
+    """A duplicate-key error with one mark elsewhere keeps the honest trimmed form."""
+    secrets = tmp_path / "secrets.yaml"
+    error = (
+        'Duplicate key "wifi_password"\n'
+        f'  in "{secrets}", line 7, column 1\n'
+        "NOTE: Previous declaration here:\n"
+        f'  in "{tmp_path / "other.yaml"}", line 5, column 1'
+    )
+    problem = mutations_yaml._secrets_file_problem([error], secrets)
+    assert problem is not None
+    assert problem.startswith("doesn't parse: Duplicate key")
+    assert "in other.yaml, line 5" in problem
+
+
 def test_secrets_file_problem_summarises_several_errors(tmp_path: Path) -> None:
     secrets = tmp_path / "secrets.yaml"
     other = f'mapping values are not allowed here\n  in "{secrets}", line 3, column 5'

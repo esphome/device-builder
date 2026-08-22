@@ -493,6 +493,28 @@ def test_migrate_placeholder_wifi_warns_when_the_placeholder_has_no_root_line(
     assert "['wifi_ssid'] have no root-level line" in caplog.text
 
 
+def test_migrate_placeholder_wifi_warns_when_the_file_does_not_parse(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    original = "dup: 1\ndup: 2\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+    assert "secrets.yaml doesn't parse" in caplog.text
+
+
+def test_migrate_placeholder_wifi_warns_when_the_placeholder_still_resolves(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The root line goes; an ``!include`` that still supplies the placeholder is called out."""
+    (tmp_path / "wifi.yaml").write_text(f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n', "utf-8")
+    content = f'wifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n<<: !include wifi.yaml\n'
+    _secrets(tmp_path).write_text(content, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == "<<: !include wifi.yaml\n"
+    assert "['wifi_ssid'] still resolve" in caplog.text
+
+
 def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
     migrate_placeholder_wifi_secrets(tmp_path)
     assert not _secrets(tmp_path).exists()

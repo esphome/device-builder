@@ -89,9 +89,11 @@ def _split_value_and_comment(rest: str) -> tuple[str, str]:
     Split *rest* into ``(value, comment)`` at a real ``\s+#`` separator.
 
     A ``#`` only opens a comment when preceded by whitespace
-    *and* outside any quoted scalar. Without the quote-state
-    check, ``friendly_name: "Bedroom #2"`` would mis-split as
-    ``"Bedroom`` (value) + ``" #2"`` (comment).
+    *and* outside a quoted scalar that *opens* the value. Without
+    the quote-state check, ``friendly_name: "Bedroom #2"`` would
+    mis-split as ``"Bedroom`` (value) + ``" #2"`` (comment); a quote
+    inside a plain scalar (``bob's``) is literal. Leaf scalars only:
+    flow collections (``["a # b"]``) are not tracked.
 
     Honours both YAML quote-escape conventions so the splitter
     survives a round-trip through our own ``_quote`` (which emits
