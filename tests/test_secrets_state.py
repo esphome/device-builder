@@ -121,6 +121,17 @@ def test_secrets_unparsable_message_folds_duplicate_key_marks() -> None:
     )
 
 
+def test_secrets_unparsable_message_uses_the_problem_clause_when_given() -> None:
+    assert secrets_unparsable_message(
+        "save Wi-Fi credentials",
+        '"wifi_password" is defined where the dashboard can\'t rewrite it',
+        problem='defines "wifi_password" where the dashboard can\'t rewrite it',
+    ) == (
+        'Can\'t save Wi-Fi credentials: secrets.yaml defines "wifi_password" where the '
+        "dashboard can't rewrite it. Fix it on the Secrets page and try again."
+    )
+
+
 def test_secrets_unparsable_message_keeps_other_parse_errors() -> None:
     detail = "mapping values are not allowed here in secrets.yaml, line 3, column 5"
     assert secrets_unparsable_message("rename", detail) == (
@@ -648,8 +659,9 @@ def test_write_wifi_secrets_refuses_when_the_key_does_not_resolve(tmp_path: Path
     """A rewrite that lands inside a block scalar leaves the key undefined; nothing is written."""
     original = "cert: |\n  wifi_password: inside\n  more\nwifi_ssid: home\n"
     _secrets(tmp_path).write_text(original, "utf-8")
-    with pytest.raises(SecretsContentError, match='could not set "wifi_password"'):
+    with pytest.raises(SecretsContentError, match='"wifi_password" is defined where') as excinfo:
         write_wifi_secrets(tmp_path, "home", "hunter2")
+    assert excinfo.value.problem == 'defines "wifi_password" where the dashboard can\'t rewrite it'
     assert _secrets(tmp_path).read_text("utf-8") == original
 
 

@@ -89,15 +89,20 @@ def read_secrets_yaml(config_dir: Path) -> dict | None:
 
 
 class SecretsContentError(ValueError):
-    """``secrets.yaml`` content failed to parse or isn't a top-level mapping."""
+    """``secrets.yaml`` content failed to parse, or a rewrite left a key unresolved."""
+
+    def __init__(self, message: str, *, problem: str | None = None) -> None:
+        super().__init__(message)
+        # User-facing ``secrets.yaml <problem>`` clause when the file itself parses.
+        self.problem = problem
 
 
-def secrets_unparsable_message(action: str, detail: str) -> str:
-    """Return the user-facing refusal for *action* when ``secrets.yaml`` doesn't parse."""
+def secrets_unparsable_message(action: str, detail: str, *, problem: str | None = None) -> str:
+    """Return the user-facing refusal for *action* when ``secrets.yaml`` is unusable."""
     detail = detail.removesuffix(".")
-    if (m := _DUPLICATE_KEY_RE.fullmatch(detail)) is not None:
+    if problem is None and (m := _DUPLICATE_KEY_RE.fullmatch(detail)) is not None:
         problem = f'has a duplicate key "{m["key"]}" (lines {m["first"]} and {m["second"]})'
-    else:
+    if problem is None:
         problem = f"doesn't parse: {detail}"
     return f"Can't {action}: secrets.yaml {problem}. {SECRETS_FIX_HINT}"
 
@@ -283,7 +288,8 @@ async def set_wifi_secrets(
         await write_locked(write_wifi_secrets, config_dir, ssid, password)
     except SecretsContentError as err:
         raise CommandError(
-            ErrorCode.INVALID_ARGS, secrets_unparsable_message("save Wi-Fi credentials", str(err))
+            ErrorCode.INVALID_ARGS,
+            secrets_unparsable_message("save Wi-Fi credentials", str(err), problem=err.problem),
         ) from err
 
 
@@ -291,7 +297,8 @@ def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:
     """
     Set ``wifi_ssid`` / ``wifi_password`` in ``secrets.yaml`` in place.
 
-    Raises ``SecretsContentError`` (nothing written) when the result wouldn't parse.
+    Raises ``SecretsContentError`` (nothing written) when the result wouldn't
+    parse or doesn't resolve either key to the new value.
     """
     secrets_path = config_dir / SECRETS_FILENAME
     original = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
@@ -329,7 +336,8 @@ def _write_validated_secrets(secrets_path: Path, content: str, expected: dict[st
     for key, value in expected.items():
         if data.get(key) != value:
             raise SecretsContentError(
-                f'the rewrite could not set "{key}" (another definition takes precedence)'
+                f'"{key}" is defined where the dashboard can\'t rewrite it',
+                problem=f'defines "{key}" where the dashboard can\'t rewrite it',
             )
     write_user_yaml(secrets_path, content)
 
