@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from esphome.const import __version__ as _offloader_esphome_version
+
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...models import ErrorCode, FirmwareJob, JobBuildSource, JobType
+from ...helpers.build_scheduler import build_source_for_pairing
+from ...models import ErrorCode, FirmwareJob, JobType
 from ._validators import (
     download_artifacts_error_to_command_error,
     validate_pin_sha256,
@@ -95,7 +98,7 @@ async def reset_peer_build_env(controller: OffloaderController, *, pin_sha256: s
     job = firmware._create_job(
         "",
         JobType.RESET_BUILD_ENV,
-        build_source=JobBuildSource.for_pairing(pairing),
+        build_source=build_source_for_pairing(pairing, _offloader_esphome_version),
     )
     # supersede=False: reset jobs share the empty configuration key; the
     # default supersede would cancel an unrelated reset targeting another

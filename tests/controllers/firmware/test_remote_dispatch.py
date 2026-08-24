@@ -52,8 +52,21 @@ _PIN_C = "c" * 64
 _stub_offloader = stub_offloader
 
 
-def _pairing(pin: str, *, paired_at: float, label: str = "srv", version: str = "") -> StoredPairing:
-    return _pairing_kw(pin_sha256=pin, paired_at=paired_at, label=label, esphome_version=version)
+def _pairing(
+    pin: str,
+    *,
+    paired_at: float,
+    label: str = "srv",
+    version: str = "",
+    auto_provision: bool = False,
+) -> StoredPairing:
+    return _pairing_kw(
+        pin_sha256=pin,
+        paired_at=paired_at,
+        label=label,
+        esphome_version=version,
+        auto_provision_supported=auto_provision,
+    )
 
 
 def _snapshot(
@@ -185,6 +198,33 @@ async def test_one_job_per_server(
     pool = controller.state.remote_dispatch
     assert set(pool.in_flight) == {"j1"}
     assert set(pool.pending) == {"j2", "j3"}
+
+
+@pytest.mark.parametrize(
+    ("auto_provision", "expected_version"),
+    [
+        pytest.param(True, "", id="provisions_our_version"),
+        pytest.param(False, "2026.8.0", id="builds_with_its_own"),
+    ],
+)
+async def test_dispatch_stamps_receiver_version_only_when_it_builds_with_it(
+    firmware_controller_factory: FirmwareControllerFactory,
+    auto_provision: bool,
+    expected_version: str,
+) -> None:
+    """A mismatched receiver's version reaches the job only when no venv will replace it."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    pairing = _pairing(_PIN_A, paired_at=1.0, version="2026.8.0", auto_provision=auto_provision)
+    _stub_offloader(
+        controller,
+        _snapshot([pairing], open_pins={_PIN_A}, idle_pins={_PIN_A}, offloader_version="2026.8.1"),
+    )
+    job = _add_pending(controller, "j1")
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert job.source is JobSource.REMOTE
+    assert job.source_esphome_version == expected_version
 
 
 async def test_no_server_connected_falls_back_to_local(

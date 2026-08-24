@@ -563,6 +563,7 @@ def stub_pairing(
     esphome_version: str = "",
     status: PeerStatus = PeerStatus.APPROVED,
     enabled: bool = True,
+    auto_provision_supported: bool = False,
 ) -> StoredPairing:
     """Build a :class:`StoredPairing` for the build-scheduler tests."""
     return StoredPairing(
@@ -575,6 +576,7 @@ def stub_pairing(
         status=status,
         esphome_version=esphome_version,
         enabled=enabled,
+        auto_provision_supported=auto_provision_supported,
     )
 
 
