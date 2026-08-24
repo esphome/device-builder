@@ -303,8 +303,8 @@ class FirmwareJob(DashboardModel):
     # rendering.
     source_label: str = ""
     # The receiver's esphome when it compiles with its own instead of
-    # ours; empty otherwise (LOCAL, same version, or the receiver
-    # provisions ours into a venv).
+    # ours; empty otherwise (LOCAL, same version, the receiver
+    # provisions ours into a venv, or its version isn't known yet).
     source_esphome_version: str = ""
     # Receiver-side: the offloader's esphome version off the
     # SUBMIT_JOB header. When set and it differs from the
