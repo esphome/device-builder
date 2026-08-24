@@ -18,11 +18,14 @@ from esphome_device_builder.helpers.build_scheduler import (
     BuildSchedulerInputs,
     DispatchDecision,
     DispatchOutcome,
+    build_source_for_pairing,
     pick_build_path,
     pick_dispatch_target,
+    receiver_build_version,
 )
 from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models.api import ErrorCode
+from esphome_device_builder.models.firmware import JobBuildSource, JobSource
 from esphome_device_builder.models.remote_build import (
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
@@ -1127,3 +1130,42 @@ def test_dispatch_include_local_does_not_override_exact_required() -> None:
         )
     )
     assert decision.outcome is DispatchOutcome.NO_COMPATIBLE_PEER
+
+
+# ---------------------------------------------------------------------------
+# receiver_build_version / build_source_for_pairing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("receiver_version", "auto_provision", "offloader_version", "expected"),
+    [
+        pytest.param("2026.8.1", False, "2026.8.1", "", id="same_version"),
+        pytest.param("2026.8.0", True, "2026.8.1", "", id="provisionable_mismatch"),
+        pytest.param("2026.8.0", True, "2026.9.0-dev", "2026.8.0", id="dev_offloader"),
+        pytest.param("2026.8.0", False, "2026.8.1", "2026.8.0", id="plain_mismatch"),
+        pytest.param("", False, "2026.8.1", "", id="unknown_receiver_version"),
+    ],
+)
+def test_receiver_build_version(
+    receiver_version: str, auto_provision: bool, offloader_version: str, expected: str
+) -> None:
+    """The receiver's version surfaces only when it builds with it instead of ours."""
+    pairing = _stub_pairing(
+        esphome_version=receiver_version, auto_provision_supported=auto_provision
+    )
+    assert receiver_build_version(pairing, offloader_version) == expected
+
+
+def test_build_source_for_pairing_projects_pin_label_and_build_version() -> None:
+    """``build_source_for_pairing`` binds REMOTE to the pairing's pin / label / build version."""
+    pairing = _stub_pairing(pin_sha256="b" * 64, label="laptop", esphome_version="2026.8.0")
+
+    assert build_source_for_pairing(pairing, "2026.8.1") == JobBuildSource(
+        source=JobSource.REMOTE,
+        source_pin_sha256="b" * 64,
+        source_label="laptop",
+        source_esphome_version="2026.8.0",
+    )
+    pairing.auto_provision_supported = True
+    assert build_source_for_pairing(pairing, "2026.8.1").source_esphome_version == ""

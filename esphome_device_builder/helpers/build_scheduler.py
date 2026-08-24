@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from ..models.api import ErrorCode
+from ..models.firmware import JobBuildSource
 from ..models.remote_build import (
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
@@ -211,6 +212,31 @@ def pick_dispatch_target(inputs: BuildSchedulerInputs) -> DispatchDecision:
     return DispatchDecision.local()
 
 
+def can_provision(pairing: StoredPairing, offloader_esphome_version: str) -> bool:
+    """Whether *pairing* can build *offloader_esphome_version* into a venv."""
+    return pairing.auto_provision_supported and is_pinnable_version(offloader_esphome_version)
+
+
+def receiver_build_version(pairing: StoredPairing, offloader_esphome_version: str) -> str:
+    """Return the esphome *pairing* builds our jobs with, or ``""`` when it builds with ours."""
+    if pairing.esphome_version == offloader_esphome_version or can_provision(
+        pairing, offloader_esphome_version
+    ):
+        return ""
+    return pairing.esphome_version
+
+
+def build_source_for_pairing(
+    pairing: StoredPairing, offloader_esphome_version: str
+) -> JobBuildSource:
+    """Bundle a REMOTE :class:`JobBuildSource` bound to the server behind *pairing*."""
+    return JobBuildSource.for_server(
+        pin_sha256=pairing.pin_sha256,
+        label=pairing.label,
+        esphome_version=receiver_build_version(pairing, offloader_esphome_version),
+    )
+
+
 @dataclass(frozen=True)
 class _FilterResult:
     """Outcome of the per-peer eligibility filter.
@@ -275,9 +301,7 @@ def _provisionable_mismatch(inputs: BuildSchedulerInputs, pairing: StoredPairing
     our own version is pinnable on PyPI (release or a/b/rc pre-release; a dev
     offloader can't be provisioned, so don't route a mismatch to it).
     """
-    return pairing.auto_provision_supported and is_pinnable_version(
-        inputs.offloader_esphome_version
-    )
+    return can_provision(pairing, inputs.offloader_esphome_version)
 
 
 def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:

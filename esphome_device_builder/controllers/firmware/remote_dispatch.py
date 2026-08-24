@@ -23,12 +23,17 @@ import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from ...helpers.build_scheduler import DispatchOutcome, pick_dispatch_target
+from esphome.const import __version__ as _offloader_esphome_version
+
+from ...helpers.build_scheduler import (
+    DispatchOutcome,
+    build_source_for_pairing,
+    pick_dispatch_target,
+)
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     EventType,
     FirmwareJob,
-    JobBuildSource,
     JobStatus,
 )
 from . import lifecycle
@@ -161,7 +166,7 @@ def _dispatch_to_server(controller: FirmwareController, job: FirmwareJob, pin_sh
         # can't strand the compile (the next pass picks a live server).
         controller.state.remote_dispatch.wake.set()
         return
-    job.apply_build_source(JobBuildSource.for_pairing(pairing))
+    job.apply_build_source(build_source_for_pairing(pairing, _offloader_esphome_version))
     # ``create_background_task`` is eager: ``_drive_remote`` runs its
     # ``begin_run`` prologue (stamps RUNNING, fires JOB_STARTED) synchronously
     # before ``start()`` records the in-flight entry. That's safe — no

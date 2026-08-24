@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from .common import DashboardModel, EventType
 
 if TYPE_CHECKING:
-    from .remote_build import StoredPairing
+    pass
 
 
 def _now_iso() -> str:
@@ -129,15 +129,6 @@ class JobBuildSource:
             source_pin_sha256=pin_sha256,
             source_label=label,
             source_esphome_version=esphome_version,
-        )
-
-    @classmethod
-    def for_pairing(cls, pairing: StoredPairing) -> JobBuildSource:
-        """Bundle a REMOTE source bound to the server behind *pairing*."""
-        return cls.for_server(
-            pin_sha256=pairing.pin_sha256,
-            label=pairing.label,
-            esphome_version=pairing.esphome_version,
         )
 
 
@@ -314,11 +305,12 @@ class FirmwareJob(DashboardModel):
     # ``source_pin_sha256``; ``source_label`` is purely for
     # rendering.
     source_label: str = ""
-    # Receiver's ``esphome.const.__version__`` at job-creation
-    # time, snapshotted from :attr:`StoredPairing.esphome_version`.
-    # Empty for ``LOCAL`` jobs and for ``REMOTE`` jobs whose
-    # pairing hadn't yet completed a peer-link session (the
-    # pairing field populates on every session-open).
+    # The receiver's installed esphome, snapshotted at job-creation
+    # time from :attr:`StoredPairing.esphome_version`, only when the
+    # receiver builds with it instead of ours. Empty for ``LOCAL``
+    # jobs, same-version receivers, receivers that provision our
+    # version into a venv, and pairings that hadn't yet completed a
+    # peer-link session.
     source_esphome_version: str = ""
     # Receiver-side: the offloader's esphome version off the
     # SUBMIT_JOB header. When set and it differs from the

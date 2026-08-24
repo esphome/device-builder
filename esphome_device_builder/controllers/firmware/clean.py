@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...models import (
-    FirmwareJob,
-    JobBuildSource,
-    JobType,
-)
+from esphome.const import __version__ as _offloader_esphome_version
+
+from ...helpers.build_scheduler import build_source_for_pairing
+from ...models import FirmwareJob, JobType
 from ...models.remote_build import PeerStatus
 
 if TYPE_CHECKING:
@@ -54,7 +53,7 @@ async def _fan_out_clean_to_connected_peers(
         remote_job = controller._create_job(
             configuration,
             JobType.CLEAN,
-            build_source=JobBuildSource.for_pairing(pairing),
+            build_source=build_source_for_pairing(pairing, _offloader_esphome_version),
         )
         # ``supersede=False``: the fan-out batch is N+1 jobs sharing
         # one ``configuration``; default supersede would leave only
