@@ -5,12 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, NamedTuple, TypedDict
+from typing import NamedTuple, TypedDict
 
 from .common import DashboardModel, EventType
-
-if TYPE_CHECKING:
-    pass
 
 
 def _now_iso() -> str:
@@ -305,12 +302,9 @@ class FirmwareJob(DashboardModel):
     # ``source_pin_sha256``; ``source_label`` is purely for
     # rendering.
     source_label: str = ""
-    # The receiver's installed esphome, snapshotted at job-creation
-    # time from :attr:`StoredPairing.esphome_version`, only when the
-    # receiver builds with it instead of ours. Empty for ``LOCAL``
-    # jobs, same-version receivers, receivers that provision our
-    # version into a venv, and pairings that hadn't yet completed a
-    # peer-link session.
+    # The receiver's esphome when it compiles with its own instead of
+    # ours; empty otherwise (LOCAL, same version, or the receiver
+    # provisions ours into a venv).
     source_esphome_version: str = ""
     # Receiver-side: the offloader's esphome version off the
     # SUBMIT_JOB header. When set and it differs from the

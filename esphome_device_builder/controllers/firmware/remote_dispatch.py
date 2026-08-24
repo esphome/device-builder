@@ -23,8 +23,6 @@ import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from esphome.const import __version__ as _offloader_esphome_version
-
 from ...helpers.build_scheduler import (
     DispatchOutcome,
     build_source_for_pairing,
@@ -136,7 +134,7 @@ def _dispatch_one(
     decision = pick_dispatch_target(inputs)
     if decision.outcome is DispatchOutcome.REMOTE:
         assert decision.pin_sha256 is not None  # narrowed by REMOTE
-        _dispatch_to_server(controller, job, decision.pin_sha256)
+        _dispatch_to_server(controller, job, decision.pin_sha256, snapshot)
         return False
     if decision.outcome is DispatchOutcome.LOCAL:
         _fallback_to_local(controller, job)
@@ -156,7 +154,12 @@ async def _flush_to_local(controller: FirmwareController) -> None:
         await controller._persist_jobs()
 
 
-def _dispatch_to_server(controller: FirmwareController, job: FirmwareJob, pin_sha256: str) -> None:
+def _dispatch_to_server(
+    controller: FirmwareController,
+    job: FirmwareJob,
+    pin_sha256: str,
+    snapshot: BuildSchedulerInputs,
+) -> None:
     """Bind *job* to the server behind *pin_sha256* and spawn its driver."""
     offloader = controller._db.remote_build_offloader
     pairing = offloader.get_pairing(pin_sha256) if offloader is not None else None
@@ -166,7 +169,7 @@ def _dispatch_to_server(controller: FirmwareController, job: FirmwareJob, pin_sh
         # can't strand the compile (the next pass picks a live server).
         controller.state.remote_dispatch.wake.set()
         return
-    job.apply_build_source(build_source_for_pairing(pairing, _offloader_esphome_version))
+    job.apply_build_source(build_source_for_pairing(pairing, snapshot.offloader_esphome_version))
     # ``create_background_task`` is eager: ``_drive_remote`` runs its
     # ``begin_run`` prologue (stamps RUNNING, fires JOB_STARTED) synchronously
     # before ``start()`` records the in-flight entry. That's safe — no

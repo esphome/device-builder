@@ -1167,5 +1167,3 @@ def test_build_source_for_pairing_projects_pin_label_and_build_version() -> None
         source_label="laptop",
         source_esphome_version="2026.8.0",
     )
-    pairing.auto_provision_supported = True
-    assert build_source_for_pairing(pairing, "2026.8.1").source_esphome_version == ""

@@ -212,14 +212,9 @@ def pick_dispatch_target(inputs: BuildSchedulerInputs) -> DispatchDecision:
     return DispatchDecision.local()
 
 
-def can_provision(pairing: StoredPairing, offloader_esphome_version: str) -> bool:
-    """Whether *pairing* can build *offloader_esphome_version* into a venv."""
-    return pairing.auto_provision_supported and is_pinnable_version(offloader_esphome_version)
-
-
 def receiver_build_version(pairing: StoredPairing, offloader_esphome_version: str) -> str:
-    """Return the esphome *pairing* builds our jobs with, or ``""`` when it builds with ours."""
-    if pairing.esphome_version == offloader_esphome_version or can_provision(
+    """Return the esphome *pairing* compiles with, or ``""`` when it compiles with ours."""
+    if pairing.esphome_version == offloader_esphome_version or _can_provision(
         pairing, offloader_esphome_version
     ):
         return ""
@@ -293,15 +288,9 @@ def _no_compatible_peer_message(result: _FilterResult, inputs: BuildSchedulerInp
     )
 
 
-def _provisionable_mismatch(inputs: BuildSchedulerInputs, pairing: StoredPairing) -> bool:
-    """Whether *pairing* can auto-provision this offloader's esphome.
-
-    A version-mismatched receiver that advertises ``auto_provision_supported``
-    stays eligible because it builds our version into a venv — but only when
-    our own version is pinnable on PyPI (release or a/b/rc pre-release; a dev
-    offloader can't be provisioned, so don't route a mismatch to it).
-    """
-    return can_provision(pairing, inputs.offloader_esphome_version)
+def _can_provision(pairing: StoredPairing, offloader_esphome_version: str) -> bool:
+    """Whether *pairing* can build *offloader_esphome_version* into a venv."""
+    return pairing.auto_provision_supported and is_pinnable_version(offloader_esphome_version)
 
 
 def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
@@ -325,7 +314,7 @@ def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:
             continue
         if not version_satisfies_policy(
             inputs.offloader_esphome_version, pairing.esphome_version, policy
-        ) and not _provisionable_mismatch(inputs, pairing):
+        ) and not _can_provision(pairing, inputs.offloader_esphome_version):
             _LOGGER.debug(
                 "pick_build_path: filtered %s on version policy %s (peer=%s, offloader=%s)",
                 pin_sha256,
