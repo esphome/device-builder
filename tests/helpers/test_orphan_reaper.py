@@ -71,3 +71,47 @@ def test_excluded_zombie_is_never_reaped() -> None:
 def test_zombie_children_missing_proc_entry() -> None:
     """A pid with no /proc children file yields an empty set."""
     assert orphan_reaper._zombie_children(2**22 + 12345) == set()
+
+
+def test_zombie_children_child_vanished_before_stat(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child listed but gone by the stat read is skipped."""
+
+    class _FakePath:
+        def __init__(self, path: str) -> None:
+            self._path = path
+
+        def read_text(self, encoding: str) -> str:
+            if self._path.endswith("/children"):
+                return "4194321"
+            raise FileNotFoundError(self._path)
+
+    monkeypatch.setattr(orphan_reaper, "Path", _FakePath)
+    assert orphan_reaper._zombie_children(os.getpid()) == set()
+
+
+def test_reap_once_tolerates_waitpid_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pid that can't be waited on is skipped."""
+    fake = 2**22 + 54321
+    monkeypatch.setattr(orphan_reaper, "_zombie_children", lambda pid, exclude: {fake})
+    assert orphan_reaper._reap_once(os.getpid(), {fake}, set()) == set()
+
+
+def test_should_reap_orphans_requires_pid1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """True only when running as PID 1."""
+    monkeypatch.setattr(orphan_reaper.os, "getpid", lambda: 1)
+    assert orphan_reaper.should_reap_orphans()
+    monkeypatch.setattr(orphan_reaper.os, "getpid", lambda: 4242)
+    assert not orphan_reaper.should_reap_orphans()
+
+
+async def test_reaper_loop_work_carries_pending() -> None:
+    """One tick records the zombie as pending; the next tick reaps it."""
+    reaper = orphan_reaper.OrphanReaperLoop()
+    pid = _spawn_zombie()
+
+    await reaper._work()
+    assert pid in reaper._pending
+
+    await reaper._work()
+    assert pid not in reaper._pending
+    assert pid not in orphan_reaper._zombie_children(os.getpid())

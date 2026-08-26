@@ -226,7 +226,14 @@ def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> None:
 
 async def test_live_child_pids_tracks_until_reaped() -> None:
     """A spawn is listed while live and drops out once the loop reaps it."""
-    proc = await subprocess_helper.create_subprocess_exec(sys.executable, "-c", "pass")
+    proc = await subprocess_helper.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import sys; sys.stdin.read()",
+        stdin=asyncio.subprocess.PIPE,
+    )
     assert proc.pid in subprocess_helper.live_child_pids()
+    assert proc.stdin is not None
+    proc.stdin.close()
     await proc.wait()
     assert proc.pid not in subprocess_helper.live_child_pids()
