@@ -13,7 +13,7 @@ import html
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,7 +45,7 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.discovery import start_discovery as start_peer_discovery
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
-from .helpers.async_ import create_eager_task, drain_tasks
+from .helpers.async_ import create_eager_task, drain_tasks, log_task_exit
 from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
@@ -645,7 +645,8 @@ class DeviceBuilder:
         self._bg_poll = _BackgroundPollLoop(self)
         self._bg_task = create_eager_task(self._bg_poll.run())
         if should_reap_orphans():
-            self.create_background_task(OrphanReaperLoop().run())
+            task = self.create_background_task(OrphanReaperLoop().run())
+            task.add_done_callback(partial(log_task_exit, "Orphan reaper"))
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""

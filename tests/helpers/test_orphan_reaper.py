@@ -49,7 +49,7 @@ def test_reaps_zombie_on_second_scan() -> None:
     assert pid in pending
     assert pid in orphan_reaper._zombie_children(me)
 
-    orphan_reaper._reap_once(me, pending, set())
+    orphan_reaper._reap_once(me, {pid}, set())
     assert pid not in orphan_reaper._zombie_children(me)
     with pytest.raises(ChildProcessError):
         os.waitpid(pid, os.WNOHANG)
@@ -103,10 +103,52 @@ def test_zombie_children_child_vanished_before_stat(monkeypatch: pytest.MonkeyPa
 
 
 def test_reap_once_tolerates_waitpid_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A pid that can't be waited on is skipped."""
+    """A pid that was already reaped elsewhere is skipped silently."""
     fake = 2**22 + 54321
     monkeypatch.setattr(orphan_reaper, "_zombie_children", lambda pid, exclude: {fake})
     assert orphan_reaper._reap_once(os.getpid(), {fake}, set()) == set()
+
+
+def test_reap_once_logs_unexpected_waitpid_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A waitpid failure other than already-reaped is skipped and logged."""
+    fake = 2**22 + 54321
+    monkeypatch.setattr(orphan_reaper, "_zombie_children", lambda pid, exclude: {fake})
+
+    def _raise(pid: int, options: int) -> tuple[int, int]:
+        raise PermissionError(pid)
+
+    monkeypatch.setattr(orphan_reaper.os, "waitpid", _raise)
+    assert orphan_reaper._reap_once(os.getpid(), {fake}, set()) == set()
+
+
+def test_reap_once_skips_log_when_nothing_was_reaped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ``(0, 0)`` waitpid result claims no reap."""
+    fake = 2**22 + 54321
+    monkeypatch.setattr(orphan_reaper, "_zombie_children", lambda pid, exclude: {fake})
+    monkeypatch.setattr(orphan_reaper.os, "waitpid", lambda pid, options: (0, 0))
+    assert orphan_reaper._reap_once(os.getpid(), {fake}, set()) == set()
+
+
+async def test_prepare_probes_children_listing() -> None:
+    """The loop stays enabled when the /proc children listing is readable."""
+    assert await orphan_reaper.OrphanReaperLoop()._prepare() is True
+
+
+async def test_prepare_disables_loudly_without_children_listing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unreadable children listing disables the loop with a warning."""
+
+    class _UnreadablePath:
+        def __init__(self, path: str) -> None:
+            pass
+
+        def read_text(self, encoding: str) -> str:
+            raise PermissionError(encoding)
+
+    monkeypatch.setattr(orphan_reaper, "Path", _UnreadablePath)
+    assert await orphan_reaper.OrphanReaperLoop()._prepare() is False
+    assert "orphan reaping disabled" in caplog.text
 
 
 def test_should_reap_orphans_requires_pid1(monkeypatch: pytest.MonkeyPatch) -> None:
