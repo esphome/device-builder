@@ -13,7 +13,7 @@ import html
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,13 +45,14 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.discovery import start_discovery as start_peer_discovery
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
-from .helpers.async_ import create_eager_task, drain_tasks
+from .helpers.async_ import create_eager_task, drain_tasks, log_task_exit
 from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware, json_response
 from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
+from .helpers.orphan_reaper import OrphanReaperLoop, should_reap_orphans
 from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.presence_gated_loop import PresenceGatedLoop
 from .helpers.secrets_state import write_secrets_locked
@@ -566,9 +567,7 @@ class DeviceBuilder:
 
         self._register_command_handlers()
 
-        # Start background polling
-        self._bg_poll = _BackgroundPollLoop(self)
-        self._bg_task = create_eager_task(self._bg_poll.run())
+        self._start_background_loops()
 
         _LOGGER.info(
             "Device Builder ready — config dir: %s, %d commands registered",
@@ -639,6 +638,15 @@ class DeviceBuilder:
         # Latch only after a full pass, so a partial teardown (a step raising in
         # the swallowing on_shutdown hook) can still be retried by stop().
         self._network_stopped = True
+
+    def _start_background_loops(self) -> None:
+        """Start the process-lifetime background loops."""
+        # Start background polling
+        self._bg_poll = _BackgroundPollLoop(self)
+        self._bg_task = create_eager_task(self._bg_poll.run())
+        if should_reap_orphans():
+            task = self.create_background_task(OrphanReaperLoop().run())
+            task.add_done_callback(partial(log_task_exit, "Orphan reaper"))
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""

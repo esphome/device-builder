@@ -26,6 +26,7 @@ import pytest
 from esphome_device_builder.api.ws import close_active_websockets
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.device_builder import DeviceBuilder
+from esphome_device_builder.helpers.orphan_reaper import OrphanReaperLoop
 
 from .conftest import MakeSettingsFactory
 
@@ -190,6 +191,28 @@ async def test_start_spawns_background_polling_task(
 
         assert db._bg_task is not None
         assert not db._bg_task.done()
+    finally:
+        await db.stop()
+
+
+async def test_start_spawns_orphan_reaper_when_pid1(
+    make_settings: MakeSettingsFactory,
+    _hermetic_lifecycle: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The orphan-reaper loop runs as a tracked background task when the PID-1 gate opens."""
+    started = asyncio.Event()
+
+    async def _fake_run(self: OrphanReaperLoop) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("esphome_device_builder.device_builder.should_reap_orphans", lambda: True)
+    monkeypatch.setattr(OrphanReaperLoop, "run", _fake_run)
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    try:
+        await db.start()
+        await asyncio.wait_for(started.wait(), timeout=5)
     finally:
         await db.stop()
 
