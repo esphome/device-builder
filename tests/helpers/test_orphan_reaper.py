@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -14,17 +15,29 @@ from esphome_device_builder.helpers import orphan_reaper
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="/proc and fork semantics")
 
 
-def _spawn_zombie() -> int:
-    """Fork a child that exits immediately; return its pid, unreaped."""
+def _fork_exiting_child() -> int:
+    """Fork a child from the main thread that exits immediately; return its pid, unreaped."""
     pid = os.fork()
     if pid == 0:
         os._exit(0)
+    return pid
+
+
+def _wait_until_zombie(pid: int) -> None:
+    """Poll until *pid* shows up as a zombie child of this process."""
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         if pid in orphan_reaper._zombie_children(os.getpid()):
-            return pid
+            return
         time.sleep(0.01)
     raise AssertionError("child never became a zombie")
+
+
+def _spawn_zombie() -> int:
+    """Fork a child that exits immediately; return its pid once zombied, unreaped."""
+    pid = _fork_exiting_child()
+    _wait_until_zombie(pid)
+    return pid
 
 
 def test_reaps_zombie_on_second_scan() -> None:
@@ -107,11 +120,12 @@ def test_should_reap_orphans_requires_pid1(monkeypatch: pytest.MonkeyPatch) -> N
 async def test_reaper_loop_work_carries_pending() -> None:
     """One tick records the zombie as pending; the next tick reaps it."""
     reaper = orphan_reaper.OrphanReaperLoop()
-    pid = _spawn_zombie()
+    pid = _fork_exiting_child()
+    await asyncio.to_thread(_wait_until_zombie, pid)
 
     await reaper._work()
     assert pid in reaper._pending
 
     await reaper._work()
     assert pid not in reaper._pending
-    assert pid not in orphan_reaper._zombie_children(os.getpid())
+    assert pid not in await asyncio.to_thread(orphan_reaper._zombie_children, os.getpid())
