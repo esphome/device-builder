@@ -30,6 +30,8 @@ class OrphanReaperLoop(PresenceGatedLoop[None]):
     _interval = _SCAN_INTERVAL_SECONDS
 
     def __init__(self) -> None:
+        # presence=None runs the loop ungated: orphans accrue whether
+        # or not a dashboard client is connected.
         super().__init__(None)
         self._pid = os.getpid()
         self._pending: set[int] = set()
