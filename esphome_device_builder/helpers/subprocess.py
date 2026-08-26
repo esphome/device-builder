@@ -26,7 +26,7 @@ from typing import Any
 # it because the StreamReader will keep filling on demand.
 _STREAM_READ_SIZE = 4096
 
-_live_children: dict[int, asyncio.subprocess.Process] = {}
+_live_children: set[asyncio.subprocess.Process] = set()
 
 
 async def create_subprocess_exec(
@@ -45,14 +45,14 @@ async def create_subprocess_exec(
     kwargs["close_fds"] = False
     proc = await asyncio.create_subprocess_exec(*args, **kwargs)
     _purge_reaped_children()
-    _live_children[proc.pid] = proc
+    _live_children.add(proc)
     return proc
 
 
 def live_child_pids() -> set[int]:
     """Pids of asyncio-spawned children the loop hasn't reaped yet."""
     _purge_reaped_children()
-    return set(_live_children)
+    return {proc.pid for proc in _live_children}
 
 
 def kill_quietly(proc: asyncio.subprocess.Process) -> None:
@@ -259,6 +259,6 @@ async def _write_stdin(proc: asyncio.subprocess.Process, data: bytes) -> None:
 
 
 def _purge_reaped_children() -> None:
-    for pid, proc in list(_live_children.items()):
-        if proc.returncode is not None:
-            _live_children.pop(pid, None)
+    _live_children.difference_update(
+        [proc for proc in _live_children if proc.returncode is not None]
+    )

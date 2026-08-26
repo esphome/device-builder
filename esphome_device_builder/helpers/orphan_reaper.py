@@ -1,87 +1,79 @@
-"""Reap orphaned child processes when running as PID 1.
-
-In the plain Docker image the dashboard is PID 1 with no init in front,
-so every orphaned process (git's self-detached auto-maintenance, the
-survivors of a killed compile tree) is reparented to us, and nothing
-ever waits on it — asyncio's child watcher and ``subprocess.run`` only
-reap pids they spawned themselves — leaving it ``<defunct>`` forever
-(issue #2635).
-"""
+"""Reap orphaned child processes when running as PID 1."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import pathlib
 import sys
+from collections.abc import Set as AbstractSet
+from pathlib import Path
 
-from .async_ import create_eager_task
+from .async_ import run_in_executor
+from .presence_gated_loop import PresenceGatedLoop
 from .subprocess import live_child_pids
 
 _LOGGER = logging.getLogger(__name__)
 
-SCAN_INTERVAL = 30.0
+_SCAN_INTERVAL_SECONDS = 30.0
 
 
-def maybe_start_orphan_reaper() -> asyncio.Task[None] | None:
-    """Start the reaper loop when this process must reap orphans itself (Linux PID 1)."""
-    if sys.platform != "linux" or os.getpid() != 1:
-        return None
-    return create_eager_task(run_reaper_loop())
+def should_reap_orphans() -> bool:
+    """Whether this process must reap orphans itself (Linux PID 1, no init in front)."""
+    return sys.platform == "linux" and os.getpid() == 1
 
 
-async def run_reaper_loop() -> None:
-    """Periodically reap confirmed-zombie children; runs until cancelled."""
-    loop = asyncio.get_running_loop()
-    pid = os.getpid()
-    pending: set[int] = set()
-    while True:
-        await asyncio.sleep(SCAN_INTERVAL)
-        pending = await loop.run_in_executor(None, reap_once, pid, pending, live_child_pids())
+class OrphanReaperLoop(PresenceGatedLoop[None]):
+    """Periodically wait on zombie children this process never spawned."""
+
+    _label = "orphan reaper"
+    _bootstrap_delay = _SCAN_INTERVAL_SECONDS
+    _interval = _SCAN_INTERVAL_SECONDS
+
+    def __init__(self) -> None:
+        super().__init__(None)
+        self._pid = os.getpid()
+        self._pending: set[int] = set()
+
+    async def _work(self) -> None:
+        self._pending = await run_in_executor(
+            _reap_once, self._pid, self._pending, live_child_pids()
+        )
 
 
-def reap_once(pid: int, pending: set[int], exclude: set[int]) -> set[int]:
+def _reap_once(pid: int, pending: set[int], exclude: AbstractSet[int]) -> set[int]:
     """
-    Wait on *pid*'s zombie children present in *pending*; return this scan's zombies.
+    Wait on *pid*'s zombie children seen in *pending*; return this scan's zombies.
 
-    A pid in *exclude* (an asyncio-spawned child the loop still owns) is
-    never touched. Beyond that, only a pid in zombie state on two
-    consecutive scans is reaped: an in-process spawn is collected by its
-    own waiter within milliseconds of exiting, so it can't survive a
-    scan interval — the gate keeps a pid whose owner still needs its
-    return code from being stolen.
+    Only a pid in zombie state on two consecutive scans is reaped, and
+    a pid in *exclude* is never touched.
     """
-    zombies = _zombie_children(pid) - exclude
+    zombies = _zombie_children(pid, exclude)
     for child in zombies & pending:
         try:
             os.waitpid(child, os.WNOHANG)
-        except (ChildProcessError, OSError):
+        except OSError:
             continue
         _LOGGER.debug("Reaped orphaned process %d", child)
     return zombies - pending
 
 
-def _zombie_children(pid: int) -> set[int]:
-    """Return *pid*'s direct children currently in zombie state."""
+def _zombie_children(pid: int, exclude: AbstractSet[int] = frozenset()) -> set[int]:
+    """Return *pid*'s direct children in zombie state, skipping *exclude* unread."""
     try:
-        children = _read_proc(f"/proc/{pid}/task/{pid}/children").split()
+        children = Path(f"/proc/{pid}/task/{pid}/children").read_text(encoding="ascii").split()
     except OSError:
         return set()
     zombies: set[int] = set()
-    for child in children:
+    for token in children:
+        child = int(token)
+        if child in exclude:
+            continue
         try:
-            stat = _read_proc(f"/proc/{child}/stat")
+            stat = Path(f"/proc/{child}/stat").read_text(encoding="ascii")
         except OSError:
             continue
         # comm (field 2) may contain spaces/parens; the state field is
         # the first token after the closing paren.
         if stat.rpartition(")")[2].split()[0] == "Z":
-            zombies.add(int(child))
+            zombies.add(child)
     return zombies
-
-
-def _read_proc(path: str) -> str:
-    """Read a small /proc file as text."""
-    with pathlib.Path(path).open(encoding="ascii") as f:
-        return f.read()

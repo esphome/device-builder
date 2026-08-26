@@ -20,7 +20,10 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.version_history import git_repo as git_repo_mod
-from esphome_device_builder.controllers.version_history.git_repo import GitRepo
+from esphome_device_builder.controllers.version_history.git_repo import (
+    _GLOBAL_GIT_ARGS,
+    GitRepo,
+)
 
 _GIT = shutil.which("git") or "git"
 
@@ -894,8 +897,10 @@ def test_index_lock_path_none_when_rev_parse_fails(
     assert repo._index_lock_path() is None
 
 
-def test_reads_pass_no_optional_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every git invocation carries ``--no-optional-locks`` so reads can't grab index.lock."""
+def test_every_invocation_passes_global_git_args(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every git invocation carries the policy flags right after the binary."""
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
     calls: list[list[str]] = []
@@ -911,29 +916,7 @@ def test_reads_pass_no_optional_locks(tmp_path: Path, monkeypatch: pytest.Monkey
     repo.log_file(tmp_path / "kitchen.yaml")
 
     assert calls
-    assert all(cmd[1] == "--no-optional-locks" for cmd in calls)
-
-
-def test_auto_maintenance_stays_foreground(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every git invocation disables detached auto gc/maintenance."""
-    repo = GitRepo(config_dir=tmp_path)
-    repo.discover_or_init()
-    calls: list[list[str]] = []
-    real_run = subprocess.run
-
-    def _record(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(cmd)
-        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _record
-    )
-    repo.log_file(tmp_path / "kitchen.yaml")
-
-    assert calls
-    for cmd in calls:
-        assert "gc.autoDetach=false" in cmd
-        assert "maintenance.autoDetach=false" in cmd
+    assert all(cmd[1 : 1 + len(_GLOBAL_GIT_ARGS)] == list(_GLOBAL_GIT_ARGS) for cmd in calls)
 
 
 def test_run_surfaces_git_stderr_on_failure(tmp_path: Path) -> None:

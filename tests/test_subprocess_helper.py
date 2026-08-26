@@ -222,3 +222,11 @@ def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> None:
         "esphome_device_builder.helpers.subprocess.create_subprocess_exec "
         "instead so close_fds=False is applied:\n  " + "\n  ".join(offenders)
     )
+
+
+async def test_live_child_pids_tracks_until_reaped() -> None:
+    """A spawn is listed while live and drops out once the loop reaps it."""
+    proc = await subprocess_helper.create_subprocess_exec(sys.executable, "-c", "pass")
+    assert proc.pid in subprocess_helper.live_child_pids()
+    await proc.wait()
+    assert proc.pid not in subprocess_helper.live_child_pids()

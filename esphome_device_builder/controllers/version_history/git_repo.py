@@ -56,6 +56,19 @@ GIT_COMMIT_ERRORS: tuple[type[Exception], ...] = (OSError, subprocess.CalledProc
 _COMMIT_NAME = "ESPHome Device Builder"
 _COMMIT_EMAIL = "device-builder@esphome.io"
 
+# Policy flags on every invocation. --no-optional-locks stops reads from
+# grabbing index.lock for an optional refresh, so an unlocked read can't
+# contend with a commit; the required lock add/commit take is unaffected.
+# autoDetach=false keeps auto gc/maintenance in the foreground so ``_run``
+# reaps it instead of git daemonizing a child we never wait on.
+_GLOBAL_GIT_ARGS = (
+    "--no-optional-locks",
+    "-c",
+    "gc.autoDetach=false",
+    "-c",
+    "maintenance.autoDetach=false",
+)
+
 # Files Device Builder must never let into git history: its own
 # machine state (sidecars, locks), identity key, and remote-build peer
 # credentials, plus ESPHome build artifacts and OS noise. None of these
@@ -755,22 +768,8 @@ class GitRepo:
         # close_fds=True makes the child iterate the fd table before
         # exec, which is pure overhead on memory-pressured systems; our
         # spawns don't rely on inherited fds being closed at the boundary.
-        # --no-optional-locks stops reads from grabbing index.lock for an
-        # optional refresh, so an unlocked read can't contend with a commit;
-        # the required lock add/commit take is unaffected.
-        # autoDetach=false keeps auto gc/maintenance in the foreground so
-        # this run() reaps it; a detached one orphans to PID 1 in the
-        # container and stays defunct (#2635).
         result = subprocess.run(  # noqa: S603
-            [
-                self.git_bin,
-                "--no-optional-locks",
-                "-c",
-                "gc.autoDetach=false",
-                "-c",
-                "maintenance.autoDetach=false",
-                *args,
-            ],
+            [self.git_bin, *_GLOBAL_GIT_ARGS, *args],
             cwd=str(cwd or self.toplevel or self.config_dir),
             input=input_text,
             capture_output=True,

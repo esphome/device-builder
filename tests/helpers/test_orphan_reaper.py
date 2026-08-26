@@ -10,7 +10,6 @@ import time
 import pytest
 
 from esphome_device_builder.helpers import orphan_reaper
-from esphome_device_builder.helpers import subprocess as helper_subprocess
 
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="/proc and fork semantics")
 
@@ -33,11 +32,11 @@ def test_reaps_zombie_on_second_scan() -> None:
     pid = _spawn_zombie()
     me = os.getpid()
 
-    pending = orphan_reaper.reap_once(me, set(), set())
+    pending = orphan_reaper._reap_once(me, set(), set())
     assert pid in pending
     assert pid in orphan_reaper._zombie_children(me)
 
-    orphan_reaper.reap_once(me, pending, set())
+    orphan_reaper._reap_once(me, pending, set())
     assert pid not in orphan_reaper._zombie_children(me)
     with pytest.raises(ChildProcessError):
         os.waitpid(pid, os.WNOHANG)
@@ -45,12 +44,12 @@ def test_reaps_zombie_on_second_scan() -> None:
 
 def test_live_child_is_never_reaped() -> None:
     """A running child is not a zombie and stays untouched."""
-    with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as proc:
+    with subprocess.Popen(["/bin/sleep", "30"]) as proc:
         me = os.getpid()
         try:
-            pending = orphan_reaper.reap_once(me, set(), set())
+            pending = orphan_reaper._reap_once(me, set(), set())
             assert proc.pid not in pending
-            orphan_reaper.reap_once(me, {proc.pid}, set())
+            orphan_reaper._reap_once(me, {proc.pid}, set())
             assert proc.poll() is None
         finally:
             proc.kill()
@@ -61,20 +60,12 @@ def test_excluded_zombie_is_never_reaped() -> None:
     pid = _spawn_zombie()
     me = os.getpid()
 
-    pending = orphan_reaper.reap_once(me, set(), {pid})
+    pending = orphan_reaper._reap_once(me, set(), {pid})
     assert pid not in pending
-    orphan_reaper.reap_once(me, {pid}, {pid})
+    orphan_reaper._reap_once(me, {pid}, {pid})
     assert pid in orphan_reaper._zombie_children(me)
 
     os.waitpid(pid, 0)
-
-
-async def test_asyncio_children_are_registered_until_reaped() -> None:
-    """An asyncio spawn is excluded while live and drops out once the loop reaps it."""
-    proc = await helper_subprocess.create_subprocess_exec(sys.executable, "-c", "pass")
-    assert proc.pid in helper_subprocess.live_child_pids()
-    await proc.wait()
-    assert proc.pid not in helper_subprocess.live_child_pids()
 
 
 def test_zombie_children_missing_proc_entry() -> None:
