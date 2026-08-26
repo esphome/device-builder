@@ -52,6 +52,7 @@ from .helpers.dashboard_identity import get_or_create_identity as get_or_create_
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
 from .helpers.json import cors_middleware, json_response
 from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
+from .helpers.orphan_reaper import maybe_start_orphan_reaper
 from .helpers.peer_link_identity import PeerLinkIdentityStore
 from .helpers.presence_gated_loop import PresenceGatedLoop
 from .helpers.secrets_state import write_secrets_locked
@@ -279,6 +280,7 @@ class DeviceBuilder:
         self._background_tasks: set[asyncio.Task] = set()
         self._bg_task: asyncio.Task | None = None
         self._advertise_task: asyncio.Task | None = None
+        self._orphan_reaper_task: asyncio.Task | None = None
         self._serving_event = asyncio.Event()
         self._bg_poll: _BackgroundPollLoop | None = None
 
@@ -566,9 +568,7 @@ class DeviceBuilder:
 
         self._register_command_handlers()
 
-        # Start background polling
-        self._bg_poll = _BackgroundPollLoop(self)
-        self._bg_task = create_eager_task(self._bg_poll.run())
+        self._start_background_loops()
 
         _LOGGER.info(
             "Device Builder ready — config dir: %s, %d commands registered",
@@ -607,6 +607,9 @@ class DeviceBuilder:
             return
         if self._bg_task:
             await drain_tasks((self._bg_task,), log_exceptions=True)
+        if self._orphan_reaper_task:
+            await drain_tasks((self._orphan_reaper_task,), log_exceptions=True)
+            self._orphan_reaper_task = None
         if self._bg_poll is not None:
             self._bg_poll.unsubscribe()
         if self.devices is not None:
@@ -639,6 +642,14 @@ class DeviceBuilder:
         # Latch only after a full pass, so a partial teardown (a step raising in
         # the swallowing on_shutdown hook) can still be retried by stop().
         self._network_stopped = True
+
+    def _start_background_loops(self) -> None:
+        """Start the background poll loop and, as PID 1, the orphan reaper."""
+        self._bg_poll = _BackgroundPollLoop(self)
+        self._bg_task = create_eager_task(self._bg_poll.run())
+        # As PID 1 in the container, orphans reparent to us and nothing
+        # else waits on them.
+        self._orphan_reaper_task = maybe_start_orphan_reaper()
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""

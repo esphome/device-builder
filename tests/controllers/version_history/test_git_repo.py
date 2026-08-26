@@ -914,6 +914,28 @@ def test_reads_pass_no_optional_locks(tmp_path: Path, monkeypatch: pytest.Monkey
     assert all(cmd[1] == "--no-optional-locks" for cmd in calls)
 
 
+def test_auto_maintenance_stays_foreground(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every git invocation disables detached auto gc/maintenance."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    calls: list[list[str]] = []
+    real_run = subprocess.run
+
+    def _record(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _record
+    )
+    repo.log_file(tmp_path / "kitchen.yaml")
+
+    assert calls
+    for cmd in calls:
+        assert "gc.autoDetach=false" in cmd
+        assert "maintenance.autoDetach=false" in cmd
+
+
 def test_run_surfaces_git_stderr_on_failure(tmp_path: Path) -> None:
     """A checked git failure raises with the ``fatal:`` stderr line in ``str``.
 

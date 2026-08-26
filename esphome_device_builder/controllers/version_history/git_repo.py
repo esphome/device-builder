@@ -758,8 +758,19 @@ class GitRepo:
         # --no-optional-locks stops reads from grabbing index.lock for an
         # optional refresh, so an unlocked read can't contend with a commit;
         # the required lock add/commit take is unaffected.
+        # autoDetach=false keeps auto gc/maintenance in the foreground so
+        # this run() reaps it; a detached one orphans to PID 1 in the
+        # container and stays defunct (#2635).
         result = subprocess.run(  # noqa: S603
-            [self.git_bin, "--no-optional-locks", *args],
+            [
+                self.git_bin,
+                "--no-optional-locks",
+                "-c",
+                "gc.autoDetach=false",
+                "-c",
+                "maintenance.autoDetach=false",
+                *args,
+            ],
             cwd=str(cwd or self.toplevel or self.config_dir),
             input=input_text,
             capture_output=True,
