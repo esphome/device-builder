@@ -140,7 +140,13 @@ Bugs in any of the following *are* security bugs:
   receiver intents (`preview` / `pair_request` / `peer_link` /
   `pair_status`) are refused in that mode so pairability is
   never silently re-enabled; `connect_back` is accepted only
-  from a static key matching an APPROVED pairing; and the
+  from a static key matching an APPROVED pairing; the
+  reduced-role listener still discloses to any LAN peer that
+  completes a Noise handshake what the full listener does —
+  the dashboard's static-key fingerprint, `esphome_version`,
+  capability flags, and display identity ride every
+  post-handshake reply, refusals included — no new
+  disclosure, but no less either; and the
   announced endpoint is never persisted without the forward
   preview probe verifying the pinned identity there — an
   authenticated-but-compromised build server can at most

@@ -19,6 +19,7 @@ lookup) reach into a stable surface.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -33,6 +34,8 @@ from .peer_link_client import PeerLinkClient
 
 if TYPE_CHECKING:
     from .offloader import OffloaderController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _zeroconf_getter(controller: OffloaderController) -> Callable[[], Zeroconf | None]:
@@ -62,6 +65,15 @@ def _connect_back_port_getter(controller: OffloaderController) -> Callable[[], i
         return controller._db.remote_build_listener_port
 
     return _get
+
+
+async def converge_listener_for_connect_back(controller: OffloaderController) -> None:
+    """Converge the peer-link listener before a client dial; warn when it stays unbound."""
+    bound = await controller._db.apply_remote_build_enabled()
+    if not bound and controller.has_approved_pairings():
+        _LOGGER.warning(
+            "peer-link listener not bound; connect-back recovery unavailable until it binds"
+        )
 
 
 def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairing) -> None:

@@ -277,9 +277,11 @@ class IdentityView(DashboardModel):
     toggle is off — the connect-back-only bind.
 
     ``listener_host`` / ``listener_addresses`` / ``listener_port``
-    are the mDNS-advertised pairing address: host ``None`` without
-    an attached advertiser, addresses ``[]`` until it registers,
-    port ``None`` while the listener is unbound.
+    describe the bound listener: host ``None`` without an attached
+    advertiser, addresses ``[]`` until it registers, port ``None``
+    while the listener is unbound. They are a pairable address only
+    while ``receiver_role_active`` — a connect-back-only bind
+    advertises nothing and refuses pair requests.
     """
 
     dashboard_id: str
@@ -290,3 +292,4 @@ class IdentityView(DashboardModel):
     listener_host: str | None = None
     listener_addresses: list[str] = field(default_factory=list)
     listener_port: int | None = None
+    receiver_role_active: bool = False

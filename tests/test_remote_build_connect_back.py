@@ -28,11 +28,11 @@ from esphome_device_builder.controllers.remote_build._client_models import (
     InitiatorRoundTrip,
     PairStatusResult,
 )
+from esphome_device_builder.controllers.remote_build._intent import IntentOutcome
 from esphome_device_builder.controllers.remote_build._models import (
     RebindProbeOutcome,
     RebindProbeResult,
 )
-from esphome_device_builder.controllers.remote_build.pair_flow import IntentOutcome
 from esphome_device_builder.controllers.remote_build.peer_link import (
     PEER_LINK_PATH,
     _dispatch_intent,
@@ -44,6 +44,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PeerLinkClientError,
 )
 from esphome_device_builder.helpers import json as _json
+from esphome_device_builder.helpers.cooldown import CooldownLedger
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.peer_link_noise import (
@@ -787,3 +788,47 @@ async def test_pairing_transition_events_trigger_converge(event_type: EventType)
     await asyncio.sleep(0)
     await asyncio.sleep(0)
     assert converge.await_count == 1
+
+
+async def test_remove_peer_clears_connect_back_state(tmp_path: Path) -> None:
+    controller, _ = _receiver_ready_to_dial(tmp_path)
+    receiver = controller.receiver
+    task = asyncio.create_task(asyncio.sleep(30))
+    receiver.state.connect_back_tasks["alpha"] = task
+    receiver.state.connect_back_cooldowns.escalate("alpha", 100.0, 1000.0)
+
+    rb_connect_back.on_peer_removed(receiver, "alpha")
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert "alpha" not in receiver.state.connect_back_tasks
+    assert "alpha" not in receiver.state.connect_back_last_contact
+    assert "alpha" not in receiver.state.connect_back_cooldowns
+
+
+async def test_dial_unexpected_error_escalates_and_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    controller, peer = _receiver_ready_to_dial(tmp_path)
+    receiver = controller.receiver
+    monkeypatch.setattr(
+        rb_connect_back,
+        "drive_initiator_round_trip",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    with caplog.at_level("ERROR"):
+        await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
+    assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
+    assert any("failed unexpectedly" in record.message for record in caplog.records)
+
+
+def test_escalate_survives_unbounded_strikes() -> None:
+    """The exponent clamp keeps a years-long strike streak finite."""
+    cooldowns: CooldownLedger[str] = CooldownLedger()
+    for _ in range(5000):
+        cooldowns.escalate(
+            "alpha",
+            rb_connect_back._CONNECT_BACK_RETRY_BASE_SECONDS,
+            rb_connect_back._CONNECT_BACK_RETRY_CAP_SECONDS,
+        )
+    assert cooldowns.remaining("alpha") <= rb_connect_back._CONNECT_BACK_RETRY_CAP_SECONDS

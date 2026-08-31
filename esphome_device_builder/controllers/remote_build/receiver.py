@@ -54,6 +54,7 @@ from . import (
     reset_env,
     settings_receiver,
 )
+from ._intent import IntentOutcome
 from ._receiver_state import ReceiverState
 from ._shared import _RemoteBuildBase
 from ._storage_codecs import (
@@ -352,7 +353,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         friendly_name: str = "",
         ha_addon: bool = False,
         label_auto: bool = False,
-    ) -> pair_flow.IntentOutcome:
+    ) -> IntentOutcome:
         """Process an ``intent="pair_request"`` Noise session."""
         return await pair_flow.record_pair_request(
             self,
@@ -367,17 +368,13 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             label_auto=label_auto,
         )
 
-    async def lookup_peer_for_session(
-        self, *, dashboard_id: str, pin_sha256: str
-    ) -> pair_flow.IntentOutcome:
+    async def lookup_peer_for_session(self, *, dashboard_id: str, pin_sha256: str) -> IntentOutcome:
         """Resolve an ``intent="peer_link"`` request."""
         return await pair_flow.lookup_peer_for_session(
             self, dashboard_id=dashboard_id, pin_sha256=pin_sha256
         )
 
-    async def lookup_peer_for_status(
-        self, *, dashboard_id: str, pin_sha256: str
-    ) -> pair_flow.IntentOutcome:
+    async def lookup_peer_for_status(self, *, dashboard_id: str, pin_sha256: str) -> IntentOutcome:
         """Resolve an ``intent="pair_status"`` query, long-polling on PENDING."""
         return await pair_flow.lookup_peer_for_status(
             self, dashboard_id=dashboard_id, pin_sha256=pin_sha256

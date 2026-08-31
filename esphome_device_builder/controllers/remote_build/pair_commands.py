@@ -35,6 +35,7 @@ from ...models import (
     PeerStatus,
     StoredPairing,
 )
+from . import peer_link_lifecycle
 from ._mdns import endpoints_equal
 from ._models import EDIT_PAIRING_PROBE_ERRORS, RebindProbeOutcome
 from ._validators import (
@@ -270,7 +271,7 @@ async def request_pair(
         controller._schedule_pairings_save()
         # Converge the listener before the first dial so msg3
         # already announces ``connect_back_port``.
-        await controller._db.apply_remote_build_enabled()
+        await peer_link_lifecycle.converge_listener_for_connect_back(controller)
         controller._spawn_peer_link_client(pairing)
     else:
         controller._spawn_pair_status_listener(pairing)

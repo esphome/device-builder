@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from aiohttp import web
@@ -13,7 +14,7 @@ from .api.ws import init_ws_app
 from .constants import REMOTE_BUILD_PORT_SCAN_ATTEMPTS
 from .controllers.config import load_effective_remote_build_settings
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
-from .helpers.async_ import run_in_executor
+from .helpers.async_ import log_task_exit, run_in_executor
 from .helpers.network_interfaces import (
     bind_available_port,
     ensure_single_host_for_ephemeral_port,
@@ -286,6 +287,9 @@ class RemoteBuildLifecycle:
             policy = await self._compute_policy()
             if not policy.bind:
                 await self._teardown_runner()
+            elif self._db.remote_build_receiver is None:
+                # Binding needs the receiver controller; teardown doesn't.
+                pass
             elif self._runner is None:
                 await self._start_listener(policy)
             elif policy.receiver_role != self._receiver_role_active:
@@ -313,7 +317,8 @@ class RemoteBuildLifecycle:
 
     def _on_pairing_transition(self, _event: Event[Any]) -> None:
         """Re-converge the listener on a pairing transition."""
-        self._db.create_background_task(self.converge())
+        task = self._db.create_background_task(self.converge())
+        task.add_done_callback(partial(log_task_exit, "remote-build converge"))
 
     async def reload_identity(self) -> bool:
         """
@@ -379,6 +384,7 @@ class RemoteBuildLifecycle:
                 listener_host=self._db.remote_build_listener_host,
                 listener_addresses=self._db.remote_build_listener_addresses,
                 listener_port=self._bound_port,
+                receiver_role_active=self._receiver_role_active,
             ),
         )
 

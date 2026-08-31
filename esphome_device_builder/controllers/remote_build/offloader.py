@@ -65,6 +65,7 @@ from . import (
     settings_commands,
     submit_job_commands,
 )
+from ._intent import IntentOutcome
 from ._models import RebindProbeResult
 from ._shared import _RemoteBuildBase
 from ._state import OffloaderState
@@ -74,7 +75,6 @@ from ._storage_codecs import (
     encode_pairings,
 )
 from ._summaries import pairing_summary
-from .pair_flow import IntentOutcome
 from .peer_link_client import PairStatusResult
 
 if TYPE_CHECKING:
@@ -123,7 +123,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         self._setup_peer_link_resolver()
         # Converge the listener before the first client dials so
         # the first msg3 already announces ``connect_back_port``.
-        await self._db.apply_remote_build_enabled()
+        await peer_link_lifecycle.converge_listener_for_connect_back(self)
         for pairing in state.pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)

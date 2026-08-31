@@ -26,8 +26,8 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ....models import IntentResponse, PeerLinkIntent, RejectReason
+from .._intent import IntentOutcome
 from ..display_identity import dashboard_display_identity
-from ..pair_flow import IntentOutcome
 from .session import _run_peer_link_session
 from .wire_io import (
     _bool_or_false,
@@ -254,6 +254,7 @@ async def _dispatch_intent(  # noqa: PLR0911 — one return per intent branch
     """
     if inp.intent is PeerLinkIntent.CONNECT_BACK:
         if offloader is None:
+            _LOGGER.warning("connect_back from %s with no offloader wired; rejecting", inp.peer_ip)
             return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
         return await offloader._handle_connect_back(
             pin_sha256=inp.pin_sha256,

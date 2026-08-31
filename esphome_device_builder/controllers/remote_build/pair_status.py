@@ -41,6 +41,7 @@ from ...models import (
     PeerStatus,
     StoredPairing,
 )
+from . import peer_link_lifecycle
 from .peer_link_client import PairStatusResult, PeerLinkClientError
 from .peer_link_client import await_pair_status as peer_link_await_pair_status
 
@@ -195,7 +196,7 @@ async def apply_pair_status_result(
         controller._fire_offloader_pair_status_changed(host, port, key, "approved")
         # Converge the listener before the first dial so msg3
         # already announces ``connect_back_port``.
-        await controller._db.apply_remote_build_enabled()
+        await peer_link_lifecycle.converge_listener_for_connect_back(controller)
         controller._spawn_peer_link_client(existing)
         return True
     if result.status is IntentResponse.REJECTED:

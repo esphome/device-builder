@@ -55,6 +55,15 @@ def on_session_unregistered(controller: ReceiverController, dashboard_id: str) -
     controller.state.connect_back_last_contact[dashboard_id] = time.monotonic()
 
 
+def on_peer_removed(controller: ReceiverController, dashboard_id: str) -> None:
+    """Cancel any in-flight dial and drop *dashboard_id*'s connect-back state."""
+    state = controller.state
+    if (task := state.connect_back_tasks.pop(dashboard_id, None)) is not None:
+        task.cancel()
+    state.connect_back_last_contact.pop(dashboard_id, None)
+    state.connect_back_cooldowns.discard(dashboard_id)
+
+
 def clear_state(controller: ReceiverController) -> None:
     """Drop every connect-back task handle, quiet stamp, and cooldown."""
     state = controller.state
@@ -106,7 +115,6 @@ async def _dial_peer(
 ) -> None:
     """Dial *peer*'s last-known endpoint and announce our listener port."""
     dashboard_id = peer.dashboard_id
-    identity = await controller._db.peer_link_identity_store.async_load()
     _LOGGER.info(
         "connect-back dialing offloader %s at %s:%d",
         dashboard_id,
@@ -114,6 +122,7 @@ async def _dial_peer(
         peer.connect_back_port,
     )
     try:
+        identity = await controller._db.peer_link_identity_store.async_load()
         round_trip = await drive_initiator_round_trip(
             hostname=peer.peer_ip,
             port=peer.connect_back_port,
@@ -125,6 +134,10 @@ async def _dial_peer(
         )
     except (PeerLinkClientError, PeerLinkPinMismatchError) as exc:
         _LOGGER.debug("connect-back dial to %s failed: %s", dashboard_id, exc)
+        _escalate(controller, dashboard_id)
+        return
+    except Exception:
+        _LOGGER.exception("connect-back dial to %s failed unexpectedly", dashboard_id)
         _escalate(controller, dashboard_id)
         return
     _apply_reply(controller, dashboard_id, round_trip)

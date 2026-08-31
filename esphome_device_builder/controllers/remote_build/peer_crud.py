@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
 from ...models import ErrorCode, RemoteBuildSettingsView
+from . import connect_back
 from ._validators import validate_dashboard_id
 
 if TYPE_CHECKING:
@@ -91,6 +92,7 @@ async def remove_peer(
     if controller.state.approved_peers.pop(clean_id, None) is None:
         msg = f"no peer with dashboard_id: {clean_id}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
+    connect_back.on_peer_removed(controller, clean_id)
     controller._peers_store.async_delay_save(
         controller._serialize_peers, delay=PEERS_SAVE_DELAY_SECONDS
     )

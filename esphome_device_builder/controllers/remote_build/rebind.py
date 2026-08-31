@@ -38,9 +38,9 @@ from ...models import (
     RemoteBuildPeer,
     StoredPairing,
 )
+from ._intent import IntentOutcome
 from ._mdns import endpoints_equal
 from ._models import RebindProbeOutcome, RebindProbeResult
-from .pair_flow import IntentOutcome
 from .peer_link_client import PeerLinkClientError
 from .peer_link_client import preview_pair as peer_link_preview_pair
 
@@ -215,6 +215,7 @@ async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / prob
     if port_or_zero(announced_port) == 0 or not is_ip_address(peer_ip):
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.BAD_ENDPOINT)
     if controller.state.offloader_peer_link_priv is None:
+        _LOGGER.warning("connect-back from %s refused: offloader identity not loaded", pin_sha256)
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
     if pin_sha256 in controller.state.open_peer_links:
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.ALREADY_CONNECTED)
