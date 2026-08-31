@@ -284,9 +284,18 @@ async def _probe_log_and_commit(
     elif result.outcome is RebindProbeOutcome.OK:
         await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
         _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
-    # PAIRING_REPLACED / STATUS_CHANGED — silent skip; cooldown
-    # stays in place so a burst of retries doesn't re-fire the
-    # probe against state that's already moved on.
+    else:
+        # PAIRING_REPLACED / STATUS_CHANGED — skip; cooldown stays
+        # in place so a burst of retries doesn't re-fire the probe
+        # against state that's already moved on.
+        _LOGGER.debug(
+            "%s %s -> %s:%d skipped (%s)",
+            log_prefix,
+            pin,
+            new_hostname,
+            new_port,
+            result.outcome.value,
+        )
     return result.outcome
 
 

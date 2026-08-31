@@ -29,6 +29,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Paced re-converge after a fail-soft bind (port conflict, identity
+# load error) so the listener self-heals without a restart.
+_CONVERGE_RETRY_DELAY_SECONDS = 30.0
+
 
 @web.middleware
 async def _strip_server_header_middleware(
@@ -85,6 +89,9 @@ class RemoteBuildLifecycle:
         # Unsubscribes for the pairing-transition listeners
         # installed by :meth:`track_pairing_transitions`.
         self._unsub_pairing_transitions: list[Callable[[], None]] = []
+        # Single-flight timer for the paced re-converge after a
+        # fail-soft bind; ``None`` when no retry is pending.
+        self._converge_retry_handle: asyncio.TimerHandle | None = None
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -134,8 +141,10 @@ class RemoteBuildLifecycle:
         install as ``enabled=False``, and ``set_settings`` flips
         the persisted signal the moment it writes the block, even
         a write that lands on the dataclass defaults. Fresh addon
-        install → no bind; operator flips the toggle → bind
-        respects the persisted ``enabled`` field.
+        install → no receiver-role bind; operator flips the toggle
+        → bind respects the persisted ``enabled`` field. Approved
+        pairings force a connect-back-only bind regardless — see
+        :meth:`_compute_policy`.
 
         Fail-soft: any exception during identity load or bind is
         caught and logged. The main dashboard keeps running; the
@@ -277,7 +286,9 @@ class RemoteBuildLifecycle:
         concurrently can't desync disk from listener state. A role
         flip on a bound listener (Build server toggled while
         pairings exist) tears down and rebuilds so the handler's
-        intent gate and the TXT advertise match the new role.
+        intent gate and the TXT advertise match the new role. A
+        bind that fail-softs re-arms a paced retry so a transient
+        port conflict self-heals without a restart.
 
         Returns whether the listener is bound after this call.
         """
@@ -295,7 +306,23 @@ class RemoteBuildLifecycle:
             elif policy.receiver_role != self._receiver_role_active:
                 await self._teardown_runner()
                 await self._start_listener(policy)
+            if policy.bind and self._runner is None:
+                self._schedule_converge_retry()
             return self._runner is not None
+
+    def _schedule_converge_retry(self) -> None:
+        """Arm one delayed re-converge after a failed bind; single-flight."""
+        if self._converge_retry_handle is not None or self._db.loop is None:
+            return
+        self._converge_retry_handle = self._db.loop.call_later(
+            _CONVERGE_RETRY_DELAY_SECONDS, self._run_converge_retry
+        )
+
+    def _run_converge_retry(self) -> None:
+        """Timer body: clear the slot and re-converge in the background."""
+        self._converge_retry_handle = None
+        task = self._db.create_background_task(self.converge())
+        task.add_done_callback(partial(log_task_exit, "remote-build converge retry"))
 
     def track_pairing_transitions(self) -> None:
         """Re-converge the listener on every pairing transition; idempotent.
@@ -371,6 +398,9 @@ class RemoteBuildLifecycle:
         for unsub in self._unsub_pairing_transitions:
             unsub()
         self._unsub_pairing_transitions = []
+        if self._converge_retry_handle is not None:
+            self._converge_retry_handle.cancel()
+            self._converge_retry_handle = None
         async with self._get_lock():
             if self._runner is None:
                 return

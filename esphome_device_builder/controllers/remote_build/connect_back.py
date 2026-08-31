@@ -39,6 +39,9 @@ _CONNECT_BACK_SHORT_RETRY_SECONDS = 30.0
 # Covers the offloader's inline forward probe before it replies.
 _CONNECT_BACK_DIAL_TIMEOUT_SECONDS = 30.0
 _CONNECT_BACK_JITTER = 0.2
+# Strike count at which the backoff saturates the cap; the streak's
+# one operator-visible warning fires there.
+_CONNECT_BACK_WARN_AFTER_STRIKES = 5
 
 
 def on_session_registered(controller: ReceiverController, dashboard_id: str) -> None:
@@ -51,8 +54,9 @@ def on_session_registered(controller: ReceiverController, dashboard_id: str) -> 
 
 
 def on_session_unregistered(controller: ReceiverController, dashboard_id: str) -> None:
-    """Start *dashboard_id*'s quiet clock at session close."""
-    controller.state.connect_back_last_contact[dashboard_id] = time.monotonic()
+    """Start *dashboard_id*'s quiet clock at session close; skip removed peers."""
+    if dashboard_id in controller.state.approved_peers:
+        controller.state.connect_back_last_contact[dashboard_id] = time.monotonic()
 
 
 def on_peer_removed(controller: ReceiverController, dashboard_id: str) -> None:
@@ -146,8 +150,19 @@ async def _dial_peer(
         _escalate(controller, dashboard_id)
         return
     except PeerLinkClientError as exc:
-        _LOGGER.debug("connect-back dial to %s failed: %s", dashboard_id, exc)
         _escalate(controller, dashboard_id)
+        strikes = controller.state.connect_back_cooldowns.strikes(dashboard_id)
+        if strikes == _CONNECT_BACK_WARN_AFTER_STRIKES:
+            # One warning per failure streak, at the point the
+            # backoff saturates the cap.
+            _LOGGER.warning(
+                "connect-back to %s keeps failing (%d attempts); retrying hourly: %s",
+                dashboard_id,
+                strikes,
+                exc,
+            )
+        else:
+            _LOGGER.debug("connect-back dial to %s failed: %s", dashboard_id, exc)
         return
     except Exception:
         _LOGGER.exception("connect-back dial to %s failed unexpectedly", dashboard_id)

@@ -907,3 +907,29 @@ async def test_converge_helper_is_fail_soft(tmp_path: Path) -> None:
         side_effect=RuntimeError("boom")
     )
     await rb_peer_link_lifecycle.converge_listener_for_connect_back(controller.offloader)
+
+
+async def test_unregister_after_removal_does_not_restamp(tmp_path: Path) -> None:
+    controller, _ = _receiver_ready_to_dial(tmp_path)
+    receiver = controller.receiver
+    receiver.state.approved_peers.clear()
+    receiver.state.connect_back_last_contact.clear()
+    rb_connect_back.on_session_unregistered(receiver, "alpha")
+    assert "alpha" not in receiver.state.connect_back_last_contact
+
+
+async def test_dial_failures_warn_once_per_streak_at_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    controller, peer = _receiver_ready_to_dial(tmp_path)
+    receiver = controller.receiver
+    monkeypatch.setattr(
+        rb_connect_back,
+        "drive_initiator_round_trip",
+        AsyncMock(side_effect=PeerLinkClientError("refused")),
+    )
+    with caplog.at_level("WARNING"):
+        for _ in range(rb_connect_back._CONNECT_BACK_WARN_AFTER_STRIKES + 2):
+            await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
+    warnings = [r for r in caplog.records if "keeps failing" in r.message]
+    assert len(warnings) == 1

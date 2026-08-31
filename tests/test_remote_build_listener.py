@@ -1226,3 +1226,40 @@ async def test_converge_rebuilds_listener_on_role_flip(tmp_path: Path) -> None:
     finally:
         if db._remote_build_lifecycle._runner is not None:
             await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_failed_bind_arms_paced_converge_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fail-soft bind arms one delayed re-converge that binds once the fault clears."""
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+    try:
+        with pytest.MonkeyPatch.context() as failing:
+
+            async def _failing_start(self: web.SockSite) -> None:
+                raise OSError("address in use (test stub)")
+
+            failing.setattr(web.SockSite, "start", _failing_start)
+            bound = await db.apply_remote_build_enabled()
+        assert bound is False
+        assert lifecycle._converge_retry_handle is not None
+
+        lifecycle._converge_retry_handle.cancel()
+        lifecycle._run_converge_retry()
+        for _ in range(100):
+            if lifecycle._runner is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert lifecycle._runner is not None
+        assert lifecycle._converge_retry_handle is None
+    finally:
+        if lifecycle._runner is not None:
+            await lifecycle._runner.cleanup()
