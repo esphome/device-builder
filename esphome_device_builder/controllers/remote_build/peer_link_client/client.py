@@ -460,7 +460,7 @@ class PeerLinkClient:
                     if self._get_connect_back_port is not None
                     else None
                 )
-                if isinstance(connect_back_port, int) and not isinstance(connect_back_port, bool):
+                if connect_back_port is not None:
                     msg3["connect_back_port"] = connect_back_port
                 msg3_payload = _json.dumps(msg3)
                 response_ct = await _drive_initiator_handshake_and_read_response(

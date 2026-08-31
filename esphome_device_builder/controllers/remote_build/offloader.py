@@ -121,6 +121,9 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         # it up at construction; stays None when zeroconf is down
         # and outbound connects fall back to the OS resolver.
         self._setup_peer_link_resolver()
+        # Converge the listener before the first client dials so
+        # the first msg3 already announces ``connect_back_port``.
+        await self._db.apply_remote_build_enabled()
         for pairing in state.pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)

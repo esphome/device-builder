@@ -19,29 +19,21 @@ from ..conftest import capture_events
 from .conftest import PairedInstances
 
 
-async def _start_connect_back_listener(instances: PairedInstances) -> TestServer:
-    """Bind the offloader dashboard's connect-back-only peer-link listener."""
-    identity = await instances.offloader._db.peer_link_identity_store.async_load()
-    app = web.Application()
-    init_ws_app(app)
+async def _start_peer_link_server(
+    instances: PairedInstances, *, connect_back_only: bool
+) -> TestServer:
+    """Bind a peer-link listener: the offloader's connect-back-only one, or a fresh receiver one."""
+    handles = instances.offloader_handles if connect_back_only else instances.receiver_handles
+    identity = await handles._db.peer_link_identity_store.async_load()
     handler = make_peer_link_handler(
-        instances.offloader_handles.receiver,
+        handles.receiver,
         identity,
-        offloader=instances.offloader,
-        accept_receiver_intents=False,
+        offloader=instances.offloader if connect_back_only else None,
+        accept_receiver_intents=not connect_back_only,
     )
-    app.router.add_get(PEER_LINK_PATH, handler)
-    server = TestServer(app)
-    await server.start_server()
-    return server
-
-
-async def _start_new_receiver_endpoint(instances: PairedInstances) -> TestServer:
-    """Bind the receiver's peer-link listener on a fresh ephemeral port."""
-    identity = await instances.receiver._db.peer_link_identity_store.async_load()
     app = web.Application()
     init_ws_app(app)
-    app.router.add_get(PEER_LINK_PATH, make_peer_link_handler(instances.receiver, identity))
+    app.router.add_get(PEER_LINK_PATH, handler)
     server = TestServer(app)
     await server.start_server()
     return server
@@ -54,8 +46,8 @@ async def test_connect_back_rebinds_offloader_and_forward_session_recovers(
     instances = paired_instances
     await instances.wait_until_session_opened()
 
-    connect_back_server = await _start_connect_back_listener(instances)
-    new_receiver_server = await _start_new_receiver_endpoint(instances)
+    connect_back_server = await _start_peer_link_server(instances, connect_back_only=True)
+    new_receiver_server = await _start_peer_link_server(instances, connect_back_only=False)
     rebound = capture_events(instances.offloader_bus, EventType.OFFLOADER_PAIR_ENDPOINT_REBOUND)
     try:
         # The receiver moves: its old endpoint dies and the offloader's
@@ -97,7 +89,7 @@ async def test_connect_back_refused_while_forward_session_live(
     instances = paired_instances
     await instances.wait_until_session_opened()
 
-    connect_back_server = await _start_connect_back_listener(instances)
+    connect_back_server = await _start_peer_link_server(instances, connect_back_only=True)
     try:
         peer = instances.receiver.state.approved_peers[instances.offloader_dashboard_id]
         peer.peer_ip = "127.0.0.1"

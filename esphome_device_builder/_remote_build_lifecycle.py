@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from aiohttp import web
 
@@ -23,6 +23,7 @@ from .models import EventType, RemoteBuildListenerChangedData
 
 if TYPE_CHECKING:
     from .device_builder import DeviceBuilder
+    from .helpers.event_bus import Event
     from .helpers.peer_link_identity import PeerLinkIdentity
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,7 +59,9 @@ class _ListenerPolicy(NamedTuple):
 
     bind: bool
     receiver_role: bool
-    receiver_enabled: bool
+    # Receiver role held only by --remote-build-only overriding a
+    # persisted enabled=False; drives the one info log.
+    forced_by_cli: bool
 
 
 class RemoteBuildLifecycle:
@@ -78,6 +81,9 @@ class RemoteBuildLifecycle:
         # True while the bound listener serves receiver intents
         # (pair / peer_link); False on a connect-back-only bind.
         self._receiver_role_active = False
+        # Unsubscribe for the approved-pairing-transition listener
+        # installed by :meth:`converge_and_track`.
+        self._unsub_pair_status_changed: Callable[[], None] | None = None
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -160,13 +166,13 @@ class RemoteBuildLifecycle:
         return _ListenerPolicy(
             bind=receiver_role or offloader_needs,
             receiver_role=receiver_role,
-            receiver_enabled=rb_settings.enabled,
+            forced_by_cli=settings.remote_build_only and not rb_settings.enabled,
         )
 
     async def _start_listener(self, policy: _ListenerPolicy) -> None:
         """Bind the listener per *policy*; fail-soft on any error."""
         settings = self._db.settings
-        if policy.receiver_role and not policy.receiver_enabled:
+        if policy.forced_by_cli:
             _LOGGER.info(
                 "Remote-build is disabled in the persisted settings but "
                 "--remote-build-only forces the peer-link listener on"
@@ -287,6 +293,17 @@ class RemoteBuildLifecycle:
                 await self._start_listener(policy)
             return self._runner is not None
 
+    def track_pairing_transitions(self) -> None:
+        """Re-converge the listener on every approved-pairing transition; idempotent."""
+        if self._unsub_pair_status_changed is None:
+            self._unsub_pair_status_changed = self._db.bus.add_listener(
+                EventType.OFFLOADER_PAIR_STATUS_CHANGED, self._on_pair_status_changed
+            )
+
+    def _on_pair_status_changed(self, _event: Event[Any]) -> None:
+        """Re-converge the listener on an approved-pairing transition."""
+        self._db.create_background_task(self.converge())
+
     async def reload_identity(self) -> bool:
         """
         Rebuild the peer-link listener after an X25519 identity rotation.
@@ -325,6 +342,9 @@ class RemoteBuildLifecycle:
         immediately after, so a TXT-only clear would be wasted work
         racing the unregister.
         """
+        if self._unsub_pair_status_changed is not None:
+            self._unsub_pair_status_changed()
+            self._unsub_pair_status_changed = None
         async with self._get_lock():
             if self._runner is None:
                 return

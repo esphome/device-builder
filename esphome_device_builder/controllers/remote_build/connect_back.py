@@ -44,22 +44,33 @@ _CONNECT_BACK_JITTER = 0.2
 def on_session_registered(controller: ReceiverController, dashboard_id: str) -> None:
     """Reset *dashboard_id*'s quiet clock; cancel its in-flight dial and cooldown."""
     state = controller.state
-    state.connect_back_last_contact[dashboard_id] = _monotonic()
+    state.connect_back_last_contact[dashboard_id] = time.monotonic()
     if (task := state.connect_back_tasks.pop(dashboard_id, None)) is not None:
         task.cancel()
-    state.connect_back_cooldowns.prune(lambda k: k != dashboard_id)
+    state.connect_back_cooldowns.discard(dashboard_id)
 
 
 def on_session_unregistered(controller: ReceiverController, dashboard_id: str) -> None:
     """Start *dashboard_id*'s quiet clock at session close."""
-    controller.state.connect_back_last_contact[dashboard_id] = _monotonic()
+    controller.state.connect_back_last_contact[dashboard_id] = time.monotonic()
+
+
+def clear_state(controller: ReceiverController) -> None:
+    """Drop every connect-back task handle, quiet stamp, and cooldown."""
+    state = controller.state
+    state.connect_back_tasks.clear()
+    state.connect_back_last_contact.clear()
+    state.connect_back_cooldowns.clear()
 
 
 async def run_connect_back_loop(controller: ReceiverController) -> None:
     """Periodically dial back quiet paired offloaders; runs until cancelled."""
     while True:
         await asyncio.sleep(_CONNECT_BACK_SWEEP_INTERVAL_SECONDS)
-        sweep_connect_back(controller)
+        try:
+            sweep_connect_back(controller)
+        except Exception:
+            _LOGGER.exception("connect-back sweep failed; continuing")
 
 
 def sweep_connect_back(controller: ReceiverController) -> None:
@@ -69,7 +80,7 @@ def sweep_connect_back(controller: ReceiverController) -> None:
     if announce_port is None or not db.remote_build_receiver_role_active:
         return
     state = controller.state
-    now = _monotonic()
+    now = time.monotonic()
     for dashboard_id, peer in state.approved_peers.items():
         # A peer first seen now waits one full quiet window.
         last_contact = state.connect_back_last_contact.setdefault(dashboard_id, now)
@@ -126,8 +137,8 @@ def _apply_reply(
     state = controller.state
     if round_trip.intent_response == IntentResponse.OK.value:
         _LOGGER.info("connect-back announce accepted by offloader %s", dashboard_id)
-        state.connect_back_cooldowns.prune(lambda k: k != dashboard_id)
-        state.connect_back_last_contact[dashboard_id] = _monotonic()
+        state.connect_back_cooldowns.discard(dashboard_id)
+        state.connect_back_last_contact[dashboard_id] = time.monotonic()
         return
     reason = round_trip.response.get("reason")
     _LOGGER.debug("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
@@ -158,8 +169,3 @@ def _pop_dial_task(controller: ReceiverController, dashboard_id: str, task: asyn
     """Drop *task*'s registry slot iff it still owns it."""
     if controller.state.connect_back_tasks.get(dashboard_id) is task:
         del controller.state.connect_back_tasks[dashboard_id]
-
-
-def _monotonic() -> float:
-    """Indirection so tests can monkey-patch the quiet clock."""
-    return time.monotonic()

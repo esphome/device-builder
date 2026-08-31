@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 
 from ....helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
+from ....helpers.ip import port_or_zero
 from ....helpers.peer_link_noise import (
     HandshakeNotCompleteError,
     PeerLinkNoiseSession,
@@ -33,7 +34,6 @@ from .wire_io import (
     _normalize_label,
     _parse_intent,
     _parse_json,
-    _port_or_zero,
     _read_handshake_message,
     _send_handshake_message,
     _send_response,
@@ -155,8 +155,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     peer_friendly_name = _normalize_label(msg3.get("friendly_name"))
     peer_ha_addon = _bool_or_false(msg3.get("ha_addon"))
     label_auto = _bool_or_false(msg3.get("label_auto"))
-    connect_back_port = _port_or_zero(msg3.get("connect_back_port"))
-    announced_peer_link_port = _port_or_zero(msg3.get("peer_link_port"))
+    connect_back_port = port_or_zero(msg3.get("connect_back_port"))
+    announced_peer_link_port = port_or_zero(msg3.get("peer_link_port"))
 
     outcome = await _dispatch_intent(
         controller,

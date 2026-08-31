@@ -168,9 +168,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         self._clear_pending_peers_on_window_close()
         await drain_shutdown_callbacks(self._shutdown_callbacks)
         self.state.approved_peers.clear()
-        self.state.connect_back_tasks.clear()
-        self.state.connect_back_last_contact.clear()
-        self.state.connect_back_cooldowns.prune(lambda _k: False)
+        connect_back.clear_state(self)
 
     async def _load_settings_async(self) -> RemoteBuildSettings:
         """Read the receiver-side settings sidecar off the executor.

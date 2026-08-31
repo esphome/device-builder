@@ -858,6 +858,7 @@ def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db.settings.config_dir = config_dir
     db.settings.on_ha_addon = False
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
+    db.apply_remote_build_enabled = AsyncMock(return_value=False)
     controller = OffloaderController(db)
     _CREATED_OFFLOADERS.append(controller)
     return controller

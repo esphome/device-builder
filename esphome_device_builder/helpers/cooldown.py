@@ -45,6 +45,16 @@ class CooldownLedger[K]:
         self._strikes[key] = strikes
         self.set(key, min(base * 2 ** (strikes - 1), cap))
 
+    def discard(self, key: K) -> None:
+        """Drop *key*'s deadline and strike count; no-op when absent."""
+        self._deadline.pop(key, None)
+        self._strikes.pop(key, None)
+
+    def clear(self) -> None:
+        """Drop every deadline and strike count."""
+        self._deadline.clear()
+        self._strikes.clear()
+
     def prune(self, keep: Callable[[K], bool]) -> None:
         """Drop every key (and its strike count) that *keep* rejects."""
         self._deadline = {k: v for k, v in self._deadline.items() if keep(k)}

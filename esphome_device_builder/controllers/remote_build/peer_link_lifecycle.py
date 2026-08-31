@@ -59,8 +59,7 @@ def _connect_back_port_getter(controller: OffloaderController) -> Callable[[], i
     """Return a lazy reader for our bound peer-link listener port."""
 
     def _get() -> int | None:
-        port = controller._db.remote_build_listener_port
-        return port if isinstance(port, int) and not isinstance(port, bool) else None
+        return controller._db.remote_build_listener_port
 
     return _get
 

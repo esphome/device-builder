@@ -3,11 +3,12 @@ Offloader-side endpoint rebind for stored pairings.
 
 Owns the probe-and-rebind path that keeps an APPROVED
 :class:`StoredPairing` row tracking its receiver across
-hostname / port moves. Two callers feed in: mDNS
+hostname / port moves. Three callers feed in: mDNS
 auto-rebind via :func:`maybe_schedule_rebind_probe` (fired
-from :mod:`.discovery` on every resolved broadcast) and the
+from :mod:`.discovery` on every resolved broadcast), the
 user-driven :meth:`OffloaderController.edit_pairing_endpoint`
-WS command. Both share the
+WS command, and the receiver's ``connect_back`` announce via
+:func:`handle_connect_back`. All share the
 :func:`probe_pairing_endpoint` identity-verify step.
 
 Bodies take :class:`OffloaderController` as the first arg;
@@ -20,7 +21,6 @@ points.
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import time
 from collections.abc import Iterator
@@ -28,6 +28,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from ...helpers.hostname import normalize_hostname
+from ...helpers.ip import is_ip_address, port_or_zero
 from ...models import (
     EventType,
     IntentResponse,
@@ -184,43 +185,14 @@ async def probe_and_rebind_endpoint(
     clear the cooldown so a future move is probed
     immediately. Failure paths leave the cooldown in place.
     """
-    pin = pairing.pin_sha256
-    with _clear_cooldown_on_unexpected_exit(controller, pin):
-        result = await controller._probe_pairing_endpoint(
-            pairing=pairing, new_hostname=new_hostname, new_port=new_port
+    with _clear_cooldown_on_unexpected_exit(controller, pairing.pin_sha256):
+        await _probe_log_and_commit(
+            controller,
+            pairing,
+            new_hostname=new_hostname,
+            new_port=new_port,
+            log_prefix="rebind probe",
         )
-        if result.outcome is RebindProbeOutcome.UNREACHABLE:
-            # Pass the captured ``PeerLinkClientError`` as
-            # ``exc_info=`` so the debug log carries the
-            # full traceback for diagnosing handshake /
-            # connect failures in the field — same shape
-            # the inline ``except`` block had before this
-            # path was factored into ``_probe_pairing_endpoint``.
-            _LOGGER.debug(
-                "rebind probe %s -> %s:%d failed (unreachable / handshake error)",
-                pin,
-                new_hostname,
-                new_port,
-                exc_info=result.transport_error,
-            )
-            return
-        if result.outcome is RebindProbeOutcome.PIN_MISMATCH:
-            _LOGGER.warning(
-                "rebind probe %s -> %s:%d observed pin %s; ignoring (spoof or rotation)",
-                pin,
-                new_hostname,
-                new_port,
-                result.observed_pin,
-            )
-            return
-        if result.outcome is not RebindProbeOutcome.OK:
-            # PAIRING_REPLACED / STATUS_CHANGED — silent skip;
-            # cooldown stays in place so a burst of mDNS
-            # Updated callbacks doesn't re-fire the probe
-            # against state that's already moved on.
-            return
-        await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
-        _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
 
 
 async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / probe outcome
@@ -240,7 +212,7 @@ async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / prob
     pairing = controller.state.pairings.get(pin_sha256)
     if pairing is None or pairing.status is not PeerStatus.APPROVED:
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
-    if not 0 < announced_port < 65536 or not _is_ip_literal(peer_ip):
+    if port_or_zero(announced_port) == 0 or not is_ip_address(peer_ip):
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.BAD_ENDPOINT)
     if controller.state.offloader_peer_link_priv is None:
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
@@ -251,45 +223,66 @@ async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / prob
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.REBIND_IN_PROGRESS)
     controller.state.rebind_probe_until[pin_sha256] = now + _REBIND_PROBE_COOLDOWN_SECONDS
     with _clear_cooldown_on_unexpected_exit(controller, pin_sha256):
-        result = await controller._probe_pairing_endpoint(
-            pairing=pairing, new_hostname=peer_ip, new_port=announced_port
+        outcome = await _probe_log_and_commit(
+            controller,
+            pairing,
+            new_hostname=peer_ip,
+            new_port=announced_port,
+            log_prefix="connect-back probe",
         )
-        if result.outcome is RebindProbeOutcome.UNREACHABLE:
-            _LOGGER.debug(
-                "connect-back probe %s -> %s:%d failed (unreachable / handshake error)",
-                pin_sha256,
-                peer_ip,
-                announced_port,
-                exc_info=result.transport_error,
-            )
-            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
-        if result.outcome is RebindProbeOutcome.PIN_MISMATCH:
-            _LOGGER.warning(
-                "connect-back probe %s -> %s:%d observed pin %s; ignoring (spoof or rotation)",
-                pin_sha256,
-                peer_ip,
-                announced_port,
-                result.observed_pin,
-            )
-            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
-        if result.outcome is not RebindProbeOutcome.OK:
-            # PAIRING_REPLACED / STATUS_CHANGED — the row moved on
-            # mid-probe; the receiver should stop dialing.
-            return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
-        await controller._commit_endpoint_rebind(pairing, hostname=peer_ip, port=announced_port)
-        _LOGGER.info(
-            "connect-back rebound pairing %s to %s:%d", pin_sha256, peer_ip, announced_port
-        )
+    if outcome is RebindProbeOutcome.OK:
         return IntentOutcome(IntentResponse.OK)
+    if outcome in (RebindProbeOutcome.UNREACHABLE, RebindProbeOutcome.PIN_MISMATCH):
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
+    # PAIRING_REPLACED / STATUS_CHANGED — the row moved on
+    # mid-probe; the receiver should stop dialing.
+    return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
 
 
-def _is_ip_literal(value: str) -> bool:
-    """Return True when *value* parses as an IPv4 / IPv6 address."""
-    try:
-        ipaddress.ip_address(value)
-    except ValueError:
-        return False
-    return True
+async def _probe_log_and_commit(
+    controller: OffloaderController,
+    pairing: StoredPairing,
+    *,
+    new_hostname: str,
+    new_port: int,
+    log_prefix: str,
+) -> RebindProbeOutcome:
+    """Probe the candidate endpoint, log the outcome, and commit the rebind on OK."""
+    pin = pairing.pin_sha256
+    result = await controller._probe_pairing_endpoint(
+        pairing=pairing, new_hostname=new_hostname, new_port=new_port
+    )
+    if result.outcome is RebindProbeOutcome.UNREACHABLE:
+        # Pass the captured ``PeerLinkClientError`` as
+        # ``exc_info=`` so the debug log carries the
+        # full traceback for diagnosing handshake /
+        # connect failures in the field — same shape
+        # the inline ``except`` block had before this
+        # path was factored into ``_probe_pairing_endpoint``.
+        _LOGGER.debug(
+            "%s %s -> %s:%d failed (unreachable / handshake error)",
+            log_prefix,
+            pin,
+            new_hostname,
+            new_port,
+            exc_info=result.transport_error,
+        )
+    elif result.outcome is RebindProbeOutcome.PIN_MISMATCH:
+        _LOGGER.warning(
+            "%s %s -> %s:%d observed pin %s; ignoring (spoof or rotation)",
+            log_prefix,
+            pin,
+            new_hostname,
+            new_port,
+            result.observed_pin,
+        )
+    elif result.outcome is RebindProbeOutcome.OK:
+        await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
+        _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
+    # PAIRING_REPLACED / STATUS_CHANGED — silent skip; cooldown
+    # stays in place so a burst of retries doesn't re-fire the
+    # probe against state that's already moved on.
+    return result.outcome
 
 
 @contextmanager

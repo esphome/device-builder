@@ -1540,6 +1540,7 @@ async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> No
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
     db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
+    db.apply_remote_build_enabled = AsyncMock(return_value=False)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),
@@ -1572,6 +1573,7 @@ async def test_start_leaves_peer_link_resolver_none_when_devices_controller_miss
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
     db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
+    db.apply_remote_build_enabled = AsyncMock(return_value=False)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),

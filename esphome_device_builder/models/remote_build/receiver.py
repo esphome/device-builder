@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ...helpers.ip import port_or_zero
 from ..common import DashboardModel
 from .enums import PeerStatus
 
@@ -57,12 +58,7 @@ class StoredPeer(DashboardModel):
 
     def __post_init__(self) -> None:
         """Reset a non-int / out-of-range ``connect_back_port`` to 0 on load."""
-        if (
-            isinstance(self.connect_back_port, bool)
-            or not isinstance(self.connect_back_port, int)
-            or not 0 < self.connect_back_port < 65536
-        ):
-            self.connect_back_port = 0
+        self.connect_back_port = port_or_zero(self.connect_back_port)
 
     def refresh_from_pair_request(
         self,
