@@ -1091,7 +1091,7 @@ def _extract_fields(
     rather than emit a preset that would compile but not run — or, for
     a lost required field, not even compile.
     """
-    valid_keys = _config_entries_by_key(component)
+    valid_keys = _config_entries_by_key(component, inline_item)
     item = _fold_channel_colors_item(inline_item, valid_keys, component_id)
     if item is None:
         return None
@@ -1121,13 +1121,30 @@ def _extract_fields(
     return out
 
 
-def _config_entries_by_key(component: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Map *component*'s config entries by key."""
+def _config_entries_by_key(
+    component: dict[str, Any], item: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Map *component*'s config entries by key, keeping only gate-active entries for *item*."""
     return {
         ce["key"]: ce
         for ce in component.get("config_entries") or []
-        if isinstance(ce.get("key"), str)
+        if isinstance(ce.get("key"), str) and _entry_gate_active(ce, item)
     }
+
+
+def _entry_gate_active(entry: dict[str, Any], fields: dict[str, Any]) -> bool:
+    """Whether *entry*'s ``depends_on`` value gate is satisfied by *fields*."""
+    gate_key = entry.get("depends_on")
+    if not gate_key:
+        return True
+    dep = fields.get(gate_key)
+    if (value := entry.get("depends_on_value")) is not None:
+        return dep == value
+    if (value := entry.get("depends_on_value_not")) is not None:
+        return dep != value
+    if (values := entry.get("depends_on_value_any")) is not None:
+        return dep in values
+    return True
 
 
 def _fold_channel_colors_item(

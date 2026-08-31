@@ -50,6 +50,32 @@ _COMPONENTS: dict[str, dict[str, Any]] = {
             {"key": "id", "type": "id"},
         ],
     },
+    "display.epaper_spi": {
+        "config_entries": [
+            {"key": "model", "type": "string", "required": True},
+            {
+                "key": "dimensions",
+                "type": "nested",
+                "required": True,
+                "depends_on": "model",
+                "depends_on_value_any": ["SSD1683"],
+                "config_entries": [
+                    {"key": "width", "type": "integer"},
+                    {"key": "height", "type": "integer"},
+                ],
+            },
+            {
+                "key": "dimensions",
+                "type": "nested",
+                "depends_on": "model",
+                "depends_on_value_any": ["INKPLATE6COLOR"],
+                "config_entries": [
+                    {"key": "width", "type": "integer"},
+                    {"key": "height", "type": "integer"},
+                ],
+            },
+        ],
+    },
 }
 
 
@@ -79,6 +105,24 @@ def test_unrepresentable_optional_field_keeps_candidate() -> None:
     fields = featured[0]["fields"]
     assert "transform" not in fields
     assert fields["cs_pin"] == {"value": 39, "locked": True}
+
+
+def test_model_gated_required_twin_drives_the_guard() -> None:
+    """The item's `model` selects which gated twin's requiredness the drop guard reads."""
+    bad_dimensions = {"width": "${w}", "height": 128}
+    inline = {
+        "display": [{"platform": "epaper_spi", "model": "SSD1683", "dimensions": bad_dimensions}]
+    }
+    featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
+    assert featured == []
+    inline = {
+        "display": [
+            {"platform": "epaper_spi", "model": "INKPLATE6COLOR", "dimensions": bad_dimensions}
+        ]
+    }
+    featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
+    assert len(featured) == 1
+    assert "dimensions" not in featured[0]["fields"]
 
 
 def test_dropped_candidate_records_no_occupancy() -> None:
