@@ -6801,7 +6801,11 @@ def _collect_model_variance(manifest: Any, component_id: str) -> ModelVariance |
     if code is None:
         return None
     if code.co_qualname != _MIPI_MODEL_WRAPPER_QUALNAME:
-        if "models" in code.co_freevars and "model_schema" in code.co_freevars:
+        # Second canary leg: any unknown schema closure defined in the mipi
+        # package survives a freevar rename.
+        model_driven = "models" in code.co_freevars and "model_schema" in code.co_freevars
+        from_mipi = code.co_filename.replace("\\", "/").endswith("/components/mipi/__init__.py")
+        if model_driven or from_mipi:
             _UNHANDLED_MODEL_DRIVEN.add(component_id)
         return None
     import esphome.config_validation as cv

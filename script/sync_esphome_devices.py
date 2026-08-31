@@ -1127,27 +1127,47 @@ def _config_entries_by_key(
     """
     Map *component*'s config entries by key, preferring the entry whose gate *item* satisfies.
 
-    A key whose every entry is gate-inactive (an unmatched discriminator
-    spelling, a templated value) falls back to its last entry.
+    A discriminator absent from *item* takes its catalog default before gates
+    are read. A key whose every entry is gate-inactive is omitted when the
+    discriminator names another recognised variant, and otherwise (an
+    unmatched spelling, a templated value) fails closed: its required entry
+    when one exists, else its last entry.
     """
-    all_by_key: dict[str, dict[str, Any]] = {}
-    active: dict[str, dict[str, Any]] = {}
+    by_key: dict[str, list[dict[str, Any]]] = {}
+    known_gate_values: dict[str, list[Any]] = {}
     for ce in component.get("config_entries") or []:
-        key = ce.get("key")
-        if not isinstance(key, str):
+        if not isinstance(ce.get("key"), str):
             continue
-        all_by_key[key] = ce
-        if _entry_gate_active(ce, item):
-            active[key] = ce
-    for key, ce in all_by_key.items():
-        if key not in active:
-            _LOGGER.info(
-                "No %r gate on %r matched the item; falling back to its last entry",
-                ce.get("depends_on"),
+        by_key.setdefault(ce["key"], []).append(ce)
+        if gate_key := ce.get("depends_on"):
+            values = known_gate_values.setdefault(gate_key, [])
+            values.extend(ce.get("depends_on_value_any") or [])
+            for field in ("depends_on_value", "depends_on_value_not"):
+                if (value := ce.get(field)) is not None:
+                    values.append(value)
+    defaults = {
+        key: group[0]["default_value"]
+        for key, group in by_key.items()
+        if len(group) == 1 and group[0].get("default_value") is not None
+    }
+    effective = {**defaults, **item}
+    out: dict[str, dict[str, Any]] = {}
+    for key, group in by_key.items():
+        chosen = next((ce for ce in group if _entry_gate_active(ce, effective)), None)
+        if chosen is None:
+            if all(
+                effective.get(ce["depends_on"]) in known_gate_values.get(ce["depends_on"], [])
+                for ce in group
+            ):
+                continue
+            chosen = next((ce for ce in group if ce.get("required")), group[-1])
+            _LOGGER.warning(
+                "No gate on %r matched the item; falling back to its %s entry",
                 key,
+                "required" if chosen.get("required") else "last",
             )
-            active[key] = ce
-    return active
+        out[key] = chosen
+    return out
 
 
 def _entry_gate_active(entry: dict[str, Any], fields: dict[str, Any]) -> bool:
@@ -1976,14 +1996,11 @@ def _materialize_hubs(
 
 
 def _required_pin_keys(component: dict[str, Any], item: dict[str, Any]) -> set[str]:
-    """Keys of the component's required ``type: "pin"`` entries whose gate *item* satisfies."""
+    """Keys of the required ``type: "pin"`` entries *item*'s discriminators select."""
     return {
-        ce["key"]
-        for ce in component.get("config_entries") or []
-        if ce.get("type") == "pin"
-        and ce.get("required")
-        and isinstance(ce.get("key"), str)
-        and _entry_gate_active(ce, item)
+        key
+        for key, ce in _config_entries_by_key(component, item).items()
+        if ce.get("type") == "pin" and ce.get("required")
     }
 
 

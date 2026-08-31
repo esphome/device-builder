@@ -131,6 +131,15 @@ def test_unknown_model_driven_closure_fails_loudly() -> None:
         _fail_on_unhandled_model_driven()
 
 
+def test_unknown_mipi_defined_closure_hits_canary() -> None:
+    namespace: dict[str, object] = {}
+    source = "def config_schema(config):\n    return config\n"
+    exec(compile(source, "/x/esphome/components/mipi/__init__.py", "exec"), namespace)  # noqa: S102
+    schema = namespace["config_schema"]
+    assert _collect_model_variance(_FakeManifest(schema), "display.renamed") is None
+    assert "display.renamed" in _UNHANDLED_MODEL_DRIVEN
+
+
 # ---------------------------------------------------------------------------
 # _apply_model_variance
 # ---------------------------------------------------------------------------
