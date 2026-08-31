@@ -61,12 +61,16 @@ _COMMIT_EMAIL = "device-builder@esphome.io"
 # contend with a commit; the required lock add/commit take is unaffected.
 # autoDetach=false keeps auto gc/maintenance in the foreground so ``_run``
 # reaps it instead of git daemonizing a child we never wait on.
+# fileMode=false keeps Samba's fake exec bit (the DOS archive attribute
+# mapped onto owner-execute) out of recorded modes and diffs.
 _GLOBAL_GIT_ARGS = (
     "--no-optional-locks",
     "-c",
     "gc.autoDetach=false",
     "-c",
     "maintenance.autoDetach=false",
+    "-c",
+    "core.fileMode=false",
 )
 
 # Files Device Builder must never let into git history: its own

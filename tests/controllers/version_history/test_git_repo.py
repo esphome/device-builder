@@ -999,6 +999,30 @@ def test_commit_paths_no_change_returns_none(tmp_path: Path) -> None:
     assert repo.commit_paths([yaml], "Update kitchen.yaml") is None
 
 
+def test_commit_paths_exec_bit_flip_alone_is_noop(tmp_path: Path) -> None:
+    """A bare exec-bit flip on an unchanged file commits nothing."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    repo.commit_paths([yaml], "Create kitchen.yaml")
+    yaml.chmod(0o755)
+
+    assert repo.commit_paths([yaml], "Update kitchen.yaml") is None
+
+
+def test_commit_paths_executable_file_records_regular_mode(tmp_path: Path) -> None:
+    """A new file carrying the exec bit is recorded as 100644."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    yaml.chmod(0o755)
+    repo.commit_paths([yaml], "Create kitchen.yaml")
+
+    assert _git(tmp_path, "ls-files", "-s", "kitchen.yaml").startswith("100644 ")
+
+
 def test_commit_paths_untracked_and_deleted_returns_none(tmp_path: Path) -> None:
     """Deleting a file the work tree/index never held is a no-op, not a git error."""
     repo = GitRepo(config_dir=tmp_path)
