@@ -38,13 +38,7 @@ async def test_spi_is_multi_conf(catalog: ComponentCatalog) -> None:
 
 
 async def test_mipi_spi_dc_pin_is_optional(catalog: ComponentCatalog) -> None:
-    """The shipped ``display.mipi_spi`` has no ungated required `dc_pin`.
-
-    DC exists only on single/octal panels, never on quad AMOLED; the bundle dumps
-    one representative model's requiredness, corrected by the sync's per-model
-    introspection. An ungated required `dc_pin` would seed a bogus pin on quad
-    displays.
-    """
+    """The shipped ``display.mipi_spi`` has no ungated required `dc_pin`."""
     body = await catalog.get_body("display.mipi_spi")
     assert body is not None
     entries = [e for e in body.config_entries if e.key == "dc_pin"]
@@ -54,13 +48,7 @@ async def test_mipi_spi_dc_pin_is_optional(catalog: ComponentCatalog) -> None:
 
 
 async def test_epaper_spi_required_fields_are_model_gated(catalog: ComponentCatalog) -> None:
-    """The shipped ``display.epaper_spi`` requires pins/dimensions only per model.
-
-    The bundle flattens per-model requiredness to the representative model's, which
-    blocked the add form for models that predefine `cs_pin` / `dc_pin` / `dimensions`
-    (#2643). Requiredness must ship gated on `model`, with the complement models
-    keeping an optional entry.
-    """
+    """Shipped ``display.epaper_spi``: `cs_pin` optional, `dc_pin`/`dimensions` model-gated."""
     body = await catalog.get_body("display.epaper_spi")
     assert body is not None
     model = next((e for e in body.config_entries if e.key == "model"), None)

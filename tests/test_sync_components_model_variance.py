@@ -1,18 +1,13 @@
-"""Tests for per-model requiredness introspection in the sync script.
+"""Tests for the sync's per-model requiredness introspection.
 
-The schema bundle dumps one representative model's schema for
-model-driven displays (mipi's ``model_schema_extractor``), so
-fields another model makes optional ship ``required`` and the add
-form refuses to submit (issue #2643). The collector resolves the
-live schema per model; the applier splits varying fields into
-``depends_on: model`` gated twins.
-
-Synthetic schemas pin the algorithm; the integration tests run the
-collector against the live ``epaper_spi`` / ``mipi_*`` manifests to
-catch upstream reshapes of the extractor closure.
+Synthetic schemas pin the collector/applier; the integration tests
+run against the live ``epaper_spi`` / ``mipi_*`` manifests to catch
+upstream reshapes of the extractor closure.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterator
 
 import esphome.config_validation as cv
 import pytest
@@ -30,6 +25,14 @@ from script.sync_components import (  # type: ignore[import-not-found]
 )
 
 
+@pytest.fixture(autouse=True)
+def _clean_model_driven_canary() -> Iterator[None]:
+    """Clear the module-level canary accumulator around every test."""
+    _UNHANDLED_MODEL_DRIVEN.clear()
+    yield
+    _UNHANDLED_MODEL_DRIVEN.clear()
+
+
 class _FakeManifest:
     """Minimal manifest stub — only ``config_schema`` is read."""
 
@@ -37,7 +40,7 @@ class _FakeManifest:
         self.config_schema = schema
 
 
-def _extracted_schema(extra: dict | None = None):
+def _extracted_schema():
     """Build a two-model CONFIG_SCHEMA decorated by the real mipi extractor."""
     models = {"A": None, "B": None}
 
@@ -58,7 +61,7 @@ def _extracted_schema(extra: dict | None = None):
             }
         )
 
-    @model_schema_extractor(models, model_schema, extra=extra)
+    @model_schema_extractor(models, model_schema)
     def config_schema(config):
         return model_schema(config)(config)
 
@@ -122,13 +125,10 @@ def test_unknown_model_driven_closure_fails_loudly() -> None:
     def impostor(config):
         return model_schema({**config, "models": models})
 
-    try:
-        assert _collect_model_variance(_FakeManifest(impostor), "display.impostor") is None
-        assert "display.impostor" in _UNHANDLED_MODEL_DRIVEN
-        with pytest.raises(SystemExit, match=r"display\.impostor"):
-            _fail_on_unhandled_model_driven()
-    finally:
-        _UNHANDLED_MODEL_DRIVEN.clear()
+    assert _collect_model_variance(_FakeManifest(impostor), "display.impostor") is None
+    assert "display.impostor" in _UNHANDLED_MODEL_DRIVEN
+    with pytest.raises(SystemExit, match=r"display\.impostor"):
+        _fail_on_unhandled_model_driven()
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +151,6 @@ def _model_entry(*values: str) -> dict:
     return _entry("model", required=True, options=[{"label": v, "value": v} for v in values])
 
 
-def _variance(models: tuple[str, ...], fields: dict) -> ModelVariance:
-    return ModelVariance(models=models, fields=fields)
-
-
 def test_mixed_field_splits_into_gated_twins() -> None:
     entries = [
         _model_entry("A", "B", "C"),
@@ -164,7 +160,7 @@ def test_mixed_field_splits_into_gated_twins() -> None:
             config_entries=[{"key": "number"}],
         ),
     ]
-    variance = _variance(
+    variance = ModelVariance(
         ("A", "B", "C"),
         {
             "dc_pin": {
@@ -193,7 +189,7 @@ def test_mixed_field_splits_into_gated_twins() -> None:
 
 def test_never_required_field_is_demoted() -> None:
     entries = [_model_entry("A", "B"), _entry("cs_pin", required=True)]
-    variance = _variance(
+    variance = ModelVariance(
         ("A", "B"),
         {
             "cs_pin": {
@@ -214,7 +210,7 @@ def test_uniform_default_kept_varying_default_scrubbed() -> None:
         _entry("data_rate", default_value="20MHz"),
         _entry("update_interval", default_value="60s"),
     ]
-    variance = _variance(
+    variance = ModelVariance(
         ("A", "B"),
         {
             "data_rate": {
@@ -235,7 +231,7 @@ def test_uniform_default_kept_varying_default_scrubbed() -> None:
 
 def test_field_absent_from_some_models_is_gated_to_carriers() -> None:
     entries = [_model_entry("A", "B", "C"), _entry("init_sequence")]
-    variance = _variance(
+    variance = ModelVariance(
         ("A", "B", "C"),
         {
             "init_sequence": {
@@ -252,7 +248,7 @@ def test_field_absent_from_some_models_is_gated_to_carriers() -> None:
 
 def test_field_without_catalog_entry_is_skipped() -> None:
     entries = [_model_entry("A")]
-    variance = _variance(
+    variance = ModelVariance(
         ("A",), {"cs1_pin": {"A": ModelField(required=False, default=vol.UNDEFINED)}}
     )
     _apply_model_variance(entries, variance, "display.fake")
@@ -261,7 +257,7 @@ def test_field_without_catalog_entry_is_skipped() -> None:
 
 def test_model_enum_mismatch_fails_loudly() -> None:
     entries = [_model_entry("A"), _entry("dc_pin", required=True)]
-    variance = _variance(
+    variance = ModelVariance(
         ("A", "B"), {"dc_pin": {"A": ModelField(required=True, default=vol.UNDEFINED)}}
     )
     with pytest.raises(SystemExit, match=r"display\.fake"):

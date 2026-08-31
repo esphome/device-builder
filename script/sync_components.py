@@ -55,7 +55,7 @@ from enum import StrEnum
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from types import CodeType, FunctionType, SimpleNamespace
+from types import FunctionType, SimpleNamespace
 from typing import Any, Literal, NamedTuple
 
 import orjson
@@ -1022,7 +1022,7 @@ def main() -> int:
             len(automations["light_effects"]),
         )
         # Guards the automations emit; components are already on disk.
-        _fail_on_unhandled_repr_keys()
+        _fail_on_unhandled_schema_shapes()
         _emit_split_automations_catalog(automations, version)
     else:
         _LOGGER.warning(
@@ -5446,8 +5446,6 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         manifest, platform_manifests_by_domain
     )
 
-    # Domain-keyed like the bleed keys: a model-driven schema is a
-    # per-manifest property, never merged across domains.
     model_variance = _collect_model_variance_by_domain(
         manifest, platform_manifests_by_domain, component_id
     )
@@ -6773,47 +6771,34 @@ class ModelVariance(NamedTuple):
 #: the mipi extractor ``_collect_model_variance`` introspects.
 _UNHANDLED_MODEL_DRIVEN: set[str] = set()
 
+_MIPI_MODEL_WRAPPER_QUALNAME = "model_schema_extractor.<locals>.decorate.<locals>.wrapper"
+
+
+@contextlib.contextmanager
+def _quiet_esphome() -> Iterator[None]:
+    """Silence esphome's loggers within the block."""
+    logger = logging.getLogger("esphome")
+    previous = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
+
 
 @cache
-def _mipi_model_wrapper_code() -> CodeType | None:
-    """Code object of the ``model_schema_extractor`` wrapper closure, None without esphome."""
-    try:
-        mipi = importlib.import_module("esphome.components.mipi")
-        extractor = mipi.model_schema_extractor
-    except Exception:
-        return None
-    try:
-        decorate = next(
-            c
-            for c in extractor.__code__.co_consts
-            if isinstance(c, CodeType) and c.co_name == "decorate"
-        )
-        return next(
-            c for c in decorate.co_consts if isinstance(c, CodeType) and c.co_name == "wrapper"
-        )
-    except StopIteration:
-        raise SystemExit(
-            "esphome.components.mipi.model_schema_extractor no longer builds the "
-            "decorate/wrapper closures _collect_model_variance anchors on; update "
-            "_mipi_model_wrapper_code for the new shape."
-        ) from None
-
-
 def _collect_model_variance(manifest: Any, component_id: str) -> ModelVariance | None:
     """
-    Introspect a mipi ``model_schema_extractor`` CONFIG_SCHEMA per model.
+    Per-model field facts for a mipi ``model_schema_extractor`` CONFIG_SCHEMA, else None.
 
-    The schema bundle dumps one representative model's schema, so every other
-    model's requiredness and defaults are recovered here by resolving
-    ``model_schema`` for each model. A model-driven closure that isn't the
-    known extractor lands in ``_UNHANDLED_MODEL_DRIVEN``.
+    Unrecognised model-driven closures land in ``_UNHANDLED_MODEL_DRIVEN``.
     """
     schema = getattr(manifest, "config_schema", None)
     code = getattr(schema, "__code__", None)
     if code is None:
         return None
-    if code is not _mipi_model_wrapper_code():
-        if {"models", "model_schema"} <= set(code.co_freevars):
+    if code.co_qualname != _MIPI_MODEL_WRAPPER_QUALNAME:
+        if "models" in code.co_freevars and "model_schema" in code.co_freevars:
             _UNHANDLED_MODEL_DRIVEN.add(component_id)
         return None
     import esphome.config_validation as cv
@@ -6824,16 +6809,10 @@ def _collect_model_variance(manifest: Any, component_id: str) -> ModelVariance |
     model_schema = nonlocals["model_schema"]
     extra = nonlocals.get("extra") or {}
     fields: dict[str, dict[str, ModelField]] = {}
-    # ``model_schema`` logs per resolve (mipi_spi's "No SPI mode specified"),
-    # once per model — silence the loop, restore after.
-    previous_disable = logging.root.manager.disable
-    logging.disable(logging.WARNING)
-    try:
+    with _quiet_esphome():
         for name in models:
-            resolved = model_schema({CONF_MODEL: name, **extra})
-            if isinstance(resolved, vol.All):
-                resolved = next(v for v in resolved.validators if isinstance(v, vol.Schema))
-            for marker in resolved.schema:
+            resolved = _unwrap_schema_to_dict(model_schema({CONF_MODEL: name, **extra})) or {}
+            for marker in resolved:
                 if not isinstance(marker, vol.Marker) or isinstance(marker, cv.GenerateID):
                     continue
                 raw_default = getattr(marker, "default", vol.UNDEFINED)
@@ -6841,25 +6820,25 @@ def _collect_model_variance(manifest: Any, component_id: str) -> ModelVariance |
                 fields.setdefault(str(marker.schema), {})[name] = ModelField(
                     required=isinstance(marker, vol.Required), default=default
                 )
-    finally:
-        logging.disable(previous_disable)
     return ModelVariance(models=tuple(models), fields=fields)
 
 
 def _collect_model_variance_by_domain(
     manifest: Any,
-    platform_manifests_by_domain: Iterable[tuple[str, Any]],
+    platform_manifests_by_domain: list[tuple[str, Any]],
     component_id: str,
 ) -> dict[str, ModelVariance]:
     """Collect model variance per manifest, keyed by domain ("" for the bare one)."""
-    variance_by_domain: dict[str, ModelVariance] = {}
-    if (bare := _collect_model_variance(manifest, component_id)) is not None:
-        variance_by_domain[""] = bare
-    for domain, platform_manifest in platform_manifests_by_domain:
-        variance = _collect_model_variance(platform_manifest, f"{domain}.{component_id}")
-        if variance is not None:
-            variance_by_domain[domain] = variance
-    return variance_by_domain
+    return {
+        domain: variance
+        for domain, candidate in (("", manifest), *platform_manifests_by_domain)
+        if (
+            variance := _collect_model_variance(
+                candidate, f"{domain}.{component_id}" if domain else component_id
+            )
+        )
+        is not None
+    }
 
 
 def _int_enum_refined_type(validator: Any) -> RefinedType | None:
@@ -7389,15 +7368,15 @@ def _apply_model_variance(
     """
     Correct per-model requiredness the representative-model dump flattened.
 
-    A field required under only some models splits into gated twins
-    (``depends_on: model`` + ``depends_on_value_any``); a field absent from
-    some models is gated to the models that carry it; a default that varies
-    across models is scrubbed.
+    Top-level entries only. A field whose requiredness varies splits into
+    ``depends_on: model`` gated twins; a default that varies is scrubbed.
     """
     if variance is None or not variance.fields:
         return
     model_entry = next((e for e in entries if e["key"] == "model"), None)
-    options = [o["value"] for o in (model_entry or {}).get("options") or []]
+    if model_entry is None:
+        raise SystemExit(f"{component_id}: model-driven schema without a 'model' catalog entry")
+    options = [o["value"] for o in model_entry.get("options") or []]
     if set(options) != set(variance.models):
         raise SystemExit(
             f"{component_id}: bundle model options {sorted(options)} != introspected "
@@ -7430,41 +7409,28 @@ def _apply_field_model_variance(
 ) -> None:
     """Rewrite ``entries[index]`` to the introspected per-model requiredness."""
     entry = entries[index]
-    required_models = [m for m in options if m in per_model and per_model[m].required]
-    optional_models = [m for m in options if m in per_model and not per_model[m].required]
-    absent_models = [m for m in options if m not in per_model]
-    defaults = [f.default for f in per_model.values() if f.default is not vol.UNDEFINED]
-    keep_default = not defaults or (
-        len(defaults) == len(per_model) and all(d == defaults[0] for d in defaults)
-    )
-    if required_models and optional_models:
-        required_twin = {
-            **copy.deepcopy(entry),
-            "required": True,
-            "advanced": False,
-            "default_value": None,
-            "depends_on": "model",
-            "depends_on_value_any": required_models,
-        }
-        optional_twin = {
-            **copy.deepcopy(entry),
-            "required": False,
-            "depends_on": "model",
-            "depends_on_value_any": optional_models,
-        }
-        if not keep_default:
-            optional_twin["default_value"] = None
-        entries[index : index + 1] = [required_twin, optional_twin]
-        return
-    entry["required"] = bool(required_models)
-    if required_models:
-        entry["advanced"] = False
-        entry["default_value"] = None
-    elif not keep_default:
-        entry["default_value"] = None
-    if absent_models:
-        entry["depends_on"] = "model"
-        entry["depends_on_value_any"] = required_models or optional_models
+    present = [m for m in options if m in per_model]
+    groups = [
+        (required, gate)
+        for required in (True, False)
+        if (gate := [m for m in present if per_model[m].required is required])
+    ]
+    defaults = [f.default for f in per_model.values()]
+    keep_default = all(d == defaults[0] for d in defaults)
+    gated = len(groups) > 1 or len(present) != len(options)
+    twins: list[dict] = []
+    for position, (required, gate) in enumerate(groups):
+        twin = copy.deepcopy(entry) if position < len(groups) - 1 else entry
+        twin["required"] = required
+        if required:
+            twin["advanced"] = False
+        if required or not keep_default:
+            twin["default_value"] = None
+        if gated:
+            twin["depends_on"] = "model"
+            twin["depends_on_value_any"] = gate
+        twins.append(twin)
+    entries[index : index + 1] = twins
 
 
 def _apply_refined_types(
