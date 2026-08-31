@@ -6775,18 +6775,21 @@ _MIPI_MODEL_WRAPPER_QUALNAME = "model_schema_extractor.<locals>.decorate.<locals
 
 
 @contextlib.contextmanager
-def _quiet_esphome() -> Iterator[None]:
-    """Silence esphome's loggers within the block."""
-    logger = logging.getLogger("esphome")
-    previous = logger.level
-    logger.setLevel(logging.ERROR)
+def _quiet_logging() -> Iterator[None]:
+    """
+    Suppress WARNING-and-below process-wide within the block.
+
+    esphome components log under bare domain names (``getLogger("mipi_spi")``),
+    so per-logger scoping can't target them.
+    """
+    previous = logging.root.manager.disable
+    logging.disable(logging.WARNING)
     try:
         yield
     finally:
-        logger.setLevel(previous)
+        logging.disable(previous)
 
 
-@cache
 def _collect_model_variance(manifest: Any, component_id: str) -> ModelVariance | None:
     """
     Per-model field facts for a mipi ``model_schema_extractor`` CONFIG_SCHEMA, else None.
@@ -6807,16 +6810,21 @@ def _collect_model_variance(manifest: Any, component_id: str) -> ModelVariance |
     nonlocals = _closure_nonlocals(schema)
     models = sorted(nonlocals["models"])
     model_schema = nonlocals["model_schema"]
-    extra = nonlocals.get("extra") or {}
+    extra = nonlocals["extra"] or {}
     fields: dict[str, dict[str, ModelField]] = {}
-    with _quiet_esphome():
+    with _quiet_logging():
         for name in models:
-            resolved = _unwrap_schema_to_dict(model_schema({CONF_MODEL: name, **extra})) or {}
+            resolved = _unwrap_schema_to_dict(model_schema({CONF_MODEL: name, **extra}))
+            if resolved is None:
+                raise SystemExit(
+                    f"{component_id}: model {name!r} schema didn't unwrap to a mapping; "
+                    "update _collect_model_variance for the new shape."
+                )
             for marker in resolved:
                 if not isinstance(marker, vol.Marker) or isinstance(marker, cv.GenerateID):
                     continue
                 raw_default = getattr(marker, "default", vol.UNDEFINED)
-                default = raw_default() if callable(raw_default) else vol.UNDEFINED
+                default = raw_default() if callable(raw_default) else raw_default
                 fields.setdefault(str(marker.schema), {})[name] = ModelField(
                     required=isinstance(marker, vol.Required), default=default
                 )
@@ -7386,18 +7394,16 @@ def _apply_model_variance(
     for key, per_model in variance.fields.items():
         index = next((i for i, e in enumerate(entries) if e["key"] == key), None)
         if index is None:
-            _LOGGER.info(
-                "%s: model-specific field %r has no catalog entry; skipped", component_id, key
-            )
+            # Model-specific extras absent from the representative dump have
+            # no entry to correct; a required one is a real wizard gap.
+            log = _LOGGER.warning if any(f.required for f in per_model.values()) else _LOGGER.info
+            log("%s: model-specific field %r has no catalog entry; skipped", component_id, key)
             continue
         if entries[index].get("depends_on"):
-            _LOGGER.warning(
-                "%s: %r already gated on %r; model variance skipped",
-                component_id,
-                key,
-                entries[index]["depends_on"],
+            raise SystemExit(
+                f"{component_id}: {key!r} is already gated on "
+                f"{entries[index]['depends_on']!r}; model variance can't overlay a second gate."
             )
-            continue
         _apply_field_model_variance(entries, index, per_model, options)
 
 

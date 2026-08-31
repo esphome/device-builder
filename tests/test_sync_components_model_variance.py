@@ -246,13 +246,61 @@ def test_field_absent_from_some_models_is_gated_to_carriers() -> None:
     assert init["required"] is False
 
 
-def test_field_without_catalog_entry_is_skipped() -> None:
+def test_field_without_catalog_entry_is_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     entries = [_model_entry("A")]
     variance = ModelVariance(
-        ("A",), {"cs1_pin": {"A": ModelField(required=False, default=vol.UNDEFINED)}}
+        ("A",),
+        {
+            "cs1_pin": {"A": ModelField(required=True, default=vol.UNDEFINED)},
+            "brightness": {"A": ModelField(required=False, default=vol.UNDEFINED)},
+        },
     )
-    _apply_model_variance(entries, variance, "display.fake")
+    with caplog.at_level("INFO", logger="sync_components"):
+        _apply_model_variance(entries, variance, "display.fake")
     assert [e["key"] for e in entries] == ["model"]
+    by_message = {r.message: r.levelname for r in caplog.records if "no catalog entry" in r.message}
+    assert any("cs1_pin" in m and level == "WARNING" for m, level in by_message.items())
+    assert any("brightness" in m and level == "INFO" for m, level in by_message.items())
+
+
+def test_pre_gated_field_fails_loudly() -> None:
+    entries = [_model_entry("A"), _entry("dc_pin", required=True, depends_on="variant")]
+    variance = ModelVariance(
+        ("A",), {"dc_pin": {"A": ModelField(required=False, default=vol.UNDEFINED)}}
+    )
+    with pytest.raises(SystemExit, match="already gated"):
+        _apply_model_variance(entries, variance, "display.fake")
+
+
+def test_unresolvable_model_schema_fails_loudly() -> None:
+    models = {"A": None}
+
+    def model_schema(config: dict):
+        return object()
+
+    @model_schema_extractor(models, model_schema)
+    def config_schema(config):
+        return config
+
+    with pytest.raises(SystemExit, match=r"model 'A'"):
+        _collect_model_variance(_FakeManifest(config_schema), "display.fake")
+
+
+def test_literal_marker_default_is_recorded() -> None:
+    models = {"A": None}
+    schema = cv.Schema({cv.Optional("x"): cv.string})
+    marker = next(iter(schema.schema))
+    marker.default = 7
+
+    @model_schema_extractor(models, lambda config: schema)
+    def config_schema(config):
+        return config
+
+    variance = _collect_model_variance(_FakeManifest(config_schema), "display.fake")
+    assert variance is not None
+    assert variance.fields["x"]["A"].default == 7
 
 
 def test_model_enum_mismatch_fails_loudly() -> None:
