@@ -84,6 +84,7 @@ from .wire import AppMessageType as AppMessageType
 from .wire import TerminateReason as TerminateReason
 
 if TYPE_CHECKING:
+    from ..offloader import OffloaderController
     from ..receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,6 +95,9 @@ PEER_LINK_PATH = "/remote-build/peer-link"
 def make_peer_link_handler(
     controller: ReceiverController,
     identity: PeerLinkIdentity,
+    *,
+    offloader: OffloaderController | None = None,
+    accept_receiver_intents: bool = True,
 ) -> Callable[[web.Request], Awaitable[web.WebSocketResponse]]:
     """
     Build the aiohttp handler for ``/remote-build/peer-link``.
@@ -102,7 +106,9 @@ def make_peer_link_handler(
     handler closure and the mDNS advertise share one source
     of truth; loading separately here would let a concurrent
     rotation flip the handler key out of sync with the
-    advertised pin.
+    advertised pin. *offloader* enables the ``connect_back``
+    intent; *accept_receiver_intents* False refuses every
+    receiver intent (offloader-only bind).
     """
     identity_priv = identity.private_bytes
 
@@ -120,7 +126,14 @@ def make_peer_link_handler(
         request.app[WEBSOCKETS_KEY].add(ws)
         peer_ip = request.remote or ""
         try:
-            await _drive_peer_link_session(controller, ws, peer_ip, identity_priv)
+            await _drive_peer_link_session(
+                controller,
+                ws,
+                peer_ip,
+                identity_priv,
+                offloader=offloader,
+                accept_receiver_intents=accept_receiver_intents,
+            )
         except Exception:
             _LOGGER.exception("peer-link session error from %s", peer_ip)
         finally:

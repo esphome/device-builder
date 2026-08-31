@@ -163,6 +163,7 @@ class PeerLinkClient:
         resolver: AbstractResolver | None = None,
         get_zeroconf: Callable[[], Zeroconf | None] | None = None,
         get_display_identity: Callable[[], tuple[str, bool]] | None = None,
+        get_connect_back_port: Callable[[], int | None] | None = None,
     ) -> None:
         self._hostname = receiver_hostname
         # Lazy reader for this offloader's own ``(friendly_name,
@@ -170,6 +171,9 @@ class PeerLinkClient:
         # can show a human name; lazy because the advertiser may
         # come up after the client spawns.
         self._get_display_identity = get_display_identity
+        # Lazy reader for our bound peer-link listener port; sent
+        # in msg3 as ``connect_back_port`` so the receiver can dial back.
+        self._get_connect_back_port = get_connect_back_port
         # mDNS fast-reconnect inputs: the shared zeroconf (``None``
         # getter or return skips the optimisation) and the A/AAAA
         # record name that signals the receiver came back (``None``
@@ -446,13 +450,19 @@ class PeerLinkClient:
                     if self._get_display_identity is not None
                     else ("", False)
                 )
-                msg3_payload = _json.dumps(
-                    {
-                        "dashboard_id": self._dashboard_id,
-                        "friendly_name": own_friendly,
-                        "ha_addon": own_ha_addon,
-                    }
+                msg3: dict[str, Any] = {
+                    "dashboard_id": self._dashboard_id,
+                    "friendly_name": own_friendly,
+                    "ha_addon": own_ha_addon,
+                }
+                connect_back_port = (
+                    self._get_connect_back_port()
+                    if self._get_connect_back_port is not None
+                    else None
                 )
+                if isinstance(connect_back_port, int) and not isinstance(connect_back_port, bool):
+                    msg3["connect_back_port"] = connect_back_port
+                msg3_payload = _json.dumps(msg3)
                 response_ct = await _drive_initiator_handshake_and_read_response(
                     ws=ws,
                     sess=session,

@@ -192,6 +192,13 @@ def _bool_or_false(value: object) -> bool:
     return value if isinstance(value, bool) else False
 
 
+def _port_or_zero(value: object) -> int:
+    """Return the value as a TCP port (1-65535) or 0 when absent / malformed."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value if 0 < value < 65536 else 0
+
+
 def _normalize_label(value: object) -> str:
     """
     Normalise an msg3-supplied ``label`` to a stripped, length-bounded form.

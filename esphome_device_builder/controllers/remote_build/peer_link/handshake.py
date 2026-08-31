@@ -33,6 +33,7 @@ from .wire_io import (
     _normalize_label,
     _parse_intent,
     _parse_json,
+    _port_or_zero,
     _read_handshake_message,
     _send_handshake_message,
     _send_response,
@@ -40,6 +41,7 @@ from .wire_io import (
 )
 
 if TYPE_CHECKING:
+    from ..offloader import OffloaderController
     from ..receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +76,10 @@ class _DispatchInput:
     friendly_name: str = ""
     ha_addon: bool = False
     label_auto: bool = False
+    # ``peer_link`` msg3's ``connect_back_port``; 0 when absent.
+    connect_back_port: int = 0
+    # ``connect_back`` msg3's ``peer_link_port``; 0 when absent.
+    announced_peer_link_port: int = 0
 
 
 async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are the handshake's natural failure cliffs
@@ -81,6 +87,9 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     ws: web.WebSocketResponse,
     peer_ip: str,
     identity_priv: bytes,
+    *,
+    offloader: OffloaderController | None = None,
+    accept_receiver_intents: bool = True,
 ) -> None:
     """
     Drive one peer-link Noise session from handshake to response.
@@ -146,6 +155,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     peer_friendly_name = _normalize_label(msg3.get("friendly_name"))
     peer_ha_addon = _bool_or_false(msg3.get("ha_addon"))
     label_auto = _bool_or_false(msg3.get("label_auto"))
+    connect_back_port = _port_or_zero(msg3.get("connect_back_port"))
+    announced_peer_link_port = _port_or_zero(msg3.get("peer_link_port"))
 
     outcome = await _dispatch_intent(
         controller,
@@ -160,7 +171,11 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             friendly_name=peer_friendly_name,
             ha_addon=peer_ha_addon,
             label_auto=label_auto,
+            connect_back_port=connect_back_port,
+            announced_peer_link_port=announced_peer_link_port,
         ),
+        offloader=offloader,
+        accept_receiver_intents=accept_receiver_intents,
     )
     # Log the decision, not the bare handshake; "ok" here used to
     # mean only "Noise XX completed", which read as "pairing
@@ -215,12 +230,16 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             peer_ip=peer_ip,
             peer_friendly_name=peer_friendly_name,
             peer_ha_addon=peer_ha_addon,
+            peer_connect_back_port=connect_back_port,
         )
 
 
-async def _dispatch_intent(
+async def _dispatch_intent(  # noqa: PLR0911 — one return per intent branch
     controller: ReceiverController,
     inp: _DispatchInput,
+    *,
+    offloader: OffloaderController | None = None,
+    accept_receiver_intents: bool = True,
 ) -> IntentOutcome:
     """
     Resolve a single peer-link intent into a typed :class:`IntentOutcome`.
@@ -228,8 +247,21 @@ async def _dispatch_intent(
     Pure dispatch — callable directly from tests without the WS /
     Noise plumbing. The WS driver has already validated the wire
     string into a :class:`PeerLinkIntent`; unknown wire values map
-    to ``REJECTED`` before reaching here.
+    to ``REJECTED`` before reaching here. ``connect_back`` routes
+    to *offloader* and skips the dashboard_id gate (the pin is the
+    key); every receiver intent is refused with ``BAD_INTENT``
+    when *accept_receiver_intents* is false (offloader-only bind).
     """
+    if inp.intent is PeerLinkIntent.CONNECT_BACK:
+        if offloader is None:
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
+        return await offloader._handle_connect_back(
+            pin_sha256=inp.pin_sha256,
+            peer_ip=inp.peer_ip,
+            announced_port=inp.announced_peer_link_port,
+        )
+    if not accept_receiver_intents:
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.BAD_INTENT)
     if inp.intent is PeerLinkIntent.PREVIEW:
         # Preview captures the responder's static pubkey via the
         # handshake transcript; no controller call + no

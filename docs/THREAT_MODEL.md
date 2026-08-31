@@ -132,6 +132,22 @@ Bugs in any of the following *are* security bugs:
   The discovery surface is intentionally low-trust (a hostile
   LAN peer can announce whatever it wants); it must not be a
   path to authenticated capability.
+- **The connect-back listener widening.** A dashboard with the
+  Build-server role off but at least one approved pairing binds
+  the peer-link port (HA add-on included, where the receiver
+  role is default-off) so a paired build server can dial back
+  after an IP change. The reduced-role surface must hold:
+  receiver intents (`preview` / `pair_request` / `peer_link` /
+  `pair_status`) are refused in that mode so pairability is
+  never silently re-enabled; `connect_back` is accepted only
+  from a static key matching an APPROVED pairing; and the
+  announced endpoint is never persisted without the forward
+  preview probe verifying the pinned identity there — an
+  authenticated-but-compromised build server can at most
+  redirect *its own* pairing to an endpoint presenting the same
+  key. Anything that lets an unpaired peer use the reduced-role
+  listener, or lets an unverified announce mutate a stored
+  pairing, is a security bug.
 
 ## Out of scope
 

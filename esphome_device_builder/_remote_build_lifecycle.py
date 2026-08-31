@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from aiohttp import web
 
@@ -53,18 +53,31 @@ async def _strip_server_header_middleware(
     return response
 
 
+class _ListenerPolicy(NamedTuple):
+    """Computed bind decision: whether to bind, and in which role."""
+
+    bind: bool
+    receiver_role: bool
+    receiver_enabled: bool
+
+
 class RemoteBuildLifecycle:
     """Remote-build peer-link listener lifecycle, composed into ``DeviceBuilder``."""
 
     def __init__(self, db: DeviceBuilder) -> None:
         """Bind to the owning ``DeviceBuilder``; the listener starts unbound."""
         self._db = db
-        # Peer-link Noise WS receiver site for
-        # ``/remote-build/peer-link`` (issue #106). Bound only when
-        # ``RemoteBuildSettings.enabled`` is true; ``None`` otherwise.
+        # Peer-link Noise WS site for ``/remote-build/peer-link``
+        # (issue #106). Bound when the receiver role is on
+        # (``RemoteBuildSettings.enabled`` / ``--remote-build-only``)
+        # or, connect-back only, when approved pairings exist;
+        # ``None`` otherwise.
         self._runner: web.AppRunner | None = None
         # Bound peer-link port; ``None`` whenever ``_runner`` is.
         self._bound_port: int | None = None
+        # True while the bound listener serves receiver intents
+        # (pair / peer_link); False on a connect-back-only bind.
+        self._receiver_role_active = False
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -81,6 +94,11 @@ class RemoteBuildLifecycle:
     def listener_port(self) -> int | None:
         """The bound peer-link port, or ``None`` while the listener is down."""
         return self._bound_port
+
+    @property
+    def receiver_role_active(self) -> bool:
+        """True while the bound listener serves receiver intents."""
+        return self._receiver_role_active
 
     async def maybe_start(self) -> None:
         """
@@ -119,26 +137,50 @@ class RemoteBuildLifecycle:
         """
         if self._db.remote_build_receiver is None or self._db.loop is None:
             return
+        policy = await self._compute_policy()
+        if not policy.bind:
+            _LOGGER.debug(
+                "Skipping remote-build peer-link site: disabled in settings "
+                "(flip the Build server toggle in Settings, or send "
+                "``remote_build/set_settings`` enabled=true, to bind)"
+            )
+            return
+        await self._start_listener(policy)
+
+    async def _compute_policy(self) -> _ListenerPolicy:
+        """Compute the bind decision from settings + approved pairings."""
         settings = self._db.settings
         rb_settings = await load_effective_remote_build_settings(settings)
-        if not rb_settings.enabled:
-            # ``--remote-build-only`` has no dashboard UI to flip the
-            # persisted toggle back on, and a receiver with no listener
-            # is pointless — the CLI mode overrides the sidecar.
-            if not settings.remote_build_only:
-                _LOGGER.debug(
-                    "Skipping remote-build peer-link site: disabled in settings "
-                    "(flip the Build server toggle in Settings, or send "
-                    "``remote_build/set_settings`` enabled=true, to bind)"
-                )
-                return
+        # ``--remote-build-only`` has no dashboard UI to flip the
+        # persisted toggle back on, and a receiver with no listener
+        # is pointless — the CLI mode overrides the sidecar.
+        receiver_role = rb_settings.enabled or settings.remote_build_only
+        offloader = self._db.remote_build_offloader
+        offloader_needs = offloader is not None and offloader.has_approved_pairings()
+        return _ListenerPolicy(
+            bind=receiver_role or offloader_needs,
+            receiver_role=receiver_role,
+            receiver_enabled=rb_settings.enabled,
+        )
+
+    async def _start_listener(self, policy: _ListenerPolicy) -> None:
+        """Bind the listener per *policy*; fail-soft on any error."""
+        settings = self._db.settings
+        if policy.receiver_role and not policy.receiver_enabled:
             _LOGGER.info(
                 "Remote-build is disabled in the persisted settings but "
                 "--remote-build-only forces the peer-link listener on"
             )
+        elif not policy.receiver_role:
+            _LOGGER.info(
+                "Binding remote-build peer-link listener for connect-back only "
+                "(Build server disabled; approved pairings exist)"
+            )
 
         try:
-            runner, identity, port = await self._build_and_start_runner()
+            runner, identity, port = await self._build_and_start_runner(
+                receiver_role=policy.receiver_role
+            )
         except Exception:
             _LOGGER.exception(
                 "Remote-build peer-link site failed to start; dashboard continues "
@@ -148,16 +190,19 @@ class RemoteBuildLifecycle:
             return
         self._runner = runner
         self._bound_port = port
+        self._receiver_role_active = policy.receiver_role
 
         # Update the mDNS advertise AFTER the bind succeeds. If the
         # bind raised (port in use, permission denied, ...) the
         # advertiser stays at its pre-listener state instead of
         # broadcasting a pin + port that nothing's actually
-        # listening on.
-        await self.publish_advertise(
-            pin_sha256=identity.pin_sha256,
-            remote_build_port=port,
-        )
+        # listening on. A connect-back-only bind advertises neither
+        # field — this dashboard is not a pairable build server.
+        if policy.receiver_role:
+            await self.publish_advertise(
+                pin_sha256=identity.pin_sha256,
+                remote_build_port=port,
+            )
         self._fire_listener_changed()
 
         _LOGGER.info(
@@ -213,40 +258,33 @@ class RemoteBuildLifecycle:
                 exc_info=True,
             )
 
-    async def apply_enabled(self) -> bool:
+    async def converge(self) -> bool:
         """
-        Converge the peer-link listener to the on-disk ``enabled`` flag.
+        Converge the peer-link listener to the current bind policy.
 
-        Called by ``ReceiverController.set_settings`` after the
-        new ``enabled`` value lands on disk. Reads back from disk
-        under the lifecycle lock so the last-writer-wins persisted
-        value is always what the listener converges to — two
-        clients flipping ``enabled`` concurrently can't desync disk
-        from listener state.
-
-        On disk ``enabled=True`` with the listener absent, runs the
-        same path :meth:`maybe_start` does at startup (load X25519
-        peer-link identity, bind the plain-TCP listener, push pin + port
-        to mDNS). Fail-soft on bind error — the dashboard keeps
-        running without a listener, and a subsequent
-        ``set_settings`` retry can clear a transient port conflict
-        without a restart.
-
-        On disk ``enabled=False`` with the listener bound, tears
-        down the runner and clears ``pin_sha256`` + ``remote_build_port``
-        from mDNS via :meth:`_teardown_runner`.
+        Called by ``ReceiverController.set_settings`` after the new
+        ``enabled`` value lands on disk, and on approved-pairing
+        transitions. Recomputes the policy under the lifecycle lock
+        so the last-writer-wins persisted value is always what the
+        listener converges to — two clients flipping ``enabled``
+        concurrently can't desync disk from listener state. A role
+        flip on a bound listener (Build server toggled while
+        pairings exist) tears down and rebuilds so the handler's
+        intent gate and the TXT advertise match the new role.
 
         Returns whether the listener is bound after this call.
         """
         if self._db.loop is None:
             return self._runner is not None
         async with self._get_lock():
-            rb_settings = await load_effective_remote_build_settings(self._db.settings)
-            if rb_settings.enabled:
-                if self._runner is None:
-                    await self.maybe_start()
-            else:
+            policy = await self._compute_policy()
+            if not policy.bind:
                 await self._teardown_runner()
+            elif self._runner is None:
+                await self._start_listener(policy)
+            elif policy.receiver_role != self._receiver_role_active:
+                await self._teardown_runner()
+                await self._start_listener(policy)
             return self._runner is not None
 
     async def reload_identity(self) -> bool:
@@ -293,6 +331,7 @@ class RemoteBuildLifecycle:
             old_runner = self._runner
             self._runner = None
             self._bound_port = None
+            self._receiver_role_active = False
             await self._cleanup_runner(old_runner)
 
     def _get_lock(self) -> asyncio.Lock:
@@ -330,6 +369,7 @@ class RemoteBuildLifecycle:
         old_runner = self._runner
         self._runner = None
         self._bound_port = None
+        self._receiver_role_active = False
         await self._cleanup_runner(old_runner)
         await self.publish_advertise(
             pin_sha256=None,
@@ -360,6 +400,8 @@ class RemoteBuildLifecycle:
 
     async def _build_and_start_runner(
         self,
+        *,
+        receiver_role: bool = True,
     ) -> tuple[web.AppRunner, PeerLinkIdentity, int]:
         """
         Construct the runner and bind the peer-link Noise WS listener.
@@ -438,7 +480,12 @@ class RemoteBuildLifecycle:
             # to aiohttp's 60s ``shutdown_timeout`` while its
             # handler sits in ``async for msg in session.ws``.
             init_ws_app(app)
-            handler = make_peer_link_handler(receiver, identity)
+            handler = make_peer_link_handler(
+                receiver,
+                identity,
+                offloader=self._db.remote_build_offloader,
+                accept_receiver_intents=receiver_role,
+            )
             app.router.add_get(PEER_LINK_PATH, handler)
 
             runner = web.AppRunner(app)

@@ -45,6 +45,7 @@ from ..config import (
 )
 from . import (
     cleanup_loop,
+    connect_back,
     identity_commands,
     pair_flow,
     pairing_window,
@@ -111,6 +112,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         if (peers_state := await self._peers_store.async_load()) is not None:
             for peer in peers_state.peers:
                 self.state.approved_peers[peer.dashboard_id] = peer
+        self._track_task(
+            self._run_connect_back_loop(),
+            name=f"{type(self).__name__}._run_connect_back_loop",
+        )
         # JOB_OUTPUT / JOB_PROGRESS deliberately omitted: high-rate
         # streaming events that don't change queue_status shape.
         for event_type in (
@@ -163,6 +168,9 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         self._clear_pending_peers_on_window_close()
         await drain_shutdown_callbacks(self._shutdown_callbacks)
         self.state.approved_peers.clear()
+        self.state.connect_back_tasks.clear()
+        self.state.connect_back_last_contact.clear()
+        self.state.connect_back_cooldowns.prune(lambda _k: False)
 
     async def _load_settings_async(self) -> RemoteBuildSettings:
         """Read the receiver-side settings sidecar off the executor.
@@ -222,6 +230,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     async def _run_cleanup_loop(self) -> None:
         """Sweep cold remote-build subtrees on a periodic cadence."""
         await cleanup_loop.run_cleanup_loop(self)
+
+    async def _run_connect_back_loop(self) -> None:
+        """Dial back quiet paired offloaders on a periodic cadence."""
+        await connect_back.run_connect_back_loop(self)
 
     @api_command("remote_build/get_settings")
     async def get_settings(self, **kwargs: Any) -> RemoteBuildSettingsView:

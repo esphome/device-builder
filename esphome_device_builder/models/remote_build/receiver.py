@@ -38,6 +38,9 @@ class StoredPeer(DashboardModel):
     # Original pair time; never refreshed — a re-pair keeps it.
     paired_at: float
     peer_ip: str = ""
+    # Offloader's peer-link listener port; 0 when unknown.
+    # Refreshed on session-open only with a non-zero value.
+    connect_back_port: int = 0
     # Offloader-advertised human machine label (its mDNS
     # ``friendly_name``). Captured at pair time and refreshed on
     # session-open and re-pair only when the offloader sends a
@@ -51,6 +54,15 @@ class StoredPeer(DashboardModel):
     # may replace ``label``. Old offloaders never send it (False),
     # so a possibly-custom label always wins.
     label_auto: bool = False
+
+    def __post_init__(self) -> None:
+        """Reset a non-int / out-of-range ``connect_back_port`` to 0 on load."""
+        if (
+            isinstance(self.connect_back_port, bool)
+            or not isinstance(self.connect_back_port, int)
+            or not 0 < self.connect_back_port < 65536
+        ):
+            self.connect_back_port = 0
 
     def refresh_from_pair_request(
         self,
@@ -265,7 +277,8 @@ class IdentityView(DashboardModel):
     the listener is back up" from "rotation succeeded but the
     rebuild fail-softed" (port now bound by something else,
     cert load throws). The latter is silent in the logs
-    without this flag.
+    without this flag. It can be true while the Build-server
+    toggle is off — the connect-back-only bind.
 
     ``listener_host`` / ``listener_addresses`` / ``listener_port``
     are the mDNS-advertised pairing address: host ``None`` without

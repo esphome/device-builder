@@ -293,6 +293,7 @@ class DeviceBuilder:
         # its mDNS advertise. Owns the bound runner and the lifecycle
         # lock; driven through its public methods below.
         self._remote_build_lifecycle = RemoteBuildLifecycle(self)
+        self._unsub_pair_status_changed: Callable[[], None] | None = None
 
     @property
     def dashboard_advertiser(self) -> DashboardAdvertiser | None:
@@ -310,6 +311,11 @@ class DeviceBuilder:
         return self._remote_build_lifecycle.listener_port
 
     @property
+    def remote_build_receiver_role_active(self) -> bool:
+        """True while the bound peer-link listener serves receiver intents."""
+        return self._remote_build_lifecycle.receiver_role_active
+
+    @property
     def remote_build_listener_host(self) -> str | None:
         """The mDNS-advertised hostname peers dial, or ``None`` without an advertiser."""
         advertiser = self._dashboard_advertiser
@@ -322,12 +328,28 @@ class DeviceBuilder:
         return advertiser.addresses if advertiser is not None else []
 
     async def apply_remote_build_enabled(self) -> bool:
-        """Converge the peer-link listener to the on-disk ``enabled`` flag."""
-        return await self._remote_build_lifecycle.apply_enabled()
+        """Converge the peer-link listener to the current bind policy."""
+        return await self._remote_build_lifecycle.converge()
 
     async def reload_remote_build_identity(self) -> bool:
         """Rebuild the peer-link listener after an X25519 identity rotation."""
         return await self._remote_build_lifecycle.reload_identity()
+
+    def _on_offloader_pair_status_changed(self, _event: Event[Any]) -> None:
+        """Re-converge the peer-link listener on an approved-pairing transition."""
+        self.create_background_task(self._remote_build_lifecycle.converge())
+
+    async def _finish_remote_build_startup(self) -> None:
+        """
+        Converge the listener once pairings are loaded; track pairing transitions.
+
+        Picks up the connect-back-only bind (approved pairings,
+        Build server off) the pre-offloader ``maybe_start`` can't see.
+        """
+        await self._remote_build_lifecycle.converge()
+        self._unsub_pair_status_changed = self.bus.add_listener(
+            EventType.OFFLOADER_PAIR_STATUS_CHANGED, self._on_offloader_pair_status_changed
+        )
 
     def invalidate_editor_cache(self) -> None:
         """Drop the editor's validate cache after a config-dir write; no-op pre-start."""
@@ -558,6 +580,7 @@ class DeviceBuilder:
         # ``subscribe_events`` snapshot sees them; the mDNS browse
         # itself starts in the background task below.
         await self.remote_build_offloader.start()
+        await self._finish_remote_build_startup()
         self._mark_startup_phase("remote_build")
 
         # ``async_register_service`` awaits its ~1.2s probe cycle, and
@@ -612,6 +635,9 @@ class DeviceBuilder:
             # An expiring regen retry would schedule into the drained set.
             self.devices.state.regen.cancel_all_retry_timers()
         await drain_tasks(self._background_tasks)
+        if self._unsub_pair_status_changed is not None:
+            self._unsub_pair_status_changed()
+            self._unsub_pair_status_changed = None
         # Tear down the remote-build listener (if it was bound)
         # before the controller it depends on. Order matters less
         # here than for zeroconf, but doing it first keeps the

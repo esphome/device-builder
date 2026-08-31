@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Hashable
 from dataclasses import dataclass, field
 
+from ...helpers.cooldown import CooldownLedger
 from ...models import RemoteBuildSettings, StoredPeer
 from .artifacts_download import ArtifactsDownloadSender
 from .env_provisioner import EnvProvisioner
@@ -55,6 +56,13 @@ class ReceiverState:
     # disk is just persistence.
     approved_peers: dict[str, StoredPeer] = field(default_factory=dict)
     peer_link_sessions: dict[str, PeerLinkSession] = field(default_factory=dict)
+
+    # Connect-back dial state keyed on ``dashboard_id``: monotonic
+    # last-inbound-contact stamps, in-flight dial tasks, retry
+    # cooldowns. RAM only.
+    connect_back_last_contact: dict[str, float] = field(default_factory=dict)
+    connect_back_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
+    connect_back_cooldowns: CooldownLedger[str] = field(default_factory=CooldownLedger)
 
     # Receiver-side handlers; constructed in
     # :meth:`ReceiverController.start` once the firmware

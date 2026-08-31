@@ -20,6 +20,7 @@ points.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import time
 from collections.abc import Iterator
@@ -29,13 +30,16 @@ from typing import TYPE_CHECKING
 from ...helpers.hostname import normalize_hostname
 from ...models import (
     EventType,
+    IntentResponse,
     OffloaderPairEndpointReboundData,
     PeerStatus,
+    RejectReason,
     RemoteBuildPeer,
     StoredPairing,
 )
 from ._mdns import endpoints_equal
 from ._models import RebindProbeOutcome, RebindProbeResult
+from .pair_flow import IntentOutcome
 from .peer_link_client import PeerLinkClientError
 from .peer_link_client import preview_pair as peer_link_preview_pair
 
@@ -217,6 +221,75 @@ async def probe_and_rebind_endpoint(
             return
         await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
         _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
+
+
+async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / probe outcome
+    controller: OffloaderController,
+    *,
+    pin_sha256: str,
+    peer_ip: str,
+    announced_port: int,
+) -> IntentOutcome:
+    """
+    Handle a receiver's ``connect_back`` announce: probe, then rebind on match.
+
+    Candidate endpoint is the reverse connection's source IP + the
+    announced port; never persisted without a successful forward
+    probe. A live forward link or an in-flight probe refuses it.
+    """
+    pairing = controller.state.pairings.get(pin_sha256)
+    if pairing is None or pairing.status is not PeerStatus.APPROVED:
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
+    if not 0 < announced_port < 65536 or not _is_ip_literal(peer_ip):
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.BAD_ENDPOINT)
+    if controller.state.offloader_peer_link_priv is None:
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
+    if pin_sha256 in controller.state.open_peer_links:
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.ALREADY_CONNECTED)
+    now = time.monotonic()
+    if controller.state.rebind_probe_until.get(pin_sha256, 0.0) > now:
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.REBIND_IN_PROGRESS)
+    controller.state.rebind_probe_until[pin_sha256] = now + _REBIND_PROBE_COOLDOWN_SECONDS
+    with _clear_cooldown_on_unexpected_exit(controller, pin_sha256):
+        result = await controller._probe_pairing_endpoint(
+            pairing=pairing, new_hostname=peer_ip, new_port=announced_port
+        )
+        if result.outcome is RebindProbeOutcome.UNREACHABLE:
+            _LOGGER.debug(
+                "connect-back probe %s -> %s:%d failed (unreachable / handshake error)",
+                pin_sha256,
+                peer_ip,
+                announced_port,
+                exc_info=result.transport_error,
+            )
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
+        if result.outcome is RebindProbeOutcome.PIN_MISMATCH:
+            _LOGGER.warning(
+                "connect-back probe %s -> %s:%d observed pin %s; ignoring (spoof or rotation)",
+                pin_sha256,
+                peer_ip,
+                announced_port,
+                result.observed_pin,
+            )
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
+        if result.outcome is not RebindProbeOutcome.OK:
+            # PAIRING_REPLACED / STATUS_CHANGED — the row moved on
+            # mid-probe; the receiver should stop dialing.
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
+        await controller._commit_endpoint_rebind(pairing, hostname=peer_ip, port=announced_port)
+        _LOGGER.info(
+            "connect-back rebound pairing %s to %s:%d", pin_sha256, peer_ip, announced_port
+        )
+        return IntentOutcome(IntentResponse.OK)
+
+
+def _is_ip_literal(value: str) -> bool:
+    """Return True when *value* parses as an IPv4 / IPv6 address."""
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
 
 
 @contextmanager

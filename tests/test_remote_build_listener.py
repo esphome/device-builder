@@ -1132,3 +1132,97 @@ async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
     finally:
         if db._remote_build_lifecycle._runner is not None:
             await db._remote_build_lifecycle._runner.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Connect-back-only bind: approved pairings hold the listener open with the
+# Build-server role off; receiver-role advertise stays cleared.
+# ---------------------------------------------------------------------------
+
+
+def _connect_back_only_db(tmp_path: Path, *, has_pairings: bool = True) -> DeviceBuilder:
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    offloader = MagicMock()
+    offloader.has_approved_pairings.return_value = has_pairings
+    db.remote_build_offloader = offloader
+    advertiser = MagicMock()
+    advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = advertiser
+    return db
+
+
+async def test_connect_back_only_binds_with_pairings_and_receiver_disabled(
+    tmp_path: Path,
+) -> None:
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    try:
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        assert db.remote_build_receiver_role_active is False
+        # No pairable TXT in connect-back-only mode.
+        db._dashboard_advertiser.set_pin_sha256.assert_not_called()
+        db._dashboard_advertiser.set_remote_build_port.assert_not_called()
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_connect_back_only_tears_down_when_last_pairing_removed(tmp_path: Path) -> None:
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    try:
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        db.remote_build_offloader.has_approved_pairings.return_value = False
+        bound = await db.apply_remote_build_enabled()
+        assert bound is False
+        assert db._remote_build_lifecycle._runner is None
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_converge_rebuilds_listener_on_role_flip(tmp_path: Path) -> None:
+    loop = asyncio.get_running_loop()
+
+    def _write(enabled: bool) -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = enabled
+
+    await loop.run_in_executor(None, _write, False)
+    db = _connect_back_only_db(tmp_path)
+    try:
+        await db._remote_build_lifecycle.maybe_start()
+        assert db.remote_build_receiver_role_active is False
+        first_runner = db._remote_build_lifecycle._runner
+
+        await loop.run_in_executor(None, _write, True)
+        bound = await db.apply_remote_build_enabled()
+        assert bound is True
+        assert db.remote_build_receiver_role_active is True
+        assert db._remote_build_lifecycle._runner is not first_runner
+        # Receiver role advertises pin + port.
+        assert db._dashboard_advertiser.set_pin_sha256.call_args.args[0] is not None
+        assert db._dashboard_advertiser.set_remote_build_port.call_args.args[0] is not None
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()

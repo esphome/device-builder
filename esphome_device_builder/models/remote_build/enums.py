@@ -50,12 +50,15 @@ class PeerLinkIntent(StrEnum):
       session for an APPROVED peer.
     * ``PAIR_STATUS`` — informational poll for a previously-
       submitted pair_request's current state.
+    * ``CONNECT_BACK`` — receiver-initiated announce of its
+      peer-link endpoint to a paired offloader; one-shot.
     """
 
     PREVIEW = "preview"
     PAIR_REQUEST = "pair_request"
     PEER_LINK = "peer_link"
     PAIR_STATUS = "pair_status"
+    CONNECT_BACK = "connect_back"
 
 
 class IntentResponse(StrEnum):
@@ -96,6 +99,9 @@ class RejectReason(StrEnum):
     ``BAD_DASHBOARD_ID`` / ``BAD_INTENT`` are protocol refusals
     surfaced for diagnostics. Self-describing responses
     (``NO_PAIRING_WINDOW``) carry no reason.
+    ``BAD_ENDPOINT`` / ``ALREADY_CONNECTED`` /
+    ``REBIND_IN_PROGRESS`` / ``PROBE_FAILED`` are ``connect_back``
+    refusals mapped onto the receiver's retry backoff.
     """
 
     NO_APPROVED_PEER = "no_approved_peer"
@@ -103,3 +109,7 @@ class RejectReason(StrEnum):
     PENDING_NOT_APPROVED = "pending_not_approved"
     BAD_DASHBOARD_ID = "bad_dashboard_id"
     BAD_INTENT = "bad_intent"
+    BAD_ENDPOINT = "bad_endpoint"
+    ALREADY_CONNECTED = "already_connected"
+    REBIND_IN_PROGRESS = "rebind_in_progress"
+    PROBE_FAILED = "probe_failed"

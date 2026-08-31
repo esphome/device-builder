@@ -55,6 +55,16 @@ def _display_identity_getter(controller: OffloaderController) -> Callable[[], tu
     return _get
 
 
+def _connect_back_port_getter(controller: OffloaderController) -> Callable[[], int | None]:
+    """Return a lazy reader for our bound peer-link listener port."""
+
+    def _get() -> int | None:
+        port = controller._db.remote_build_listener_port
+        return port if isinstance(port, int) and not isinstance(port, bool) else None
+
+    return _get
+
+
 def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairing) -> None:
     """Spawn the long-lived peer-link client for *pairing*.
 
@@ -96,6 +106,7 @@ def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairi
         # inner sync ``Zeroconf``, not the ``AsyncZeroconf`` wrapper.
         get_zeroconf=_zeroconf_getter(controller),
         get_display_identity=_display_identity_getter(controller),
+        get_connect_back_port=_connect_back_port_getter(controller),
     )
     task = asyncio.create_task(
         client.run(),

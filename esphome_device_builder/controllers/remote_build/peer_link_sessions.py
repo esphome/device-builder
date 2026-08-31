@@ -15,6 +15,7 @@ from ...models import (
     ReceiverPeerLinkSessionOpenedData,
     StoredPeer,
 )
+from . import connect_back
 from .peer_crud import PEERS_SAVE_DELAY_SECONDS
 from .peer_link import PeerLinkSession, TerminateReason
 
@@ -101,6 +102,7 @@ async def register_peer_link_session(
     controller.state.peer_link_sessions[session.dashboard_id] = session
     if existing is not None and existing is not session:
         await existing.terminate(TerminateReason.SUPERSEDED)
+    connect_back.on_session_registered(controller, session.dashboard_id)
     peer = _refresh_peer_display_identity(controller, session)
     if controller._db.firmware is not None:
         try:
@@ -138,11 +140,12 @@ def _refresh_peer_display_identity(
     controller: ReceiverController, session: PeerLinkSession
 ) -> StoredPeer | None:
     """
-    Refresh the APPROVED row's display identity from the session's msg3.
+    Refresh the APPROVED row's identity + routing fields from the session.
 
-    ``friendly_name`` only overwrites with a non-empty value so an
-    older offloader can't clobber a captured name; ``ha_addon``
-    tracks the wire. A change schedules the debounced peers save.
+    ``friendly_name`` / ``peer_ip`` / ``connect_back_port`` only
+    overwrite with a non-empty / non-zero value so an older
+    offloader can't clobber a captured one; ``ha_addon`` tracks
+    the wire. A change schedules the debounced peers save.
     Returns the row (post-refresh) or ``None`` when the registry
     has no APPROVED entry.
     """
@@ -155,6 +158,12 @@ def _refresh_peer_display_identity(
         changed = True
     if session.peer_ha_addon != peer.ha_addon:
         peer.ha_addon = session.peer_ha_addon
+        changed = True
+    if session.peer_ip and session.peer_ip != peer.peer_ip:
+        peer.peer_ip = session.peer_ip
+        changed = True
+    if session.peer_connect_back_port and session.peer_connect_back_port != peer.connect_back_port:
+        peer.connect_back_port = session.peer_connect_back_port
         changed = True
     if changed:
         controller._peers_store.async_delay_save(
@@ -177,6 +186,7 @@ def unregister_peer_link_session(controller: ReceiverController, session: PeerLi
     """
     if controller.state.peer_link_sessions.get(session.dashboard_id) is session:
         del controller.state.peer_link_sessions[session.dashboard_id]
+        connect_back.on_session_unregistered(controller, session.dashboard_id)
         # Drop any in-flight ``submit_job`` upload state so a
         # bundle reception that was mid-stream when the
         # session ended doesn't outlive the session that owns

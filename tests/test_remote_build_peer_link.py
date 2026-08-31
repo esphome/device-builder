@@ -1742,6 +1742,8 @@ async def test_register_peer_link_session_refreshes_peer_display_identity(
         session.dashboard_id = "alpha"
         session.peer_friendly_name = friendly
         session.peer_ha_addon = ha_addon
+        session.peer_ip = "192.168.1.10"
+        session.peer_connect_back_port = 0
         session.send_app_frame = AsyncMock(return_value=True)
         return session
 
