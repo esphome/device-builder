@@ -14,6 +14,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
+from esphome_device_builder._remote_build_lifecycle import RemoteBuildLifecycle
 from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import (
     ReceiverController,
@@ -21,8 +22,12 @@ from esphome_device_builder.controllers.remote_build import (
 from esphome_device_builder.controllers.remote_build import (
     connect_back as rb_connect_back,
 )
+from esphome_device_builder.controllers.remote_build import pair_status as rb_pair_status
 from esphome_device_builder.controllers.remote_build import rebind as rb_rebind
-from esphome_device_builder.controllers.remote_build._client_models import InitiatorRoundTrip
+from esphome_device_builder.controllers.remote_build._client_models import (
+    InitiatorRoundTrip,
+    PairStatusResult,
+)
 from esphome_device_builder.controllers.remote_build._models import (
     RebindProbeOutcome,
     RebindProbeResult,
@@ -39,6 +44,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PeerLinkClientError,
 )
 from esphome_device_builder.helpers import json as _json
+from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.peer_link_noise import (
     PeerLinkNoiseSession,
@@ -46,6 +52,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
     public_bytes_for_priv,
 )
 from esphome_device_builder.models import (
+    EventType,
     IntentResponse,
     PeerLinkIntent,
     PeerStatus,
@@ -725,3 +732,58 @@ async def test_escalate_jitter_stays_under_cap(tmp_path: Path) -> None:
         rb_connect_back._escalate(receiver, "alpha")
         remaining = receiver.state.connect_back_cooldowns.remaining("alpha")
         assert remaining <= rb_connect_back._CONNECT_BACK_RETRY_CAP_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Listener converges before the first dial on every approve path
+# ---------------------------------------------------------------------------
+
+
+async def test_pair_status_approve_converges_before_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, pairing = _offloader_with_pairing(tmp_path, status=PeerStatus.PENDING)
+    order: list[str] = []
+    controller.offloader._db.apply_remote_build_enabled = AsyncMock(
+        side_effect=lambda: order.append("converge")
+    )
+    monkeypatch.setattr(
+        controller.offloader, "_spawn_peer_link_client", lambda _p: order.append("spawn")
+    )
+    controller.offloader._db.bus = MagicMock()
+
+    done = await rb_pair_status.apply_pair_status_result(
+        controller.offloader,
+        pairing,
+        PairStatusResult(status=IntentResponse.APPROVED, pin_sha256=PIN),
+    )
+    assert done is True
+    assert pairing.status is PeerStatus.APPROVED
+    assert order == ["converge", "spawn"]
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [EventType.OFFLOADER_PAIR_STATUS_CHANGED, EventType.OFFLOADER_PAIRING_ADDED],
+)
+async def test_pairing_transition_events_trigger_converge(event_type: EventType) -> None:
+    """Both transition events re-converge; shutdown unsubscribes."""
+    db = MagicMock()
+    db.bus = EventBus()
+    db.loop = asyncio.get_running_loop()
+    db.create_background_task = asyncio.create_task
+    lifecycle = RemoteBuildLifecycle(db)
+    converge = AsyncMock()
+    lifecycle.converge = converge  # type: ignore[method-assign]
+
+    lifecycle.track_pairing_transitions()
+    db.bus.fire(event_type, {})
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert converge.await_count == 1
+
+    await lifecycle.shutdown()
+    db.bus.fire(event_type, {})
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert converge.await_count == 1

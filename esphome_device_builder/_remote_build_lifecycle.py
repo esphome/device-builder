@@ -81,9 +81,9 @@ class RemoteBuildLifecycle:
         # True while the bound listener serves receiver intents
         # (pair / peer_link); False on a connect-back-only bind.
         self._receiver_role_active = False
-        # Unsubscribe for the approved-pairing-transition listener
-        # installed by :meth:`converge_and_track`.
-        self._unsub_pair_status_changed: Callable[[], None] | None = None
+        # Unsubscribes for the pairing-transition listeners
+        # installed by :meth:`track_pairing_transitions`.
+        self._unsub_pairing_transitions: list[Callable[[], None]] = []
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -294,14 +294,25 @@ class RemoteBuildLifecycle:
             return self._runner is not None
 
     def track_pairing_transitions(self) -> None:
-        """Re-converge the listener on every approved-pairing transition; idempotent."""
-        if self._unsub_pair_status_changed is None:
-            self._unsub_pair_status_changed = self._db.bus.add_listener(
-                EventType.OFFLOADER_PAIR_STATUS_CHANGED, self._on_pair_status_changed
-            )
+        """Re-converge the listener on every pairing transition; idempotent.
 
-    def _on_pair_status_changed(self, _event: Event[Any]) -> None:
-        """Re-converge the listener on an approved-pairing transition."""
+        Both events matter: ``OFFLOADER_PAIR_STATUS_CHANGED``
+        carries approve / remove flips of known rows,
+        ``OFFLOADER_PAIRING_ADDED`` the create-as-APPROVED re-pair
+        that never flips.
+        """
+        if self._unsub_pairing_transitions:
+            return
+        self._unsub_pairing_transitions = [
+            self._db.bus.add_listener(event_type, self._on_pairing_transition)
+            for event_type in (
+                EventType.OFFLOADER_PAIR_STATUS_CHANGED,
+                EventType.OFFLOADER_PAIRING_ADDED,
+            )
+        ]
+
+    def _on_pairing_transition(self, _event: Event[Any]) -> None:
+        """Re-converge the listener on a pairing transition."""
         self._db.create_background_task(self.converge())
 
     async def reload_identity(self) -> bool:
@@ -342,9 +353,9 @@ class RemoteBuildLifecycle:
         immediately after, so a TXT-only clear would be wasted work
         racing the unregister.
         """
-        if self._unsub_pair_status_changed is not None:
-            self._unsub_pair_status_changed()
-            self._unsub_pair_status_changed = None
+        for unsub in self._unsub_pairing_transitions:
+            unsub()
+        self._unsub_pairing_transitions = []
         async with self._get_lock():
             if self._runner is None:
                 return

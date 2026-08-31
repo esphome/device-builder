@@ -268,6 +268,9 @@ async def request_pair(
     controller._dismiss_offloader_alert(key, clean_host, clean_port)
     if target_status is PeerStatus.APPROVED:
         controller._schedule_pairings_save()
+        # Converge the listener before the first dial so msg3
+        # already announces ``connect_back_port``.
+        await controller._db.apply_remote_build_enabled()
         controller._spawn_peer_link_client(pairing)
     else:
         controller._spawn_pair_status_listener(pairing)
