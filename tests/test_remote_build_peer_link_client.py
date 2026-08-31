@@ -77,10 +77,12 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     preview_pair,
     request_pair,
 )
+from esphome_device_builder.controllers.remote_build.peer_link_client._wake import (
+    _mdns_record_name,
+)
 from esphome_device_builder.controllers.remote_build.peer_link_client.client import (
     _LOCAL_CLOSE_AUTH_REJECTED,
     _LOCAL_CLOSE_RECEIVER_REJECTED,
-    _mdns_record_name,
 )
 from esphome_device_builder.controllers.remote_build.peer_link_lifecycle import (
     spawn_peer_link_client,
