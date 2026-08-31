@@ -317,8 +317,18 @@ class RemoteBuildLifecycle:
 
     def _on_pairing_transition(self, _event: Event[Any]) -> None:
         """Re-converge the listener on a pairing transition."""
-        task = self._db.create_background_task(self.converge())
+        task = self._db.create_background_task(self._converge_and_warn())
         task.add_done_callback(partial(log_task_exit, "remote-build converge"))
+
+    async def _converge_and_warn(self) -> None:
+        """Converge; warn when the listener stays unbound with approved pairings."""
+        bound = await self.converge()
+        offloader = self._db.remote_build_offloader
+        if not bound and offloader is not None and offloader.has_approved_pairings():
+            _LOGGER.warning(
+                "peer-link listener not bound after pairing transition; "
+                "connect-back recovery unavailable until it binds"
+            )
 
     async def reload_identity(self) -> bool:
         """

@@ -132,7 +132,19 @@ async def _dial_peer(
             timeout_seconds=_CONNECT_BACK_DIAL_TIMEOUT_SECONDS,
             expected_pin_sha256=peer.pin_sha256,
         )
-    except (PeerLinkClientError, PeerLinkPinMismatchError) as exc:
+    except PeerLinkPinMismatchError as exc:
+        # A different static key answers at the last-known endpoint —
+        # spoof, hijack, or offloader key rotation.
+        _LOGGER.warning(
+            "connect-back dial to %s: static key mismatch at %s:%d: %s",
+            dashboard_id,
+            peer.peer_ip,
+            peer.connect_back_port,
+            exc,
+        )
+        _escalate(controller, dashboard_id)
+        return
+    except PeerLinkClientError as exc:
         _LOGGER.debug("connect-back dial to %s failed: %s", dashboard_id, exc)
         _escalate(controller, dashboard_id)
         return
@@ -154,15 +166,24 @@ def _apply_reply(
         state.connect_back_last_contact[dashboard_id] = time.monotonic()
         return
     reason = round_trip.response.get("reason")
-    _LOGGER.debug("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
     if reason == RejectReason.REBIND_IN_PROGRESS.value:
+        _LOGGER.debug("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
         state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_SHORT_RETRY_SECONDS)
         return
-    if reason in (RejectReason.ALREADY_CONNECTED.value, RejectReason.PROBE_FAILED.value):
+    if reason == RejectReason.ALREADY_CONNECTED.value:
+        _LOGGER.debug("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
+        _escalate(controller, dashboard_id)
+        return
+    if reason == RejectReason.PROBE_FAILED.value:
+        # The offloader could not verify us back — asymmetric
+        # reachability; automatic recovery can't complete.
+        _LOGGER.warning("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
         _escalate(controller, dashboard_id)
         return
     # bad_intent (older offloader) / no_approved_peer / bad_endpoint
-    # / unknown — won't recover this process lifetime; park at cap.
+    # / unknown — unlikely to recover soon; park at cap and keep
+    # retrying so a later re-pair or upgrade still self-heals.
+    _LOGGER.warning("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
     state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_RETRY_CAP_SECONDS)
 
 

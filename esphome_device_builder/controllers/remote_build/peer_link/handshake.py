@@ -254,8 +254,10 @@ async def _dispatch_intent(  # noqa: PLR0911 — one return per intent branch
     """
     if inp.intent is PeerLinkIntent.CONNECT_BACK:
         if offloader is None:
-            _LOGGER.warning("connect_back from %s with no offloader wired; rejecting", inp.peer_ip)
-            return IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
+            # A local wiring bug, not a peering answer — PROBE_FAILED
+            # keeps the dialing receiver on the retryable backoff.
+            _LOGGER.error("connect_back from %s with no offloader wired; rejecting", inp.peer_ip)
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
         return await offloader._handle_connect_back(
             pin_sha256=inp.pin_sha256,
             peer_ip=inp.peer_ip,

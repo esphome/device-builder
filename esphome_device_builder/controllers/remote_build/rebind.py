@@ -102,18 +102,21 @@ async def commit_endpoint_rebind(
     Clears the per-pin probe cooldown — a successful rebind
     means the next mDNS Updated should probe immediately.
     Caller owns the probe + identity verify; no checks here.
+    The rebound event fires only when the endpoint actually
+    changed; an unchanged commit still saves and respawns.
     """
+    changed = not endpoints_equal(pairing.receiver_hostname, pairing.receiver_port, hostname, port)
     pairing.receiver_hostname = hostname
     pairing.receiver_port = port
     controller._schedule_pairings_save()
-    await _respawn_peer_link_at_new_endpoint(controller, pairing)
+    await _respawn_peer_link_at_new_endpoint(controller, pairing, fire_rebound=changed)
     controller.state.rebind_probe_until.pop(pairing.pin_sha256, None)
 
 
 async def _respawn_peer_link_at_new_endpoint(
-    controller: OffloaderController, pairing: StoredPairing
+    controller: OffloaderController, pairing: StoredPairing, *, fire_rebound: bool
 ) -> None:
-    """Cancel + respawn the peer-link client and fire the rebind event.
+    """Cancel + respawn the peer-link client; fire the rebind event when asked.
 
     Awaits the old client's teardown first (see
     :func:`peer_link_lifecycle.cancel_peer_link_client_and_wait`). The
@@ -121,12 +124,13 @@ async def _respawn_peer_link_at_new_endpoint(
     """
     await controller._cancel_peer_link_client_and_wait(pairing.pin_sha256)
     controller._spawn_peer_link_client(pairing)
-    _fire_offloader_pair_endpoint_rebound(
-        controller,
-        pin_sha256=pairing.pin_sha256,
-        receiver_hostname=pairing.receiver_hostname,
-        receiver_port=pairing.receiver_port,
-    )
+    if fire_rebound:
+        _fire_offloader_pair_endpoint_rebound(
+            controller,
+            pin_sha256=pairing.pin_sha256,
+            receiver_hostname=pairing.receiver_hostname,
+            receiver_port=pairing.receiver_port,
+        )
 
 
 def maybe_schedule_rebind_probe(controller: OffloaderController, peer: RemoteBuildPeer) -> None:

@@ -598,7 +598,9 @@ async def test_rebind_respawn_awaits_old_client_before_spawn(tmp_path: Path) -> 
         old_task.done()
     )
 
-    await rb_rebind._respawn_peer_link_at_new_endpoint(controller.offloader, pairing)
+    await rb_rebind._respawn_peer_link_at_new_endpoint(
+        controller.offloader, pairing, fire_rebound=True
+    )
 
     assert old_done_at_spawn == [True]
     assert old_task.cancelled()
