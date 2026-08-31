@@ -281,5 +281,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-T3E-ESP32-S3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-T3E-ESP32-S3/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 02fc8a2b1b66bf0bed74214bfffaf7a652e146d0d56ec8e43973250fea6186fd

@@ -58,5 +58,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-PC189HA-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-PC189HA-Plug/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: c84fb83b83d5af834ae48f956deb70a4017520d3e98459e42114f8acfe253f16

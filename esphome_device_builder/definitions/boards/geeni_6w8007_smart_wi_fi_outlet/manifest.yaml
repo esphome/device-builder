@@ -91,5 +91,5 @@ source:
   type: esphome-devices
   remote_id: Geeni-6W8007-Smart-Wi-Fi-Outlet
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 88c58f1bc97409ef8ecdb492b44e9c64ab3fcf25c1171561a6c3b2837d3cea5c

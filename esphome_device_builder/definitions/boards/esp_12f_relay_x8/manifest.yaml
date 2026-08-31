@@ -120,5 +120,5 @@ source:
   type: esphome-devices
   remote_id: ESP-12F-Relay-X8
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP-12F-Relay-X8/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 89f7ad4ee95b07037594153379b206e5592e765559416e4e0ca75b4724fec2a5

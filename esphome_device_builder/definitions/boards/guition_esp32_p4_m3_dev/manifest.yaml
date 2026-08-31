@@ -55,5 +55,5 @@ source:
   type: esphome-devices
   remote_id: Guition-ESP32-P4-M3-Dev
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Guition-ESP32-P4-M3-Dev/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 060bd95535fb0b0572cf92d3882c34636b45f597097fd4f54500e7e3bfd63869

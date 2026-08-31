@@ -43,5 +43,5 @@ source:
   type: esphome-devices
   remote_id: WiOn-50050-Indoor-WiFi-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/WiOn-50050-Indoor-WiFi-Plug/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: f59fbeebec0b1cc6a7b0c4c950942e961f69555ef0272c69b634f647193a5d4a

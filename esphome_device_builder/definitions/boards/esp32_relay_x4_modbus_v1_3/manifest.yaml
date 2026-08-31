@@ -154,5 +154,5 @@ source:
   type: esphome-devices
   remote_id: ESP32_Relay_X4_Modbus_v1.3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32_Relay_X4_Modbus_v1.3/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 0e7cd50afc8de2f88a3558a9e0eabc5979acc876af52e6c862e11138138fc53a

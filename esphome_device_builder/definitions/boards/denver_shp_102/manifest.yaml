@@ -101,5 +101,5 @@ source:
   type: esphome-devices
   remote_id: Denver-SHP-102
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Denver-SHP-102/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 45d8ffd7b9e9b7c8023b7ff7313a1a4a23f60d02a9316cd63232e9daae9be08b

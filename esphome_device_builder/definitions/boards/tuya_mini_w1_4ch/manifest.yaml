@@ -190,5 +190,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Mini-W1-4CH
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Mini-W1-4CH/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 087e7156a3f13907b339f4f3c0144e65c27a671ca191e30b25f27c86f71360c7

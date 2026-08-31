@@ -186,5 +186,5 @@ source:
   type: esphome-devices
   remote_id: M5Stack-M5StickC-PLUS2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-M5StickC-PLUS2/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 6f1fcd1ba1bc92f794b370c4b5f4982381d1f8428305767f314b0b87b3cf3a68

@@ -90,5 +90,5 @@ source:
   type: esphome-devices
   remote_id: Aubess-Mini-Smart-Switch-CB2S-V-2022
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 9bf660a416cda83d9bed050e4fee4b58bb124aa73c7c0b9409e66d71458612d5
