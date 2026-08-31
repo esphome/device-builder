@@ -132,6 +132,7 @@ async def _dial_peer(
             timeout_seconds=_CONNECT_BACK_DIAL_TIMEOUT_SECONDS,
             expected_pin_sha256=peer.pin_sha256,
         )
+        _apply_reply(controller, dashboard_id, round_trip)
     except PeerLinkPinMismatchError as exc:
         # A different static key answers at the last-known endpoint —
         # spoof, hijack, or offloader key rotation.
@@ -151,8 +152,6 @@ async def _dial_peer(
     except Exception:
         _LOGGER.exception("connect-back dial to %s failed unexpectedly", dashboard_id)
         _escalate(controller, dashboard_id)
-        return
-    _apply_reply(controller, dashboard_id, round_trip)
 
 
 def _apply_reply(

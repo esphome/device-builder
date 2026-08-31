@@ -23,6 +23,9 @@ from esphome_device_builder.controllers.remote_build import (
     connect_back as rb_connect_back,
 )
 from esphome_device_builder.controllers.remote_build import pair_status as rb_pair_status
+from esphome_device_builder.controllers.remote_build import (
+    peer_link_lifecycle as rb_peer_link_lifecycle,
+)
 from esphome_device_builder.controllers.remote_build import rebind as rb_rebind
 from esphome_device_builder.controllers.remote_build._client_models import (
     InitiatorRoundTrip,
@@ -879,3 +882,28 @@ async def test_dial_pin_mismatch_warns(
         await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
     assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
     assert any("static key mismatch" in record.message for record in caplog.records)
+
+
+async def test_apply_reply_error_escalates_instead_of_hot_looping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, peer = _receiver_ready_to_dial(tmp_path)
+    receiver = controller.receiver
+    monkeypatch.setattr(
+        rb_connect_back,
+        "drive_initiator_round_trip",
+        AsyncMock(return_value=_round_trip("ok")),
+    )
+    monkeypatch.setattr(
+        rb_connect_back, "_apply_reply", MagicMock(side_effect=RuntimeError("boom"))
+    )
+    await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
+    assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
+
+
+async def test_converge_helper_is_fail_soft(tmp_path: Path) -> None:
+    controller, _ = _offloader_with_pairing(tmp_path)
+    controller.offloader._db.apply_remote_build_enabled = AsyncMock(
+        side_effect=RuntimeError("boom")
+    )
+    await rb_peer_link_lifecycle.converge_listener_for_connect_back(controller.offloader)

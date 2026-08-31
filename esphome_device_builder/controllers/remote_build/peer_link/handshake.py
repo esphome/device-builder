@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
@@ -45,6 +45,13 @@ if TYPE_CHECKING:
     from ..receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _log_malformed_msg3_ports(peer_ip: str, msg3: dict[str, Any]) -> None:
+    """Debug-log msg3 port fields that are present but fail validation."""
+    for key in ("connect_back_port", "peer_link_port"):
+        if key in msg3 and port_or_zero(msg3[key]) == 0:
+            _LOGGER.debug("peer-link msg3 from %s carried malformed %s %r", peer_ip, key, msg3[key])
 
 
 class _HandshakeStep(StrEnum):
@@ -157,6 +164,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     label_auto = _bool_or_false(msg3.get("label_auto"))
     connect_back_port = port_or_zero(msg3.get("connect_back_port"))
     announced_peer_link_port = port_or_zero(msg3.get("peer_link_port"))
+    _log_malformed_msg3_ports(peer_ip, msg3)
 
     outcome = await _dispatch_intent(
         controller,

@@ -68,8 +68,13 @@ def _connect_back_port_getter(controller: OffloaderController) -> Callable[[], i
 
 
 async def converge_listener_for_connect_back(controller: OffloaderController) -> None:
-    """Converge the peer-link listener before a client dial; warn when it stays unbound."""
-    bound = await controller._db.apply_remote_build_enabled()
+    """Converge the peer-link listener before a client dial; fail-soft, never raises."""
+    try:
+        bound = await controller._db.apply_remote_build_enabled()
+    except Exception:
+        # Listener trouble must never block the forward client spawn.
+        _LOGGER.exception("peer-link listener converge failed")
+        bound = False
     if not bound and controller.has_approved_pairings():
         _LOGGER.warning(
             "peer-link listener not bound; connect-back recovery unavailable until it binds"
