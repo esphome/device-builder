@@ -177,9 +177,9 @@ def test_mixed_field_splits_into_gated_twins() -> None:
     assert required_twin["required"] is True
     assert required_twin["advanced"] is False
     assert required_twin["depends_on"] == "model"
-    assert required_twin["depends_on_value_any"] == ["A"]
+    assert required_twin["depends_on_value_any"] == ["a", "A"]
     assert optional_twin["required"] is False
-    assert optional_twin["depends_on_value_any"] == ["B", "C"]
+    assert optional_twin["depends_on_value_any"] == ["b", "B", "c", "C"]
     # Varying defaults are scrubbed on the optional twin too.
     assert optional_twin["default_value"] is None
     # Deep copies: mutating one twin's subtree must not leak into the other.
@@ -242,7 +242,7 @@ def test_field_absent_from_some_models_is_gated_to_carriers() -> None:
     _apply_model_variance(entries, variance, "display.fake")
     (init,) = [e for e in entries if e["key"] == "init_sequence"]
     assert init["depends_on"] == "model"
-    assert init["depends_on_value_any"] == ["B"]
+    assert init["depends_on_value_any"] == ["b", "B"]
     assert init["required"] is False
 
 
@@ -330,6 +330,15 @@ def test_live_epaper_spi_variance() -> None:
     assert dc_required == {True, False}
     assert dimensions_required == {True, False}
     assert not _UNHANDLED_MODEL_DRIVEN
+
+
+def test_live_mipi_spi_dc_pin_never_required() -> None:
+    loader = _get_esphome_loader()
+    assert loader is not None
+    manifest = loader.get_platform("display", "mipi_spi")
+    variance = _collect_model_variance(manifest, "display.mipi_spi")
+    assert variance is not None
+    assert not any(f.required for f in variance.fields["dc_pin"].values())
 
 
 def test_live_detection_scope() -> None:

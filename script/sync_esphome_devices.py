@@ -1124,12 +1124,30 @@ def _extract_fields(
 def _config_entries_by_key(
     component: dict[str, Any], item: dict[str, Any]
 ) -> dict[str, dict[str, Any]]:
-    """Map *component*'s config entries by key, keeping only gate-active entries for *item*."""
-    return {
-        ce["key"]: ce
-        for ce in component.get("config_entries") or []
-        if isinstance(ce.get("key"), str) and _entry_gate_active(ce, item)
-    }
+    """
+    Map *component*'s config entries by key, preferring the entry whose gate *item* satisfies.
+
+    A key whose every entry is gate-inactive (an unmatched discriminator
+    spelling, a templated value) falls back to its last entry.
+    """
+    all_by_key: dict[str, dict[str, Any]] = {}
+    active: dict[str, dict[str, Any]] = {}
+    for ce in component.get("config_entries") or []:
+        key = ce.get("key")
+        if not isinstance(key, str):
+            continue
+        all_by_key[key] = ce
+        if _entry_gate_active(ce, item):
+            active[key] = ce
+    for key, ce in all_by_key.items():
+        if key not in active:
+            _LOGGER.info(
+                "No %r gate on %r matched the item; falling back to its last entry",
+                ce.get("depends_on"),
+                key,
+            )
+            active[key] = ce
+    return active
 
 
 def _entry_gate_active(entry: dict[str, Any], fields: dict[str, Any]) -> bool:
@@ -1927,7 +1945,7 @@ def _materialize_hubs(
         fields = _extract_fields(block, hub_component, hub_occ, component_cid)
         if fields is None:
             continue
-        if driver and not _required_pin_keys(hub_component) <= fields.keys():
+        if driver and not _required_pin_keys(hub_component, block) <= fields.keys():
             # A required pin didn't parse (lambda / reference): skip the hub and
             # leave ``requires`` unstamped so the dep banner covers it, rather than
             # ship a pinless hub that compiles into an invalid config.
@@ -1957,12 +1975,15 @@ def _materialize_hubs(
     return state.extra, state.occupancy
 
 
-def _required_pin_keys(component: dict[str, Any]) -> set[str]:
-    """Keys of the component's required ``type: "pin"`` config entries."""
+def _required_pin_keys(component: dict[str, Any], item: dict[str, Any]) -> set[str]:
+    """Keys of the component's required ``type: "pin"`` entries whose gate *item* satisfies."""
     return {
         ce["key"]
         for ce in component.get("config_entries") or []
-        if ce.get("type") == "pin" and ce.get("required") and isinstance(ce.get("key"), str)
+        if ce.get("type") == "pin"
+        and ce.get("required")
+        and isinstance(ce.get("key"), str)
+        and _entry_gate_active(ce, item)
     }
 
 

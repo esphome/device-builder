@@ -125,6 +125,22 @@ def test_model_gated_required_twin_drives_the_guard() -> None:
     assert "dimensions" not in featured[0]["fields"]
 
 
+def test_unmatched_model_gate_falls_back_to_last_entry() -> None:
+    """A discriminator spelling matching no gate falls back to the key's last entry."""
+    inline = {
+        "display": [
+            {
+                "platform": "epaper_spi",
+                "model": "Ssd1683",
+                "dimensions": {"width": 128, "height": 296},
+            }
+        ]
+    }
+    featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
+    assert len(featured) == 1
+    assert "dimensions" in featured[0]["fields"]
+
+
 def test_dropped_candidate_records_no_occupancy() -> None:
     """A dropped entry's already-coerced pins never pollute the pins block."""
     inline = {"display": [_display_item(dimensions={"width": "${w}", "height": 480})]}

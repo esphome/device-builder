@@ -65,7 +65,7 @@ async def test_epaper_spi_required_fields_are_model_gated(catalog: ComponentCata
         for entry in entries:
             assert entry.depends_on == "model"
             assert entry.depends_on_value_any
-            values = set(entry.depends_on_value_any)
+            values = {str(v).upper() for v in entry.depends_on_value_any}
             assert values <= model_values
             assert not values & gated
             gated |= values

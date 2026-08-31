@@ -7433,8 +7433,13 @@ def _apply_field_model_variance(
         if required or not keep_default:
             twin["default_value"] = None
         if gated:
+            # esphome model values are case-insensitive; ship the lowercase
+            # spelling configs write beside the canonical one (as
+            # ``_esp32_variant_gate`` does for variants).
             twin["depends_on"] = "model"
-            twin["depends_on_value_any"] = gate
+            twin["depends_on_value_any"] = list(
+                dict.fromkeys(v for m in gate for v in (m.lower(), m))
+            )
         twins.append(twin)
     entries[index : index + 1] = twins
 
