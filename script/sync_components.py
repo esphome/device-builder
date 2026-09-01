@@ -7461,11 +7461,9 @@ def _apply_field_model_variance(
 
 def _case_widened_gate_values(values: Iterable[str]) -> list[str]:
     """*values* plus their lowercase spellings, order-preserving, deduped."""
-    # esphome enum values are case-insensitive; gates ship the lowercase
-    # spelling configs write beside the canonical one. Gate matching stays
-    # deliberately exact everywhere (typed discriminators are case-sensitive
-    # upstream); a spelling outside these two falls through to esphome
-    # validation at compile.
+    # esphome enums are case-insensitive; ship the lowercase spelling beside
+    # the canonical one. Gate matching stays exact; other spellings fall
+    # through to esphome validation.
     return list(dict.fromkeys(v for value in values for v in (value.lower(), value)))
 
 
