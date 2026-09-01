@@ -60,6 +60,7 @@ from esphome_device_builder.helpers.channel_colors import (  # noqa: E402
     fold_channel_colors_value,
 )
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
+from esphome_device_builder.helpers.entry_gates import entry_gate_active  # noqa: E402
 from script._board_import import (  # noqa: E402
     ESP32_VARIANT_DEFAULT_BOARD,
     build_esphome_block,
@@ -1074,6 +1075,7 @@ def _extract_fields(
     component: dict[str, Any],
     gpio_occupancy: dict[int, str],
     component_id: str,
+    valid_keys: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """
     Lift hardware-fixed fields out of an inline platform-list item.
@@ -1091,7 +1093,8 @@ def _extract_fields(
     rather than emit a preset that would compile but not run — or, for
     a lost required field, not even compile.
     """
-    valid_keys = _config_entries_by_key(component, inline_item)
+    if valid_keys is None:
+        valid_keys = _config_entries_by_key(component, inline_item, component_id)
     item = _fold_channel_colors_item(inline_item, valid_keys, component_id)
     if item is None:
         return None
@@ -1122,48 +1125,47 @@ def _extract_fields(
 
 
 def _config_entries_by_key(
-    component: dict[str, Any], item: dict[str, Any]
+    component: dict[str, Any], item: dict[str, Any], component_id: str
 ) -> dict[str, dict[str, Any]]:
     """
     Map *component*'s config entries by key, preferring the entry whose gate *item* satisfies.
 
     A discriminator absent from *item* takes its catalog default before gates
     are read. A key whose every entry is gate-inactive is omitted when the
-    discriminator names another recognised variant, and otherwise (an
+    discriminator holds another of its option values, and otherwise (an
     unmatched spelling, a templated value) fails closed: its required entry
     when one exists, else its last entry.
     """
     by_key: dict[str, list[dict[str, Any]]] = {}
-    known_gate_values: dict[str, list[Any]] = {}
     for ce in component.get("config_entries") or []:
-        if not isinstance(ce.get("key"), str):
-            continue
-        by_key.setdefault(ce["key"], []).append(ce)
-        if gate_key := ce.get("depends_on"):
-            values = known_gate_values.setdefault(gate_key, [])
-            values.extend(ce.get("depends_on_value_any") or [])
-            for field in ("depends_on_value", "depends_on_value_not"):
-                if (value := ce.get(field)) is not None:
-                    values.append(value)
-    defaults = {
-        key: group[0]["default_value"]
-        for key, group in by_key.items()
-        if len(group) == 1 and group[0].get("default_value") is not None
-    }
-    effective = {**defaults, **item}
+        if isinstance(ce.get("key"), str):
+            by_key.setdefault(ce["key"], []).append(ce)
+
+    def discriminator(gate_key: str) -> dict[str, Any]:
+        group = by_key.get(gate_key) or []
+        return group[0] if len(group) == 1 else {}
+
+    effective = dict(item)
+    for gate_key in {ce.get("depends_on") for group in by_key.values() for ce in group} - {None}:
+        default = discriminator(gate_key).get("default_value")
+        if gate_key not in effective and default is not None:
+            effective[gate_key] = default
+
     out: dict[str, dict[str, Any]] = {}
     for key, group in by_key.items():
         chosen = next((ce for ce in group if _entry_gate_active(ce, effective)), None)
         if chosen is None:
-            if all(
-                effective.get(ce["depends_on"]) in known_gate_values.get(ce["depends_on"], [])
-                for ce in group
-            ):
+            gate_key = group[0]["depends_on"]  # nothing matched, so every entry is gated
+            options = discriminator(gate_key).get("options") or []
+            if effective.get(gate_key) in [o["value"] for o in options]:
                 continue
             chosen = next((ce for ce in group if ce.get("required")), group[-1])
             _LOGGER.warning(
-                "No gate on %r matched the item; falling back to its %s entry",
+                "%s: no %r gate on %r matched %r; falling back to its %s entry",
+                component_id,
+                gate_key,
                 key,
+                effective.get(gate_key),
                 "required" if chosen.get("required") else "last",
             )
         out[key] = chosen
@@ -1172,17 +1174,13 @@ def _config_entries_by_key(
 
 def _entry_gate_active(entry: dict[str, Any], fields: dict[str, Any]) -> bool:
     """Whether *entry*'s ``depends_on`` value gate is satisfied by *fields*."""
-    gate_key = entry.get("depends_on")
-    if not gate_key:
-        return True
-    dep = fields.get(gate_key)
-    if (value := entry.get("depends_on_value")) is not None:
-        return dep == value
-    if (value := entry.get("depends_on_value_not")) is not None:
-        return dep != value
-    if (values := entry.get("depends_on_value_any")) is not None:
-        return dep in values
-    return True
+    return entry_gate_active(
+        fields,
+        depends_on=entry.get("depends_on"),
+        depends_on_value=entry.get("depends_on_value"),
+        depends_on_value_not=entry.get("depends_on_value_not"),
+        depends_on_value_any=entry.get("depends_on_value_any"),
+    )
 
 
 def _fold_channel_colors_item(
@@ -1962,10 +1960,11 @@ def _materialize_hubs(
         # placeholder field part-way through the block must not leave those pins
         # marked occupied for a hub we then drop.
         hub_occ: dict[int, str] = {}
-        fields = _extract_fields(block, hub_component, hub_occ, component_cid)
+        valid_keys = _config_entries_by_key(hub_component, block, component_cid)
+        fields = _extract_fields(block, hub_component, hub_occ, component_cid, valid_keys)
         if fields is None:
             continue
-        if driver and not _required_pin_keys(hub_component, block) <= fields.keys():
+        if driver and not _required_pin_keys(valid_keys) <= fields.keys():
             # A required pin didn't parse (lambda / reference): skip the hub and
             # leave ``requires`` unstamped so the dep banner covers it, rather than
             # ship a pinless hub that compiles into an invalid config.
@@ -1995,13 +1994,9 @@ def _materialize_hubs(
     return state.extra, state.occupancy
 
 
-def _required_pin_keys(component: dict[str, Any], item: dict[str, Any]) -> set[str]:
-    """Keys of the required ``type: "pin"`` entries *item*'s discriminators select."""
-    return {
-        key
-        for key, ce in _config_entries_by_key(component, item).items()
-        if ce.get("type") == "pin" and ce.get("required")
-    }
+def _required_pin_keys(valid_keys: dict[str, dict[str, Any]]) -> set[str]:
+    """Keys of *valid_keys*' required ``type: "pin"`` entries."""
+    return {key for key, ce in valid_keys.items() if ce.get("type") == "pin" and ce.get("required")}
 
 
 def _is_driver_hub(component: dict[str, Any]) -> bool:

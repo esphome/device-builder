@@ -7,11 +7,13 @@ upstream reshapes of the extractor closure.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from types import SimpleNamespace
 
 import esphome.config_validation as cv
 import pytest
 import voluptuous as vol
+from esphome.components import mipi
 from esphome.components.mipi import model_schema_extractor
 
 from script.sync_components import (  # type: ignore[import-not-found]
@@ -33,39 +35,41 @@ def _clean_model_driven_canary() -> Iterator[None]:
     _UNHANDLED_MODEL_DRIVEN.clear()
 
 
-class _FakeManifest:
-    """Minimal manifest stub — only ``config_schema`` is read."""
-
-    def __init__(self, schema: object) -> None:
-        self.config_schema = schema
+def _manifest(schema: object) -> SimpleNamespace:
+    return SimpleNamespace(config_schema=schema)
 
 
-def _extracted_schema():
-    """Build a two-model CONFIG_SCHEMA decorated by the real mipi extractor."""
-    models = {"A": None, "B": None}
+def _extracted(
+    model_schema: Callable[[dict], object],
+    *,
+    models: tuple[str, ...] = ("A",),
+    extra: dict | None = None,
+) -> Callable[[dict], object]:
+    """Wrap *model_schema* with the real mipi extractor for *models*."""
 
-    def model_schema(config: dict) -> cv.Schema:
-        if config["model"] == "A":
-            return cv.Schema(
-                {
-                    cv.Required("dc_pin"): cv.string,
-                    cv.Optional("width", default=10): cv.int_,
-                    cv.GenerateID(): cv.declare_id(int),
-                }
-            )
-        return cv.Schema(
-            {
-                cv.Optional("dc_pin", default=5): cv.string,
-                cv.Optional("width", default=10): cv.int_,
-                cv.Optional("b_only"): cv.string,
-            }
-        )
-
-    @model_schema_extractor(models, model_schema)
+    @model_schema_extractor(dict.fromkeys(models), model_schema, extra=extra)
     def config_schema(config):
-        return model_schema(config)(config)
+        return config
 
     return config_schema
+
+
+def _two_model_schema(config: dict) -> cv.Schema:
+    if config["model"] == "A":
+        return cv.Schema(
+            {
+                cv.Required("dc_pin"): cv.string,
+                cv.Optional("width", default=10): cv.int_,
+                cv.GenerateID(): cv.declare_id(int),
+            }
+        )
+    return cv.Schema(
+        {
+            cv.Optional("dc_pin", default=5): cv.string,
+            cv.Optional("width", default=10): cv.int_,
+            cv.Optional("b_only"): cv.string,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +78,9 @@ def _extracted_schema():
 
 
 def test_collect_reads_per_model_facts() -> None:
-    variance = _collect_model_variance(_FakeManifest(_extracted_schema()), "display.fake")
+    variance = _collect_model_variance(
+        _manifest(_extracted(_two_model_schema, models=("A", "B"))), "display.fake"
+    )
     assert variance is not None
     assert variance.models == ("A", "B")
     dc = variance.fields["dc_pin"]
@@ -91,17 +97,13 @@ def test_collect_reads_per_model_facts() -> None:
 
 def test_collect_passes_extra_through() -> None:
     seen: list[dict] = []
-    models = {"A": None}
 
     def model_schema(config: dict) -> cv.Schema:
         seen.append(dict(config))
         return cv.Schema({})
 
-    @model_schema_extractor(models, model_schema, extra={"bus_mode": "single"})
-    def config_schema(config):
-        return config
-
-    variance = _collect_model_variance(_FakeManifest(config_schema), "display.fake")
+    schema = _extracted(model_schema, extra={"bus_mode": "single"})
+    variance = _collect_model_variance(_manifest(schema), "display.fake")
     assert variance is not None
     assert seen == [{"model": "A", "bus_mode": "single"}]
 
@@ -110,9 +112,9 @@ def test_collect_ignores_plain_schemas() -> None:
     def plain(config):
         return config
 
-    assert _collect_model_variance(_FakeManifest(plain), "x") is None
-    assert _collect_model_variance(_FakeManifest(cv.Schema({})), "x") is None
-    assert _collect_model_variance(_FakeManifest(None), "x") is None
+    assert _collect_model_variance(_manifest(plain), "x") is None
+    assert _collect_model_variance(_manifest(cv.Schema({})), "x") is None
+    assert _collect_model_variance(_manifest(None), "x") is None
     assert not _UNHANDLED_MODEL_DRIVEN
 
 
@@ -125,7 +127,7 @@ def test_unknown_model_driven_closure_fails_loudly() -> None:
     def impostor(config):
         return model_schema({**config, "models": models})
 
-    assert _collect_model_variance(_FakeManifest(impostor), "display.impostor") is None
+    assert _collect_model_variance(_manifest(impostor), "display.impostor") is None
     assert "display.impostor" in _UNHANDLED_MODEL_DRIVEN
     with pytest.raises(SystemExit, match=r"display\.impostor"):
         _fail_on_unhandled_model_driven()
@@ -134,9 +136,9 @@ def test_unknown_model_driven_closure_fails_loudly() -> None:
 def test_unknown_mipi_defined_closure_hits_canary() -> None:
     namespace: dict[str, object] = {}
     source = "def config_schema(config):\n    return config\n"
-    exec(compile(source, "/x/esphome/components/mipi/__init__.py", "exec"), namespace)  # noqa: S102
+    exec(compile(source, mipi.__file__, "exec"), namespace)  # noqa: S102
     schema = namespace["config_schema"]
-    assert _collect_model_variance(_FakeManifest(schema), "display.renamed") is None
+    assert _collect_model_variance(_manifest(schema), "display.renamed") is None
     assert "display.renamed" in _UNHANDLED_MODEL_DRIVEN
 
 
@@ -284,30 +286,16 @@ def test_pre_gated_field_fails_loudly() -> None:
 
 
 def test_unresolvable_model_schema_fails_loudly() -> None:
-    models = {"A": None}
-
-    def model_schema(config: dict):
-        return object()
-
-    @model_schema_extractor(models, model_schema)
-    def config_schema(config):
-        return config
-
     with pytest.raises(SystemExit, match=r"model 'A'"):
-        _collect_model_variance(_FakeManifest(config_schema), "display.fake")
+        _collect_model_variance(_manifest(_extracted(lambda config: object())), "display.fake")
 
 
 def test_literal_marker_default_is_recorded() -> None:
-    models = {"A": None}
     schema = cv.Schema({cv.Optional("x"): cv.string})
     marker = next(iter(schema.schema))
     marker.default = 7
 
-    @model_schema_extractor(models, lambda config: schema)
-    def config_schema(config):
-        return config
-
-    variance = _collect_model_variance(_FakeManifest(config_schema), "display.fake")
+    variance = _collect_model_variance(_manifest(_extracted(lambda config: schema)), "display.fake")
     assert variance is not None
     assert variance.fields["x"]["A"].default == 7
 
@@ -326,11 +314,15 @@ def test_model_enum_mismatch_fails_loudly() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_live_epaper_spi_variance() -> None:
+def _live_variance(platform: str) -> ModelVariance | None:
     loader = _get_esphome_loader()
     assert loader is not None
-    manifest = loader.get_platform("display", "epaper_spi")
-    variance = _collect_model_variance(manifest, "display.epaper_spi")
+    manifest = loader.get_platform("display", platform)
+    return _collect_model_variance(manifest, f"display.{platform}")
+
+
+def test_live_epaper_spi_variance() -> None:
+    variance = _live_variance("epaper_spi")
     assert variance is not None
     cs = variance.fields["cs_pin"]
     assert not any(f.required for f in cs.values())
@@ -341,21 +333,12 @@ def test_live_epaper_spi_variance() -> None:
     assert not _UNHANDLED_MODEL_DRIVEN
 
 
-def test_live_mipi_spi_dc_pin_never_required() -> None:
-    loader = _get_esphome_loader()
-    assert loader is not None
-    manifest = loader.get_platform("display", "mipi_spi")
-    variance = _collect_model_variance(manifest, "display.mipi_spi")
-    assert variance is not None
-    assert not any(f.required for f in variance.fields["dc_pin"].values())
-
-
 def test_live_detection_scope() -> None:
-    loader = _get_esphome_loader()
-    assert loader is not None
-    for platform in ("epaper_spi", "mipi_spi", "mipi_dsi", "mipi_rgb"):
-        manifest = loader.get_platform("display", platform)
-        assert _collect_model_variance(manifest, f"display.{platform}") is not None
-    ssd1306 = loader.get_platform("display", "ssd1306_spi")
-    assert _collect_model_variance(ssd1306, "display.ssd1306_spi") is None
+    for platform in ("epaper_spi", "mipi_dsi", "mipi_rgb"):
+        assert _live_variance(platform) is not None
+    mipi_spi = _live_variance("mipi_spi")
+    assert mipi_spi is not None
+    # Quad AMOLED panels have no DC pin; no model may require one.
+    assert not any(f.required for f in mipi_spi.fields["dc_pin"].values())
+    assert _live_variance("ssd1306_spi") is None
     assert not _UNHANDLED_MODEL_DRIVEN

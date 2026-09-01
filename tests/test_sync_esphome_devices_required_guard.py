@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
+    _config_entries_by_key,
     _extract_bus_deps,
     _extract_featured_components,
     _required_pin_keys,
@@ -108,60 +111,42 @@ def test_unrepresentable_optional_field_keeps_candidate() -> None:
     assert fields["cs_pin"] == {"value": 39, "locked": True}
 
 
-def test_model_gated_required_twin_drives_the_guard() -> None:
-    """The item's `model` selects which gated twin's requiredness the drop guard reads."""
-    bad_dimensions = {"width": "${w}", "height": 128}
-    inline = {
-        "display": [{"platform": "epaper_spi", "model": "SSD1683", "dimensions": bad_dimensions}]
-    }
-    featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
-    assert featured == []
-    inline = {
-        "display": [
-            {"platform": "epaper_spi", "model": "INKPLATE6COLOR", "dimensions": bad_dimensions}
-        ]
-    }
-    featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
-    assert len(featured) == 1
-    assert "dimensions" not in featured[0]["fields"]
+def _epaper_item(**overrides: Any) -> dict[str, Any]:
+    item: dict[str, Any] = {"platform": "epaper_spi", "model": "SSD1683"}
+    item.update(overrides)
+    return item
 
 
-def test_unmatched_model_gate_prefers_required_twin() -> None:
-    """A discriminator spelling matching no gate falls back to the key's required entry."""
-    inline = {
-        "display": [
-            {
-                "platform": "epaper_spi",
-                "model": "Ssd1683",
-                "dimensions": {"width": 128, "height": 296},
-            }
-        ]
-    }
+@pytest.mark.parametrize(
+    ("model", "dimensions", "kept"),
+    [
+        pytest.param("SSD1683", {"width": "${w}", "height": 128}, False, id="required-gate"),
+        pytest.param("INKPLATE6COLOR", {"width": "${w}", "height": 128}, True, id="optional-gate"),
+        pytest.param("Ssd1683", {"width": 128, "height": 296}, True, id="unmatched-spelling"),
+        pytest.param("Ssd1683", {"width": "${w}", "height": 296}, False, id="unmatched-closed"),
+    ],
+)
+def test_model_gate_drives_the_drop_guard(model: str, dimensions: dict, kept: bool) -> None:
+    """The item's `model` picks the twin the guard reads; unmatched spellings fail closed."""
+    inline = {"display": [_epaper_item(model=model, dimensions=dimensions)]}
     featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
-    assert len(featured) == 1
-    assert "dimensions" in featured[0]["fields"]
-
-
-def test_unmatched_model_gate_fails_closed() -> None:
-    """The required-twin fallback keeps the drop guard armed for unmatched spellings."""
-    inline = {
-        "display": [
-            {
-                "platform": "epaper_spi",
-                "model": "Ssd1683",
-                "dimensions": {"width": "${w}", "height": 296},
-            }
-        ]
-    }
-    featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
-    assert featured == []
+    assert bool(featured) is kept
 
 
 def test_defaulted_discriminator_activates_its_gate() -> None:
     """An omitted discriminator takes its catalog default before gates are read."""
     component = {
         "config_entries": [
-            {"key": "type", "type": "string", "default_value": "gpio"},
+            {
+                "key": "type",
+                "type": "string",
+                "default_value": "gpio",
+                "options": [
+                    {"label": "GPIO", "value": "gpio"},
+                    {"label": "SPI", "value": "spi"},
+                    {"label": "Ungated", "value": "bare"},
+                ],
+            },
             {
                 "key": "data_pin",
                 "type": "pin",
@@ -169,19 +154,18 @@ def test_defaulted_discriminator_activates_its_gate() -> None:
                 "depends_on": "type",
                 "depends_on_value_any": ["gpio"],
             },
-            {
-                "key": "spi_id",
-                "type": "id",
-                "required": True,
-                "depends_on": "type",
-                "depends_on_value_any": ["spi"],
-            },
         ],
     }
-    assert _required_pin_keys(component, {}) == {"data_pin"}
-    # A recognised sibling variant excludes the key; an unknown spelling fails closed.
-    assert _required_pin_keys(component, {"type": "spi"}) == set()
-    assert _required_pin_keys(component, {"type": "Gpio"}) == {"data_pin"}
+
+    def required_pins(item: dict[str, Any]) -> set[str]:
+        return _required_pin_keys(_config_entries_by_key(component, item, "x"))
+
+    assert required_pins({}) == {"data_pin"}
+    # A recognised variant excludes the key, whether or not it gates anything
+    # itself; an unknown spelling fails closed.
+    assert required_pins({"type": "spi"}) == set()
+    assert required_pins({"type": "bare"}) == set()
+    assert required_pins({"type": "Gpio"}) == {"data_pin"}
 
 
 def test_dropped_candidate_records_no_occupancy() -> None:
