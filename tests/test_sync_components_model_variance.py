@@ -13,8 +13,6 @@ from types import SimpleNamespace
 import esphome.config_validation as cv
 import pytest
 import voluptuous as vol
-from esphome.components import mipi
-from esphome.components.mipi import model_schema_extractor
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _UNHANDLED_MODEL_DRIVEN,
@@ -25,6 +23,9 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _fail_on_unhandled_model_driven,
     _get_esphome_loader,
 )
+
+mipi = pytest.importorskip("esphome.components.mipi")
+model_schema_extractor = mipi.model_schema_extractor
 
 
 @pytest.fixture(autouse=True)
@@ -196,6 +197,22 @@ def test_mixed_field_splits_into_gated_twins() -> None:
     # Deep copies: mutating one twin's subtree must not leak into the other.
     required_twin["config_entries"][0]["key"] = "mutated"
     assert optional_twin["config_entries"][0]["key"] == "number"
+
+
+def test_discriminator_marker_is_skipped() -> None:
+    entries = [_model_entry("A", "B")]
+    variance = ModelVariance(
+        ("A", "B"),
+        {
+            "model": {
+                "A": ModelField(required=True, default=vol.UNDEFINED),
+                "B": ModelField(required=True, default=vol.UNDEFINED),
+            }
+        },
+    )
+    _apply_model_variance(entries, variance, "display.fake")
+    (model,) = entries
+    assert model["depends_on"] is None
 
 
 def test_never_required_field_is_demoted() -> None:

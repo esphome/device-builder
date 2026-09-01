@@ -6786,9 +6786,15 @@ def _mipi_extractor_identity() -> tuple[CodeType, str] | None:
     """Return the extractor wrapper's code object + the mipi package file, None without esphome."""
     try:
         from esphome.components import mipi
-    except Exception:
+    except ImportError:
         return None
-    wrapper = mipi.model_schema_extractor({}, lambda config: {})(lambda config: config)
+    try:
+        wrapper = mipi.model_schema_extractor({}, lambda config: {})(lambda config: config)
+    except Exception as err:
+        raise SystemExit(
+            f"model_schema_extractor rejected the identity probe ({err}); "
+            "update _mipi_extractor_identity for the new signature."
+        ) from err
     return wrapper.__code__, mipi.__file__
 
 
@@ -7400,6 +7406,9 @@ def _apply_model_variance(
             "esphome disagree on the model enum."
         )
     for key, per_model in variance.fields.items():
+        if key == variance.model_key:
+            # The discriminator's own marker; a gate on itself would be circular.
+            continue
         index = next((i for i, e in enumerate(entries) if e["key"] == key), None)
         if index is None:
             # Model-specific extras absent from the representative dump have
