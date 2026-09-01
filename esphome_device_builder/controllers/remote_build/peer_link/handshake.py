@@ -47,10 +47,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _log_malformed_msg3_ports(peer_ip: str, msg3: dict[str, Any]) -> None:
-    """Debug-log msg3 port fields that are present but fail validation."""
-    for key in ("connect_back_port", "peer_link_port"):
-        if key in msg3 and port_or_zero(msg3[key]) == 0:
+def _log_malformed_msg3_ports(peer_ip: str, msg3: dict[str, Any], parsed: dict[str, int]) -> None:
+    """Debug-log msg3 port fields that are present but failed validation."""
+    for key, value in parsed.items():
+        if value == 0 and key in msg3:
             _LOGGER.debug("peer-link msg3 from %s carried malformed %s %r", peer_ip, key, msg3[key])
 
 
@@ -164,7 +164,11 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     label_auto = _bool_or_false(msg3.get("label_auto"))
     connect_back_port = port_or_zero(msg3.get("connect_back_port"))
     announced_peer_link_port = port_or_zero(msg3.get("peer_link_port"))
-    _log_malformed_msg3_ports(peer_ip, msg3)
+    _log_malformed_msg3_ports(
+        peer_ip,
+        msg3,
+        {"connect_back_port": connect_back_port, "peer_link_port": announced_peer_link_port},
+    )
 
     outcome = await _dispatch_intent(
         controller,

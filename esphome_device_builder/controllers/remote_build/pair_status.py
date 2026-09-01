@@ -194,8 +194,6 @@ async def apply_pair_status_result(
         existing.status = PeerStatus.APPROVED
         controller._schedule_pairings_save()
         controller._fire_offloader_pair_status_changed(host, port, key, "approved")
-        # Converge the listener before the first dial so msg3
-        # already announces ``connect_back_port``.
         await peer_link_lifecycle.converge_listener_for_connect_back(controller)
         controller._spawn_peer_link_client(existing)
         return True

@@ -64,6 +64,8 @@ class _ListenerPolicy(NamedTuple):
 
     bind: bool
     receiver_role: bool
+    # Approved pairings want the listener for connect-back dials.
+    offloader_needs: bool
     # Receiver role held only by --remote-build-only overriding a
     # persisted enabled=False; drives the one info log.
     forced_by_cli: bool
@@ -92,6 +94,9 @@ class RemoteBuildLifecycle:
         # Single-flight timer for the paced re-converge after a
         # fail-soft bind; ``None`` when no retry is pending.
         self._converge_retry_handle: asyncio.TimerHandle | None = None
+        # True after the once-per-outage connect-back warning fired;
+        # cleared when a converge ends bound (or bind unwanted).
+        self._bind_failure_warned = False
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -174,8 +179,10 @@ class RemoteBuildLifecycle:
         offloader = self._db.remote_build_offloader
         offloader_needs = offloader is not None and offloader.has_approved_pairings()
         return _ListenerPolicy(
-            bind=receiver_role or offloader_needs,
+            # Binding needs the receiver controller; teardown doesn't.
+            bind=(receiver_role or offloader_needs) and self._db.remote_build_receiver is not None,
             receiver_role=receiver_role,
+            offloader_needs=offloader_needs,
             forced_by_cli=settings.remote_build_only and not rb_settings.enabled,
         )
 
@@ -287,8 +294,8 @@ class RemoteBuildLifecycle:
         flip on a bound listener (Build server toggled while
         pairings exist) tears down and rebuilds so the handler's
         intent gate and the TXT advertise match the new role. A
-        bind that fail-softs re-arms a paced retry so a transient
-        port conflict self-heals without a restart.
+        bind that fail-softs warns once per outage and re-arms a
+        paced retry.
 
         Returns whether the listener is bound after this call.
         """
@@ -298,16 +305,21 @@ class RemoteBuildLifecycle:
             policy = await self._compute_policy()
             if not policy.bind:
                 await self._teardown_runner()
-            elif self._db.remote_build_receiver is None:
-                # Binding needs the receiver controller; teardown doesn't.
-                pass
             elif self._runner is None:
                 await self._start_listener(policy)
             elif policy.receiver_role != self._receiver_role_active:
                 await self._teardown_runner()
                 await self._start_listener(policy)
             if policy.bind and self._runner is None:
+                if policy.offloader_needs and not self._bind_failure_warned:
+                    self._bind_failure_warned = True
+                    _LOGGER.warning(
+                        "peer-link listener not bound; connect-back recovery "
+                        "unavailable until it binds"
+                    )
                 self._schedule_converge_retry()
+            else:
+                self._bind_failure_warned = False
             return self._runner is not None
 
     def _schedule_converge_retry(self) -> None:
@@ -321,41 +333,31 @@ class RemoteBuildLifecycle:
     def _run_converge_retry(self) -> None:
         """Timer body: clear the slot and re-converge in the background."""
         self._converge_retry_handle = None
+        self._spawn_converge("remote-build converge retry")
+
+    def _spawn_converge(self, label: str) -> None:
+        """Run a converge as a crash-logged background task."""
         task = self._db.create_background_task(self.converge())
-        task.add_done_callback(partial(log_task_exit, "remote-build converge retry"))
+        task.add_done_callback(partial(log_task_exit, label))
 
     def track_pairing_transitions(self) -> None:
-        """Re-converge the listener on every pairing transition; idempotent.
+        """Re-converge the listener on every pairing status flip; idempotent.
 
-        Both events matter: ``OFFLOADER_PAIR_STATUS_CHANGED``
-        carries approve / remove flips of known rows,
-        ``OFFLOADER_PAIRING_ADDED`` the create-as-APPROVED re-pair
-        that never flips.
+        The approve paths also converge inline (the first msg3 must
+        announce ``connect_back_port``); this listener owns the
+        teardown direction.
         """
         if self._unsub_pairing_transitions:
             return
         self._unsub_pairing_transitions = [
-            self._db.bus.add_listener(event_type, self._on_pairing_transition)
-            for event_type in (
-                EventType.OFFLOADER_PAIR_STATUS_CHANGED,
-                EventType.OFFLOADER_PAIRING_ADDED,
+            self._db.bus.add_listener(
+                EventType.OFFLOADER_PAIR_STATUS_CHANGED, self._on_pairing_transition
             )
         ]
 
     def _on_pairing_transition(self, _event: Event[Any]) -> None:
         """Re-converge the listener on a pairing transition."""
-        task = self._db.create_background_task(self._converge_and_warn())
-        task.add_done_callback(partial(log_task_exit, "remote-build converge"))
-
-    async def _converge_and_warn(self) -> None:
-        """Converge; warn when the listener stays unbound with approved pairings."""
-        bound = await self.converge()
-        offloader = self._db.remote_build_offloader
-        if not bound and offloader is not None and offloader.has_approved_pairings():
-            _LOGGER.warning(
-                "peer-link listener not bound after pairing transition; "
-                "connect-back recovery unavailable until it binds"
-            )
+        self._spawn_converge("remote-build converge")
 
     async def reload_identity(self) -> bool:
         """

@@ -46,11 +46,8 @@ _CONNECT_BACK_WARN_AFTER_STRIKES = 5
 
 def on_session_registered(controller: ReceiverController, dashboard_id: str) -> None:
     """Reset *dashboard_id*'s quiet clock; cancel its in-flight dial and cooldown."""
-    state = controller.state
-    state.connect_back_last_contact[dashboard_id] = time.monotonic()
-    if (task := state.connect_back_tasks.pop(dashboard_id, None)) is not None:
-        task.cancel()
-    state.connect_back_cooldowns.discard(dashboard_id)
+    _cancel_dial(controller, dashboard_id)
+    controller.state.connect_back_last_contact[dashboard_id] = time.monotonic()
 
 
 def on_session_unregistered(controller: ReceiverController, dashboard_id: str) -> None:
@@ -61,11 +58,8 @@ def on_session_unregistered(controller: ReceiverController, dashboard_id: str) -
 
 def on_peer_removed(controller: ReceiverController, dashboard_id: str) -> None:
     """Cancel any in-flight dial and drop *dashboard_id*'s connect-back state."""
-    state = controller.state
-    if (task := state.connect_back_tasks.pop(dashboard_id, None)) is not None:
-        task.cancel()
-    state.connect_back_last_contact.pop(dashboard_id, None)
-    state.connect_back_cooldowns.discard(dashboard_id)
+    _cancel_dial(controller, dashboard_id)
+    controller.state.connect_back_last_contact.pop(dashboard_id, None)
 
 
 def clear_state(controller: ReceiverController) -> None:
@@ -148,22 +142,9 @@ async def _dial_peer(
             exc,
         )
         _escalate(controller, dashboard_id)
-        return
     except PeerLinkClientError as exc:
+        _LOGGER.debug("connect-back dial to %s failed: %s", dashboard_id, exc)
         _escalate(controller, dashboard_id)
-        strikes = controller.state.connect_back_cooldowns.strikes(dashboard_id)
-        if strikes == _CONNECT_BACK_WARN_AFTER_STRIKES:
-            # One warning per failure streak, at the point the
-            # backoff saturates the cap.
-            _LOGGER.warning(
-                "connect-back to %s keeps failing (%d attempts); retrying hourly: %s",
-                dashboard_id,
-                strikes,
-                exc,
-            )
-        else:
-            _LOGGER.debug("connect-back dial to %s failed: %s", dashboard_id, exc)
-        return
     except Exception:
         _LOGGER.exception("connect-back dial to %s failed unexpectedly", dashboard_id)
         _escalate(controller, dashboard_id)
@@ -180,30 +161,33 @@ def _apply_reply(
         state.connect_back_last_contact[dashboard_id] = time.monotonic()
         return
     reason = round_trip.response.get("reason")
+    expected_race = reason in (
+        RejectReason.REBIND_IN_PROGRESS.value,
+        RejectReason.ALREADY_CONNECTED.value,
+    )
+    _LOGGER.log(
+        logging.DEBUG if expected_race else logging.WARNING,
+        "connect-back announce refused by %s (reason=%s)",
+        dashboard_id,
+        reason,
+    )
     if reason == RejectReason.REBIND_IN_PROGRESS.value:
-        _LOGGER.debug("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
         state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_SHORT_RETRY_SECONDS)
-        return
-    if reason == RejectReason.ALREADY_CONNECTED.value:
-        _LOGGER.debug("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
+    elif reason in (RejectReason.ALREADY_CONNECTED.value, RejectReason.PROBE_FAILED.value):
+        # probe_failed: the offloader could not verify us back —
+        # asymmetric reachability; automatic recovery can't complete.
         _escalate(controller, dashboard_id)
-        return
-    if reason == RejectReason.PROBE_FAILED.value:
-        # The offloader could not verify us back — asymmetric
-        # reachability; automatic recovery can't complete.
-        _LOGGER.warning("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
-        _escalate(controller, dashboard_id)
-        return
-    # bad_intent (older offloader) / no_approved_peer / bad_endpoint
-    # / unknown — unlikely to recover soon; park at cap and keep
-    # retrying so a later re-pair or upgrade still self-heals.
-    _LOGGER.warning("connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
-    state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_RETRY_CAP_SECONDS)
+    else:
+        # bad_intent (older offloader) / no_approved_peer /
+        # bad_endpoint / unknown — unlikely to recover soon; park at
+        # cap and keep retrying so a later re-pair still self-heals.
+        state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_RETRY_CAP_SECONDS)
 
 
 def _escalate(controller: ReceiverController, dashboard_id: str) -> None:
-    """Escalate *dashboard_id*'s retry cooldown with jittered exponential backoff."""
-    controller.state.connect_back_cooldowns.escalate(
+    """Escalate *dashboard_id*'s retry cooldown; warn once when the streak saturates."""
+    cooldowns = controller.state.connect_back_cooldowns
+    cooldowns.escalate(
         dashboard_id,
         _CONNECT_BACK_RETRY_BASE_SECONDS
         * random.uniform(  # noqa: S311 — jitter, not crypto
@@ -211,6 +195,18 @@ def _escalate(controller: ReceiverController, dashboard_id: str) -> None:
         ),
         _CONNECT_BACK_RETRY_CAP_SECONDS,
     )
+    if cooldowns.strikes(dashboard_id) == _CONNECT_BACK_WARN_AFTER_STRIKES:
+        _LOGGER.warning(
+            "connect-back to %s keeps failing; retrying at the backoff cap", dashboard_id
+        )
+
+
+def _cancel_dial(controller: ReceiverController, dashboard_id: str) -> None:
+    """Cancel *dashboard_id*'s in-flight dial and drop its cooldown."""
+    state = controller.state
+    if (task := state.connect_back_tasks.pop(dashboard_id, None)) is not None:
+        task.cancel()
+    state.connect_back_cooldowns.discard(dashboard_id)
 
 
 def _pop_dial_task(controller: ReceiverController, dashboard_id: str, task: asyncio.Task) -> None:

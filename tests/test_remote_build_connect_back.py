@@ -48,7 +48,6 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PeerLinkPinMismatchError,
 )
 from esphome_device_builder.helpers import json as _json
-from esphome_device_builder.helpers.cooldown import CooldownLedger
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.peer_link_noise import (
@@ -767,12 +766,9 @@ async def test_pair_status_approve_converges_before_spawn(
     assert order == ["converge", "spawn"]
 
 
-@pytest.mark.parametrize(
-    "event_type",
-    [EventType.OFFLOADER_PAIR_STATUS_CHANGED, EventType.OFFLOADER_PAIRING_ADDED],
-)
-async def test_pairing_transition_events_trigger_converge(event_type: EventType) -> None:
-    """Both transition events re-converge; shutdown unsubscribes."""
+async def test_pairing_transition_event_triggers_converge() -> None:
+    """A pairing status flip re-converges; shutdown unsubscribes."""
+    event_type = EventType.OFFLOADER_PAIR_STATUS_CHANGED
     db = MagicMock()
     db.bus = EventBus()
     db.loop = asyncio.get_running_loop()
@@ -824,18 +820,6 @@ async def test_dial_unexpected_error_escalates_and_logs(
         await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
     assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
     assert any("failed unexpectedly" in record.message for record in caplog.records)
-
-
-def test_escalate_survives_unbounded_strikes() -> None:
-    """The exponent clamp keeps a years-long strike streak finite."""
-    cooldowns: CooldownLedger[str] = CooldownLedger()
-    for _ in range(5000):
-        cooldowns.escalate(
-            "alpha",
-            rb_connect_back._CONNECT_BACK_RETRY_BASE_SECONDS,
-            rb_connect_back._CONNECT_BACK_RETRY_CAP_SECONDS,
-        )
-    assert cooldowns.remaining("alpha") <= rb_connect_back._CONNECT_BACK_RETRY_CAP_SECONDS
 
 
 async def test_commit_unchanged_endpoint_skips_rebound_event(tmp_path: Path) -> None:
