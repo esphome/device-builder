@@ -55,7 +55,7 @@ from enum import StrEnum
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from types import FunctionType, SimpleNamespace
+from types import CodeType, FunctionType, SimpleNamespace
 from typing import Any, Literal, NamedTuple
 
 import orjson
@@ -681,16 +681,6 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         "allow_custom_value": True,
         "options": [{"label": "0 (disable logging)", "value": "0"}, *_BAUD_RATE_OPTIONS],
     },
-    # ``display.mipi_spi.dc_pin`` is conditionally required — DC exists only on
-    # single/octal (ILI/ST) panels, never on quad AMOLED — enforced by a runtime
-    # validator, not the schema. esphome declares it ``cv.Optional`` via
-    # ``model.option`` and 2026.7.0's dumped schema reports it optional; 2026.6.4
-    # (the pinned version) dumps it required, so the frontend seeds a bogus
-    # ``dc_pin`` on quad displays. Forward-port the 2026.7.0 behaviour here; remove
-    # this override when the esphome dependency is bumped to >= 2026.7.0.
-    ("display.mipi_spi", "dc_pin"): {
-        "required": False,
-    },
 }
 
 # Field paths whose live ``vol.Range`` max is derived from the machine
@@ -982,7 +972,7 @@ def main() -> int:
     _fail_on_unhandled_renames()
     if not args.limit_component:
         _fail_on_missing_channel_colors_rules(catalog)
-    _fail_on_unhandled_repr_keys()
+    _fail_on_unhandled_schema_shapes()
 
     # Collected (and guarded) before any emit so the abort below leaves
     # the tree untouched; ``build_catalog``'s import sweep has already
@@ -1032,7 +1022,7 @@ def main() -> int:
             len(automations["light_effects"]),
         )
         # Guards the automations emit; components are already on disk.
-        _fail_on_unhandled_repr_keys()
+        _fail_on_unhandled_schema_shapes()
         _emit_split_automations_catalog(automations, version)
     else:
         _LOGGER.warning(
@@ -3103,6 +3093,9 @@ def build_component_entry(
     _apply_refined_types(config_entries, refined_types)
     _apply_field_ranges(config_entries, field_ranges, component_id)
     _apply_component_gates(config_entries, introspection.get("component_gates") or {})
+    _apply_model_variance(
+        config_entries, (introspection.get("model_variance") or {}).get(domain), component_id
+    )
     _apply_typed_defaults(config_entries, introspection.get("typed_defaults") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
     _apply_list_fields(config_entries, introspection.get("list_fields") or {})
@@ -5453,6 +5446,10 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         manifest, platform_manifests_by_domain
     )
 
+    model_variance = _collect_model_variance_by_domain(
+        manifest, platform_manifests_by_domain, component_id
+    )
+
     return {
         "multi_conf": manifest_multi_conf,
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
@@ -5468,6 +5465,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "list_fields": list_fields,
         "registry_members": registry_members,
         "typed_defaults": typed_defaults,
+        "model_variance": model_variance,
         "auto_load": auto_load,
     }
 
@@ -6755,6 +6753,114 @@ def _collect_component_gates(manifest: Any) -> dict[tuple[str, ...], str]:
     return out
 
 
+class ModelField(NamedTuple):
+    """One field's shape under one model: requiredness + live default."""
+
+    required: bool
+    default: Any
+
+
+class ModelVariance(NamedTuple):
+    """Per-model field facts introspected from a model-driven CONFIG_SCHEMA."""
+
+    models: tuple[str, ...]
+    fields: dict[str, dict[str, ModelField]]
+    model_key: str = "model"
+
+
+@contextlib.contextmanager
+def _quiet_logging() -> Iterator[None]:
+    """Suppress WARNING-and-below process-wide within the block."""
+    # esphome components log under bare domain names (``getLogger("mipi_spi")``),
+    # so per-logger scoping can't target them.
+    previous = logging.root.manager.disable
+    logging.disable(logging.WARNING)
+    try:
+        yield
+    finally:
+        logging.disable(previous)
+
+
+@cache
+def _mipi_extractor_identity() -> tuple[CodeType, str] | None:
+    """Return the extractor wrapper's code object + the mipi package file, None without esphome."""
+    try:
+        from esphome.components import mipi
+    except ImportError:
+        return None
+    try:
+        wrapper = mipi.model_schema_extractor({}, lambda config: {})(lambda config: config)
+    except Exception as err:
+        raise SystemExit(
+            f"model_schema_extractor rejected the identity probe ({err}); "
+            "update _mipi_extractor_identity for the new signature."
+        ) from err
+    return wrapper.__code__, mipi.__file__
+
+
+def _collect_model_variance(manifest: Any, component_id: str) -> ModelVariance | None:
+    """
+    Per-model field facts for a mipi ``model_schema_extractor`` CONFIG_SCHEMA, else None.
+
+    Unrecognised model-driven closures land in ``_UNHANDLED_MODEL_DRIVEN``.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    code = getattr(schema, "__code__", None)
+    if code is None:
+        return None
+    identity = _mipi_extractor_identity()
+    if identity is None or code is not identity[0]:
+        # Canary: a model-driven closure shape, or any unknown schema closure
+        # defined in the mipi package (survives a freevar rename).
+        model_driven = "models" in code.co_freevars and "model_schema" in code.co_freevars
+        from_mipi = identity is not None and code.co_filename == identity[1]
+        if model_driven or from_mipi:
+            _UNHANDLED_MODEL_DRIVEN.add(component_id)
+        return None
+    import esphome.config_validation as cv
+    from esphome.const import CONF_MODEL
+
+    nonlocals = _closure_nonlocals(schema)
+    models = sorted(nonlocals["models"])
+    model_schema = nonlocals["model_schema"]
+    extra = nonlocals["extra"] or {}
+    fields: dict[str, dict[str, ModelField]] = {}
+    with _quiet_logging():
+        for name in models:
+            resolved = _unwrap_schema_to_dict(model_schema({CONF_MODEL: name, **extra}))
+            if resolved is None:
+                raise SystemExit(
+                    f"{component_id}: model {name!r} schema didn't unwrap to a mapping; "
+                    "update _collect_model_variance for the new shape."
+                )
+            for marker in resolved:
+                if not isinstance(marker, vol.Marker) or isinstance(marker, cv.GenerateID):
+                    continue
+                fields.setdefault(str(marker.schema), {})[name] = ModelField(
+                    required=isinstance(marker, vol.Required),
+                    default=_marker_default(marker, undefined=vol.UNDEFINED),
+                )
+    return ModelVariance(models=tuple(models), fields=fields, model_key=CONF_MODEL)
+
+
+def _collect_model_variance_by_domain(
+    manifest: Any,
+    platform_manifests_by_domain: list[tuple[str, Any]],
+    component_id: str,
+) -> dict[str, ModelVariance]:
+    """Collect model variance per manifest, keyed by domain ("" for the bare one)."""
+    return {
+        domain: variance
+        for domain, candidate in (("", manifest), *platform_manifests_by_domain)
+        if (
+            variance := _collect_model_variance(
+                candidate, f"{domain}.{component_id}" if domain else component_id
+            )
+        )
+        is not None
+    }
+
+
 def _int_enum_refined_type(validator: Any) -> RefinedType | None:
     """Return an ``integer`` refinement iff *validator*'s live enum values are all real ints."""
     values = _extract_enum_values(validator)
@@ -7274,6 +7380,93 @@ def _apply_component_gates(
     _walk_catalog_entries(entries, visit)
 
 
+def _apply_model_variance(
+    entries: list[dict],
+    variance: ModelVariance | None,
+    component_id: str,
+) -> None:
+    """
+    Correct per-model requiredness the representative-model dump flattened.
+
+    Top-level entries only. A field whose requiredness varies splits into
+    ``depends_on: model`` gated twins; a default that varies is scrubbed.
+    """
+    if variance is None or not variance.fields:
+        return
+    model_entry = next((e for e in entries if e["key"] == variance.model_key), None)
+    if model_entry is None:
+        raise SystemExit(
+            f"{component_id}: model-driven schema without a {variance.model_key!r} catalog entry"
+        )
+    options = [o["value"] for o in model_entry.get("options") or []]
+    if set(options) != set(variance.models):
+        raise SystemExit(
+            f"{component_id}: bundle model options {sorted(options)} != introspected "
+            f"models {list(variance.models)}; the schema bundle and the installed "
+            "esphome disagree on the model enum."
+        )
+    for key, per_model in variance.fields.items():
+        if key == variance.model_key:
+            # The discriminator's own marker; a gate on itself would be circular.
+            continue
+        index = next((i for i, e in enumerate(entries) if e["key"] == key), None)
+        if index is None:
+            # Model-specific extras absent from the representative dump have
+            # no entry to correct; a required one is a real wizard gap.
+            log = _LOGGER.warning if any(f.required for f in per_model.values()) else _LOGGER.info
+            log("%s: model-specific field %r has no catalog entry; skipped", component_id, key)
+            continue
+        if entries[index].get("depends_on"):
+            raise SystemExit(
+                f"{component_id}: {key!r} is already gated on "
+                f"{entries[index]['depends_on']!r}; model variance can't overlay a second gate."
+            )
+        _apply_field_model_variance(
+            entries, index, per_model, list(variance.models), variance.model_key
+        )
+
+
+def _apply_field_model_variance(
+    entries: list[dict],
+    index: int,
+    per_model: dict[str, ModelField],
+    models: list[str],
+    model_key: str,
+) -> None:
+    """Rewrite ``entries[index]`` to the introspected per-model requiredness."""
+    entry = entries[index]
+    present = [m for m in models if m in per_model]
+    groups = [
+        (required, gate)
+        for required in (True, False)
+        if (gate := [m for m in present if per_model[m].required is required])
+    ]
+    defaults = [f.default for f in per_model.values()]
+    keep_default = all(d == defaults[0] for d in defaults)
+    gated = len(groups) > 1 or len(present) != len(models)
+    twins: list[dict] = []
+    for required, gate in groups:
+        twin = copy.deepcopy(entry)
+        twin["required"] = required
+        if required:
+            twin["advanced"] = False
+        if required or not keep_default:
+            twin["default_value"] = None
+        if gated:
+            twin["depends_on"] = model_key
+            twin["depends_on_value_any"] = _case_widened_gate_values(gate)
+        twins.append(twin)
+    entries[index : index + 1] = twins
+
+
+def _case_widened_gate_values(values: Iterable[str]) -> list[str]:
+    """*values* plus their lowercase spellings, order-preserving, deduped."""
+    # esphome enums are case-insensitive; ship the lowercase spelling beside
+    # the canonical one. Gate matching stays exact; other spellings fall
+    # through to esphome validation.
+    return list(dict.fromkeys(v for value in values for v in (value.lower(), value)))
+
+
 def _apply_refined_types(
     entries: list[dict],
     refined: dict[tuple[str, ...], RefinedType],
@@ -7634,16 +7827,16 @@ def _variant_enum_map(validator: Any) -> dict[str, list[str]]:
 
 def _psram_field(fields: dict[str, dict[str, Any]], key: Any, name: str) -> dict[str, Any]:
     """Get or create the per-key accumulator (default, is-bool, options)."""
-    return fields.setdefault(name, {"default": _psram_default(key), "bool": False, "options": {}})
+    return fields.setdefault(name, {"default": _marker_default(key), "bool": False, "options": {}})
 
 
-def _psram_default(key: Any) -> Any:
-    """Resolve a voluptuous ``cv.Optional`` key's default value, or None."""
-    default = getattr(key, "default", None)
+def _marker_default(key: Any, *, undefined: Any = None) -> Any:
+    """Resolve a voluptuous marker's default value, *undefined* when it has none."""
+    default = getattr(key, "default", vol.UNDEFINED)
     if default is None or default is vol.UNDEFINED:
-        return None
+        return undefined
     value = default() if callable(default) else default
-    return None if value is vol.UNDEFINED else value
+    return undefined if value is vol.UNDEFINED else value
 
 
 def _psram_entry(name: str, field: dict[str, Any]) -> dict:
@@ -7822,7 +8015,7 @@ def _esp32_variant_gate(field_key: str, probe_value: bool | str = True) -> tuple
         raise RuntimeError(f"esp32 variant gate: {field_key!r} is rejected on every variant")
     if len(accepted) == tested:
         return None  # valid on every variant → no gate
-    return tuple(dict.fromkeys(v for var in accepted for v in (var.lower(), var)))
+    return tuple(_case_widened_gate_values(accepted))
 
 
 def _promote_multi_value_keys(entries: list[dict]) -> None:
@@ -8862,6 +9055,10 @@ _HANDLED_WILDCARD_KEYS = frozenset({"validate_parameter_name"})
 #: paths — the repr itself names the validator, enough to locate it.
 _UNHANDLED_REPR_KEYS: set[tuple[str, str]] = set()
 
+#: Component ids whose ``CONFIG_SCHEMA`` closure looks model-driven but isn't
+#: the mipi extractor ``_collect_model_variance`` introspects.
+_UNHANDLED_MODEL_DRIVEN: set[str] = set()
+
 
 def _note_unhandled_rename_keys(component_id: str, pairs: Iterable[tuple[str, str]]) -> None:
     """Record every discovered rename pair missing from the handled list."""
@@ -9112,6 +9309,26 @@ def _fail_on_unhandled_repr_keys() -> None:
         f"{rows}\n"
         "Decide whether the wildcard maps to a real editor surface or is "
         "dropped, then extend _HANDLED_WILDCARD_KEYS."
+    )
+
+
+def _fail_on_unhandled_schema_shapes() -> None:
+    """Abort on schema shapes the sync can't faithfully convert."""
+    _fail_on_unhandled_repr_keys()
+    _fail_on_unhandled_model_driven()
+
+
+def _fail_on_unhandled_model_driven() -> None:
+    """Abort when a model-driven CONFIG_SCHEMA isn't the mipi extractor the sync introspects."""
+    if not _UNHANDLED_MODEL_DRIVEN:
+        return
+    rows = "\n".join(f"  {cid}" for cid in sorted(_UNHANDLED_MODEL_DRIVEN))
+    raise SystemExit(
+        "model-driven CONFIG_SCHEMA closures the sync can't introspect — "
+        "per-model requiredness would ship flattened to the representative "
+        "model's:\n"
+        f"{rows}\n"
+        "Extend _collect_model_variance for the new extractor shape."
     )
 
 
