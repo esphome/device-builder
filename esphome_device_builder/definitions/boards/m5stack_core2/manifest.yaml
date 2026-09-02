@@ -119,5 +119,5 @@ source:
   type: esphome-devices
   remote_id: M5Stack-Core2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-Core2/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 8fafb5f7ee8ebebfa3c84a1cbd654b0e3a50bae99c36825b6e4d16137882c700

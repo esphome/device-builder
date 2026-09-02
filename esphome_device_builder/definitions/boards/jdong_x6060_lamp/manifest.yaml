@@ -95,5 +95,5 @@ source:
   type: esphome-devices
   remote_id: JDONG-X6060-lamp
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/JDONG-X6060-lamp/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 9f5e28aeff370f957cd5e299e8cda6e625097080d18540c26695be75a947a6ff

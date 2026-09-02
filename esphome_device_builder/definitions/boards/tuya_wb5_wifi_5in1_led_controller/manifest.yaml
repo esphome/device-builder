@@ -52,5 +52,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-WB5-WiFi-5in1-LED-Controller
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-WB5-WiFi-5in1-LED-Controller/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: a9b4695749505ceb4c37940f7bc4400fd7ef7763b0251928bb2069da599717fb

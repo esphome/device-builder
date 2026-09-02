@@ -95,5 +95,5 @@ source:
   type: esphome-devices
   remote_id: MQ-7
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MQ-7/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: e35968370228cd3d9112ae670e2f82f3570b94956fbccdc3f39a614a5b349d17

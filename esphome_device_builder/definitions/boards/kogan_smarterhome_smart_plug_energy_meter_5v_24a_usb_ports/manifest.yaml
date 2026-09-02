@@ -87,5 +87,5 @@ source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smarterhome-Smart-Plug-Energy-Meter-5v-24a-Usb-Ports/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 9cfc5931c82f456be50e420afbf722690aeac8d2c37e62b8caa1f2841f4db4cc

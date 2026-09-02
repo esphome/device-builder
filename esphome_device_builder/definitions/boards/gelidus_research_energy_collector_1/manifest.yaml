@@ -50,5 +50,5 @@ source:
   type: esphome-devices
   remote_id: Gelidus-Research-Energy-Collector-1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: e8d0e2c5e20b53f76cfb982206f0e62a2c7d6f1c2afeda0051ac8c0b7c84c5b8

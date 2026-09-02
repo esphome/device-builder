@@ -137,5 +137,5 @@ source:
   type: esphome-devices
   remote_id: Generic-2CH-Wifi-Curtain-Module
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 29a66255ec94efe299c0dd476793d68886c0229a86dabd166741a090ee33d7bf

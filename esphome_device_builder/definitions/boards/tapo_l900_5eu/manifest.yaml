@@ -78,5 +78,5 @@ source:
   type: esphome-devices
   remote_id: Tapo-L900-5EU
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tapo-L900-5EU/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 23ae21562a82d9d31b93cbc2f0f82489124b2311943f1f89e735b9e2b220fd2e

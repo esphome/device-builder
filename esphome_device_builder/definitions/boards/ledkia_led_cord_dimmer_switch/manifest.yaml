@@ -46,5 +46,5 @@ source:
   type: esphome-devices
   remote_id: Ledkia-LED-Cord-DIMMER-SWITCH
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Ledkia-LED-Cord-DIMMER-SWITCH/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 169fcc2bf1f82f1f9cb478ee00466f61e20d61ea4e12e4dfb55bcd1f7b2f67fc

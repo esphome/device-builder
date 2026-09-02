@@ -74,5 +74,5 @@ source:
   type: esphome-devices
   remote_id: Tomzn-TOMPD-63-WiFi
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tomzn-TOMPD-63-WiFi/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: e6e886589d0392fb1a122cdf3d6800bf30f028ec98e28beecb9238e0a7fca362

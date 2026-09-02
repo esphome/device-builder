@@ -106,5 +106,5 @@ source:
   type: esphome-devices
   remote_id: Wipro-20W-LED-RGB-Batten-Light-DS22000
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Wipro-20W-LED-RGB-Batten-Light-DS22000/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 48cac83b51238a28bff53d7a8114eac8b1e64c86c666e93f62d5e48e8413b808

@@ -123,5 +123,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-KC868-Uair
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-Uair/index.md
-  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
+  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
   content_hash: 2ef361ba63f8c1ee72ce3a6fe2e2114d0149ca6d0bfc03553aee5cc68b73dc3f
