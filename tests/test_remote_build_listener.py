@@ -1263,3 +1263,30 @@ async def test_failed_bind_arms_paced_converge_retry(
     finally:
         if lifecycle._runner is not None:
             await lifecycle._runner.cleanup()
+
+
+async def test_schedule_converge_retry_is_single_flight_and_shutdown_cancels(
+    tmp_path: Path,
+) -> None:
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+    lifecycle._schedule_converge_retry()
+    handle = lifecycle._converge_retry_handle
+    assert handle is not None
+    lifecycle._schedule_converge_retry()
+    assert lifecycle._converge_retry_handle is handle
+    await lifecycle.shutdown()
+    assert lifecycle._converge_retry_handle is None
+    assert handle.cancelled()
+
+
+async def test_track_pairing_transitions_is_idempotent(tmp_path: Path) -> None:
+    db = _connect_back_only_db(tmp_path)
+    db.bus = EventBus()
+    lifecycle = db._remote_build_lifecycle
+    lifecycle.track_pairing_transitions()
+    subs = list(lifecycle._unsub_pairing_transitions)
+    lifecycle.track_pairing_transitions()
+    assert lifecycle._unsub_pairing_transitions == subs
+    await lifecycle.shutdown()
+    assert lifecycle._unsub_pairing_transitions == []

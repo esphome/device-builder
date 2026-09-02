@@ -42,6 +42,9 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     _DispatchInput,
     make_peer_link_handler,
 )
+from esphome_device_builder.controllers.remote_build.peer_link.handshake import (
+    _log_malformed_msg3_ports,
+)
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PeerLinkClient,
     PeerLinkClientError,
@@ -917,3 +920,48 @@ async def test_dial_failures_warn_once_per_streak_at_cap(
             await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
     warnings = [r for r in caplog.records if "keeps failing" in r.message]
     assert len(warnings) == 1
+
+
+async def test_connect_back_delegate_routes_to_rebind(tmp_path: Path) -> None:
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    outcome = await controller.offloader._handle_connect_back(
+        pin_sha256=PIN, peer_ip=IP, announced_port=6055
+    )
+    assert outcome == IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
+
+
+async def test_loop_sweeps_and_survives_a_sweep_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, _ = _receiver_ready_to_dial(tmp_path)
+    calls: list[int] = []
+
+    def _sweep(_controller: ReceiverController) -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(rb_connect_back, "_CONNECT_BACK_SWEEP_INTERVAL_SECONDS", 0.001)
+    monkeypatch.setattr(rb_connect_back, "sweep_connect_back", _sweep)
+    task = asyncio.create_task(rb_connect_back.run_connect_back_loop(controller.receiver))
+    while len(calls) < 2:
+        await asyncio.sleep(0.005)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+def test_malformed_msg3_port_logged(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("DEBUG"):
+        _log_malformed_msg3_ports(
+            "192.0.2.1",
+            {"connect_back_port": "nope"},
+            {"connect_back_port": 0, "peer_link_port": 0},
+        )
+    assert "malformed connect_back_port" in caplog.text
+
+
+def test_connect_back_port_getter_reads_listener_port(tmp_path: Path) -> None:
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller.offloader._db.remote_build_listener_port = 6123
+    assert rb_peer_link_lifecycle._connect_back_port_getter(controller.offloader)() == 6123
