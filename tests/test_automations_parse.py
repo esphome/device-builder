@@ -124,6 +124,8 @@ def test_parse_skips_dot_prefixed_ignored_blocks() -> None:
     )
     parsed = parse_device_yaml(yaml)
     assert [p.location.component_id for p in parsed] == ["real_button"]
+    assert resolve_component_target(yaml, "parked_button") is None
+    assert resolve_component_target(yaml, "real_button") is not None
 
 
 def test_parse_inline_on_press_with_explicit_then() -> None:
