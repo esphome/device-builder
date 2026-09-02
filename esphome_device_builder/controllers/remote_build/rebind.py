@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -230,8 +230,13 @@ async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / prob
             new_hostname=peer_ip,
             new_port=announced_port,
             log_prefix="connect-back probe",
+            # The forward client's own reconnect can land a session
+            # during the seconds-long probe; don't tear it down.
+            commit_guard=lambda: pin_sha256 not in controller.state.open_peer_links,
         )
     if outcome is RebindProbeOutcome.OK:
+        if pin_sha256 in controller.state.open_peer_links:
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.ALREADY_CONNECTED)
         return IntentOutcome(IntentResponse.OK)
     if outcome in (RebindProbeOutcome.UNREACHABLE, RebindProbeOutcome.PIN_MISMATCH):
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
@@ -247,8 +252,14 @@ async def _probe_log_and_commit(
     new_hostname: str,
     new_port: int,
     log_prefix: str,
+    commit_guard: Callable[[], bool] | None = None,
 ) -> RebindProbeOutcome:
-    """Probe the candidate endpoint, log the outcome, and commit the rebind on OK."""
+    """Probe the candidate endpoint, log the outcome, and commit the rebind on OK.
+
+    *commit_guard* (when given) is re-checked after an OK probe; a
+    falsey result skips the commit + respawn (a forward session
+    landed mid-probe).
+    """
     pin = pairing.pin_sha256
     result = await controller._probe_pairing_endpoint(
         pairing=pairing, new_hostname=new_hostname, new_port=new_port
@@ -278,8 +289,17 @@ async def _probe_log_and_commit(
             result.observed_pin,
         )
     elif result.outcome is RebindProbeOutcome.OK:
-        await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
-        _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
+        if commit_guard is not None and not commit_guard():
+            _LOGGER.debug(
+                "%s %s -> %s:%d not committed (forward session opened during probe)",
+                log_prefix,
+                pin,
+                new_hostname,
+                new_port,
+            )
+        else:
+            await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
+            _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
     else:
         # PAIRING_REPLACED / STATUS_CHANGED — skip; cooldown stays
         # in place so a burst of retries doesn't re-fire the probe

@@ -1290,3 +1290,62 @@ async def test_track_pairing_transitions_is_idempotent(tmp_path: Path) -> None:
     assert lifecycle._unsub_pair_status_changed is unsub
     await lifecycle.shutdown()
     assert lifecycle._unsub_pair_status_changed is None
+
+
+async def test_converge_retry_backs_off_and_suppresses_repeat_tracebacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A persistent bind failure backs off its retry and logs the traceback once."""
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+
+    async def _failing_start(self: web.SockSite) -> None:
+        raise OSError("address in use (test stub)")
+
+    monkeypatch.setattr(web.SockSite, "start", _failing_start)
+    with caplog.at_level("DEBUG", logger="esphome_device_builder._remote_build_lifecycle"):
+        assert await db.apply_remote_build_enabled() is False
+        first_handle = lifecycle._converge_retry_handle
+        assert first_handle is not None
+        assert lifecycle._converge_retry_strikes == 1
+        # Second attempt fails again: strike advances (longer delay),
+        # and the full traceback is not re-logged.
+        lifecycle._converge_retry_handle = None
+        assert await lifecycle.converge() is False
+        assert lifecycle._converge_retry_strikes == 2
+    tracebacks = [r for r in caplog.records if r.exc_info is not None]
+    assert len(tracebacks) == 1
+    if lifecycle._converge_retry_handle is not None:
+        lifecycle._converge_retry_handle.cancel()
+
+
+async def test_converge_reraises_but_arms_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A converge whose policy read raises still arms the self-heal retry."""
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+    monkeypatch.setattr(
+        lifecycle, "_compute_policy", AsyncMock(side_effect=RuntimeError("bad sidecar"))
+    )
+    with pytest.raises(RuntimeError):
+        await lifecycle.converge()
+    assert lifecycle._converge_retry_handle is not None
+    lifecycle._converge_retry_handle.cancel()
+
+
+async def test_maybe_start_no_op_without_receiver_controller(tmp_path: Path) -> None:
+    """``maybe_start`` returns before converge when the receiver controller isn't set."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = None
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None

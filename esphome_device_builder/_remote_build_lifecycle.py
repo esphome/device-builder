@@ -30,8 +30,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Paced re-converge after a fail-soft bind (port conflict, identity
-# load error) so the listener self-heals without a restart.
+# load error) so the listener self-heals without a restart. Backs
+# off from the base to the cap so a permanently unbindable port
+# doesn't retry (or log) every 30s forever.
 _CONVERGE_RETRY_DELAY_SECONDS = 30.0
+_CONVERGE_RETRY_MAX_DELAY_SECONDS = 3600.0
 
 
 @web.middleware
@@ -62,6 +65,10 @@ async def _strip_server_header_middleware(
 class _ListenerPolicy(NamedTuple):
     """Computed bind decision: whether to bind, and in which role."""
 
+    # The listener is wanted (receiver role on, or approved pairings
+    # need connect-back) — independent of whether we can bind yet.
+    wanted: bool
+    # Wanted AND the receiver controller is available to bind.
     bind: bool
     receiver_role: bool
     # Approved pairings want the listener for connect-back dials.
@@ -97,6 +104,9 @@ class RemoteBuildLifecycle:
         # True after the once-per-outage connect-back warning fired;
         # cleared when a converge ends bound (or bind unwanted).
         self._bind_failure_warned = False
+        # Consecutive failed-bind retries; drives the retry backoff
+        # and suppresses repeated bind-failure tracebacks.
+        self._converge_retry_strikes = 0
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -170,9 +180,11 @@ class RemoteBuildLifecycle:
         receiver_role = rb_settings.enabled or settings.remote_build_only
         offloader = self._db.remote_build_offloader
         offloader_needs = offloader is not None and offloader.has_approved_pairings()
+        wanted = receiver_role or offloader_needs
         return _ListenerPolicy(
+            wanted=wanted,
             # Binding needs the receiver controller; teardown doesn't.
-            bind=(receiver_role or offloader_needs) and self._db.remote_build_receiver is not None,
+            bind=wanted and self._db.remote_build_receiver is not None,
             receiver_role=receiver_role,
             offloader_needs=offloader_needs,
             forced_by_cli=settings.remote_build_only and not rb_settings.enabled,
@@ -197,11 +209,20 @@ class RemoteBuildLifecycle:
                 receiver_role=policy.receiver_role
             )
         except Exception:
-            _LOGGER.exception(
-                "Remote-build peer-link site failed to start; dashboard continues "
-                "without the receiver listener. Disable in Settings or "
-                "fix the underlying error and restart."
-            )
+            # Full traceback on the first failure of a streak; a
+            # persistent port conflict then logs one warning per
+            # retry instead of a traceback every cycle.
+            if self._converge_retry_strikes == 0:
+                _LOGGER.exception(
+                    "Remote-build peer-link site failed to start; dashboard continues "
+                    "without the receiver listener. Disable in Settings or "
+                    "fix the underlying error and restart."
+                )
+            else:
+                _LOGGER.warning(
+                    "Remote-build peer-link site still failing to bind (attempt %d)",
+                    self._converge_retry_strikes + 1,
+                )
             return
         self._runner = runner
         self._bound_port = port
@@ -294,12 +315,19 @@ class RemoteBuildLifecycle:
         if self._db.loop is None:
             return self._runner is not None
         async with self._get_lock():
-            return await self._converge_locked()
+            try:
+                return await self._converge_locked()
+            except Exception:
+                # A raising converge (e.g. an unreadable settings
+                # sidecar) must still self-heal — arm the paced retry
+                # and re-raise for the caller's crash log.
+                self._schedule_converge_retry()
+                raise
 
     async def _converge_locked(self) -> bool:
         """Converge to the current bind policy; caller holds the lifecycle lock."""
         policy = await self._compute_policy()
-        if not policy.bind:
+        if not policy.wanted:
             if self._runner is None:
                 _LOGGER.debug(
                     "Skipping remote-build peer-link site: disabled in settings "
@@ -307,13 +335,18 @@ class RemoteBuildLifecycle:
                     "``remote_build/set_settings`` enabled=true, to bind)"
                 )
             await self._teardown_runner()
+        elif not policy.bind:
+            # Wanted, but the receiver controller isn't up yet
+            # (startup ordering): keep any current runner and let the
+            # retry below re-arm.
+            pass
         elif self._runner is None:
             await self._start_listener(policy)
         elif policy.receiver_role != self._receiver_role_active:
             await self._teardown_runner()
             await self._start_listener(policy)
-        if policy.bind and self._runner is None:
-            if policy.offloader_needs and not self._bind_failure_warned:
+        if policy.wanted and self._runner is None:
+            if not self._bind_failure_warned:
                 self._bind_failure_warned = True
                 _LOGGER.warning(
                     "peer-link listener not bound; connect-back recovery unavailable until it binds"
@@ -321,15 +354,19 @@ class RemoteBuildLifecycle:
             self._schedule_converge_retry()
         else:
             self._bind_failure_warned = False
+            self._converge_retry_strikes = 0
         return self._runner is not None
 
     def _schedule_converge_retry(self) -> None:
-        """Arm one delayed re-converge after a failed bind; single-flight."""
+        """Arm one delayed re-converge after a failed bind; single-flight, backed off."""
         if self._converge_retry_handle is not None or self._db.loop is None:
             return
-        self._converge_retry_handle = self._db.loop.call_later(
-            _CONVERGE_RETRY_DELAY_SECONDS, self._run_converge_retry
+        delay = min(
+            _CONVERGE_RETRY_DELAY_SECONDS * 2**self._converge_retry_strikes,
+            _CONVERGE_RETRY_MAX_DELAY_SECONDS,
         )
+        self._converge_retry_strikes += 1
+        self._converge_retry_handle = self._db.loop.call_later(delay, self._run_converge_retry)
 
     def _run_converge_retry(self) -> None:
         """Timer body: clear the slot and re-converge in the background."""

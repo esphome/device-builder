@@ -729,9 +729,7 @@ async def test_dial_failure_escalates_and_logs(
     monkeypatch.setattr(
         rb_connect_back, "drive_initiator_round_trip", AsyncMock(side_effect=side_effect)
     )
-    with caplog.at_level(
-        "DEBUG", logger="esphome_device_builder.controllers.remote_build.connect_back"
-    ):
+    with caplog.at_level("DEBUG", logger=_CONNECT_BACK_LOGGER):
         await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
     assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
     assert not receiver.state.connect_back_cooldowns.ready("alpha")
@@ -890,9 +888,7 @@ async def test_dial_failures_warn_once_per_streak_at_cap(
         "drive_initiator_round_trip",
         AsyncMock(side_effect=PeerLinkClientError("refused")),
     )
-    with caplog.at_level(
-        "WARNING", logger="esphome_device_builder.controllers.remote_build.connect_back"
-    ):
+    with caplog.at_level("WARNING", logger=_CONNECT_BACK_LOGGER):
         for _ in range(rb_connect_back._CONNECT_BACK_WARN_AFTER_STRIKES + 2):
             await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
     warnings = [r for r in caplog.records if "keeps failing" in r.message]
@@ -929,9 +925,7 @@ async def test_loop_sweeps_and_survives_a_sweep_failure(
 
 
 def test_msg3_port_parses_and_logs_malformed(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(
-        "DEBUG", logger="esphome_device_builder.controllers.remote_build.peer_link.handshake"
-    ):
+    with caplog.at_level("DEBUG", logger=_HANDSHAKE_LOGGER):
         assert _msg3_port({"connect_back_port": "nope"}, "connect_back_port", "192.0.2.1") == 0
         assert _msg3_port({}, "peer_link_port", "192.0.2.1") == 0
         assert _msg3_port({"peer_link_port": 6055}, "peer_link_port", "192.0.2.1") == 6055
@@ -943,3 +937,24 @@ def test_connect_back_port_getter_reads_listener_port(tmp_path: Path) -> None:
     controller = make_remote_build_controller(config_dir=tmp_path)
     controller.offloader._db.remote_build_listener_port = 6123
     assert rb_peer_link_lifecycle._connect_back_port_getter(controller.offloader)() == 6123
+
+
+async def test_connect_back_session_opened_during_probe_skips_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forward session that lands mid-probe is not torn down; reply is already_connected."""
+    controller, _ = _offloader_with_pairing(tmp_path)
+    commit = AsyncMock()
+    monkeypatch.setattr(controller.offloader, "_commit_endpoint_rebind", commit)
+
+    async def _probe(**_kwargs: Any) -> RebindProbeResult:
+        # Session opens while the probe is in flight.
+        controller.offloader.state.open_peer_links.add(PIN)
+        return RebindProbeResult(RebindProbeOutcome.OK)
+
+    monkeypatch.setattr(controller.offloader, "_probe_pairing_endpoint", _probe)
+    outcome = await rb_rebind.handle_connect_back(
+        controller.offloader, pin_sha256=PIN, peer_ip=IP, announced_port=6123
+    )
+    assert outcome == IntentOutcome(IntentResponse.REJECTED, RejectReason.ALREADY_CONNECTED)
+    commit.assert_not_awaited()
