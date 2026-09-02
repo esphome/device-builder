@@ -76,7 +76,7 @@ def _locate_singleton_block(
         if not stripped:
             continue
         if not stripped.startswith(" "):
-            if stripped[0].isalpha():
+            if stripped[0].isalpha() or stripped[0] == ".":
                 end = idx
                 break
             # Column-0 comment ends the block only when the next

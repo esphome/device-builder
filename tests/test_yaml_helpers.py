@@ -68,7 +68,12 @@ from esphome_device_builder.helpers.yaml.scalar import (
     _plain_is_fast_safe,
     _plain_is_safe,
 )
-from esphome_device_builder.helpers.yaml.scan import find_block_header, top_level_key_index
+from esphome_device_builder.helpers.yaml.scan import (
+    block_end_index,
+    find_block_header,
+    top_level_key_index,
+)
+from esphome_device_builder.helpers.yaml.writing_layout import _locate_singleton_block
 from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.common import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.components import (
@@ -1291,6 +1296,22 @@ def test_merge_component_yaml_preserves_following_blocks_after_splice() -> None:
     assert result.count("sensor:\n") == 1
 
 
+def test_merge_component_yaml_splice_stops_at_dot_prefixed_key() -> None:
+    """A dot-prefixed anchor block after the domain block ends the splice range."""
+    component = _component(component_id="sensor.dht", category=ComponentCategory.SENSOR)
+    fields: dict[str, Any] = {"pin": "GPIO4", "name": "Inside"}
+
+    existing = (
+        "esphome:\n  name: kitchen\n\n"
+        "sensor:\n  - platform: bme280\n    address: 0x76\n\n"
+        ".defaultfilters:\n  - &throttle_time\n    throttle: 60s\n"
+    )
+    result = merge_component_yaml(existing, component, fields)
+
+    assert result.endswith(".defaultfilters:\n  - &throttle_time\n    throttle: 60s\n")
+    assert result.index("- platform: dht") < result.index(".defaultfilters:")
+
+
 def test_merge_component_yaml_appends_non_platform_component() -> None:
     """A non-platform component (e.g. ``i2c``) emits as a top-level mapping.
 
@@ -2430,6 +2451,23 @@ def test_child_block_end_trims_shallow_banner_but_keeps_deep_comment() -> None:
     text = "api:\n  actions:\n  - action: a\n    # for a\n\n  # banner\n  encryption:\n    key: k\n"
     # The deep ``# for a`` stays inside; the blank + shallow banner trim off.
     assert _cbe(text, 1, "  ") == 4
+
+
+def test_block_end_index_stops_at_dot_prefixed_key() -> None:
+    lines = ["sensor:\n", "  - platform: bme280\n", ".defaultfilters:\n", "  - &throttle\n"]
+    assert block_end_index(lines, 0) == 2
+
+
+def test_block_end_index_skips_column_zero_comments() -> None:
+    lines = ["sensor:\n", "  - platform: bme280\n", "# banner\n", "logger:\n"]
+    assert block_end_index(lines, 0) == 3
+
+
+def test_locate_singleton_block_ends_at_dot_prefixed_key() -> None:
+    lines = ["api:\n", "  reboot_timeout: 0s\n", ".anchors:\n", "  - &throttle\n"]
+    span = _locate_singleton_block(lines, "api")
+    assert span is not None
+    assert span[:2] == (0, 2)
 
 
 def test_top_level_key_index_matches_find_block_header() -> None:

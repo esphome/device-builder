@@ -386,7 +386,8 @@ def extract_directly_referenced_integrations(
         return []
     out: set[str] = set()
     for key, value in config.items():
-        if not isinstance(key, str):
+        # esphome ignores dot-prefixed top-level keys (anchor containers).
+        if not isinstance(key, str) or key.startswith("."):
             continue
         out.add(key)
         if isinstance(value, list):

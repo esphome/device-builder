@@ -49,7 +49,9 @@ def block_end_index(lines: list[str], start: int) -> int:
     """First line after *start* that opens the next top-level block; ``len(lines)`` at EOF."""
     for idx in range(start + 1, len(lines)):
         stripped = lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
+        # A dot-prefixed key (esphome-ignored anchor container) opens a
+        # block too; comments deliberately don't.
+        if stripped and (stripped[0].isalpha() or stripped[0] == "."):
             return idx
     return len(lines)
 
