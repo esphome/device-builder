@@ -8,6 +8,16 @@ import re
 DASH_KEY_PREFIX = r"^\s*-\s+"
 
 
+def is_ignored_top_level_key(key: str) -> bool:
+    """Report whether esphome ignores this top-level key (dot-prefixed anchor container)."""
+    return key.startswith(".")
+
+
+def opens_top_level_block(stripped: str) -> bool:
+    """Report whether a rstripped line opens a column-0 block; comments deliberately don't."""
+    return bool(stripped) and (stripped[0].isalpha() or stripped[0] == ".")
+
+
 def key_header_re(key: str, *, indent: str = "") -> re.Pattern[str]:
     """Pattern matching a ``<key>:`` header line at exactly *indent*, bare or with a comment."""
     return key_line_res(key, prefix=f"^{re.escape(indent)}")[0]
@@ -48,8 +58,7 @@ def top_level_key_index(lines: list[str]) -> dict[str, int]:
 def block_end_index(lines: list[str], start: int) -> int:
     """First line after *start* that opens the next top-level block; ``len(lines)`` at EOF."""
     for idx in range(start + 1, len(lines)):
-        stripped = lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
+        if opens_top_level_block(lines[idx].rstrip("\n\r")):
             return idx
     return len(lines)
 

@@ -37,6 +37,15 @@ def test_extracts_top_level_keys() -> None:
     ]
 
 
+def test_skips_dot_prefixed_keys() -> None:
+    """esphome-ignored anchor containers never count as integrations."""
+    config = {
+        "esphome": {"name": "x"},
+        ".defaultfilters": [{"throttle": "60s"}],
+    }
+    assert extract_directly_referenced_integrations(config) == ["esphome"]
+
+
 def test_extracts_platform_stems_from_list() -> None:
     """``- platform: <name>`` entries under a list-shaped block.
 

@@ -108,6 +108,26 @@ def test_parse_single_handler_trigger_as_one_element_list_parses() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_parse_skips_dot_prefixed_ignored_blocks() -> None:
+    """An instance parked under an esphome-ignored dot key yields no automation."""
+    yaml = (
+        "binary_sensor:\n"
+        "  - platform: gpio\n"
+        "    id: real_button\n"
+        "    on_press:\n"
+        "      - delay: 1s\n"
+        ".templates:\n"
+        "  - platform: gpio\n"
+        "    id: parked_button\n"
+        "    on_press:\n"
+        "      - delay: 2s\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert [p.location.component_id for p in parsed] == ["real_button"]
+    assert resolve_component_target(yaml, "parked_button") is None
+    assert resolve_component_target(yaml, "real_button") is not None
+
+
 def test_parse_inline_on_press_with_explicit_then() -> None:
     """The explicit ``then:`` shape decomposes correctly."""
     parsed = parse_device_yaml(_load("inline_on_press.yaml"))
