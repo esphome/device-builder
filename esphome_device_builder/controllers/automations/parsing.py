@@ -37,6 +37,7 @@ from ...helpers.api import CommandError
 from ...helpers.automation_keys import is_trigger_key
 from ...helpers.json import loads as json_loads
 from ...helpers.lazy_catalog import is_unsafe_catalog_id
+from ...helpers.yaml.scan import is_ignored_top_level_key
 from ...models.api import ErrorCode
 from ...models.automations import (
     ApiActionLocation,
@@ -391,6 +392,8 @@ def _iter_instance_targets(
     if not isinstance(root, dict):
         return
     for domain, section in root.items():
+        if isinstance(domain, str) and is_ignored_top_level_key(domain):
+            continue
         is_list = isinstance(section, list)
         items = section if is_list else [section] if isinstance(section, dict) else []
         for idx, instance in enumerate(items):

@@ -22,6 +22,7 @@ from ..yaml import (
     parse_substitution_ref,
     rewrite_fallback_ap_ssid,
 )
+from ..yaml.scan import is_ignored_top_level_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -386,8 +387,7 @@ def extract_directly_referenced_integrations(
         return []
     out: set[str] = set()
     for key, value in config.items():
-        # esphome ignores dot-prefixed top-level keys (anchor containers).
-        if not isinstance(key, str) or key.startswith("."):
+        if not isinstance(key, str) or is_ignored_top_level_key(key):
             continue
         out.add(key)
         if isinstance(value, list):
