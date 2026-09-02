@@ -43,7 +43,7 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     make_peer_link_handler,
 )
 from esphome_device_builder.controllers.remote_build.peer_link.handshake import (
-    _log_malformed_msg3_ports,
+    _msg3_port,
 )
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PeerLinkClient,
@@ -73,6 +73,8 @@ from .conftest import make_remote_build_controller
 
 PIN = "a" * 64
 IP = "192.0.2.10"
+_CONNECT_BACK_LOGGER = rb_connect_back.__name__
+_HANDSHAKE_LOGGER = "esphome_device_builder.controllers.remote_build.peer_link.handshake"
 
 
 def _stored_pairing(*, status: PeerStatus = PeerStatus.APPROVED) -> StoredPairing:
@@ -141,16 +143,16 @@ def _round_trip(intent_response: str, reason: str | None = None) -> InitiatorRou
 # ---------------------------------------------------------------------------
 
 
-async def test_connect_back_unknown_pin_rejected(tmp_path: Path) -> None:
-    controller = make_remote_build_controller(config_dir=tmp_path)
-    outcome = await rb_rebind.handle_connect_back(
-        controller.offloader, pin_sha256=PIN, peer_ip=IP, announced_port=6055
-    )
-    assert outcome == IntentOutcome(IntentResponse.REJECTED, RejectReason.NO_APPROVED_PEER)
-
-
-async def test_connect_back_pending_pairing_rejected(tmp_path: Path) -> None:
-    controller, _ = _offloader_with_pairing(tmp_path, status=PeerStatus.PENDING)
+@pytest.mark.parametrize(
+    "status", [pytest.param(None, id="unknown_pin"), pytest.param(PeerStatus.PENDING, id="pending")]
+)
+async def test_connect_back_unapproved_pin_rejected(
+    tmp_path: Path, status: PeerStatus | None
+) -> None:
+    if status is None:
+        controller = make_remote_build_controller(config_dir=tmp_path)
+    else:
+        controller, _ = _offloader_with_pairing(tmp_path, status=status)
     outcome = await rb_rebind.handle_connect_back(
         controller.offloader, pin_sha256=PIN, peer_ip=IP, announced_port=6055
     )
@@ -242,30 +244,20 @@ async def test_connect_back_probe_failure_persists_nothing(
     assert controller.offloader.state.rebind_probe_until[PIN] > time.monotonic()
 
 
+@pytest.mark.parametrize("endpoint_changed", [True, False], ids=["moved", "unchanged"])
 async def test_connect_back_probe_ok_commits_source_endpoint(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint_changed: bool
 ) -> None:
     controller, pairing = _offloader_with_pairing(tmp_path)
+    if not endpoint_changed:
+        pairing.receiver_hostname = IP
+        pairing.receiver_port = 6123
     probe, commit = _patch_probe(monkeypatch, controller, RebindProbeOutcome.OK)
     outcome = await rb_rebind.handle_connect_back(
         controller.offloader, pin_sha256=PIN, peer_ip=IP, announced_port=6123
     )
     assert outcome == IntentOutcome(IntentResponse.OK)
     probe.assert_awaited_once_with(pairing=pairing, new_hostname=IP, new_port=6123)
-    commit.assert_awaited_once_with(pairing, hostname=IP, port=6123)
-
-
-async def test_connect_back_unchanged_endpoint_still_commits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    controller, pairing = _offloader_with_pairing(tmp_path)
-    pairing.receiver_hostname = IP
-    pairing.receiver_port = 6123
-    _, commit = _patch_probe(monkeypatch, controller, RebindProbeOutcome.OK)
-    outcome = await rb_rebind.handle_connect_back(
-        controller.offloader, pin_sha256=PIN, peer_ip=IP, announced_port=6123
-    )
-    assert outcome == IntentOutcome(IntentResponse.OK)
     commit.assert_awaited_once_with(pairing, hostname=IP, port=6123)
 
 
@@ -532,15 +524,12 @@ async def test_register_session_absent_values_never_clobber(tmp_path: Path) -> N
 # ---------------------------------------------------------------------------
 
 
-def _receiver_ready_to_dial(
-    config_dir: Path, *, peer: StoredPeer | None = None
-) -> tuple[RemoteBuildController, StoredPeer]:
+def _receiver_ready_to_dial(config_dir: Path) -> tuple[RemoteBuildController, StoredPeer]:
     controller = make_remote_build_controller(config_dir=config_dir)
     db = controller.receiver._db
     db.remote_build_listener_port = 6055
     db.remote_build_receiver_role_active = True
-    if peer is None:
-        peer = _stored_peer()
+    peer = _stored_peer()
     controller.receiver.state.approved_peers[peer.dashboard_id] = peer
     controller.receiver.state.connect_back_last_contact[peer.dashboard_id] = (
         time.monotonic() - 10_000
@@ -717,19 +706,36 @@ async def test_reply_ok_resets_backoff_and_quiet_clock(tmp_path: Path) -> None:
     )
 
 
-async def test_dial_transport_error_escalates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("side_effect", "level", "snippet"),
+    [
+        pytest.param(PeerLinkClientError("refused"), "DEBUG", "failed", id="transport"),
+        pytest.param(
+            PeerLinkPinMismatchError(b"\x33" * 32), "WARNING", "static key mismatch", id="pin"
+        ),
+        pytest.param(RuntimeError("boom"), "ERROR", "failed unexpectedly", id="unexpected"),
+    ],
+)
+async def test_dial_failure_escalates_and_logs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    side_effect: BaseException,
+    level: str,
+    snippet: str,
 ) -> None:
     controller, peer = _receiver_ready_to_dial(tmp_path)
     receiver = controller.receiver
     monkeypatch.setattr(
-        rb_connect_back,
-        "drive_initiator_round_trip",
-        AsyncMock(side_effect=PeerLinkClientError("refused")),
+        rb_connect_back, "drive_initiator_round_trip", AsyncMock(side_effect=side_effect)
     )
-    await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
+    with caplog.at_level(
+        "DEBUG", logger="esphome_device_builder.controllers.remote_build.connect_back"
+    ):
+        await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
     assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
     assert not receiver.state.connect_back_cooldowns.ready("alpha")
+    assert any(snippet in record.message and record.levelname == level for record in caplog.records)
 
 
 async def test_escalate_jitter_stays_under_cap(tmp_path: Path) -> None:
@@ -742,7 +748,8 @@ async def test_escalate_jitter_stays_under_cap(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Listener converges before the first dial on every approve path
+# Later review-round regression pins (approve-path converge, teardown,
+# backoff saturation, wire parsing)
 # ---------------------------------------------------------------------------
 
 
@@ -809,22 +816,6 @@ async def test_remove_peer_clears_connect_back_state(tmp_path: Path) -> None:
     assert "alpha" not in receiver.state.connect_back_cooldowns
 
 
-async def test_dial_unexpected_error_escalates_and_logs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    controller, peer = _receiver_ready_to_dial(tmp_path)
-    receiver = controller.receiver
-    monkeypatch.setattr(
-        rb_connect_back,
-        "drive_initiator_round_trip",
-        AsyncMock(side_effect=RuntimeError("boom")),
-    )
-    with caplog.at_level("ERROR"):
-        await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
-    assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
-    assert any("failed unexpectedly" in record.message for record in caplog.records)
-
-
 async def test_commit_unchanged_endpoint_skips_rebound_event(tmp_path: Path) -> None:
     controller, pairing = _offloader_with_pairing(tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -853,22 +844,6 @@ async def test_commit_changed_endpoint_fires_rebound_event(tmp_path: Path) -> No
     ]
     assert len(fired) == 1
     assert fired[0].args[1]["receiver_hostname"] == IP
-
-
-async def test_dial_pin_mismatch_warns(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    controller, peer = _receiver_ready_to_dial(tmp_path)
-    receiver = controller.receiver
-    monkeypatch.setattr(
-        rb_connect_back,
-        "drive_initiator_round_trip",
-        AsyncMock(side_effect=PeerLinkPinMismatchError(b"\x33" * 32)),
-    )
-    with caplog.at_level("WARNING"):
-        await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
-    assert receiver.state.connect_back_cooldowns.strikes("alpha") == 1
-    assert any("static key mismatch" in record.message for record in caplog.records)
 
 
 async def test_apply_reply_error_escalates_instead_of_hot_looping(
@@ -915,7 +890,9 @@ async def test_dial_failures_warn_once_per_streak_at_cap(
         "drive_initiator_round_trip",
         AsyncMock(side_effect=PeerLinkClientError("refused")),
     )
-    with caplog.at_level("WARNING"):
+    with caplog.at_level(
+        "WARNING", logger="esphome_device_builder.controllers.remote_build.connect_back"
+    ):
         for _ in range(rb_connect_back._CONNECT_BACK_WARN_AFTER_STRIKES + 2):
             await rb_connect_back._dial_peer(receiver, peer, announce_port=6055)
     warnings = [r for r in caplog.records if "keeps failing" in r.message]
@@ -951,14 +928,15 @@ async def test_loop_sweeps_and_survives_a_sweep_failure(
         await task
 
 
-def test_malformed_msg3_port_logged(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level("DEBUG"):
-        _log_malformed_msg3_ports(
-            "192.0.2.1",
-            {"connect_back_port": "nope"},
-            {"connect_back_port": 0, "peer_link_port": 0},
-        )
+def test_msg3_port_parses_and_logs_malformed(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(
+        "DEBUG", logger="esphome_device_builder.controllers.remote_build.peer_link.handshake"
+    ):
+        assert _msg3_port({"connect_back_port": "nope"}, "connect_back_port", "192.0.2.1") == 0
+        assert _msg3_port({}, "peer_link_port", "192.0.2.1") == 0
+        assert _msg3_port({"peer_link_port": 6055}, "peer_link_port", "192.0.2.1") == 6055
     assert "malformed connect_back_port" in caplog.text
+    assert "peer_link_port" not in caplog.text
 
 
 def test_connect_back_port_getter_reads_listener_port(tmp_path: Path) -> None:

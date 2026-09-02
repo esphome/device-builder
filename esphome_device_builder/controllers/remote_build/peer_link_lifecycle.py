@@ -68,17 +68,20 @@ def _connect_back_port_getter(controller: OffloaderController) -> Callable[[], i
 
 
 async def converge_listener_for_connect_back(controller: OffloaderController) -> None:
-    """
-    Converge the peer-link listener before a client dial; fail-soft, never raises.
-
-    Awaited before every first spawn so the client's msg3 already
-    announces ``connect_back_port``.
-    """
+    """Converge the peer-link listener before a client dial; fail-soft, never raises."""
     try:
         await controller._db.apply_remote_build_enabled()
     except Exception:
         # Listener trouble must never block the forward client spawn.
         _LOGGER.exception("peer-link listener converge failed")
+
+
+async def converge_and_spawn_peer_link_client(
+    controller: OffloaderController, pairing: StoredPairing
+) -> None:
+    """Spawn *pairing*'s client with the listener converged first, so msg3 carries the port."""
+    await converge_listener_for_connect_back(controller)
+    controller._spawn_peer_link_client(pairing)
 
 
 def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairing) -> None:

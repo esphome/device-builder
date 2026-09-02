@@ -47,11 +47,12 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _log_malformed_msg3_ports(peer_ip: str, msg3: dict[str, Any], parsed: dict[str, int]) -> None:
-    """Debug-log msg3 port fields that are present but failed validation."""
-    for key, value in parsed.items():
-        if value == 0 and key in msg3:
-            _LOGGER.debug("peer-link msg3 from %s carried malformed %s %r", peer_ip, key, msg3[key])
+def _msg3_port(msg3: dict[str, Any], key: str, peer_ip: str) -> int:
+    """Parse a msg3 port field: 0 when absent, debug-logged and 0 when malformed."""
+    value = port_or_zero(msg3.get(key))
+    if value == 0 and key in msg3:
+        _LOGGER.debug("peer-link msg3 from %s carried malformed %s %r", peer_ip, key, msg3[key])
+    return value
 
 
 class _HandshakeStep(StrEnum):
@@ -83,8 +84,6 @@ class _DispatchInput:
     friendly_name: str = ""
     ha_addon: bool = False
     label_auto: bool = False
-    # ``peer_link`` msg3's ``connect_back_port``; 0 when absent.
-    connect_back_port: int = 0
     # ``connect_back`` msg3's ``peer_link_port``; 0 when absent.
     announced_peer_link_port: int = 0
 
@@ -162,13 +161,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     peer_friendly_name = _normalize_label(msg3.get("friendly_name"))
     peer_ha_addon = _bool_or_false(msg3.get("ha_addon"))
     label_auto = _bool_or_false(msg3.get("label_auto"))
-    connect_back_port = port_or_zero(msg3.get("connect_back_port"))
-    announced_peer_link_port = port_or_zero(msg3.get("peer_link_port"))
-    _log_malformed_msg3_ports(
-        peer_ip,
-        msg3,
-        {"connect_back_port": connect_back_port, "peer_link_port": announced_peer_link_port},
-    )
+    connect_back_port = _msg3_port(msg3, "connect_back_port", peer_ip)
+    announced_peer_link_port = _msg3_port(msg3, "peer_link_port", peer_ip)
 
     outcome = await _dispatch_intent(
         controller,
@@ -183,7 +177,6 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             friendly_name=peer_friendly_name,
             ha_addon=peer_ha_addon,
             label_auto=label_auto,
-            connect_back_port=connect_back_port,
             announced_peer_link_port=announced_peer_link_port,
         ),
         offloader=offloader,

@@ -161,27 +161,24 @@ def _apply_reply(
         state.connect_back_last_contact[dashboard_id] = time.monotonic()
         return
     reason = round_trip.response.get("reason")
-    expected_race = reason in (
-        RejectReason.REBIND_IN_PROGRESS.value,
-        RejectReason.ALREADY_CONNECTED.value,
-    )
-    _LOGGER.log(
-        logging.DEBUG if expected_race else logging.WARNING,
-        "connect-back announce refused by %s (reason=%s)",
-        dashboard_id,
-        reason,
-    )
     if reason == RejectReason.REBIND_IN_PROGRESS.value:
+        level = logging.DEBUG
         state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_SHORT_RETRY_SECONDS)
-    elif reason in (RejectReason.ALREADY_CONNECTED.value, RejectReason.PROBE_FAILED.value):
-        # probe_failed: the offloader could not verify us back —
-        # asymmetric reachability; automatic recovery can't complete.
+    elif reason == RejectReason.ALREADY_CONNECTED.value:
+        level = logging.DEBUG
+        _escalate(controller, dashboard_id)
+    elif reason == RejectReason.PROBE_FAILED.value:
+        # The offloader could not verify us back — asymmetric
+        # reachability; automatic recovery can't complete.
+        level = logging.WARNING
         _escalate(controller, dashboard_id)
     else:
         # bad_intent (older offloader) / no_approved_peer /
         # bad_endpoint / unknown — unlikely to recover soon; park at
         # cap and keep retrying so a later re-pair still self-heals.
+        level = logging.WARNING
         state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_RETRY_CAP_SECONDS)
+    _LOGGER.log(level, "connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
 
 
 def _escalate(controller: ReceiverController, dashboard_id: str) -> None:

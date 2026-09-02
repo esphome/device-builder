@@ -158,10 +158,8 @@ def maybe_schedule_rebind_probe(controller: OffloaderController, peer: RemoteBui
         return
     if controller.state.offloader_peer_link_priv is None:
         return
-    now = time.monotonic()
-    if controller.state.rebind_probe_until.get(pin, 0.0) > now:
+    if not _try_claim_probe_slot(controller, pin):
         return
-    controller.state.rebind_probe_until[pin] = now + _REBIND_PROBE_COOLDOWN_SECONDS
     controller._track_task(
         controller._probe_and_rebind_endpoint(
             pairing=pairing, new_hostname=new_hostname, new_port=new_port
@@ -223,10 +221,8 @@ async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / prob
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
     if pin_sha256 in controller.state.open_peer_links:
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.ALREADY_CONNECTED)
-    now = time.monotonic()
-    if controller.state.rebind_probe_until.get(pin_sha256, 0.0) > now:
+    if not _try_claim_probe_slot(controller, pin_sha256):
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.REBIND_IN_PROGRESS)
-    controller.state.rebind_probe_until[pin_sha256] = now + _REBIND_PROBE_COOLDOWN_SECONDS
     with _clear_cooldown_on_unexpected_exit(controller, pin_sha256):
         outcome = await _probe_log_and_commit(
             controller,
@@ -297,6 +293,15 @@ async def _probe_log_and_commit(
             result.outcome.value,
         )
     return result.outcome
+
+
+def _try_claim_probe_slot(controller: OffloaderController, pin: str) -> bool:
+    """Claim *pin*'s probe slot for the cooldown window; False while another holds it."""
+    now = time.monotonic()
+    if controller.state.rebind_probe_until.get(pin, 0.0) > now:
+        return False
+    controller.state.rebind_probe_until[pin] = now + _REBIND_PROBE_COOLDOWN_SECONDS
+    return True
 
 
 @contextmanager

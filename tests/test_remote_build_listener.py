@@ -1285,8 +1285,8 @@ async def test_track_pairing_transitions_is_idempotent(tmp_path: Path) -> None:
     db.bus = EventBus()
     lifecycle = db._remote_build_lifecycle
     lifecycle.track_pairing_transitions()
-    subs = list(lifecycle._unsub_pairing_transitions)
+    unsub = lifecycle._unsub_pair_status_changed
     lifecycle.track_pairing_transitions()
-    assert lifecycle._unsub_pairing_transitions == subs
+    assert lifecycle._unsub_pair_status_changed is unsub
     await lifecycle.shutdown()
-    assert lifecycle._unsub_pairing_transitions == []
+    assert lifecycle._unsub_pair_status_changed is None
