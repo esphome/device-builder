@@ -19,15 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import ipaddress
 import logging
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any, Literal
 
 import aiohttp
 from yarl import URL
-from zeroconf import RecordUpdateListener, Zeroconf
-from zeroconf.const import _TYPE_A, _TYPE_AAAA
+from zeroconf import Zeroconf
 
 from ....helpers import json as _json
 from ....helpers.async_ import drain_tasks
@@ -60,6 +58,7 @@ from ..peer_link import (
     run_peer_link_heartbeat,
 )
 from . import _dispatch, _submit
+from ._wake import _mdns_record_name, _ReceiverWakeListener
 from .one_shot import (
     _DEFAULT_TIMEOUT_SECONDS,
     _drive_initiator_handshake_and_read_response,
@@ -129,32 +128,6 @@ _LOCAL_CLOSE_RECEIVER_REJECTED = "receiver_rejected"
 # reconnect loop doesn't hammer the wrong endpoint; operator
 # recovery is re-pair or unpair.
 _LOCAL_CLOSE_PIN_MISMATCH = "pin_mismatch"
-
-
-def _mdns_record_name(hostname: str) -> str | None:
-    """Return the lowercase trailing-dot record name, or ``None`` for an IP."""
-    bare = hostname.rstrip(".")
-    with contextlib.suppress(ValueError):
-        ipaddress.ip_address(bare)
-        return None
-    return f"{bare.lower()}."
-
-
-class _ReceiverWakeListener(RecordUpdateListener):
-    """One-shot wake on an A/AAAA record for the receiver's hostname."""
-
-    def __init__(self, record_name: str, wake: asyncio.Event) -> None:
-        self._record_name = record_name
-        self._wake = wake
-
-    def async_update_records(self, zc: Zeroconf, now: float, records: list[Any]) -> None:
-        if self._wake.is_set():
-            return
-        for update in records:
-            new = update.new
-            if new.type in (_TYPE_A, _TYPE_AAAA) and new.name.lower() == self._record_name:
-                self._wake.set()
-                return
 
 
 class PeerLinkClient:

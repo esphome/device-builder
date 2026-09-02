@@ -12,6 +12,7 @@ from ...helpers.device_yaml import (
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
+from ...helpers.entry_gates import entry_gate_active
 from ...helpers.secrets_state import (
     WIFI_PASSWORD_SECRET_REF,
     WIFI_SSID_SECRET_REF,
@@ -191,13 +192,10 @@ def _require_present_fields(component: ComponentCatalogEntry, fields: dict[str, 
 
 def _entry_gate_active(entry: ConfigEntry, fields: dict[str, Any]) -> bool:
     """Whether *entry*'s ``depends_on`` value gate is satisfied by *fields*."""
-    if entry.depends_on is None:
-        return True
-    dep = fields.get(entry.depends_on)
-    if entry.depends_on_value is not None:
-        return dep == entry.depends_on_value
-    if entry.depends_on_value_not is not None:
-        return dep != entry.depends_on_value_not
-    if entry.depends_on_value_any is not None:
-        return dep in entry.depends_on_value_any
-    return True
+    return entry_gate_active(
+        fields,
+        depends_on=entry.depends_on,
+        depends_on_value=entry.depends_on_value,
+        depends_on_value_not=entry.depends_on_value_not,
+        depends_on_value_any=entry.depends_on_value_any,
+    )

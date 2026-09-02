@@ -38,18 +38,38 @@ async def test_spi_is_multi_conf(catalog: ComponentCatalog) -> None:
 
 
 async def test_mipi_spi_dc_pin_is_optional(catalog: ComponentCatalog) -> None:
-    """The shipped ``display.mipi_spi`` `dc_pin` is not required.
-
-    DC exists only on single/octal panels, never on quad AMOLED — requiredness is a
-    runtime validator, and esphome declares the field ``cv.Optional``. esphome 2026.6.4
-    dumps it required, so the sync forward-ports 2026.7.0's optional behaviour; without
-    this the frontend seeds a bogus `dc_pin` on quad displays. Guard the override.
-    """
+    """The shipped ``display.mipi_spi`` has no ungated required `dc_pin`."""
     body = await catalog.get_body("display.mipi_spi")
     assert body is not None
-    dc = next((e for e in body.config_entries if e.key == "dc_pin"), None)
-    assert dc is not None
-    assert dc.required is not True
+    entries = [e for e in body.config_entries if e.key == "dc_pin"]
+    assert entries
+    for entry in entries:
+        assert entry.required is not True or entry.depends_on == "model"
+
+
+async def test_epaper_spi_required_fields_are_model_gated(catalog: ComponentCatalog) -> None:
+    """Shipped ``display.epaper_spi``: `cs_pin` optional, `dc_pin`/`dimensions` model-gated."""
+    body = await catalog.get_body("display.epaper_spi")
+    assert body is not None
+    model = next((e for e in body.config_entries if e.key == "model"), None)
+    assert model is not None and model.options
+    model_values = {o.value for o in model.options}
+    cs_entries = [e for e in body.config_entries if e.key == "cs_pin"]
+    assert cs_entries and all(e.required is not True for e in cs_entries)
+    for key in ("dc_pin", "dimensions"):
+        entries = [e for e in body.config_entries if e.key == key]
+        required = [e for e in entries if e.required]
+        optional = [e for e in entries if not e.required]
+        assert required and optional
+        gated: set[str] = set()
+        for entry in entries:
+            assert entry.depends_on == "model"
+            assert entry.depends_on_value_any
+            values = {str(v).upper() for v in entry.depends_on_value_any}
+            assert values <= model_values
+            assert not values & gated
+            gated |= values
+        assert gated == model_values
 
 
 async def test_top_level_components_resolved(catalog: ComponentCatalog) -> None:
