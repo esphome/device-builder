@@ -3511,14 +3511,19 @@ def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
     other_refs: list[str] = []
     for ref in inner_schema.get("extends") or []:
         target = _lookup_schema_ref(ref, schema_dir)
-        schema_node = target.get("schema") if isinstance(target, dict) else None
-        if isinstance(target, dict) and "key_type" in target and isinstance(schema_node, dict):
+        if not isinstance(target, dict):
+            # An unlocatable base may carry fields; never collapse over it.
+            return None
+        schema_node = target.get("schema")
+        if "key_type" in target and isinstance(schema_node, dict):
             found = schema_node
         else:
             found = _extends_map_schema(schema_node, schema_dir)
         if found is not None:
-            if map_schema is None:
-                map_schema = found
+            if map_schema is not None and found != map_schema:
+                # Competing map bases are ambiguous; keep the nested group.
+                return None
+            map_schema = found
         else:
             other_refs.append(ref)
     if map_schema is None:

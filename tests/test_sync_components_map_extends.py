@@ -29,6 +29,12 @@ _API_JSON = {
                 "schema": {"config_vars": {"port": {"key": "Optional", "type": "integer"}}},
                 "type": "schema",
             },
+            "INT_VALUES_SCHEMA": {
+                "key": "String",
+                "key_type": "string",
+                "schema": {"config_vars": {"string": {"type": "integer"}}},
+                "type": "schema",
+            },
         },
     },
 }
@@ -92,6 +98,28 @@ def test_sibling_field_base_blocks_the_map_collapse(tmp_path: Path) -> None:
         assert entry is not None
         assert entry["type"] == "nested"
         assert "port" in {c["key"] for c in entry["config_entries"]}
+
+
+def test_unresolvable_sibling_ref_blocks_the_map_collapse(tmp_path: Path) -> None:
+    """An unlocatable base may carry fields, so the wrapper stays nested."""
+    for extends in (
+        ["api.VARIABLES_SCHEMA", "api.GHOST_SCHEMA"],
+        ["api.GHOST_SCHEMA", "api.VARIABLES_SCHEMA"],
+    ):
+        inner = {"extends": extends}
+        assert _extends_map_schema(inner, _schema_dir(tmp_path)) is None
+
+
+def test_competing_map_bases_block_the_map_collapse(tmp_path: Path) -> None:
+    """Two map bases with differing value templates keep the nested group."""
+    inner = {"extends": ["api.VARIABLES_SCHEMA", "api.INT_VALUES_SCHEMA"]}
+    assert _extends_map_schema(inner, _schema_dir(tmp_path)) is None
+
+
+def test_duplicate_map_base_still_collapses(tmp_path: Path) -> None:
+    """The same map base listed twice is not a conflict."""
+    inner = {"extends": ["api.VARIABLES_SCHEMA", "api.VARIABLES_SCHEMA"]}
+    assert _extends_map_schema(inner, _schema_dir(tmp_path)) is not None
 
 
 def test_direct_key_type_still_collapses(tmp_path: Path) -> None:
