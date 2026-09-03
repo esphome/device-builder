@@ -81,6 +81,19 @@ def test_wrapper_with_own_config_vars_is_not_a_map(tmp_path: Path) -> None:
     assert _extends_map_schema(inner, _schema_dir(tmp_path)) is None
 
 
+def test_sibling_field_base_blocks_the_map_collapse(tmp_path: Path) -> None:
+    """A wrapper also extending a field-bearing base keeps its inherited fields."""
+    for extends in (
+        ["api.PLAIN_SCHEMA", "api.VARIABLES_SCHEMA"],
+        ["api.VARIABLES_SCHEMA", "api.PLAIN_SCHEMA"],
+    ):
+        raw = {"key": "Optional", "schema": {"extends": extends}, "type": "schema"}
+        entry = _convert_field("server", raw, _schema_dir(tmp_path))
+        assert entry is not None
+        assert entry["type"] == "nested"
+        assert "port" in {c["key"] for c in entry["config_entries"]}
+
+
 def test_direct_key_type_still_collapses(tmp_path: Path) -> None:
     """The original raw-entry ``key_type`` path is unchanged."""
     raw = {

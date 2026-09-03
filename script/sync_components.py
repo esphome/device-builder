@@ -3511,17 +3511,22 @@ def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
     """
     if not isinstance(inner_schema, dict) or inner_schema.get("config_vars"):
         return None
+    map_schema: dict | None = None
     for ref in inner_schema.get("extends") or []:
         target = _lookup_schema_ref(ref, schema_dir)
-        if not isinstance(target, dict):
-            continue
-        schema_node = target.get("schema")
-        if "key_type" in target and isinstance(schema_node, dict):
-            return schema_node
-        found = _extends_map_schema(schema_node, schema_dir)
+        schema_node = target.get("schema") if isinstance(target, dict) else None
+        if isinstance(target, dict) and "key_type" in target and isinstance(schema_node, dict):
+            found = schema_node
+        else:
+            found = _extends_map_schema(schema_node, schema_dir)
         if found is not None:
-            return found
-    return None
+            if map_schema is None:
+                map_schema = found
+        elif _resolve_extends(ref, schema_dir):
+            # A sibling base contributes real fields; collapsing to a
+            # map would silently drop them — keep the nested group.
+            return None
+    return map_schema
 
 
 def _is_typed_node(node: Any) -> bool:
