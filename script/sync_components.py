@@ -3503,6 +3503,38 @@ def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
     return None
 
 
+def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
+    """Return the base's schema node when an extends-only wrapper references a user-keyed map."""
+    if not isinstance(inner_schema, dict) or inner_schema.get("config_vars"):
+        return None
+    map_schema: dict | None = None
+    other_refs: list[str] = []
+    for ref in inner_schema.get("extends") or []:
+        target = _lookup_schema_ref(ref, schema_dir)
+        if not isinstance(target, dict):
+            # An unlocatable base may carry fields; never collapse over it.
+            return None
+        schema_node = target.get("schema")
+        if "key_type" in target and isinstance(schema_node, dict):
+            found = schema_node
+        else:
+            found = _extends_map_schema(schema_node, schema_dir)
+        if found is not None:
+            if map_schema is not None and found != map_schema:
+                # Competing map bases are ambiguous; keep the nested group.
+                return None
+            map_schema = found
+        else:
+            other_refs.append(ref)
+    if map_schema is None:
+        return None
+    # A sibling base contributing real fields would be silently dropped
+    # by the collapse — keep the nested group.
+    if any(_resolve_extends(ref, schema_dir) for ref in other_refs):
+        return None
+    return map_schema
+
+
 def _is_typed_node(node: Any) -> bool:
     """Return whether *node* is a ``cv.typed_schema`` node with at least one variant."""
     return (
@@ -3875,9 +3907,15 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     # uniform value type", not hundreds of distinct sub-fields.
     # Collapse to a single value template so the frontend can render a
     # dynamic ``add row`` editor instead of a wall of cloned forms.
-    if "key_type" in raw and isinstance(inner_schema, dict):
+    # A shared map base referenced through an extends-only wrapper
+    # (api's ``data:`` → ``api.KEY_VALUE_SCHEMA``) carries ``key_type``
+    # on the referenced body instead of the entry itself.
+    map_schema = (
+        inner_schema if "key_type" in raw else _extends_map_schema(inner_schema, schema_dir)
+    )
+    if isinstance(map_schema, dict):
         entry["type"] = "map"
-        entry["config_entries"] = _build_map_value_template(inner_schema, schema_dir)
+        entry["config_entries"] = _build_map_value_template(map_schema, schema_dir)
         return entry
 
     # Discriminated union (``cv.typed_schema``): a ``type:`` / ``source:``
