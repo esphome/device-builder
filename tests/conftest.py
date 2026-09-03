@@ -410,6 +410,11 @@ def make_remote_build_controller(
     db.settings.remote_build_only = False
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     db.create_background_task = asyncio.create_task
+    # MagicMock auto-attrs would leak into msg3 / the connect-back
+    # sweep; default to "no listener bound".
+    db.remote_build_listener_port = None
+    db.remote_build_receiver_role_active = False
+    db.apply_remote_build_enabled = AsyncMock(return_value=False)
     _idle = QueueStatus(idle=True, running=False, queue_depth=0)
     # The receiver broadcasts compile-lane idleness to offloaders.
     db.firmware.compile_queue_status = MagicMock(return_value=_idle)

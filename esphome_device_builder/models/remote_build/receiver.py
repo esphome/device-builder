@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ...helpers.ip import port_or_zero
 from ..common import DashboardModel
 from .enums import PeerStatus
 
@@ -38,6 +39,9 @@ class StoredPeer(DashboardModel):
     # Original pair time; never refreshed — a re-pair keeps it.
     paired_at: float
     peer_ip: str = ""
+    # Offloader's peer-link listener port; 0 when unknown.
+    # Refreshed on session-open only with a non-zero value.
+    connect_back_port: int = 0
     # Offloader-advertised human machine label (its mDNS
     # ``friendly_name``). Captured at pair time and refreshed on
     # session-open and re-pair only when the offloader sends a
@@ -51,6 +55,10 @@ class StoredPeer(DashboardModel):
     # may replace ``label``. Old offloaders never send it (False),
     # so a possibly-custom label always wins.
     label_auto: bool = False
+
+    def __post_init__(self) -> None:
+        """Reset a non-int / out-of-range ``connect_back_port`` to 0 on load."""
+        self.connect_back_port = port_or_zero(self.connect_back_port)
 
     def refresh_from_pair_request(
         self,
@@ -265,12 +273,15 @@ class IdentityView(DashboardModel):
     the listener is back up" from "rotation succeeded but the
     rebuild fail-softed" (port now bound by something else,
     cert load throws). The latter is silent in the logs
-    without this flag.
+    without this flag. It can be true while the Build-server
+    toggle is off — the connect-back-only bind.
 
     ``listener_host`` / ``listener_addresses`` / ``listener_port``
-    are the mDNS-advertised pairing address: host ``None`` without
-    an attached advertiser, addresses ``[]`` until it registers,
-    port ``None`` while the listener is unbound.
+    describe the bound listener: host ``None`` without an attached
+    advertiser, addresses ``[]`` until it registers, port ``None``
+    while the listener is unbound. They are a pairable address only
+    while ``receiver_role_active`` — a connect-back-only bind
+    advertises nothing and refuses pair requests.
     """
 
     dashboard_id: str
@@ -281,3 +292,4 @@ class IdentityView(DashboardModel):
     listener_host: str | None = None
     listener_addresses: list[str] = field(default_factory=list)
     listener_port: int | None = None
+    receiver_role_active: bool = False

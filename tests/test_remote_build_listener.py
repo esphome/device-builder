@@ -1132,3 +1132,259 @@ async def test_set_settings_live_rebinds_listener(tmp_path: Path) -> None:
     finally:
         if db._remote_build_lifecycle._runner is not None:
             await db._remote_build_lifecycle._runner.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Connect-back-only bind: approved pairings hold the listener open with the
+# Build-server role off; receiver-role advertise stays cleared.
+# ---------------------------------------------------------------------------
+
+
+def _connect_back_only_db(tmp_path: Path, *, has_pairings: bool = True) -> DeviceBuilder:
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    offloader = MagicMock()
+    offloader.has_approved_pairings.return_value = has_pairings
+    db.remote_build_offloader = offloader
+    advertiser = MagicMock()
+    advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = advertiser
+    return db
+
+
+async def test_connect_back_only_binds_with_pairings_and_receiver_disabled(
+    tmp_path: Path,
+) -> None:
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    try:
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        assert db.remote_build_receiver_role_active is False
+        # No pairable TXT in connect-back-only mode.
+        db._dashboard_advertiser.set_pin_sha256.assert_not_called()
+        db._dashboard_advertiser.set_remote_build_port.assert_not_called()
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_connect_back_only_tears_down_when_last_pairing_removed(tmp_path: Path) -> None:
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    try:
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        db.remote_build_offloader.has_approved_pairings.return_value = False
+        bound = await db.apply_remote_build_enabled()
+        assert bound is False
+        assert db._remote_build_lifecycle._runner is None
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_converge_rebuilds_listener_on_role_flip(tmp_path: Path) -> None:
+    loop = asyncio.get_running_loop()
+
+    def _write(enabled: bool) -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = enabled
+
+    await loop.run_in_executor(None, _write, False)
+    db = _connect_back_only_db(tmp_path)
+    try:
+        await db._remote_build_lifecycle.maybe_start()
+        assert db.remote_build_receiver_role_active is False
+        first_runner = db._remote_build_lifecycle._runner
+
+        await loop.run_in_executor(None, _write, True)
+        bound = await db.apply_remote_build_enabled()
+        assert bound is True
+        assert db.remote_build_receiver_role_active is True
+        assert db._remote_build_lifecycle._runner is not first_runner
+        # Receiver role advertises pin + port.
+        assert db._dashboard_advertiser.set_pin_sha256.call_args.args[0] is not None
+        assert db._dashboard_advertiser.set_remote_build_port.call_args.args[0] is not None
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_failed_bind_arms_paced_converge_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fail-soft bind arms one delayed re-converge that binds once the fault clears."""
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+    try:
+        with pytest.MonkeyPatch.context() as failing:
+
+            async def _failing_start(self: web.SockSite) -> None:
+                raise OSError("address in use (test stub)")
+
+            failing.setattr(web.SockSite, "start", _failing_start)
+            bound = await db.apply_remote_build_enabled()
+        assert bound is False
+        assert lifecycle._converge_retry_handle is not None
+
+        lifecycle._converge_retry_handle.cancel()
+        lifecycle._run_converge_retry()
+        for _ in range(100):
+            if lifecycle._runner is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert lifecycle._runner is not None
+        assert lifecycle._converge_retry_handle is None
+    finally:
+        if lifecycle._runner is not None:
+            await lifecycle._runner.cleanup()
+
+
+async def test_schedule_converge_retry_is_single_flight_and_shutdown_cancels(
+    tmp_path: Path,
+) -> None:
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+    lifecycle._schedule_converge_retry()
+    handle = lifecycle._converge_retry_handle
+    assert handle is not None
+    lifecycle._schedule_converge_retry()
+    assert lifecycle._converge_retry_handle is handle
+    await lifecycle.shutdown()
+    assert lifecycle._converge_retry_handle is None
+    assert handle.cancelled()
+
+
+async def test_track_pairing_transitions_is_idempotent(tmp_path: Path) -> None:
+    db = _connect_back_only_db(tmp_path)
+    db.bus = EventBus()
+    lifecycle = db._remote_build_lifecycle
+    lifecycle.track_pairing_transitions()
+    unsub = lifecycle._unsub_pair_status_changed
+    lifecycle.track_pairing_transitions()
+    assert lifecycle._unsub_pair_status_changed is unsub
+    await lifecycle.shutdown()
+    assert lifecycle._unsub_pair_status_changed is None
+
+
+async def test_converge_retry_backs_off_and_suppresses_repeat_tracebacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A persistent bind failure backs off its retry and logs the traceback once."""
+    loop = asyncio.get_running_loop()
+
+    def _disable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = False
+
+    await loop.run_in_executor(None, _disable)
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+
+    async def _failing_start(self: web.SockSite) -> None:
+        raise OSError("address in use (test stub)")
+
+    monkeypatch.setattr(web.SockSite, "start", _failing_start)
+    with caplog.at_level("DEBUG", logger="esphome_device_builder._remote_build_lifecycle"):
+        assert await db.apply_remote_build_enabled() is False
+        first_handle = lifecycle._converge_retry_handle
+        assert first_handle is not None
+        assert lifecycle._converge_retry_strikes == 1
+        # Second attempt fails again: strike advances (longer delay),
+        # and the full traceback is not re-logged.
+        lifecycle._converge_retry_handle = None
+        assert await lifecycle.converge() is False
+        assert lifecycle._converge_retry_strikes == 2
+    tracebacks = [r for r in caplog.records if r.exc_info is not None]
+    assert len(tracebacks) == 1
+    if lifecycle._converge_retry_handle is not None:
+        lifecycle._converge_retry_handle.cancel()
+
+
+async def test_converge_reraises_but_arms_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A converge whose policy read raises still arms the self-heal retry."""
+    db = _connect_back_only_db(tmp_path)
+    lifecycle = db._remote_build_lifecycle
+    monkeypatch.setattr(
+        lifecycle, "_compute_policy", AsyncMock(side_effect=RuntimeError("bad sidecar"))
+    )
+    with pytest.raises(RuntimeError):
+        await lifecycle.converge()
+    assert lifecycle._converge_retry_handle is not None
+    lifecycle._converge_retry_handle.cancel()
+
+
+async def test_maybe_start_without_receiver_controller_self_heals(tmp_path: Path) -> None:
+    """``maybe_start`` binds nothing but arms the retry when the receiver isn't up yet."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = None
+    lifecycle = db._remote_build_lifecycle
+    await lifecycle.maybe_start()
+    assert lifecycle._runner is None
+    # enabled defaults True (non-addon) → wanted but unbindable → retry armed.
+    assert lifecycle._converge_retry_handle is not None
+    lifecycle._converge_retry_handle.cancel()
+
+
+async def test_converge_no_ops_after_shutdown(tmp_path: Path) -> None:
+    """A converge that lands after shutdown neither binds nor re-arms the retry."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    lifecycle = db._remote_build_lifecycle
+    await lifecycle.shutdown()
+    assert await lifecycle.converge() is False
+    assert lifecycle._runner is None
+    assert lifecycle._converge_retry_handle is None
+
+
+async def test_converge_awaiting_lock_no_ops_when_shutdown_wins(tmp_path: Path) -> None:
+    """A converge blocked on the lock when shutdown flips ``_stopped`` binds nothing."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    lifecycle = db._remote_build_lifecycle
+    async with lifecycle._get_lock():
+        # converge passes its pre-lock guard, then blocks on the lock we hold.
+        task = asyncio.create_task(lifecycle.converge())
+        await asyncio.sleep(0)
+        lifecycle._stopped = True
+    assert await task is False
+    assert lifecycle._runner is None

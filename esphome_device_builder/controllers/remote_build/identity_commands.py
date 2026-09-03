@@ -17,6 +17,7 @@ from ...models import (
 from ._summaries import identity_view
 
 if TYPE_CHECKING:
+    from ...helpers.dashboard_identity import DashboardIdentity
     from .receiver import ReceiverController
 
 
@@ -31,12 +32,8 @@ async def get_identity(controller: ReceiverController) -> IdentityView:
         controller._db.settings.config_dir,
         controller._db.peer_link_identity_store,
     )
-    return identity_view(
-        identity,
-        listener_bound=controller._db.is_remote_build_listener_bound,
-        listener_host=controller._db.remote_build_listener_host,
-        listener_addresses=controller._db.remote_build_listener_addresses,
-        listener_port=controller._db.remote_build_listener_port,
+    return _identity_view_from_db(
+        controller, identity, listener_bound=controller._db.is_remote_build_listener_bound
     )
 
 
@@ -91,12 +88,21 @@ async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
                 pin_sha256=identity.pin_sha256,
             ),
         )
-        return identity_view(
-            identity,
-            listener_bound=listener_bound,
-            listener_host=controller._db.remote_build_listener_host,
-            listener_addresses=controller._db.remote_build_listener_addresses,
-            listener_port=controller._db.remote_build_listener_port,
-        )
+        return _identity_view_from_db(controller, identity, listener_bound=listener_bound)
     finally:
         controller.state.rotation_in_flight = False
+
+
+def _identity_view_from_db(
+    controller: ReceiverController, identity: DashboardIdentity, *, listener_bound: bool
+) -> IdentityView:
+    """Project *identity* plus the ``DeviceBuilder``'s live listener state."""
+    db = controller._db
+    return identity_view(
+        identity,
+        listener_bound=listener_bound,
+        listener_host=db.remote_build_listener_host,
+        listener_addresses=db.remote_build_listener_addresses,
+        listener_port=db.remote_build_listener_port,
+        receiver_role_active=db.remote_build_receiver_role_active,
+    )

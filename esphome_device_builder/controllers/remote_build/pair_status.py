@@ -41,6 +41,7 @@ from ...models import (
     PeerStatus,
     StoredPairing,
 )
+from . import peer_link_lifecycle
 from .peer_link_client import PairStatusResult, PeerLinkClientError
 from .peer_link_client import await_pair_status as peer_link_await_pair_status
 
@@ -193,7 +194,7 @@ async def apply_pair_status_result(
         existing.status = PeerStatus.APPROVED
         controller._schedule_pairings_save()
         controller._fire_offloader_pair_status_changed(host, port, key, "approved")
-        controller._spawn_peer_link_client(existing)
+        await peer_link_lifecycle.converge_and_spawn_peer_link_client(controller, existing)
         return True
     if result.status is IntentResponse.REJECTED:
         if controller.state.pairings.pop(key, None) is not None:

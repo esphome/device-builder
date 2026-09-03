@@ -14,19 +14,20 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
 from ....helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
+from ....helpers.ip import port_or_zero
 from ....helpers.peer_link_noise import (
     HandshakeNotCompleteError,
     PeerLinkNoiseSession,
     pin_sha256_for_pubkey,
 )
 from ....models import IntentResponse, PeerLinkIntent, RejectReason
+from .._intent import IntentOutcome
 from ..display_identity import dashboard_display_identity
-from ..pair_flow import IntentOutcome
 from .session import _run_peer_link_session
 from .wire_io import (
     _bool_or_false,
@@ -40,9 +41,18 @@ from .wire_io import (
 )
 
 if TYPE_CHECKING:
+    from ..offloader import OffloaderController
     from ..receiver import ReceiverController
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _msg3_port(msg3: dict[str, Any], key: str, peer_ip: str) -> int:
+    """Parse a msg3 port field: 0 when absent, debug-logged and 0 when malformed."""
+    value = port_or_zero(msg3.get(key))
+    if value == 0 and key in msg3:
+        _LOGGER.debug("peer-link msg3 from %s carried malformed %s %r", peer_ip, key, msg3[key])
+    return value
 
 
 class _HandshakeStep(StrEnum):
@@ -74,6 +84,8 @@ class _DispatchInput:
     friendly_name: str = ""
     ha_addon: bool = False
     label_auto: bool = False
+    # ``connect_back`` msg3's ``peer_link_port``; 0 when absent.
+    announced_peer_link_port: int = 0
 
 
 async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are the handshake's natural failure cliffs
@@ -81,6 +93,9 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     ws: web.WebSocketResponse,
     peer_ip: str,
     identity_priv: bytes,
+    *,
+    offloader: OffloaderController | None = None,
+    accept_receiver_intents: bool = True,
 ) -> None:
     """
     Drive one peer-link Noise session from handshake to response.
@@ -146,6 +161,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     peer_friendly_name = _normalize_label(msg3.get("friendly_name"))
     peer_ha_addon = _bool_or_false(msg3.get("ha_addon"))
     label_auto = _bool_or_false(msg3.get("label_auto"))
+    connect_back_port = _msg3_port(msg3, "connect_back_port", peer_ip)
+    announced_peer_link_port = _msg3_port(msg3, "peer_link_port", peer_ip)
 
     outcome = await _dispatch_intent(
         controller,
@@ -160,7 +177,10 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             friendly_name=peer_friendly_name,
             ha_addon=peer_ha_addon,
             label_auto=label_auto,
+            announced_peer_link_port=announced_peer_link_port,
         ),
+        offloader=offloader,
+        accept_receiver_intents=accept_receiver_intents,
     )
     # Log the decision, not the bare handshake; "ok" here used to
     # mean only "Noise XX completed", which read as "pairing
@@ -215,12 +235,16 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             peer_ip=peer_ip,
             peer_friendly_name=peer_friendly_name,
             peer_ha_addon=peer_ha_addon,
+            peer_connect_back_port=connect_back_port,
         )
 
 
-async def _dispatch_intent(
+async def _dispatch_intent(  # noqa: PLR0911 — one return per intent branch
     controller: ReceiverController,
     inp: _DispatchInput,
+    *,
+    offloader: OffloaderController | None = None,
+    accept_receiver_intents: bool = True,
 ) -> IntentOutcome:
     """
     Resolve a single peer-link intent into a typed :class:`IntentOutcome`.
@@ -228,8 +252,24 @@ async def _dispatch_intent(
     Pure dispatch — callable directly from tests without the WS /
     Noise plumbing. The WS driver has already validated the wire
     string into a :class:`PeerLinkIntent`; unknown wire values map
-    to ``REJECTED`` before reaching here.
+    to ``REJECTED`` before reaching here. ``connect_back`` routes
+    to *offloader* and skips the dashboard_id gate (the pin is the
+    key); every receiver intent is refused with ``BAD_INTENT``
+    when *accept_receiver_intents* is false (offloader-only bind).
     """
+    if inp.intent is PeerLinkIntent.CONNECT_BACK:
+        if offloader is None:
+            # A local wiring bug, not a peering answer — PROBE_FAILED
+            # keeps the dialing receiver on the retryable backoff.
+            _LOGGER.error("connect_back from %s with no offloader wired; rejecting", inp.peer_ip)
+            return IntentOutcome(IntentResponse.REJECTED, RejectReason.PROBE_FAILED)
+        return await offloader._handle_connect_back(
+            pin_sha256=inp.pin_sha256,
+            peer_ip=inp.peer_ip,
+            announced_port=inp.announced_peer_link_port,
+        )
+    if not accept_receiver_intents:
+        return IntentOutcome(IntentResponse.REJECTED, RejectReason.BAD_INTENT)
     if inp.intent is PeerLinkIntent.PREVIEW:
         # Preview captures the responder's static pubkey via the
         # handshake transcript; no controller call + no

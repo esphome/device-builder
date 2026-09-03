@@ -67,6 +67,9 @@ class PeerLinkSession:
     # refreshes the stored peer row from these.
     peer_friendly_name: str = ""
     peer_ha_addon: bool = False
+    # Offloader's peer-link listener port from msg3; 0 when the
+    # offloader has none bound or predates the field.
+    peer_connect_back_port: int = 0
     # Loop-monotonic timestamp of the most recent successfully
     # decrypted inbound frame (or session start if none has landed
     # yet). Any authenticated frame counts — a peer streaming
@@ -203,6 +206,7 @@ async def _run_peer_link_session(
     *,
     peer_friendly_name: str = "",
     peer_ha_addon: bool = False,
+    peer_connect_back_port: int = 0,
 ) -> None:
     """
     Run the post-handshake receive loop + heartbeat for one session.
@@ -218,6 +222,7 @@ async def _run_peer_link_session(
         peer_ip=peer_ip,
         peer_friendly_name=peer_friendly_name,
         peer_ha_addon=peer_ha_addon,
+        peer_connect_back_port=peer_connect_back_port,
     )
     # Register before spawning the heartbeat — a duplicate connect
     # on the same loop tick must find this session in the registry

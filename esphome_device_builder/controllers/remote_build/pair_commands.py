@@ -35,6 +35,7 @@ from ...models import (
     PeerStatus,
     StoredPairing,
 )
+from . import peer_link_lifecycle
 from ._mdns import endpoints_equal
 from ._models import EDIT_PAIRING_PROBE_ERRORS, RebindProbeOutcome
 from ._validators import (
@@ -268,7 +269,7 @@ async def request_pair(
     controller._dismiss_offloader_alert(key, clean_host, clean_port)
     if target_status is PeerStatus.APPROVED:
         controller._schedule_pairings_save()
-        controller._spawn_peer_link_client(pairing)
+        await peer_link_lifecycle.converge_and_spawn_peer_link_client(controller, pairing)
     else:
         controller._spawn_pair_status_listener(pairing)
     # Announce the created row so connected tabs that didn't issue

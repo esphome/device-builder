@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from aiohttp import web
 
@@ -13,7 +14,7 @@ from .api.ws import init_ws_app
 from .constants import REMOTE_BUILD_PORT_SCAN_ATTEMPTS
 from .controllers.config import load_effective_remote_build_settings
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
-from .helpers.async_ import run_in_executor
+from .helpers.async_ import log_task_exit, run_in_executor
 from .helpers.network_interfaces import (
     bind_available_port,
     ensure_single_host_for_ephemeral_port,
@@ -23,9 +24,15 @@ from .models import EventType, RemoteBuildListenerChangedData
 
 if TYPE_CHECKING:
     from .device_builder import DeviceBuilder
+    from .helpers.event_bus import Event
     from .helpers.peer_link_identity import PeerLinkIdentity
 
 _LOGGER = logging.getLogger(__name__)
+
+# Paced re-converge after a fail-soft bind so the listener
+# self-heals without a restart; backs off from base to cap.
+_CONVERGE_RETRY_DELAY_SECONDS = 30.0
+_CONVERGE_RETRY_MAX_DELAY_SECONDS = 3600.0
 
 
 @web.middleware
@@ -53,18 +60,55 @@ async def _strip_server_header_middleware(
     return response
 
 
+class _ListenerPolicy(NamedTuple):
+    """Computed bind decision: whether to bind, and in which role."""
+
+    # The listener is wanted (receiver role on, or approved pairings
+    # need connect-back) — independent of whether we can bind yet.
+    wanted: bool
+    # Wanted AND the receiver controller is available to bind.
+    bind: bool
+    receiver_role: bool
+    # Approved pairings want the listener for connect-back dials.
+    offloader_needs: bool
+    # Receiver role held only by --remote-build-only overriding a
+    # persisted enabled=False; drives the one info log.
+    forced_by_cli: bool
+
+
 class RemoteBuildLifecycle:
     """Remote-build peer-link listener lifecycle, composed into ``DeviceBuilder``."""
 
     def __init__(self, db: DeviceBuilder) -> None:
         """Bind to the owning ``DeviceBuilder``; the listener starts unbound."""
         self._db = db
-        # Peer-link Noise WS receiver site for
-        # ``/remote-build/peer-link`` (issue #106). Bound only when
-        # ``RemoteBuildSettings.enabled`` is true; ``None`` otherwise.
+        # Peer-link Noise WS site for ``/remote-build/peer-link``
+        # (issue #106). Bound when the receiver role is on
+        # (``RemoteBuildSettings.enabled`` / ``--remote-build-only``)
+        # or, connect-back only, when approved pairings exist;
+        # ``None`` otherwise.
         self._runner: web.AppRunner | None = None
         # Bound peer-link port; ``None`` whenever ``_runner`` is.
         self._bound_port: int | None = None
+        # True while the bound listener serves receiver intents
+        # (pair / peer_link); False on a connect-back-only bind.
+        self._receiver_role_active = False
+        # Unsubscribe for the pairing-transition listener installed
+        # by :meth:`track_pairing_transitions`.
+        self._unsub_pair_status_changed: Callable[[], None] | None = None
+        # Single-flight timer for the paced re-converge after a
+        # fail-soft bind; ``None`` when no retry is pending.
+        self._converge_retry_handle: asyncio.TimerHandle | None = None
+        # True after the once-per-outage connect-back warning fired;
+        # cleared when a converge ends bound (or bind unwanted).
+        self._bind_failure_warned = False
+        # Consecutive failed-bind retries; drives the retry backoff
+        # and suppresses repeated bind-failure tracebacks.
+        self._converge_retry_strikes = 0
+        # Set once :meth:`shutdown` runs so a converge landing after
+        # teardown (an in-flight WS ``set_settings``) can't re-arm the
+        # retry timer or bind a fresh runner past shutdown.
+        self._stopped = False
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -81,6 +125,11 @@ class RemoteBuildLifecycle:
     def listener_port(self) -> int | None:
         """The bound peer-link port, or ``None`` while the listener is down."""
         return self._bound_port
+
+    @property
+    def receiver_role_active(self) -> bool:
+        """True while the bound listener serves receiver intents."""
+        return self._receiver_role_active
 
     async def maybe_start(self) -> None:
         """
@@ -109,55 +158,91 @@ class RemoteBuildLifecycle:
         install as ``enabled=False``, and ``set_settings`` flips
         the persisted signal the moment it writes the block, even
         a write that lands on the dataclass defaults. Fresh addon
-        install → no bind; operator flips the toggle → bind
-        respects the persisted ``enabled`` field.
+        install → no receiver-role bind; operator flips the toggle
+        → bind respects the persisted ``enabled`` field. Approved
+        pairings force a connect-back-only bind regardless — see
+        :meth:`_compute_policy`.
 
         Fail-soft: any exception during identity load or bind is
-        caught and logged. The main dashboard keeps running; the
-        operator gets a warning and the listener is simply absent
-        until the next restart with the issue resolved.
+        caught and logged, and a wanted-but-unbound outcome arms the
+        paced retry via :meth:`converge` — a missing receiver
+        controller or bind error self-heals rather than staying
+        silently down.
         """
-        if self._db.remote_build_receiver is None or self._db.loop is None:
+        if self._db.loop is None:
             return
+        await self.converge()
+
+    async def _compute_policy(self) -> _ListenerPolicy:
+        """Compute the bind decision from settings + approved pairings."""
         settings = self._db.settings
         rb_settings = await load_effective_remote_build_settings(settings)
-        if not rb_settings.enabled:
-            # ``--remote-build-only`` has no dashboard UI to flip the
-            # persisted toggle back on, and a receiver with no listener
-            # is pointless — the CLI mode overrides the sidecar.
-            if not settings.remote_build_only:
-                _LOGGER.debug(
-                    "Skipping remote-build peer-link site: disabled in settings "
-                    "(flip the Build server toggle in Settings, or send "
-                    "``remote_build/set_settings`` enabled=true, to bind)"
-                )
-                return
+        # ``--remote-build-only`` has no dashboard UI to flip the
+        # persisted toggle back on, and a receiver with no listener
+        # is pointless — the CLI mode overrides the sidecar.
+        receiver_role = rb_settings.enabled or settings.remote_build_only
+        offloader = self._db.remote_build_offloader
+        offloader_needs = offloader is not None and offloader.has_approved_pairings()
+        wanted = receiver_role or offloader_needs
+        return _ListenerPolicy(
+            wanted=wanted,
+            # Binding needs the receiver controller; teardown doesn't.
+            bind=wanted and self._db.remote_build_receiver is not None,
+            receiver_role=receiver_role,
+            offloader_needs=offloader_needs,
+            forced_by_cli=settings.remote_build_only and not rb_settings.enabled,
+        )
+
+    async def _start_listener(self, policy: _ListenerPolicy) -> None:
+        """Bind the listener per *policy*; fail-soft on any error."""
+        settings = self._db.settings
+        if policy.forced_by_cli:
             _LOGGER.info(
                 "Remote-build is disabled in the persisted settings but "
                 "--remote-build-only forces the peer-link listener on"
             )
+        elif not policy.receiver_role:
+            _LOGGER.info(
+                "Binding remote-build peer-link listener for connect-back only "
+                "(Build server disabled; approved pairings exist)"
+            )
 
         try:
-            runner, identity, port = await self._build_and_start_runner()
-        except Exception:
-            _LOGGER.exception(
-                "Remote-build peer-link site failed to start; dashboard continues "
-                "without the receiver listener. Disable in Settings or "
-                "fix the underlying error and restart."
+            runner, identity, port = await self._build_and_start_runner(
+                receiver_role=policy.receiver_role
             )
+        except Exception as exc:
+            # Full traceback on the first failure of a streak; a
+            # persistent port conflict then logs one warning (with the
+            # error text) per retry instead of a traceback every cycle.
+            if self._converge_retry_strikes == 0:
+                _LOGGER.exception(
+                    "Remote-build peer-link site failed to start; dashboard continues "
+                    "without the receiver listener. Disable in Settings or "
+                    "fix the underlying error and restart."
+                )
+            else:
+                _LOGGER.warning(
+                    "Remote-build peer-link site still failing to bind (attempt %d): %s",
+                    self._converge_retry_strikes + 1,
+                    exc,
+                )
             return
         self._runner = runner
         self._bound_port = port
+        self._receiver_role_active = policy.receiver_role
 
         # Update the mDNS advertise AFTER the bind succeeds. If the
         # bind raised (port in use, permission denied, ...) the
         # advertiser stays at its pre-listener state instead of
         # broadcasting a pin + port that nothing's actually
-        # listening on.
-        await self.publish_advertise(
-            pin_sha256=identity.pin_sha256,
-            remote_build_port=port,
-        )
+        # listening on. A connect-back-only bind advertises neither
+        # field — this dashboard is not a pairable build server.
+        if policy.receiver_role:
+            await self.publish_advertise(
+                pin_sha256=identity.pin_sha256,
+                remote_build_port=port,
+            )
         self._fire_listener_changed()
 
         _LOGGER.info(
@@ -213,41 +298,104 @@ class RemoteBuildLifecycle:
                 exc_info=True,
             )
 
-    async def apply_enabled(self) -> bool:
+    async def converge(self) -> bool:
         """
-        Converge the peer-link listener to the on-disk ``enabled`` flag.
+        Converge the peer-link listener to the current bind policy.
 
-        Called by ``ReceiverController.set_settings`` after the
-        new ``enabled`` value lands on disk. Reads back from disk
-        under the lifecycle lock so the last-writer-wins persisted
-        value is always what the listener converges to — two
-        clients flipping ``enabled`` concurrently can't desync disk
-        from listener state.
-
-        On disk ``enabled=True`` with the listener absent, runs the
-        same path :meth:`maybe_start` does at startup (load X25519
-        peer-link identity, bind the plain-TCP listener, push pin + port
-        to mDNS). Fail-soft on bind error — the dashboard keeps
-        running without a listener, and a subsequent
-        ``set_settings`` retry can clear a transient port conflict
-        without a restart.
-
-        On disk ``enabled=False`` with the listener bound, tears
-        down the runner and clears ``pin_sha256`` + ``remote_build_port``
-        from mDNS via :meth:`_teardown_runner`.
+        Called by ``ReceiverController.set_settings`` after the new
+        ``enabled`` value lands on disk, and on approved-pairing
+        transitions. Recomputes the policy under the lifecycle lock
+        so the last-writer-wins persisted value is always what the
+        listener converges to — two clients flipping ``enabled``
+        concurrently can't desync disk from listener state. A role
+        flip on a bound listener (Build server toggled while
+        pairings exist) tears down and rebuilds so the handler's
+        intent gate and the TXT advertise match the new role. A
+        bind that fail-softs warns once per outage and re-arms a
+        paced retry.
 
         Returns whether the listener is bound after this call.
         """
-        if self._db.loop is None:
+        if self._db.loop is None or self._stopped:
             return self._runner is not None
         async with self._get_lock():
-            rb_settings = await load_effective_remote_build_settings(self._db.settings)
-            if rb_settings.enabled:
-                if self._runner is None:
-                    await self.maybe_start()
-            else:
+            if self._stopped:
+                return self._runner is not None
+            try:
+                return await self._converge_locked()
+            except Exception:
+                # A raising converge (e.g. an unreadable settings
+                # sidecar) must still self-heal — arm the paced retry
+                # and re-raise for the caller's crash log.
+                self._schedule_converge_retry()
+                raise
+
+    async def _converge_locked(self) -> bool:
+        """Converge to the current bind policy; caller holds the lifecycle lock."""
+        policy = await self._compute_policy()
+        if not policy.wanted:
+            if self._runner is None:
+                _LOGGER.debug(
+                    "Skipping remote-build peer-link site: disabled in settings "
+                    "(flip the Build server toggle in Settings, or send "
+                    "``remote_build/set_settings`` enabled=true, to bind)"
+                )
+            await self._teardown_runner()
+        elif policy.bind:
+            if self._runner is None:
+                await self._start_listener(policy)
+            elif policy.receiver_role != self._receiver_role_active:
                 await self._teardown_runner()
-            return self._runner is not None
+                await self._start_listener(policy)
+        # else: wanted, but the receiver controller isn't up yet
+        # (startup ordering) — keep any current runner; the retry
+        # below re-arms.
+        if policy.wanted and self._runner is None:
+            if not self._bind_failure_warned:
+                self._bind_failure_warned = True
+                _LOGGER.warning(
+                    "peer-link listener not bound; connect-back recovery unavailable until it binds"
+                )
+            self._schedule_converge_retry()
+        else:
+            self._bind_failure_warned = False
+            self._converge_retry_strikes = 0
+        return self._runner is not None
+
+    def _schedule_converge_retry(self) -> None:
+        """Arm one delayed re-converge after a failed bind; single-flight, backed off."""
+        if self._converge_retry_handle is not None or self._db.loop is None or self._stopped:
+            return
+        # Clamp the exponent so an endless failure streak can't grow
+        # an unbounded bigint before ``min`` truncates it.
+        delay = min(
+            _CONVERGE_RETRY_DELAY_SECONDS * 2 ** min(self._converge_retry_strikes, 32),
+            _CONVERGE_RETRY_MAX_DELAY_SECONDS,
+        )
+        self._converge_retry_strikes += 1
+        self._converge_retry_handle = self._db.loop.call_later(delay, self._run_converge_retry)
+
+    def _run_converge_retry(self) -> None:
+        """Timer body: clear the slot and re-converge in the background."""
+        self._converge_retry_handle = None
+        self._spawn_converge("remote-build converge retry")
+
+    def _spawn_converge(self, label: str) -> None:
+        """Run a converge as a crash-logged background task."""
+        task = self._db.create_background_task(self.converge())
+        task.add_done_callback(partial(log_task_exit, label))
+
+    def track_pairing_transitions(self) -> None:
+        """Re-converge the listener on every pairing status flip; idempotent."""
+        if self._unsub_pair_status_changed is not None:
+            return
+        self._unsub_pair_status_changed = self._db.bus.add_listener(
+            EventType.OFFLOADER_PAIR_STATUS_CHANGED, self._on_pairing_transition
+        )
+
+    def _on_pairing_transition(self, _event: Event[Any]) -> None:
+        """Re-converge the listener on a pairing transition."""
+        self._spawn_converge("remote-build converge")
 
     async def reload_identity(self) -> bool:
         """
@@ -256,10 +404,11 @@ class RemoteBuildLifecycle:
         No-op when the listener isn't bound: the rotated key is
         already on disk and the next bind picks it up. When bound,
         tears the runner down — clearing pin + port from mDNS — then
-        rebuilds via :meth:`maybe_start`, which loads the new key and
-        re-pushes pin + port. Clear runs BEFORE rebuild so a rebuild
-        failure leaves the cleared TXT as the steady state. Fail-soft;
-        returns whether the listener is bound after this call.
+        rebuilds via :meth:`_converge_locked`, which loads the new
+        key and re-pushes pin + port. Clear runs BEFORE rebuild so a
+        rebuild failure leaves the cleared TXT as the steady state.
+        Fail-soft; returns whether the listener is bound after this
+        call.
         """
         async with self._get_lock():
             if self._runner is None:
@@ -267,11 +416,10 @@ class RemoteBuildLifecycle:
             # ``_teardown_runner`` clears the advertise too, so peers
             # re-browsing during the rebuild window — or after a
             # rebuild failure — don't see stale pin + port pointing at
-            # a listener that isn't there. ``maybe_start`` re-pushes
-            # both on a successful rebuild.
+            # a listener that isn't there. The rebuild re-pushes both
+            # on success.
             await self._teardown_runner()
-            await self.maybe_start()
-            return self._runner is not None
+            return await self._converge_locked()
 
     async def shutdown(self) -> None:
         """
@@ -287,12 +435,23 @@ class RemoteBuildLifecycle:
         immediately after, so a TXT-only clear would be wasted work
         racing the unregister.
         """
+        # Set before the lock so a converge already awaiting it
+        # (an in-flight WS ``set_settings``) no-ops instead of
+        # binding a fresh runner or re-arming the retry after us.
+        self._stopped = True
+        if self._unsub_pair_status_changed is not None:
+            self._unsub_pair_status_changed()
+            self._unsub_pair_status_changed = None
+        if self._converge_retry_handle is not None:
+            self._converge_retry_handle.cancel()
+            self._converge_retry_handle = None
         async with self._get_lock():
             if self._runner is None:
                 return
             old_runner = self._runner
             self._runner = None
             self._bound_port = None
+            self._receiver_role_active = False
             await self._cleanup_runner(old_runner)
 
     def _get_lock(self) -> asyncio.Lock:
@@ -309,6 +468,7 @@ class RemoteBuildLifecycle:
                 listener_host=self._db.remote_build_listener_host,
                 listener_addresses=self._db.remote_build_listener_addresses,
                 listener_port=self._bound_port,
+                receiver_role_active=self._receiver_role_active,
             ),
         )
 
@@ -330,6 +490,7 @@ class RemoteBuildLifecycle:
         old_runner = self._runner
         self._runner = None
         self._bound_port = None
+        self._receiver_role_active = False
         await self._cleanup_runner(old_runner)
         await self.publish_advertise(
             pin_sha256=None,
@@ -360,6 +521,8 @@ class RemoteBuildLifecycle:
 
     async def _build_and_start_runner(
         self,
+        *,
+        receiver_role: bool = True,
     ) -> tuple[web.AppRunner, PeerLinkIdentity, int]:
         """
         Construct the runner and bind the peer-link Noise WS listener.
@@ -438,7 +601,12 @@ class RemoteBuildLifecycle:
             # to aiohttp's 60s ``shutdown_timeout`` while its
             # handler sits in ``async for msg in session.ws``.
             init_ws_app(app)
-            handler = make_peer_link_handler(receiver, identity)
+            handler = make_peer_link_handler(
+                receiver,
+                identity,
+                offloader=self._db.remote_build_offloader,
+                accept_receiver_intents=receiver_role,
+            )
             app.router.add_get(PEER_LINK_PATH, handler)
 
             runner = web.AppRunner(app)

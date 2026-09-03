@@ -43,7 +43,19 @@ class CooldownLedger[K]:
         """Hold *key* with a delay doubling per consecutive call, capped at *cap*."""
         strikes = self._strikes.get(key, 0) + 1
         self._strikes[key] = strikes
-        self.set(key, min(base * 2 ** (strikes - 1), cap))
+        # Exponent clamp keeps ``2 ** n`` cheap under an unbounded
+        # strike count.
+        self.set(key, min(base * 2 ** min(strikes - 1, 32), cap))
+
+    def discard(self, key: K) -> None:
+        """Drop *key*'s deadline and strike count; no-op when absent."""
+        self._deadline.pop(key, None)
+        self._strikes.pop(key, None)
+
+    def clear(self) -> None:
+        """Drop every deadline and strike count."""
+        self._deadline.clear()
+        self._strikes.clear()
 
     def prune(self, keep: Callable[[K], bool]) -> None:
         """Drop every key (and its strike count) that *keep* rejects."""

@@ -310,6 +310,11 @@ class DeviceBuilder:
         return self._remote_build_lifecycle.listener_port
 
     @property
+    def remote_build_receiver_role_active(self) -> bool:
+        """True while the bound peer-link listener serves receiver intents."""
+        return self._remote_build_lifecycle.receiver_role_active
+
+    @property
     def remote_build_listener_host(self) -> str | None:
         """The mDNS-advertised hostname peers dial, or ``None`` without an advertiser."""
         advertiser = self._dashboard_advertiser
@@ -322,8 +327,8 @@ class DeviceBuilder:
         return advertiser.addresses if advertiser is not None else []
 
     async def apply_remote_build_enabled(self) -> bool:
-        """Converge the peer-link listener to the on-disk ``enabled`` flag."""
-        return await self._remote_build_lifecycle.apply_enabled()
+        """Converge the peer-link listener to the current bind policy."""
+        return await self._remote_build_lifecycle.converge()
 
     async def reload_remote_build_identity(self) -> bool:
         """Rebuild the peer-link listener after an X25519 identity rotation."""
@@ -558,6 +563,7 @@ class DeviceBuilder:
         # ``subscribe_events`` snapshot sees them; the mDNS browse
         # itself starts in the background task below.
         await self.remote_build_offloader.start()
+        self._remote_build_lifecycle.track_pairing_transitions()
         self._mark_startup_phase("remote_build")
 
         # ``async_register_service`` awaits its ~1.2s probe cycle, and

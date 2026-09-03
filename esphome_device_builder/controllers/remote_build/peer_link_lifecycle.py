@@ -19,6 +19,7 @@ lookup) reach into a stable surface.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -33,6 +34,8 @@ from .peer_link_client import PeerLinkClient
 
 if TYPE_CHECKING:
     from .offloader import OffloaderController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _zeroconf_getter(controller: OffloaderController) -> Callable[[], Zeroconf | None]:
@@ -53,6 +56,32 @@ def _display_identity_getter(controller: OffloaderController) -> Callable[[], tu
         return dashboard_display_identity(controller._db)
 
     return _get
+
+
+def _connect_back_port_getter(controller: OffloaderController) -> Callable[[], int | None]:
+    """Return a lazy reader for our bound peer-link listener port."""
+
+    def _get() -> int | None:
+        return controller._db.remote_build_listener_port
+
+    return _get
+
+
+async def converge_listener_for_connect_back(controller: OffloaderController) -> None:
+    """Converge the peer-link listener before a client dial; fail-soft, never raises."""
+    try:
+        await controller._db.apply_remote_build_enabled()
+    except Exception:
+        # Listener trouble must never block the forward client spawn.
+        _LOGGER.exception("peer-link listener converge failed")
+
+
+async def converge_and_spawn_peer_link_client(
+    controller: OffloaderController, pairing: StoredPairing
+) -> None:
+    """Spawn *pairing*'s client with the listener converged first, so msg3 carries the port."""
+    await converge_listener_for_connect_back(controller)
+    controller._spawn_peer_link_client(pairing)
 
 
 def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairing) -> None:
@@ -96,6 +125,7 @@ def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairi
         # inner sync ``Zeroconf``, not the ``AsyncZeroconf`` wrapper.
         get_zeroconf=_zeroconf_getter(controller),
         get_display_identity=_display_identity_getter(controller),
+        get_connect_back_port=_connect_back_port_getter(controller),
     )
     task = asyncio.create_task(
         client.run(),

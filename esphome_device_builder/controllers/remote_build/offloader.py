@@ -65,6 +65,7 @@ from . import (
     settings_commands,
     submit_job_commands,
 )
+from ._intent import IntentOutcome
 from ._models import RebindProbeResult
 from ._shared import _RemoteBuildBase
 from ._state import OffloaderState
@@ -90,7 +91,7 @@ _LOGGER = logging.getLogger(__name__)
 _PAIRINGS_SAVE_DELAY_SECONDS = 1.0
 
 
-class OffloaderController(_RemoteBuildBase):
+class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     """Outbound side of remote-build: pair, peer-link, artifact download."""
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
@@ -120,6 +121,7 @@ class OffloaderController(_RemoteBuildBase):
         # it up at construction; stays None when zeroconf is down
         # and outbound connects fall back to the OS resolver.
         self._setup_peer_link_resolver()
+        await peer_link_lifecycle.converge_listener_for_connect_back(self)
         for pairing in state.pairings.values():
             if pairing.status is PeerStatus.APPROVED:
                 self._spawn_peer_link_client(pairing)
@@ -350,6 +352,14 @@ class OffloaderController(_RemoteBuildBase):
             self, pairing=pairing, new_hostname=new_hostname, new_port=new_port
         )
 
+    async def _handle_connect_back(
+        self, *, pin_sha256: str, peer_ip: str, announced_port: int
+    ) -> IntentOutcome:
+        """Handle a receiver's ``connect_back`` announce: probe, then rebind on match."""
+        return await rebind.handle_connect_back(
+            self, pin_sha256=pin_sha256, peer_ip=peer_ip, announced_port=announced_port
+        )
+
     def hosts_snapshot(self) -> list[RemoteBuildPeer]:
         """Return the current mDNS-discovered hosts for ``subscribe_events`` seeding."""
         return list(self.state.peers.values())
@@ -479,6 +489,10 @@ class OffloaderController(_RemoteBuildBase):
     def get_pairing(self, pin_sha256: str) -> StoredPairing | None:
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
         return self.state.pairings.get(pin_sha256)
+
+    def has_approved_pairings(self) -> bool:
+        """Return True when at least one APPROVED pairing exists."""
+        return any(p.status is PeerStatus.APPROVED for p in self.state.pairings.values())
 
     def offloader_settings_snapshot(self) -> OffloaderSettingsSnapshot:
         """Bundle the offloader-wide settings for the initial-state seed."""

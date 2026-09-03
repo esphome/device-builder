@@ -26,16 +26,19 @@ class RemoteBuildListenerChangedData(TypedDict):
     Payload for ``EventType.REMOTE_BUILD_LISTENER_CHANGED``.
 
     Fires when the peer-link listener binds or tears down, carrying
-    the mDNS-advertised pairing address so subscribers can render it
-    without re-reading ``get_identity``. ``listener_port`` is ``None``
+    the listener address so subscribers can render it without
+    re-reading ``get_identity``. ``listener_port`` is ``None``
     while the listener is down; ``listener_host`` is ``None`` without
     an attached advertiser (zeroconf unavailable) and
-    ``listener_addresses`` ``[]`` until it registers.
+    ``listener_addresses`` ``[]`` until it registers. The address is
+    pairable only while ``receiver_role_active`` — a
+    connect-back-only bind refuses pair requests.
     """
 
     listener_host: str | None
     listener_addresses: list[str]
     listener_port: int | None
+    receiver_role_active: bool
 
 
 class RemoteBuildPairRequestReceivedData(TypedDict):

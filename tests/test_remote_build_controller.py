@@ -598,7 +598,9 @@ async def test_rebind_respawn_awaits_old_client_before_spawn(tmp_path: Path) -> 
         old_task.done()
     )
 
-    await rb_rebind._respawn_peer_link_at_new_endpoint(controller.offloader, pairing)
+    await rb_rebind._respawn_peer_link_at_new_endpoint(
+        controller.offloader, pairing, fire_rebound=True
+    )
 
     assert old_done_at_spawn == [True]
     assert old_task.cancelled()
@@ -1540,6 +1542,7 @@ async def test_start_skips_when_devices_controller_missing(tmp_path: Path) -> No
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
     db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
+    db.apply_remote_build_enabled = AsyncMock(return_value=False)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),
@@ -1572,6 +1575,7 @@ async def test_start_leaves_peer_link_resolver_none_when_devices_controller_miss
     db.settings = MagicMock()
     db.settings.config_dir = tmp_path
     db.peer_link_identity_store = PeerLinkIdentityStore(tmp_path)
+    db.apply_remote_build_enabled = AsyncMock(return_value=False)
     controller = RemoteBuildController(
         offloader=OffloaderController(db),
         receiver=ReceiverController(db),

@@ -132,6 +132,7 @@ def identity_view(
     listener_host: str | None,
     listener_addresses: list[str],
     listener_port: int | None,
+    receiver_role_active: bool,
 ) -> IdentityView:
     """
     Project a :class:`DashboardIdentity` into the wire shape.
@@ -149,4 +150,5 @@ def identity_view(
         listener_host=listener_host,
         listener_addresses=listener_addresses,
         listener_port=listener_port,
+        receiver_role_active=receiver_role_active,
     )

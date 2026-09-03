@@ -1,9 +1,21 @@
-"""Filters for unusable IP addresses from untrusted resolvers and payloads."""
+"""Filters for unusable IP addresses and ports from untrusted resolvers and payloads."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from ipaddress import IPv4Address, IPv6Address, ip_address
+
+
+def is_ip_address(value: str) -> bool:
+    """Return True when *value* parses as an IPv4 / IPv6 address."""
+    return _parse(value) is not None
+
+
+def port_or_zero(value: object) -> int:
+    """Return *value* as a TCP port (1-65535) or 0 when absent / malformed."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value if 0 < value < 65536 else 0
 
 
 def is_unusable_address(value: str) -> bool:

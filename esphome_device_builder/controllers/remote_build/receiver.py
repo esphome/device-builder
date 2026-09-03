@@ -45,6 +45,7 @@ from ..config import (
 )
 from . import (
     cleanup_loop,
+    connect_back,
     identity_commands,
     pair_flow,
     pairing_window,
@@ -53,6 +54,7 @@ from . import (
     reset_env,
     settings_receiver,
 )
+from ._intent import IntentOutcome
 from ._receiver_state import ReceiverState
 from ._shared import _RemoteBuildBase
 from ._storage_codecs import (
@@ -111,6 +113,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         if (peers_state := await self._peers_store.async_load()) is not None:
             for peer in peers_state.peers:
                 self.state.approved_peers[peer.dashboard_id] = peer
+        self._track_task(
+            self._run_connect_back_loop(),
+            name=f"{type(self).__name__}._run_connect_back_loop",
+        )
         # JOB_OUTPUT / JOB_PROGRESS deliberately omitted: high-rate
         # streaming events that don't change queue_status shape.
         for event_type in (
@@ -163,6 +169,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         self._clear_pending_peers_on_window_close()
         await drain_shutdown_callbacks(self._shutdown_callbacks)
         self.state.approved_peers.clear()
+        connect_back.clear_state(self)
 
     async def _load_settings_async(self) -> RemoteBuildSettings:
         """Read the receiver-side settings sidecar off the executor.
@@ -222,6 +229,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     async def _run_cleanup_loop(self) -> None:
         """Sweep cold remote-build subtrees on a periodic cadence."""
         await cleanup_loop.run_cleanup_loop(self)
+
+    async def _run_connect_back_loop(self) -> None:
+        """Dial back quiet paired offloaders on a periodic cadence."""
+        await connect_back.run_connect_back_loop(self)
 
     @api_command("remote_build/get_settings")
     async def get_settings(self, **kwargs: Any) -> RemoteBuildSettingsView:
@@ -342,7 +353,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         friendly_name: str = "",
         ha_addon: bool = False,
         label_auto: bool = False,
-    ) -> pair_flow.IntentOutcome:
+    ) -> IntentOutcome:
         """Process an ``intent="pair_request"`` Noise session."""
         return await pair_flow.record_pair_request(
             self,
@@ -357,17 +368,13 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             label_auto=label_auto,
         )
 
-    async def lookup_peer_for_session(
-        self, *, dashboard_id: str, pin_sha256: str
-    ) -> pair_flow.IntentOutcome:
+    async def lookup_peer_for_session(self, *, dashboard_id: str, pin_sha256: str) -> IntentOutcome:
         """Resolve an ``intent="peer_link"`` request."""
         return await pair_flow.lookup_peer_for_session(
             self, dashboard_id=dashboard_id, pin_sha256=pin_sha256
         )
 
-    async def lookup_peer_for_status(
-        self, *, dashboard_id: str, pin_sha256: str
-    ) -> pair_flow.IntentOutcome:
+    async def lookup_peer_for_status(self, *, dashboard_id: str, pin_sha256: str) -> IntentOutcome:
         """Resolve an ``intent="pair_status"`` query, long-polling on PENDING."""
         return await pair_flow.lookup_peer_for_status(
             self, dashboard_id=dashboard_id, pin_sha256=pin_sha256
