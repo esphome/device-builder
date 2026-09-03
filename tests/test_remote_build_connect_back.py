@@ -654,8 +654,8 @@ async def test_session_register_cancels_dial_and_resets_backoff(tmp_path: Path) 
     [
         pytest.param(
             RejectReason.REBIND_IN_PROGRESS.value,
-            1.0,
-            rb_connect_back._CONNECT_BACK_SHORT_RETRY_SECONDS,
+            rb_connect_back._CONNECT_BACK_SHORT_RETRY_SECONDS * 0.7,
+            rb_connect_back._CONNECT_BACK_SHORT_RETRY_SECONDS * 1.3,
             id="rebind_in_progress",
         ),
         pytest.param(
@@ -958,3 +958,21 @@ async def test_connect_back_session_opened_during_probe_skips_commit(
     )
     assert outcome == IntentOutcome(IntentResponse.REJECTED, RejectReason.ALREADY_CONNECTED)
     commit.assert_not_awaited()
+
+
+async def test_rebind_in_progress_escalates_after_repeats(tmp_path: Path) -> None:
+    """A perpetual rebind_in_progress ramps its retry instead of a flat 30s forever."""
+    controller, _ = _receiver_ready_to_dial(tmp_path)
+    receiver = controller.receiver
+    reply = _round_trip("rejected", RejectReason.REBIND_IN_PROGRESS.value)
+    first = None
+    for _ in range(4):
+        rb_connect_back._apply_reply(receiver, "alpha", reply)
+        remaining = receiver.state.connect_back_cooldowns.remaining("alpha")
+        if first is None:
+            first = remaining
+    assert receiver.state.connect_back_cooldowns.strikes("alpha") == 4
+    # First retry near the short base; later retries strictly longer.
+    assert first <= rb_connect_back._CONNECT_BACK_SHORT_RETRY_SECONDS * 1.3
+    assert remaining > first
+    assert remaining <= rb_connect_back._CONNECT_BACK_RETRY_BASE_SECONDS

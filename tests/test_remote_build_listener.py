@@ -1341,11 +1341,50 @@ async def test_converge_reraises_but_arms_retry(
     lifecycle._converge_retry_handle.cancel()
 
 
-async def test_maybe_start_no_op_without_receiver_controller(tmp_path: Path) -> None:
-    """``maybe_start`` returns before converge when the receiver controller isn't set."""
+async def test_maybe_start_without_receiver_controller_self_heals(tmp_path: Path) -> None:
+    """``maybe_start`` binds nothing but arms the retry when the receiver isn't up yet."""
     settings = DashboardSettings(config_dir=tmp_path)
     db = DeviceBuilder(settings)
     db.loop = asyncio.get_running_loop()
     db.remote_build_receiver = None
-    await db._remote_build_lifecycle.maybe_start()
-    assert db._remote_build_lifecycle._runner is None
+    lifecycle = db._remote_build_lifecycle
+    await lifecycle.maybe_start()
+    assert lifecycle._runner is None
+    # enabled defaults True (non-addon) → wanted but unbindable → retry armed.
+    assert lifecycle._converge_retry_handle is not None
+    lifecycle._converge_retry_handle.cancel()
+
+
+async def test_converge_no_ops_after_shutdown(tmp_path: Path) -> None:
+    """A converge that lands after shutdown neither binds nor re-arms the retry."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    lifecycle = db._remote_build_lifecycle
+    await lifecycle.shutdown()
+    assert await lifecycle.converge() is False
+    assert lifecycle._runner is None
+    assert lifecycle._converge_retry_handle is None
+
+
+async def test_converge_awaiting_lock_no_ops_when_shutdown_wins(tmp_path: Path) -> None:
+    """A converge blocked on the lock when shutdown flips ``_stopped`` binds nothing."""
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = asyncio.get_running_loop()
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    lifecycle = db._remote_build_lifecycle
+    async with lifecycle._get_lock():
+        # converge passes its pre-lock guard, then blocks on the lock we hold.
+        task = asyncio.create_task(lifecycle.converge())
+        await asyncio.sleep(0)
+        lifecycle._stopped = True
+    assert await task is False
+    assert lifecycle._runner is None

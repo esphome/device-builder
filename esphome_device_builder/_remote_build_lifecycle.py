@@ -107,6 +107,10 @@ class RemoteBuildLifecycle:
         # Consecutive failed-bind retries; drives the retry backoff
         # and suppresses repeated bind-failure tracebacks.
         self._converge_retry_strikes = 0
+        # Set once :meth:`shutdown` runs so a converge landing after
+        # teardown (an in-flight WS ``set_settings``) can't re-arm the
+        # retry timer or bind a fresh runner past shutdown.
+        self._stopped = False
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -162,11 +166,12 @@ class RemoteBuildLifecycle:
         :meth:`_compute_policy`.
 
         Fail-soft: any exception during identity load or bind is
-        caught and logged. The main dashboard keeps running; the
-        operator gets a warning and the listener is simply absent
-        until the next restart with the issue resolved.
+        caught and logged, and a wanted-but-unbound outcome arms the
+        paced retry via :meth:`converge` — a missing receiver
+        controller or bind error self-heals rather than staying
+        silently down.
         """
-        if self._db.remote_build_receiver is None or self._db.loop is None:
+        if self._db.loop is None:
             return
         await self.converge()
 
@@ -208,10 +213,10 @@ class RemoteBuildLifecycle:
             runner, identity, port = await self._build_and_start_runner(
                 receiver_role=policy.receiver_role
             )
-        except Exception:
+        except Exception as exc:
             # Full traceback on the first failure of a streak; a
-            # persistent port conflict then logs one warning per
-            # retry instead of a traceback every cycle.
+            # persistent port conflict then logs one warning (with the
+            # error text) per retry instead of a traceback every cycle.
             if self._converge_retry_strikes == 0:
                 _LOGGER.exception(
                     "Remote-build peer-link site failed to start; dashboard continues "
@@ -220,8 +225,9 @@ class RemoteBuildLifecycle:
                 )
             else:
                 _LOGGER.warning(
-                    "Remote-build peer-link site still failing to bind (attempt %d)",
+                    "Remote-build peer-link site still failing to bind (attempt %d): %s",
                     self._converge_retry_strikes + 1,
+                    exc,
                 )
             return
         self._runner = runner
@@ -312,9 +318,11 @@ class RemoteBuildLifecycle:
 
         Returns whether the listener is bound after this call.
         """
-        if self._db.loop is None:
+        if self._db.loop is None or self._stopped:
             return self._runner is not None
         async with self._get_lock():
+            if self._stopped:
+                return self._runner is not None
             try:
                 return await self._converge_locked()
             except Exception:
@@ -359,7 +367,7 @@ class RemoteBuildLifecycle:
 
     def _schedule_converge_retry(self) -> None:
         """Arm one delayed re-converge after a failed bind; single-flight, backed off."""
-        if self._converge_retry_handle is not None or self._db.loop is None:
+        if self._converge_retry_handle is not None or self._db.loop is None or self._stopped:
             return
         delay = min(
             _CONVERGE_RETRY_DELAY_SECONDS * 2**self._converge_retry_strikes,
@@ -428,6 +436,10 @@ class RemoteBuildLifecycle:
         immediately after, so a TXT-only clear would be wasted work
         racing the unregister.
         """
+        # Set before the lock so a converge already awaiting it
+        # (an in-flight WS ``set_settings``) no-ops instead of
+        # binding a fresh runner or re-arming the retry after us.
+        self._stopped = True
         if self._unsub_pair_status_changed is not None:
             self._unsub_pair_status_changed()
             self._unsub_pair_status_changed = None

@@ -162,8 +162,16 @@ def _apply_reply(
         return
     reason = round_trip.response.get("reason")
     if reason == RejectReason.REBIND_IN_PROGRESS.value:
+        # Normally clears within one 30s cooldown; ramp toward the
+        # base retry so a slot stuck warm forever doesn't re-dial
+        # every 30s in silence.
         level = logging.DEBUG
-        state.connect_back_cooldowns.set(dashboard_id, _CONNECT_BACK_SHORT_RETRY_SECONDS)
+        _escalate(
+            controller,
+            dashboard_id,
+            base=_CONNECT_BACK_SHORT_RETRY_SECONDS,
+            cap=_CONNECT_BACK_RETRY_BASE_SECONDS,
+        )
     elif reason == RejectReason.ALREADY_CONNECTED.value:
         level = logging.DEBUG
         _escalate(controller, dashboard_id)
@@ -181,16 +189,19 @@ def _apply_reply(
     _LOGGER.log(level, "connect-back announce refused by %s (reason=%s)", dashboard_id, reason)
 
 
-def _escalate(controller: ReceiverController, dashboard_id: str) -> None:
+def _escalate(
+    controller: ReceiverController,
+    dashboard_id: str,
+    *,
+    base: float = _CONNECT_BACK_RETRY_BASE_SECONDS,
+    cap: float = _CONNECT_BACK_RETRY_CAP_SECONDS,
+) -> None:
     """Escalate *dashboard_id*'s retry cooldown; warn once when the streak saturates."""
     cooldowns = controller.state.connect_back_cooldowns
     cooldowns.escalate(
         dashboard_id,
-        _CONNECT_BACK_RETRY_BASE_SECONDS
-        * random.uniform(  # noqa: S311 — jitter, not crypto
-            1 - _CONNECT_BACK_JITTER, 1 + _CONNECT_BACK_JITTER
-        ),
-        _CONNECT_BACK_RETRY_CAP_SECONDS,
+        base * random.uniform(1 - _CONNECT_BACK_JITTER, 1 + _CONNECT_BACK_JITTER),  # noqa: S311 — jitter, not crypto
+        cap,
     )
     if cooldowns.strikes(dashboard_id) == _CONNECT_BACK_WARN_AFTER_STRIKES:
         _LOGGER.warning(
