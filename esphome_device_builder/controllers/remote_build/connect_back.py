@@ -162,9 +162,8 @@ def _apply_reply(
         return
     reason = round_trip.response.get("reason")
     if reason == RejectReason.REBIND_IN_PROGRESS.value:
-        # Normally clears within one 30s cooldown; ramp toward the
-        # base retry so a slot stuck warm forever doesn't re-dial
-        # every 30s in silence.
+        # Ramp toward the base retry so a permanently-warm probe slot
+        # stops re-dialing every 30s.
         level = logging.DEBUG
         _escalate(
             controller,
@@ -204,9 +203,7 @@ def _escalate(
         cap,
     )
     if cooldowns.strikes(dashboard_id) == _CONNECT_BACK_WARN_AFTER_STRIKES:
-        _LOGGER.warning(
-            "connect-back to %s keeps failing; retrying at the backoff cap", dashboard_id
-        )
+        _LOGGER.warning("connect-back to %s keeps failing; backing off", dashboard_id)
 
 
 def _cancel_dial(controller: ReceiverController, dashboard_id: str) -> None:

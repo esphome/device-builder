@@ -29,10 +29,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Paced re-converge after a fail-soft bind (port conflict, identity
-# load error) so the listener self-heals without a restart. Backs
-# off from the base to the cap so a permanently unbindable port
-# doesn't retry (or log) every 30s forever.
+# Paced re-converge after a fail-soft bind so the listener
+# self-heals without a restart; backs off from base to cap.
 _CONVERGE_RETRY_DELAY_SECONDS = 30.0
 _CONVERGE_RETRY_MAX_DELAY_SECONDS = 3600.0
 
@@ -343,16 +341,15 @@ class RemoteBuildLifecycle:
                     "``remote_build/set_settings`` enabled=true, to bind)"
                 )
             await self._teardown_runner()
-        elif not policy.bind:
-            # Wanted, but the receiver controller isn't up yet
-            # (startup ordering): keep any current runner and let the
-            # retry below re-arm.
-            pass
-        elif self._runner is None:
-            await self._start_listener(policy)
-        elif policy.receiver_role != self._receiver_role_active:
-            await self._teardown_runner()
-            await self._start_listener(policy)
+        elif policy.bind:
+            if self._runner is None:
+                await self._start_listener(policy)
+            elif policy.receiver_role != self._receiver_role_active:
+                await self._teardown_runner()
+                await self._start_listener(policy)
+        # else: wanted, but the receiver controller isn't up yet
+        # (startup ordering) — keep any current runner; the retry
+        # below re-arms.
         if policy.wanted and self._runner is None:
             if not self._bind_failure_warned:
                 self._bind_failure_warned = True
@@ -369,8 +366,10 @@ class RemoteBuildLifecycle:
         """Arm one delayed re-converge after a failed bind; single-flight, backed off."""
         if self._converge_retry_handle is not None or self._db.loop is None or self._stopped:
             return
+        # Clamp the exponent so an endless failure streak can't grow
+        # an unbounded bigint before ``min`` truncates it.
         delay = min(
-            _CONVERGE_RETRY_DELAY_SECONDS * 2**self._converge_retry_strikes,
+            _CONVERGE_RETRY_DELAY_SECONDS * 2 ** min(self._converge_retry_strikes, 32),
             _CONVERGE_RETRY_MAX_DELAY_SECONDS,
         )
         self._converge_retry_strikes += 1

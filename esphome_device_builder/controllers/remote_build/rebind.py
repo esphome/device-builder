@@ -224,7 +224,7 @@ async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / prob
     if not _try_claim_probe_slot(controller, pin_sha256):
         return IntentOutcome(IntentResponse.REJECTED, RejectReason.REBIND_IN_PROGRESS)
     with _clear_cooldown_on_unexpected_exit(controller, pin_sha256):
-        outcome = await _probe_log_and_commit(
+        outcome, committed = await _probe_log_and_commit(
             controller,
             pairing,
             new_hostname=peer_ip,
@@ -235,7 +235,9 @@ async def handle_connect_back(  # noqa: PLR0911 — one reply per refusal / prob
             commit_guard=lambda: pin_sha256 not in controller.state.open_peer_links,
         )
     if outcome is RebindProbeOutcome.OK:
-        if pin_sha256 in controller.state.open_peer_links:
+        # OK but not committed means the guard fired: a forward
+        # session opened mid-probe and now owns the pin.
+        if not committed:
             return IntentOutcome(IntentResponse.REJECTED, RejectReason.ALREADY_CONNECTED)
         return IntentOutcome(IntentResponse.OK)
     if outcome in (RebindProbeOutcome.UNREACHABLE, RebindProbeOutcome.PIN_MISMATCH):
@@ -253,14 +255,16 @@ async def _probe_log_and_commit(
     new_port: int,
     log_prefix: str,
     commit_guard: Callable[[], bool] | None = None,
-) -> RebindProbeOutcome:
-    """Probe the candidate endpoint, log the outcome, and commit the rebind on OK.
+) -> tuple[RebindProbeOutcome, bool]:
+    """
+    Probe the candidate endpoint, log the outcome, commit the rebind on OK.
 
-    *commit_guard* (when given) is re-checked after an OK probe; a
-    falsey result skips the commit + respawn (a forward session
-    landed mid-probe).
+    Returns ``(outcome, committed)``; *committed* is False when a
+    falsey *commit_guard* suppressed the commit + respawn (a forward
+    session landed mid-probe), even though the probe itself was OK.
     """
     pin = pairing.pin_sha256
+    committed = False
     result = await controller._probe_pairing_endpoint(
         pairing=pairing, new_hostname=new_hostname, new_port=new_port
     )
@@ -299,6 +303,7 @@ async def _probe_log_and_commit(
             )
         else:
             await controller._commit_endpoint_rebind(pairing, hostname=new_hostname, port=new_port)
+            committed = True
             _LOGGER.info("rebound pairing %s to %s:%d", pin, new_hostname, new_port)
     else:
         # PAIRING_REPLACED / STATUS_CHANGED — skip; cooldown stays
@@ -312,7 +317,7 @@ async def _probe_log_and_commit(
             new_port,
             result.outcome.value,
         )
-    return result.outcome
+    return result.outcome, committed
 
 
 def _try_claim_probe_slot(controller: OffloaderController, pin: str) -> bool:
