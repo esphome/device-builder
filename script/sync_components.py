@@ -3504,14 +3504,11 @@ def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
 
 
 def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
-    """
-    Return the base's schema node when an extends-only wrapper references a user-keyed map.
-
-    The ``key_type`` marker lives on the referenced body, not the wrapper entry.
-    """
+    """Return the base's schema node when an extends-only wrapper references a user-keyed map."""
     if not isinstance(inner_schema, dict) or inner_schema.get("config_vars"):
         return None
     map_schema: dict | None = None
+    other_refs: list[str] = []
     for ref in inner_schema.get("extends") or []:
         target = _lookup_schema_ref(ref, schema_dir)
         schema_node = target.get("schema") if isinstance(target, dict) else None
@@ -3522,10 +3519,14 @@ def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
         if found is not None:
             if map_schema is None:
                 map_schema = found
-        elif _resolve_extends(ref, schema_dir):
-            # A sibling base contributes real fields; collapsing to a
-            # map would silently drop them — keep the nested group.
-            return None
+        else:
+            other_refs.append(ref)
+    if map_schema is None:
+        return None
+    # A sibling base contributing real fields would be silently dropped
+    # by the collapse — keep the nested group.
+    if any(_resolve_extends(ref, schema_dir) for ref in other_refs):
+        return None
     return map_schema
 
 
