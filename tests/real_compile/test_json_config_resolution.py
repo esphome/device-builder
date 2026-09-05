@@ -2,8 +2,8 @@
 
 Spawns a real ``esphome config --show-secrets`` to prove the end-to-end
 contract HA depends on: substitutions expanded, packages merged, secrets
-resolved, floats/lambdas serialisable — none of which a raw ``load_yaml``
-produces.
+resolved, floats/lambdas serialisable, int-keyed maps kept as ``int`` — none of
+which a raw ``load_yaml`` produces.
 """
 
 from __future__ import annotations
@@ -13,14 +13,16 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 from esphome_device_builder.helpers.device_yaml import run_esphome_config
-from esphome_device_builder.helpers.json import dumps_str
+from esphome_device_builder.helpers.json import dumps, dumps_non_str_keys, loads
 
 
 async def test_run_esphome_config_resolves_substitutions_packages_and_secrets(
     tmp_path: Path,
 ) -> None:
-    """Resolved JSON carries the real key (package + secret), expanded name, float."""
+    """Resolved config carries the real key, expanded name, float, and int-keyed map."""
     key = base64.b64encode(os.urandom(32)).decode()
     (tmp_path / "secrets.yaml").write_text(
         f'api_key: "{key}"\nwifi_pw: "wifipass8"\n', encoding="utf-8"
@@ -35,7 +37,11 @@ async def test_run_esphome_config_resolves_substitutions_packages_and_secrets(
         "esp32:\n  variant: esp32c3\n  framework:\n    type: esp-idf\n"
         "wifi:\n  ssid: myssid\n  password: !secret wifi_pw\n"
         "sensor:\n  - platform: adc\n    pin: GPIO01\n    id: test_adc\n"
-        "    filters:\n      - delta: 0.1\n",
+        "    filters:\n      - delta: 0.1\n"
+        "uart:\n  rx_pin: GPIO20\n  tx_pin: GPIO21\n  baud_rate: 9600\n"
+        "tuya:\n"
+        "select:\n  - platform: tuya\n    name: Mode\n    enum_datapoint: 4\n"
+        "    options:\n      0: 'Off'\n      1: Constant\n",
         encoding="utf-8",
     )
 
@@ -45,4 +51,10 @@ async def test_run_esphome_config_resolves_substitutions_packages_and_secrets(
     assert config["esphome"]["name"] == "livingroom"  # substitution expanded
     assert config["api"]["encryption"]["key"] == key  # package merged + secret resolved
     assert config["sensor"][0]["filters"][0]["delta"] == 0.1  # float, not a 500
-    assert dumps_str(config)  # serialises with plain orjson
+    assert config["select"][0]["options"] == {0: "Off", 1: "Constant"}  # int keys survive
+    with pytest.raises(TypeError, match="Dict key must be str"):
+        dumps(config)
+    assert loads(dumps_non_str_keys(config))["select"][0]["options"] == {
+        "0": "Off",
+        "1": "Constant",
+    }

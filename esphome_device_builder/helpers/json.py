@@ -11,6 +11,7 @@ change.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import orjson
@@ -49,9 +50,9 @@ def dumps_str(obj: Any) -> str:
     return orjson.dumps(obj).decode()
 
 
-def dumps_str_non_str_keys(obj: Any) -> str:
-    """Serialise *obj* to a JSON ``str``, stringifying non-``str`` dict keys."""
-    return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS).decode()
+def dumps_non_str_keys(obj: Any) -> bytes:
+    """Serialise *obj* to compact JSON ``bytes``, stringifying non-``str`` dict keys."""
+    return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS)
 
 
 def dumps_indent(obj: Any) -> bytes:
@@ -59,7 +60,9 @@ def dumps_indent(obj: Any) -> bytes:
     return orjson.dumps(obj, option=orjson.OPT_INDENT_2)
 
 
-def json_response(data: Any, status: int = 200) -> web.Response:
+def json_response(
+    data: Any, status: int = 200, *, dumps: Callable[[Any], bytes] = dumps
+) -> web.Response:
     """Return a JSON response, serialising dataclasses via mashumaro."""
     body = data.to_dict() if hasattr(data, "to_dict") else data
     return web.Response(

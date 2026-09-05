@@ -510,6 +510,7 @@ async def test_json_config_serialises_int_keyed_maps(
     resp = await client.get("/json-config", params={"configuration": "lamp.yaml"})
 
     assert resp.status == 200
+    assert resp.headers["Content-Type"] == "application/json"
     body = await resp.json()
     assert body["light"][0]["effects_map"] == {"0": "Indicator", "1": "Constant"}
     assert body["light"][0]["widths"] == {"6": 1, "26": 1}
