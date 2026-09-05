@@ -495,6 +495,26 @@ async def test_json_config_returns_resolved_config(
     assert body["sensor"][0]["delta"] == 0.1
 
 
+async def test_json_config_serialises_int_keyed_maps(
+    tmp_path: Path, aiohttp_client: AiohttpClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resolved config with ``int``-keyed maps returns 200 with string keys."""
+    (tmp_path / "lamp.yaml").write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    resolved = {
+        "esphome": {"name": "lamp"},
+        "light": [{"effects_map": {0: "Indicator", 1: "Constant"}, "widths": {6: 1, 26: 1}}],
+    }
+    monkeypatch.setattr(legacy, "run_esphome_config", AsyncMock(return_value=resolved))
+    client = await aiohttp_client(_make_json_config_app(tmp_path))
+
+    resp = await client.get("/json-config", params={"configuration": "lamp.yaml"})
+
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["light"][0]["effects_map"] == {"0": "Indicator", "1": "Constant"}
+    assert body["light"][0]["widths"] == {"6": 1, "26": 1}
+
+
 @pytest.mark.parametrize(
     "payload",
     ["../etc/passwd", "../../etc/passwd", "/absolute/path"],

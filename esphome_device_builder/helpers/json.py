@@ -49,6 +49,11 @@ def dumps_str(obj: Any) -> str:
     return orjson.dumps(obj).decode()
 
 
+def dumps_str_non_str_keys(obj: Any) -> str:
+    """Serialise *obj* to a JSON ``str``, stringifying non-``str`` dict keys."""
+    return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS).decode()
+
+
 def dumps_indent(obj: Any) -> bytes:
     """Serialise *obj* with two-space indentation — for human-readable files."""
     return orjson.dumps(obj, option=orjson.OPT_INDENT_2)

@@ -8,7 +8,12 @@ import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
-from esphome_device_builder.helpers.json import cors_middleware, dumps
+from esphome_device_builder.helpers.json import (
+    cors_middleware,
+    dumps,
+    dumps_str_non_str_keys,
+    loads,
+)
 
 
 class _StrSubclass(str):
@@ -24,6 +29,13 @@ def test_dumps_rejects_str_subclass_keys() -> None:
     """
     with pytest.raises(TypeError, match="Dict key must be str"):
         dumps({_StrSubclass("hello"): "world"})
+
+
+def test_dumps_str_non_str_keys_stringifies_int_keys() -> None:
+    """``dumps_str_non_str_keys`` emits ``int`` and ``str``-subclass keys as JSON strings."""
+    out = dumps_str_non_str_keys({6: 1, _StrSubclass("a"): {7: 2}, "plain": 3})
+    assert isinstance(out, str)
+    assert loads(out) == {"6": 1, "a": {"7": 2}, "plain": 3}
 
 
 # ---------------------------------------------------------------------------
