@@ -684,7 +684,7 @@ pins:
   occupied_by: microSD power supply
   notes: 40pin header pin 40 (RPi GPIO21 / PCM_DOUT)
 - gpio: 46
-  label: GPIO46"
+  label: GPIO46
   features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
   available: true
   notes: 40pin header pin 36 (RPi GPIO16)
