@@ -39,6 +39,7 @@ from ..helpers.device_yaml import EsphomeConfigUnavailableError, run_esphome_con
 from ..helpers.event_bus import Event, StreamControls, stream_events
 from ..helpers.json import (
     JSONDecodeError,
+    dumps_non_str_keys,
     dumps_str,
     json_response,
     loads,
@@ -336,7 +337,8 @@ async def _json_config_response(db: DeviceBuilder, configuration: str) -> web.Re
         return json_response({"error": "esphome config unavailable"}, status=503)
     if config is None:
         return json_response({"error": "Configuration is invalid"}, status=422)
-    return json_response(config)
+    # User YAML maps can carry ``int`` keys (effect / mode maps); strict orjson rejects them.
+    return json_response(config, dumps=dumps_non_str_keys)
 
 
 def _parse_encryption_key_payload(raw: bytes) -> tuple[str, str, str]:
