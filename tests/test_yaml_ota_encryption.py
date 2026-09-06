@@ -58,6 +58,12 @@ OTHER_PLATFORM_ONLY = API + "ota:\n  - platform: web_server\n    encryption:\n  
             None,
             id="mapping-other-platform",
         ),
+        # Known limitation: the top-block walker ends a block at a column-0 dash.
+        pytest.param(
+            'ota:\n- platform: esphome\n  encryption:\n    key: "oldkey"\n',
+            None,
+            id="flush-dash-list",
+        ),
         pytest.param("ota: !include common/ota.yaml\n", None, id="include-header"),
         pytest.param("ota: !remove\n", None, id="remove-header"),
         pytest.param("ota: {platform: esphome}\n", None, id="flow-header"),
