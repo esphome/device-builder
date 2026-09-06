@@ -1,11 +1,18 @@
 id: waveshare_esp32_p4_wifi6_dev_kit
 name: Waveshare ESP32-P4-WIFI6-DEV-KIT
-description: Waveshare ESP32-P4-WIFI6-DEV-KIT with the ESP32-P4NRW32 (dual-core RISC-V @ 400MHz,
-  16MB flash, 32MB PSRAM). The ESP32-P4 has no built-in radio; Wi-Fi 6 works out of the box
-  through the onboard ESP32-C6 co-processor. 100M RJ45 Ethernet, MIPI DSI display and MIPI
-  CSI camera connectors, microSD slot, 3.5mm audio jack plus microphone and speaker header,
-  I2C/I3C headers, RTC battery header, USB-A OTG (jumper-switchable) and USB-C ports, 28 user
-  GPIOs.
+description: |
+  Waveshare ESP32-P4-WIFI6-DEV-KIT in Raspberry Pi form factor.
+  Uses the ESP32-P4NRW32 or ESP32-P4NRW32X (dual-core RISC-V @ 400MHz, 16MB flash, 32MB PSRAM).
+  The ESP32-P4 has no built-in radio; Wi-Fi 6 and Bluetooth are supported through the onboard ESP32-C6 co-processor.
+  100M RJ45 Ethernet (with optional PoE using a hat), MIPI DSI display and MIPI CSI camera connectors, microSD slot,
+  3.5mm audio jack plus onboard microphone and amplified speaker header, I2C/I3C headers, RTC battery header,
+  USB-A OTG (jumper-switchable), USB-C USB serial adapter and Serial/JTAG ports, 28 user GPIOs.
+  The GPIO pins use the Raspberry Pi 40-pin header layout, and some Raspberry Pi hats are compatible.
+  Different revisions of the ESP32-P4-WIFI6-DEV-KIT may use engineering samples or production variants of the ESP32-P4.
+  Several bundles were available, including additional components:
+  **ESP32-P4-WIFI6-DEV-KIT-A:** Waveshare RPi Camera B.
+  **ESP32-P4-WIFI6-DEV-KIT-B:** Waveshare RPi Camera B, Waveshare 7-DSI-TOUCH-A Display.
+  **ESP32-P4-WIFI6-DEV-KIT-C:** Waveshare RPi Camera B, Waveshare 10.1-DSI-TOUCH-A Display.
 manufacturer: Waveshare
 images:
 - https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-p4-wifi6-dev-kit-1_3.jpg
@@ -17,26 +24,39 @@ esphome:
   logger_hardware_uart: UART0
 hardware:
   flash_size: 16MB
+  ram_size: 34381824
   cpu_frequency: 400MHz
   connectivity:
   - wifi
   - ethernet
+  - bluetooth
 tags:
 - dev-kit
+- breakout
 - sd-card
 - usb-c
 - camera
 - display
 - microphone
+- speaker
 docs_url: https://www.waveshare.com/wiki/ESP32-P4-WIFI6-DEV-KIT
 product_url: https://www.waveshare.com/esp32-p4-wifi6-dev-kit.htm
 featured_components:
-- id: c6_wifi
+- id: in_package_psram
+  component_id: psram
+  fields:
+    mode:
+      value: hex
+      locked: true
+    speed: 200MHz
+    ignore_not_found: false
+
+- id: esp32_hosted_c6
   component_id: esp32_hosted
-  name: Wi-Fi via ESP32-C6 co-processor
-  description: Onboard ESP32-C6 running ESP-Hosted over SDIO gives the radio-less ESP32-P4
-    Wi-Fi 6. Installed automatically in every new device — the wifi block only works while
-    this is present. If the C6 never comes up on your unit, try active_high false.
+  name: ESP32-C6 wireless co-processor
+  description: |
+   Onboard ESP32-C6 running ESP-Hosted over SDIO gives the radio-less ESP32-P4 Wi-Fi 6 and Bluetooth.
+   The wifi and esp32_ble components only work while this is present.
   fields:
     type:
       value: sdio
@@ -46,6 +66,7 @@ featured_components:
       locked: true
     active_high:
       value: true
+      locked: true
     reset_pin:
       value: GPIO54
       locked: true
@@ -67,11 +88,11 @@ featured_components:
     d3_pin:
       value: GPIO17
       locked: true
+
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
-  description: Built-in IP101 Ethernet PHY (RMII) — selected automatically when a device is
-    created without Wi-Fi credentials.
+  description: Built-in IP101 Ethernet PHY (RMII) — selected automatically when a device is created without Wi-Fi credentials.
   fields:
     type:
       value: IP101
@@ -93,331 +114,613 @@ featured_components:
     power_pin:
       value: GPIO51
       locked: true
+    # crs_dv/rxdv pin: GPIO28
+    # rxd0 pin: GPIO29
+    # rxd1 pin: GPIO30
+    # txd0 pin: GPIO34
+    # txd1 pin: GPIO35
+
+- id: boot_button
+  name: BOOT Button
+  description: |
+    Onboard "BOOT" button.
+    Conflicts with Ethernet (GPIO35 is used for Ethernet PHY TXD1).
+  component_id: binary_sensor.gpio
+  fields:
+    name: BOOT Button
+    pin:
+      value:
+        number: GPIO35
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    id: boot_button
+
+- id: i2c_bus
+  name: Onboard / Shared I²C bus
+  description: |
+    The shared I²C bus used for onboard components (Audio codec),
+    and available for external devices via the I²C connector,
+    MIPI SCI and DSI connectors,
+    and SDA/SCL pins on the 40pin header.
+    This will also allow you to use some Raspberry Pi hats with I²C peripherals.
+    Onboard components support max frequency 400kHz.
+    If you connect additional peripherals, you may need to reduce the frequency.
+  component_id: i2c
+  fields:
+    id:
+      value: i2c_bus
+      locked: true
+    scl:
+      value: GPIO8
+      locked: true
+    sda:
+      value: GPIO7
+      locked: true
+    frequency: 400kHz
+    # Board has external 2.2K I²C pullup resistors, but vendor sample code still enables internal pullups
+    sda_pullup_enabled: true
+    scl_pullup_enabled: true
+
+- id: audio_bus
+  component_id: i2s_audio
+  fields:
+    id:
+      value: audio_bus
+      locked: true
+    i2s_lrclk_pin:
+      value: GPIO10
+      locked: true
+    i2s_bclk_pin:
+      value: GPIO12
+      locked: true
+    i2s_mclk_pin:
+      value: GPIO13
+      locked: true
+
+- id: es8311_dac
+  component_id: audio_dac.es8311
+  fields:
+    id:
+      value: es8311_dac
+      locked: true
+    use_mclk:
+      value: true
+      locked: true
+    use_microphone:
+      value: false # false means analog mic
+      locked: true
+    address:
+      value: 0x18
+      locked: true
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    bits_per_sample: 16bit
+    sample_rate: 16000
+  requires: [i2c_bus]
+
+- id: audio_output
+  component_id: speaker.i2s_audio
+  fields:
+    id: audio_output
+    i2s_audio_id:
+      value: audio_bus
+      locked: true
+    i2s_dout_pin:
+      value: GPIO9
+      locked: true
+    audio_dac:
+      value: es8311_dac
+      locked: true
+    dac_type:
+      value: external
+      locked: true
+    channel: mono
+    bits_per_sample: 16bit
+    sample_rate: 16000
+  requires: [audio_bus, es8311_dac]
+
+- id: audio_input
+  component_id: microphone.i2s_audio
+  fields:
+    id: audio_input
+    adc_type:
+      value: external
+      locked: true
+    i2s_audio_id:
+      value: audio_bus
+      locked: true
+    i2s_din_pin:
+      value: GPIO11
+      locked: true
+    pdm:
+      value: false
+      locked: true
+    bits_per_sample: 16bit
+    sample_rate: 16000
+  requires: [audio_bus, es8311_dac]
+
+- id: audio_amplifier
+  name: Audio Amplifier Switch
+  component_id: switch.gpio
+  fields:
+    name: Audio Amplifier
+    id: audio_amplifier
+    icon: mdi:volume-high
+    restore_mode: ALWAYS_ON
+    pin:
+      value: GPIO53
+      locked: true
+
+- id: mipi_dsi_ldo
+  name: Power regulator for MIPI DSI PHY
+  component_id: esp_ldo
+  fields:
+    channel:
+      value: 3
+      locked: true
+    voltage:
+      value: 2.5V
+      locked: true
+
+- id: waveshare_7_dsi_touch_a_display
+  name: Waveshare 7-DSI-TOUCH-A Display
+  description: |
+    7inch 720×1280 pixels IPS Panel display with 10-Point Touch,
+    bundled with ESP32-P4-WIFI6-DEV-KIT-B.
+  component_id: display.mipi_dsi
+  fields:
+    model:
+      value: WAVESHARE-7-DSI-TOUCH-A
+      locked: true
+  requires: [mipi_dsi_ldo]
+
+- id: waveshare_10_1_dsi_touch_a_display
+  name: Waveshare 10.1-DSI-TOUCH-A Display
+  description: |
+    10.1inch 800×1280 pixels IPS Panel display with 10-Point Touch,
+    bundled with ESP32-P4-WIFI6-DEV-KIT-C.
+  component_id: display.mipi_dsi
+  fields:
+    model:
+      value: WAVESHARE-10.1-DSI-TOUCH-A
+      locked: true
+  requires: [mipi_dsi_ldo]
+
+- id: waveshare_display_backlight_i2c_device
+  name: Waveshare DSI Display Backlight I²C Device
+  description: |
+    Generic I²C Device to access backlight control register on Waveshare 7-DSI-TOUCH-A and 10.1-DSI-TOUCH-A displays.
+  component_id: i2c_device
+  fields:
+    id:
+      value: waveshare_display_backlight_i2c_device
+      locked: true
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    address:
+      value: 0x45
+      locked: true
+  requires: [i2c_bus]
+
+- id: waveshare_display_backlight_output
+  name: Waveshare DSI Display Backlight Output
+  description: |
+    Float Output Component for backlight control on Waveshare 7-DSI-TOUCH-A and 10.1-DSI-TOUCH-A displays.
+  component_id: output.template
+  fields:
+    id:
+      value: waveshare_display_backlight_output
+      locked: true
+    type:
+      value: float
+      locked: true
+    write_action:
+      value:
+      - lambda: |-
+          const uint8_t value = (uint8_t) roundf(state * 255);
+          id(waveshare_display_backlight_i2c_device).write_byte(0x96, value);
+      locked: true
+  requires: [waveshare_display_backlight_i2c_device]
+
+- id: waveshare_display_backlight
+  name: Waveshare DSI Display Backlight
+  component_id: light.monochromatic
+  fields:
+    id: waveshare_display_backlight
+    output:
+      value: waveshare_display_backlight_output
+      locked: true
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    entity_category: CONFIG
+  requires: [waveshare_display_backlight_output]
+
+- id: rpi_header_spi0
+  name: Raspberry Pi GPIO header SPI0 bus
+  description: |
+    Set up an SPI bus on the 40pin header corresponding to Raspberry Pi SPI0.
+    This will allow you to use some Raspberry Pi hats with SPI peripherals.
+    Use this for hats where SCLK is on header pin 23 (RPi GPIO11),
+    MISO is on header pin 21 (RPi GPIO9),
+    and MOSI is on header pin 19 (RPi GPIO10).
+    The SPI CS will be on GPIO36 (header pin 24 / RPi GPIO8)
+    or GPIO32 (conflicts with I³C connector – header pin 26 / RPi GPIO7).
+  component_id: spi
+  fields:
+    id:
+      value: rpi_header_spi0
+      locked: true
+    clk_pin:
+      value: GPIO0
+      locked: true
+    mosi_pin:
+      value: GPIO3
+      locked: true
+    miso_pin:
+      value: GPIO2
+      locked: true
+
+- id: rpi_header_spi1
+  name: Raspberry Pi GPIO header SPI1 bus
+  description: |
+    Set up an SPI bus on the 40pin header corresponding to Raspberry Pi SPI1.
+    This will allow you to use some Raspberry Pi hats with SPI peripherals.
+    This SPI bus conflicts with the microSD power supply and audio amplifier control.
+    Use this for hats where SCLK is on header pin 40 (RPi GPIO21),
+    MISO is on header pin 35 (RPi GPIO19),
+    and MOSI is on header pin 38 (RPi GPIO20).
+    The SPI CS will be on GPIO22 (header pin 12 / RPi GPIO18),
+    GPIO21 (header pin 11 / RPi GPIO17),
+    or GPIO46 (header pin 36 / RPi GPIO16).
+  component_id: spi
+  fields:
+    id:
+      value: rpi_header_spi1
+      locked: true
+    clk_pin:
+      value: GPIO45
+      locked: true
+    mosi_pin:
+      value: GPIO27
+      locked: true
+    miso_pin:
+      value: GPIO53
+      locked: true
+
+- id: rpi_header_id_i2c_bus
+  name: Raspberry Pi header HAT ID I²C bus
+  description: |
+    An I²C bus that allows you to read/write the information EEPROM on Raspberry Pi HATs.
+    Conflicts with the USB-C Serial/JTAG/OTG connector.
+  component_id: i2c
+  fields:
+    id:
+      value: rpi_header_id_i2c_bus
+      locked: true
+    scl:
+      value: GPIO25
+      locked: true
+    sda:
+      value: GPIO24
+      locked: true
+    frequency: 100kHz
+    sda_pullup_enabled: true
+    scl_pullup_enabled: true
+
+- id: i3c_connector_i2c_bus
+  name: I³C connector as I²C bus
+  description: |
+    Use the I³C connector as an I²C bus to attach additional peripherals.
+    This I²C bus will also be available on the 40-pin header GPIO33 and GPIO32 (SDA and SCL, respectively).
+  component_id: i2c
+  fields:
+    id: i3c_connector_i2c_bus
+    scl:
+      value: GPIO32
+      locked: true
+    sda:
+      value: GPIO33
+      locked: true
+    sda_pullup_enabled: true
+    scl_pullup_enabled: true
+
 default_components:
-- c6_wifi
+- in_package_psram
+- esp32_hosted_c6
+
+featured_bundles:
+- id: audio_setup
+  name: Audio Input/Output (full setup)
+  component_ids:
+  - i2c_bus
+  - audio_bus
+  - es8311_dac
+  - audio_output
+  - audio_input
+  - audio_amplifier
+
+- id: waveshare_7_dsi_touch_a_display_setup
+  name: Waveshare 7-DSI-TOUCH-A Display (display and backlight control)
+  description: |
+    7inch 720×1280 pixels IPS Panel display with 10-Point Touch,
+    bundled with ESP32-P4-WIFI6-DEV-KIT-B.
+    Also sets up a light component for controlling the display backlight.
+  component_ids:
+  - mipi_dsi_ldo
+  - waveshare_7_dsi_touch_a_display
+  - i2c_bus
+  - waveshare_display_backlight_i2c_device
+  - waveshare_display_backlight_output
+  - waveshare_display_backlight
+
+- id: waveshare_10_1_dsi_touch_a_display_setup
+  name: Waveshare 10.1-DSI-TOUCH-A Display (display and backlight control)
+  description: |
+    10.1inch 800×1280 pixels IPS Panel display with 10-Point Touch,
+    bundled with ESP32-P4-WIFI6-DEV-KIT-C.
+    Also sets up a light component for controlling the display backlight.
+  component_ids:
+  - mipi_dsi_ldo
+  - waveshare_7_dsi_touch_a_display
+  - i2c_bus
+  - waveshare_display_backlight_i2c_device
+  - waveshare_display_backlight_output
+  - waveshare_display_backlight
+
 pins:
 - gpio: 0
   label: GPIO0
-  features:
-  - pwm
-  available: null
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: 32.768kHz crystal
+  notes: 40pin header pin 23 (RPi GPIO11 / SPI0 CLK) ­– XTAL_32K_N
 - gpio: 1
   label: GPIO1
-  features:
-  - pwm
-  available: null
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: 32.768kHz crystal
+  notes: 40pin header pin 22 (RPi GPIO25) – XTAL_32K_P
 - gpio: 2
   label: GPIO2
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  features: [touch, jtag, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 21 (RPi GPIO9 / SPI0 MISO) – JTAG MTCK, Touch Sensor Channel 1
 - gpio: 3
   label: GPIO3
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  features: [touch, jtag, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 19 (RPi GPIO10 / SPI0 MOSI) – JTAG MTDI, Touch Sensor Channel 2
 - gpio: 4
   label: GPIO4
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  features: [touch, jtag, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 18 (RPi GPIO24) – JTAG MTMS, Touch Sensor Channel 3
 - gpio: 5
   label: GPIO5
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  features: [touch, jtag, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 16 (RPi GPIO23) – JTAG MTDO, Touch Sensor Channel 4
 - gpio: 6
   label: GPIO6
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  features: [touch, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: ESP32-C6 co-processor (GPIO2)
+  notes: 40pin header pin 15 (RPi GPIO22) – Touch Sensor Channel 5
 - gpio: 7
-  label: GPIO7
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  label: SDA
+  features: [i2c_sda]
+  available: true
+  occupied_by: MIPI CSI, MIPI DSI, Audio Codec
+  notes: 40pin header pin 3 (RPi GPIO2 / I²C SDA), I²C connector – Shared I²C bus for onboard components
 - gpio: 8
-  label: GPIO8
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  label: SCL
+  features: [i2c_scl]
+  available: true
+  occupied_by: MIPI CSI, MIPI DSI, Audio Codec
+  notes: 40pin header pin 5 (RPi GPIO3 / I²C SCL), I²C connector – Shared I²C bus for onboard components
 - gpio: 9
-  label: GPIO9
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  available: false
+  occupied_by: Audio Codec (DSDIN)
 - gpio: 10
-  label: GPIO10
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  available: false
+  occupied_by: Audio Codec (LRCK)
 - gpio: 11
-  label: GPIO11
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  available: false
+  occupied_by: Audio Codec (ASDOUT)
 - gpio: 12
-  label: GPIO12
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  available: false
+  occupied_by: Audio Codec (SCLK)
 - gpio: 13
-  label: GPIO13
-  features:
-  - pwm
-  - touch
-  available: null
-  notes: Touch channel
+  available: false
+  occupied_by: Audio Codec (MCLK)
 - gpio: 14
-  label: GPIO14
-  features: []
   available: false
   occupied_by: ESP32-C6 co-processor (SDIO D0)
 - gpio: 15
-  label: GPIO15
-  features: []
   available: false
   occupied_by: ESP32-C6 co-processor (SDIO D1)
 - gpio: 16
-  label: GPIO16
-  features: []
   available: false
   occupied_by: ESP32-C6 co-processor (SDIO D2)
 - gpio: 17
-  label: GPIO17
-  features: []
   available: false
   occupied_by: ESP32-C6 co-processor (SDIO D3)
 - gpio: 18
-  label: GPIO18
-  features: []
   available: false
   occupied_by: ESP32-C6 co-processor (SDIO CLK)
 - gpio: 19
-  label: GPIO19
-  features: []
   available: false
   occupied_by: ESP32-C6 co-processor (SDIO CMD)
 - gpio: 20
   label: GPIO20
-  features:
-  - adc
-  - pwm
-  available: null
-  notes: ADC1_CH4
+  features: [adc, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 13 (RPi GPIO27) – ADC1 Channel 4
 - gpio: 21
   label: GPIO21
-  features:
-  - adc
-  - pwm
-  available: null
-  notes: ADC1_CH5
+  features: [adc, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 11 (RPi GPIO17) – ADC1 Channel 5
 - gpio: 22
   label: GPIO22
-  features:
-  - adc
-  - pwm
-  available: null
-  notes: ADC1_CH6
+  features: [adc, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 12 (RPi GPIO18 / PCM_CLK) – ADC1 Channel 6
 - gpio: 23
   label: GPIO23
-  features:
-  - adc
-  - pwm
-  available: null
-  notes: ADC1_CH7
+  features: [adc, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 7 (RPi GPIO4 / GPCLK0) – ADC1 Channel 7, 50MHz Reference Clock Output
 - gpio: 24
-  label: GPIO24
-  features:
-  - adc
-  - pwm
-  - usb_dm
-  available: null
-  notes: ADC1_CH8 — USB OTG D-
+  label: USB D- / GPIO24
+  features: [usb_dm, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: USB Serial/JTAG/OTG
+  notes: USB-C connector and 40pin header pin 27 (RPi GPIO0 / HAT ID I²C SDA) – USB Serial/JTAG N0, USB 2.0 Full-speed OTG N0
 - gpio: 25
-  label: GPIO25
-  features:
-  - adc
-  - pwm
-  - usb_dp
-  available: null
-  notes: ADC1_CH9 — USB OTG D+
+  label: USB D+ / GPIO25
+  features: [usb_dp, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: USB Serial/JTAG/OTG
+  notes: USB-C connector and 40pin header pin 28 (RPi GPIO1 / HAT ID I²C SCL) – USB Serial/JTAG P0, USB 2.0 Full-speed OTG P0
 - gpio: 26
   label: GPIO26
-  features:
-  - adc
-  - pwm
-  available: null
-  notes: ADC1_CH10
+  features: [usb_dm, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 31 (RPi GPIO6) – USB Serial/JTAG N1, USB 2.0 Full-speed OTG N1
 - gpio: 27
   label: GPIO27
-  features:
-  - adc
-  - pwm
-  available: null
-  notes: ADC1_CH11
+  features: [usb_dp, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 38 (RPi GPIO20 / PCM_DIN) – USB Serial/JTAG P1, USB 2.0 Full-speed OTG P1
 - gpio: 28
-  label: GPIO28
-  features: []
   available: false
-  occupied_by: Ethernet RMII CRS_DV
+  occupied_by: Ethernet PHY
+  notes: EMAC RMII (Recommended) RXDV
 - gpio: 29
-  label: GPIO29
-  features: []
   available: false
-  occupied_by: Ethernet RMII RXD0
+  occupied_by: Ethernet PHY
+  notes: EMAC RMII (Recommended) RXD0
 - gpio: 30
-  label: GPIO30
-  features: []
   available: false
-  occupied_by: Ethernet RMII RXD1
+  occupied_by: Ethernet PHY
+  notes: EMAC RMII (Recommended) RXD1
 - gpio: 31
-  label: GPIO31
-  features: []
   available: false
-  occupied_by: Ethernet MDC
+  occupied_by: Ethernet PHY (MDC)
 - gpio: 32
-  label: GPIO32
-  features:
-  - pwm
-  available: null
+  label: GPIO32 / I³C SCL
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 26 (RPi GPIO7 / SPI0 CS1), I³C connector – I³C Master SCL
 - gpio: 33
-  label: GPIO33
-  features:
-  - pwm
-  available: null
+  label: GPIO33 / I³C SDA
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 29 (RPi GPIO5), I³C connector – I³C Master SDA
 - gpio: 34
-  label: GPIO34
-  features: []
+  features: [strapping]
   available: false
-  occupied_by: Ethernet RMII TXD0
+  occupied_by: Ethernet PHY
+  notes: Strapping pin (JTAG signal source) – EMAC RMII (Recommended) TXD0
 - gpio: 35
-  label: GPIO35
-  features: []
+  features: [strapping, boot_button]
   available: false
-  occupied_by: Ethernet RMII TXD1
+  occupied_by: Ethernet PHY, Boot Button
+  notes: Strapping pin (Chip boot mode, weak pull-up) – EMAC RMII (Recommended) TXD1
 - gpio: 36
   label: GPIO36
-  features:
-  - pwm
-  - strapping
-  available: null
-  notes: Strapping pin
+  features: [strapping, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: Strapping pin (Chip boot mode, ROM message printing), external pull-up – 40pin header pin 24 (RPi GPIO8 / SPI0 CS0)
 - gpio: 37
-  label: GPIO37
-  features: []
-  available: false
-  occupied_by: SPI Flash
-  notes: SPI Flash — do not use
+  label: TXD
+  features: [strapping, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: USB-Serial TX
+  notes: Strapping pin (Chip boot mode) – USB-Serial chip and 40pin header pin 8 (RPi GPIO14 / UART TXD) – UART0 TXD
 - gpio: 38
-  label: GPIO38
-  features: []
-  available: false
-  occupied_by: SPI Flash
-  notes: SPI Flash — do not use
+  label: RXD
+  features: [strapping, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: USB-Serial RX
+  notes: Strapping pin (Chip boot mode) – USB-Serial chip and 40pin header pin 10 (RPi GPIO16 / UART RXD) – UART0 RXD
 - gpio: 39
-  label: GPIO39
-  features: []
+  features: [spi_miso]
   available: false
-  occupied_by: SPI Flash
-  notes: SPI Flash — do not use
+  occupied_by: microSD (SD D0 / SPI MISO)
+  notes: SD/MMC Card 1 CDATA0, 50MHz Reference Clock Output
 - gpio: 40
-  label: GPIO40
-  features: []
   available: false
-  occupied_by: SPI Flash
-  notes: SPI Flash — do not use
+  occupied_by: microSD (SD D1)
+  notes: SD/MMC Card 1 CDATA1
 - gpio: 41
-  label: GPIO41
-  features: []
   available: false
-  occupied_by: SPI Flash
-  notes: SPI Flash — do not use
+  occupied_by: microSD (SD D2)
+  notes: SD/MMC Card 1 CDATA2
 - gpio: 42
-  label: GPIO42
-  features: []
+  features: [spi_cs]
   available: false
-  occupied_by: SPI Flash
-  notes: SPI Flash — do not use
+  occupied_by: microSD (SD D3 / SPI CS)
+  notes: SD/MMC Card 1 CDATA3
 - gpio: 43
-  label: GPIO43
-  features:
-  - pwm
-  available: null
+  features: [spi_clk]
+  available: false
+  occupied_by: microSD (SD CLK / SPI CLK)
+  notes: SD/MMC Card 1 CCLK
 - gpio: 44
-  label: GPIO44
-  features:
-  - pwm
-  available: null
+  features: [spi_mosi]
+  available: false
+  occupied_by: microSD (SD CMD / SPI MOSI)
+  notes: SD/MMC Card 1 CCMD
 - gpio: 45
   label: GPIO45
-  features:
-  - pwm
-  available: null
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: microSD power supply
+  notes: 40pin header pin 40 (RPi GPIO21 / PCM_DOUT)
 - gpio: 46
   label: GPIO46
-  features:
-  - pwm
-  available: null
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 36 (RPi GPIO16)
 - gpio: 47
   label: GPIO47
-  features:
-  - pwm
-  available: null
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 37 (RPi GPIO26)
 - gpio: 48
   label: GPIO48
-  features:
-  - pwm
-  available: null
+  features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  notes: 40pin header pin 33 (RPi GPIO13 / PWM1)
 - gpio: 49
-  label: GPIO49
-  features: []
   available: false
-  occupied_by: Ethernet RMII TX_EN
+  occupied_by: Ethernet PHY
+  notes: EMAC RMII (Alternative 2) PHY TXEN
 - gpio: 50
-  label: GPIO50
-  features: []
   available: false
-  occupied_by: Ethernet CLK
+  occupied_by: Ethernet PHY
+  notes: EMAC RMII (Alternative 2) CLK
 - gpio: 51
-  label: GPIO51
-  features: []
   available: false
-  occupied_by: Ethernet Power
+  occupied_by: Ethernet PHY (Reset)
 - gpio: 52
-  label: GPIO52
-  features: []
   available: false
-  occupied_by: Ethernet MDIO
+  occupied_by: Ethernet PHY (MDIO)
 - gpio: 53
   label: GPIO53
-  features:
-  - pwm
-  available: null
+  features: [adc, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: Audio amplifier control
+  notes: 40pin header pin 35 (RPi GPIO19 / PCM_FS) – ADC2 Channel 4, Analog Voltage Comparator 1
 - gpio: 54
   label: GPIO54
-  features: []
-  available: false
-  occupied_by: ESP32-C6 co-processor (reset)
+  features: [adc, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
+  available: true
+  occupied_by: ESP32-C6 co-processor (Reset)
+  notes: 40pin header pin 32 (RPi GPIO12 / PWM0) – ADC2 Channel 5, Analog Voltage Comparator 1
