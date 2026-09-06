@@ -66,6 +66,17 @@ ota:
         pytest.param(MAPPING_FORM, "oldkey", id="mapping"),
         pytest.param(BARE_MAPPING_FORM, "oldkey", id="mapping-no-platform"),
         pytest.param(SECOND_ITEM, "'oldkey'", id="second-item"),
+        pytest.param(
+            "ota:\n  -\n    platform: esphome\n    encryption:\n      key: oldkey\n",
+            "oldkey",
+            id="bare-dash-item",
+        ),
+        pytest.param(
+            "ota:\n  - id: x\n    encryption:\n      key: oldkey\n    platform: esphome\n",
+            "oldkey",
+            id="platform-after-nested-block",
+        ),
+        pytest.param("ota:\n  -\n    # nothing yet\n", None, id="bare-dash-empty"),
         pytest.param(BARE_ENCRYPTION, None, id="bare-encryption"),
         pytest.param(OTHER_PLATFORM_ONLY, None, id="other-platform"),
         pytest.param("ota:\n  - platform: esphome\n    password: x\n", None, id="no-encryption"),
