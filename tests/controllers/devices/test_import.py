@@ -544,6 +544,36 @@ async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
+async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A runtime api key next to the OTA platform's own key refuses the splice; both kept."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub(
+            "api:\n  encryption:\nota:\n  - platform: esphome\n"
+            "    encryption:\n      key: OWNKEY==\n"
+        ),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "own encryption key" in result["warning"]
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "key: OWNKEY==" in content
+    assert PENDING_KEY not in content
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+
+
 async def test_import_device_full_config_inserts_key_under_bare_encryption(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
