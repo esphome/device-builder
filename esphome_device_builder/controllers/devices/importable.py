@@ -22,10 +22,9 @@ from ...helpers.lazy_module import async_import_module
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
+    api_key_settled,
     component_block_present,
     generate_api_encryption_key,
-    literal_key_matches,
-    ota_key_matches,
     read_yaml_scalar,
     upsert_api_encryption_key,
     write_user_yaml,
@@ -341,7 +340,7 @@ async def _mint_key_unless_package_encrypts(
         return (
             f"A generated API encryption key could not be spliced in ({exc}); adopted without one."
         )
-    if not _key_round_trips(new_content, new_key):
+    if not api_key_settled(new_content, new_key):
         _LOGGER.warning("Could not splice a key into %s; adopted without one", path.name)
         return "A generated API encryption key could not be spliced in; adopted without one."
     try:
@@ -372,7 +371,7 @@ async def _splice_pending_key_or_cleanup(
         "until it re-provisions."
     )
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if literal_key_matches(existing, key) and ota_key_matches(content, key):
+    if api_key_settled(content, key):
         return None
     if existing is None and not component_block_present(content, "api"):
         return (
@@ -388,7 +387,7 @@ async def _splice_pending_key_or_cleanup(
             "The imported config supplies its own API encryption key via "
             "!secret or a substitution." + not_applied_tail
         )
-    if not _key_round_trips(spliced, key):
+    if not api_key_settled(spliced, key):
         return "The imported config's shape defeated the key splice." + not_applied_tail
     try:
         await run_in_executor(write_user_yaml, path, spliced)
@@ -396,13 +395,6 @@ async def _splice_pending_key_or_cleanup(
         await run_in_executor(cleanup)
         raise
     return None
-
-
-def _key_round_trips(content: str, key: str) -> bool:
-    """Report whether *content* reads back with the api key, and any explicit OTA key, == *key*."""
-    return literal_key_matches(
-        read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH), key
-    ) and ota_key_matches(content, key)
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

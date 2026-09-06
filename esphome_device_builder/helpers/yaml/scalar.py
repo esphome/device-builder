@@ -378,6 +378,11 @@ def _strip_yaml_quotes(value: str) -> str:
     return stripped
 
 
+def is_indirected_scalar(value: str) -> bool:
+    """Whether *value* is a tag or carries a substitution; empty counts as a fillable literal."""
+    return bool(_strip_yaml_quotes(value)) and not is_plain_literal_scalar(value)
+
+
 def is_plain_literal_scalar(value: str) -> bool:
     """
     Return True when *value* is a non-empty plain literal safe to rewrite.

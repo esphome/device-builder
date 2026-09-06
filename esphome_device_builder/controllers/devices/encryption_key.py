@@ -13,9 +13,8 @@ from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
+    api_key_settled,
     component_block_present,
-    literal_key_matches,
-    ota_key_matches,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
@@ -114,7 +113,7 @@ async def _apply_to_device(
     content = await _read_device_yaml_or_raise(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if literal_key_matches(existing, key) and ota_key_matches(content, key):
+    if api_key_settled(content, key):
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
         # The push itself proves the device's API is up (HA set the key
@@ -138,8 +137,7 @@ async def _apply_to_device(
     if new_content == content:
         return KeyHandoffResult.NOT_WRITABLE, "the key is provided via !secret or a substitution"
 
-    reread = read_yaml_scalar(new_content, API_ENCRYPTION_KEY_PATH)
-    if not (literal_key_matches(reread, key) and ota_key_matches(new_content, key)):
+    if not api_key_settled(new_content, key):
         raise CommandError(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
