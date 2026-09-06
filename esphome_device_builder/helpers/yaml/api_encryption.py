@@ -113,6 +113,12 @@ def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
     if ota_key is None or literal_key_matches(ota_key, new_key):
         return yaml_text
     if not follow:
+        if not is_plain_literal_scalar(ota_key):
+            raise YamlUpsertNotSupportedError(
+                "the OTA platform's own encryption key is provided via !secret or a "
+                "substitution, so it cannot be checked against the pushed key; the api "
+                "key was left provisioned at runtime"
+            )
         raise YamlUpsertNotSupportedError(
             "the config gives the OTA platform its own encryption key, which the "
             "device requires; the api key was left provisioned at runtime"

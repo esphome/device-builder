@@ -120,6 +120,13 @@ def test_inserting_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
         upsert_api_encryption_key(yaml_text, NEW)
 
 
+def test_inserting_api_key_next_to_an_indirected_own_ota_key_names_the_indirection() -> None:
+    ota = "ota:\n  - platform: esphome\n    encryption:\n      key: !secret ota\n"
+    yaml_text = "api:\n  encryption:\n\n" + ota
+    with pytest.raises(YamlUpsertNotSupportedError, match="cannot be checked"):
+        upsert_api_encryption_key(yaml_text, NEW)
+
+
 def test_inserting_api_key_next_to_a_matching_own_ota_key_succeeds() -> None:
     yaml_text = (
         f"api:\n  encryption:\n\nota:\n  - platform: esphome\n    encryption:\n      key: {NEW}\n"
