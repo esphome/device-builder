@@ -154,11 +154,11 @@ ota:
 """
 
 
-async def test_set_encryption_key_rewrites_explicit_ota_key_too(
+async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """An explicit ota key follows the pushed api key so the config still validates."""
+    """An explicit ota key becomes a bare ``encryption:`` that inherits the pushed api key."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, OTA_KEY_YAML)
 
@@ -166,7 +166,8 @@ async def test_set_encryption_key_rewrites_explicit_ota_key_too(
 
     assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert new_yaml.count(f'key: "{KEY}"') == 2
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("  - platform: esphome\n    encryption:\n")
     assert OTHER_KEY not in new_yaml
 
 
@@ -174,7 +175,7 @@ async def test_set_encryption_key_rewrites_stale_ota_key_when_api_already_matche
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A stale ota key is repaired even when the api key already carries the push."""
+    """A stale ota key is dropped even when the api key already carries the push."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', f'key: "{KEY}"', 1))
 
@@ -182,7 +183,8 @@ async def test_set_encryption_key_rewrites_stale_ota_key_when_api_already_matche
 
     assert result["result"] == "updated"
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert new_yaml.count(f'key: "{KEY}"') == 2
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("    encryption:\n")
     assert OTHER_KEY not in new_yaml
 
 
@@ -255,7 +257,7 @@ async def test_set_encryption_key_fills_an_empty_ota_key_when_api_already_matche
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """An empty explicit ota key is filled even when the api key already carries the push."""
+    """An empty explicit ota key is dropped even when the api key already carries the push."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1).replace(f'key: "{OTHER_KEY}"', "key:", 1)
     _configure(ctrl, tmp_path, yaml_text)
@@ -263,7 +265,9 @@ async def test_set_encryption_key_fills_an_empty_ota_key_when_api_already_matche
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "updated"
-    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8").count(f'key: "{KEY}"') == 2
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("    encryption:\n")
 
 
 async def test_set_encryption_key_refuses_indirected_ota_key(

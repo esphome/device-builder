@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 
 from .inline import _instance_bounds, _locate_handler_range
 from .scalar import (
@@ -12,7 +11,6 @@ from .scalar import (
     _strip_yaml_quotes,
     block_body_is_list,
     read_yaml_scalar,
-    rewrite_yaml_scalar,
 )
 from .scan import leading_ws, top_list_item_starts
 from .top_block import _locate_top_block
@@ -37,11 +35,11 @@ def read_ota_encryption_key(yaml_text: str) -> str | None:
     return read_yaml_scalar("".join(lines[start:end]), _KEY_PATH)
 
 
-def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | None]) -> str:
+def drop_ota_encryption_key(yaml_text: str) -> str:
     """
-    Rewrite the esphome OTA item's ``encryption: key:`` scalar through *transform*.
+    Remove every ``key:`` line from the esphome OTA item's ``encryption:`` block.
 
-    *transform* follows :func:`rewrite_yaml_scalar`; a missing item, block
+    The bare block that remains inherits the api key. A missing item, block
     or key leaves the text unchanged.
     """
     lines = yaml_text.splitlines(keepends=True)
@@ -49,8 +47,9 @@ def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | 
     if block is None:
         return yaml_text
     start, end = block
-    rewritten = rewrite_yaml_scalar("".join(lines[start:end]), _KEY_PATH, transform)
-    return "".join([*lines[:start], rewritten, *lines[end:]])
+    key_re = re.compile(r"^\s+key:(?:\s|$)")
+    kept = [line for line in lines[start + 1 : end] if not key_re.match(line.rstrip("\n\r"))]
+    return "".join([*lines[: start + 1], *kept, *lines[end:]])
 
 
 def _locate_encryption_block(lines: list[str]) -> tuple[int, int] | None:

@@ -10,7 +10,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_api_encryption_key,
     upsert_api_encryption_key,
 )
-from esphome_device_builder.helpers.yaml.ota_encryption import rewrite_ota_encryption_key
+from esphome_device_builder.helpers.yaml.ota_encryption import drop_ota_encryption_key
 
 NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
 API = 'api:\n  encryption:\n    key: "oldkey"\n\n'
@@ -71,30 +71,31 @@ def test_read_ota_encryption_key(yaml_text: str, expected: str | None) -> None:
     assert read_ota_encryption_key(yaml_text) == expected
 
 
-def test_ota_key_follows_api_rewrite_keeping_comment_and_siblings() -> None:
+def test_ota_key_collapses_to_a_bare_block_on_api_rewrite() -> None:
     out = rewrite_api_encryption_key(LIST_FORM, NEW)
-    assert out.count(f'key: "{NEW}"') == 2
-    assert f'      key: "{NEW}"  # keep me\n' in out
-    assert "    port: 3232\n" in out
+    assert out.count(f'key: "{NEW}"') == 1
+    assert "  - platform: esphome\n    encryption:\n    port: 3232\n" in out
     assert "oldkey" not in out
 
 
-def test_ota_key_follows_api_upsert_in_mapping_form() -> None:
+def test_ota_key_collapses_in_mapping_form() -> None:
     out = upsert_api_encryption_key(MAPPING_FORM, NEW)
-    assert out.endswith(f'ota:\n  platform: esphome\n  encryption:\n    key: "{NEW}"\n')
+    assert out.endswith("ota:\n  platform: esphome\n  encryption:\n")
 
 
-def test_ota_key_follows_api_upsert_skipping_other_platform() -> None:
+def test_ota_key_collapses_skipping_other_platform() -> None:
     out = upsert_api_encryption_key(SECOND_ITEM, NEW)
     assert "  - platform: web_server\n" in out
-    assert out.count(f'key: "{NEW}"') == 2
+    assert out.count(f'key: "{NEW}"') == 1
+    assert out.endswith("    password: hunter2\n    encryption:\n")
     assert "oldkey" not in out
 
 
-def test_stale_ota_key_is_repaired_when_api_already_matches() -> None:
+def test_stale_ota_key_is_dropped_when_api_already_matches() -> None:
     yaml_text = LIST_FORM.replace('key: "oldkey"\n', f'key: "{NEW}"\n', 1)
     out = upsert_api_encryption_key(yaml_text, NEW)
-    assert out.count(f'key: "{NEW}"') == 2
+    assert out.count(f'key: "{NEW}"') == 1
+    assert "oldkey" not in out
 
 
 @pytest.mark.parametrize(
@@ -127,13 +128,14 @@ def test_inserting_api_key_next_to_an_indirected_own_ota_key_names_the_indirecti
         upsert_api_encryption_key(yaml_text, NEW)
 
 
-def test_inserting_api_key_next_to_a_matching_own_ota_key_succeeds() -> None:
+def test_inserting_api_key_next_to_a_matching_own_ota_key_collapses_it() -> None:
     yaml_text = (
         f"api:\n  encryption:\n\nota:\n  - platform: esphome\n    encryption:\n      key: {NEW}\n"
     )
     out = upsert_api_encryption_key(yaml_text, NEW)
-    assert out.count(NEW) == 2
+    assert out.count(NEW) == 1
     assert out.startswith(f'api:\n  encryption:\n    key: "{NEW}"\n')
+    assert out.endswith("    encryption:\n")
 
 
 def test_unreadable_ota_header_leaves_the_api_rewrite_alone() -> None:
@@ -161,18 +163,18 @@ def test_api_rewrite_without_explicit_ota_key_touches_api_only(yaml_text: str) -
     assert out.replace(f'key: "{NEW}"', 'key: "oldkey"', 1) == yaml_text
 
 
-def test_ota_follow_preserves_crlf() -> None:
+def test_ota_drop_preserves_crlf() -> None:
     yaml_text = API.replace("\n", "\r\n") + (
         "ota:\r\n  - platform: esphome\r\n    encryption:\r\n      key: oldkey\r\n"
     )
     out = rewrite_api_encryption_key(yaml_text, NEW)
-    assert out.endswith(f'    encryption:\r\n      key: "{NEW}"\r\n')
+    assert out.endswith("  - platform: esphome\r\n    encryption:\r\n")
     assert "\n" not in out.replace("\r\n", "")
 
 
-def test_rewrite_without_an_encryption_block_is_a_noop() -> None:
+def test_drop_without_an_encryption_block_is_a_noop() -> None:
     yaml_text = "ota:\n  - platform: esphome\n"
-    assert rewrite_ota_encryption_key(yaml_text, lambda _raw: "x") == yaml_text
+    assert drop_ota_encryption_key(yaml_text) == yaml_text
 
 
 @pytest.mark.parametrize("empty", ["", '""'], ids=["bare", "quoted"])
@@ -180,10 +182,12 @@ def test_empty_keys_are_filled_in(empty: str) -> None:
     api = f"api:\n  encryption:\n    key: {empty}\n"
     ota = f"ota:\n  - platform: esphome\n    encryption:\n      key: {empty}\n"
     out = upsert_api_encryption_key((api + ota).replace("key: \n", "key:\n"), NEW)
-    assert out.count(f'key: "{NEW}"') == 2
+    assert out.count(f'key: "{NEW}"') == 1
+    assert out.endswith("    encryption:\n")
 
 
-def test_inserting_api_key_fills_an_empty_own_ota_key() -> None:
+def test_inserting_api_key_drops_an_empty_own_ota_key() -> None:
     yaml_text = "api:\n  encryption:\n\nota:\n  - platform: esphome\n    encryption:\n      key:\n"
     out = upsert_api_encryption_key(yaml_text, NEW)
-    assert out.count(f'key: "{NEW}"') == 2
+    assert out.count(f'key: "{NEW}"') == 1
+    assert out.endswith("    encryption:\n")

@@ -104,7 +104,7 @@ async def test_clone_device_rekeys_explicit_ota_encryption_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """An explicit ota key follows the clone's fresh api key so the clone validates."""
+    """An explicit ota key collapses to a bare block that inherits the clone's fresh key."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     ota_key = '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
     source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_key)
@@ -114,8 +114,8 @@ async def test_clone_device_rekeys_explicit_ota_encryption_key(
 
     new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
     keys = re.findall(r'key: "([A-Za-z0-9+/=]+)"', new_yaml)
-    assert len(keys) == 2
-    assert keys[0] == keys[1]
+    assert len(keys) == 1
+    assert "  - platform: esphome\n    encryption:\n" in new_yaml
     assert "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64==" not in new_yaml
 
 

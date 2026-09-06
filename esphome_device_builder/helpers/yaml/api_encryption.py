@@ -7,7 +7,7 @@ import re
 import secrets
 from collections.abc import Callable
 
-from .ota_encryption import read_ota_encryption_key, rewrite_ota_encryption_key
+from .ota_encryption import drop_ota_encryption_key, read_ota_encryption_key
 from .scalar import (
     ESPHOME_YAML_INDENT,
     YamlUpsertNotSupportedError,
@@ -47,8 +47,9 @@ def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
     Replace the literal ``key:`` under ``api: -> encryption:`` with *new_key*.
 
     An indirected key (``!secret`` / ``${…}``) leaves the text unchanged. An
-    explicit esphome OTA ``encryption: key:`` literal follows the api key;
-    an indirected one raises :class:`YamlUpsertNotSupportedError`.
+    explicit esphome OTA ``encryption: key:`` literal is dropped so the bare
+    block inherits the api key; an indirected one raises
+    :class:`YamlUpsertNotSupportedError`.
     """
     rewritten = rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
     return _follow_ota_key(rewritten, new_key, follow=True)
@@ -113,32 +114,35 @@ def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
     """
     Reconcile an explicit esphome OTA key with a literal api key of *new_key*.
 
-    With *follow* the OTA literal is rewritten to match; without it a
-    differing OTA key is refused, since the device requires that key.
+    An OTA key that would only duplicate the api key is dropped so the bare
+    block inherits it. Without *follow* a differing OTA key is refused,
+    since the device requires that key.
     """
     if not literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), new_key):
         return yaml_text
     ota_key = read_ota_encryption_key(yaml_text)
-    if ota_key is None or literal_key_matches(ota_key, new_key):
+    if ota_key is None:
         return yaml_text
-    # An empty OTA ``key:`` is filled in like an empty api key.
-    if not follow and _strip_yaml_quotes(ota_key):
-        if not is_plain_literal_scalar(ota_key):
+    if _strip_yaml_quotes(ota_key) and not is_plain_literal_scalar(ota_key):
+        if not follow:
             raise YamlUpsertNotSupportedError(
                 "the OTA platform's own encryption key is provided via !secret or a "
                 "substitution, so it cannot be checked against the new api key."
             )
         raise YamlUpsertNotSupportedError(
-            "the config gives the OTA platform its own encryption key, which the "
-            "device requires, so no api key was written."
-        )
-    rewritten = rewrite_ota_encryption_key(yaml_text, _literal_swap(new_key))
-    if rewritten == yaml_text:
-        raise YamlUpsertNotSupportedError(
             "the OTA encryption key is provided via !secret or a substitution "
             "and must match the api encryption key."
         )
-    return rewritten
+    if not follow and _strip_yaml_quotes(ota_key) and not literal_key_matches(ota_key, new_key):
+        raise YamlUpsertNotSupportedError(
+            "the config gives the OTA platform its own encryption key, which the "
+            "device requires, so no api key was written."
+        )
+    # Deliberately dropped, not rewritten to the same value: with a static api
+    # key the firmware encrypts OTA with that key whatever the OTA block says,
+    # so a second literal is only a copy to keep in sync, and the bare block is
+    # the documented shape (esphome.io "ESPHome OTA Updates" > Encryption).
+    return drop_ota_encryption_key(yaml_text)
 
 
 def _find_encryption_header(

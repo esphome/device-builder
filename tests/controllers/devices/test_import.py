@@ -347,7 +347,7 @@ async def test_import_device_full_config_repairs_stale_ota_key_next_to_matching_
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """An api key already equal to HA's still gets a stale explicit ota key rewritten."""
+    """An api key already equal to HA's still gets a stale explicit ota key dropped."""
     monkeypatch.setattr(
         "esphome.components.dashboard_import.import_config",
         _full_config_stub(
@@ -366,7 +366,8 @@ async def test_import_device_full_config_repairs_stale_ota_key_next_to_matching_
     )
 
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert content.count(f'key: "{PENDING_KEY}"') == 2
+    assert content.count(f'key: "{PENDING_KEY}"') == 1
+    assert content.endswith("    encryption:\n")
     assert "OLDKEY" not in content
 
 
