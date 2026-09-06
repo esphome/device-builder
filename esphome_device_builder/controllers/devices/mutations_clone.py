@@ -96,10 +96,12 @@ async def clone_device(  # noqa: C901
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
     # Validate the source before rewrite work; the leaf rewrites
-    # are structure-preserving so a valid source produces a
-    # valid clone, and bailing here points the user at the
-    # source's actual schema errors instead of burning rewrite
-    # work just to re-discover the source was unflashable.
+    # keep the structure (an explicit OTA key line is dropped only
+    # when that leaves a well-formed bare block, anything else is
+    # refused) so a valid source produces a valid clone, and
+    # bailing here points the user at the source's actual schema
+    # errors instead of burning rewrite work just to re-discover
+    # the source was unflashable.
     await controller._validate_rewritten_yaml_or_raise(
         configuration, source_content, action="clone"
     )

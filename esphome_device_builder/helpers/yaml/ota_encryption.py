@@ -40,7 +40,10 @@ def drop_ota_encryption_key(yaml_text: str) -> str:
     Remove every ``key:`` line from the esphome OTA item's ``encryption:`` block.
 
     The bare block that remains inherits the api key. A missing item, block
-    or key leaves the text unchanged.
+    or key leaves the text unchanged. A key whose value continues on the
+    next line (a block scalar, a value on its own line) raises
+    :class:`YamlUpsertNotSupportedError`, since dropping the line alone
+    would reshape the block.
     """
     lines = yaml_text.splitlines(keepends=True)
     block = _locate_encryption_block(lines)
@@ -48,12 +51,42 @@ def drop_ota_encryption_key(yaml_text: str) -> str:
         return yaml_text
     start, end = block
     key_re = re.compile(r"^\s+key:(?:\s|$)")
-    kept = [line for line in lines[start + 1 : end] if not key_re.match(line.rstrip("\n\r"))]
+    kept: list[str] = []
+    for idx in range(start + 1, end):
+        body = lines[idx].rstrip("\n\r")
+        if not key_re.match(body):
+            kept.append(lines[idx])
+            continue
+        if _continues_on_next_line(lines, idx, end):
+            raise YamlUpsertNotSupportedError(
+                "the OTA encryption key spans more than one line; the line-based "
+                "rewrite can't safely drop it."
+            )
     return "".join([*lines[: start + 1], *kept, *lines[end:]])
 
 
+def _continues_on_next_line(lines: list[str], key_idx: int, end: int) -> bool:
+    """Whether the ``key:`` at *key_idx* has a block-scalar value or a value on a deeper line."""
+    value, _comment = _split_value_and_comment(lines[key_idx].rstrip("\n\r").split(":", 1)[1])
+    if value.strip().startswith(("|", ">")):
+        return True
+    key_indent = len(leading_ws(lines[key_idx]))
+    for idx in range(key_idx + 1, end):
+        body = lines[idx].rstrip("\n\r")
+        if not body.strip() or body.lstrip().startswith("#"):
+            continue
+        return len(leading_ws(body)) > key_indent
+    return False
+
+
 def _locate_encryption_block(lines: list[str]) -> tuple[int, int] | None:
-    """Line span of the esphome OTA item's ``encryption:`` block, or ``None``."""
+    """
+    Line span of the esphome OTA item's ``encryption:`` block, or ``None``.
+
+    An ``ota:`` header the walker can't read (``!include``, flow style)
+    reads as ``None`` too; a mismatched pair behind it is left to esphome's
+    validation, which the push path runs before persisting.
+    """
     try:
         item = _locate_ota_esphome_item(lines)
     except YamlUpsertNotSupportedError:

@@ -191,3 +191,23 @@ def test_inserting_api_key_drops_an_empty_own_ota_key() -> None:
     out = upsert_api_encryption_key(yaml_text, NEW)
     assert out.count(f'key: "{NEW}"') == 1
     assert out.endswith("    encryption:\n")
+
+
+@pytest.mark.parametrize(
+    "ota_key_lines",
+    [
+        pytest.param("      key: >-\n        oldkey\n", id="block-scalar"),
+        pytest.param("      key:\n        oldkey\n", id="value-on-next-line"),
+    ],
+)
+def test_multi_line_ota_key_refuses_the_drop(ota_key_lines: str) -> None:
+    yaml_text = API + "ota:\n  - platform: esphome\n    encryption:\n" + ota_key_lines
+    with pytest.raises(YamlUpsertNotSupportedError, match="more than one line"):
+        rewrite_api_encryption_key(yaml_text, NEW)
+
+
+def test_drop_keeps_a_comment_line_between_key_and_sibling() -> None:
+    ota = "ota:\n  - platform: esphome\n    encryption:\n"
+    yaml_text = API + ota + "      key: oldkey\n      # note\n    port: 1\n"
+    out = rewrite_api_encryption_key(yaml_text, NEW)
+    assert out.endswith("    encryption:\n      # note\n    port: 1\n")
