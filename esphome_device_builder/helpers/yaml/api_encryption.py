@@ -7,7 +7,11 @@ import re
 import secrets
 from collections.abc import Callable
 
-from .ota_encryption import drop_ota_encryption_key, read_ota_encryption_key
+from .ota_encryption import (
+    drop_ota_encryption_key,
+    read_ota_encryption_key,
+    rewrite_ota_encryption_key,
+)
 from .scalar import (
     ESPHOME_YAML_INDENT,
     YamlUpsertNotSupportedError,
@@ -95,6 +99,20 @@ def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
         f"{indent}{ESPHOME_YAML_INDENT}key: {rendered}{nl}",
     ]
     return "".join([*lines[:insert_at], *new_lines, *lines[insert_at:]])
+
+
+def rewrite_own_ota_encryption_key(yaml_text: str, new_key: str) -> str:
+    """
+    Replace the OTA platform's own literal key with *new_key* when no literal api key exists.
+
+    With a literal api key the OTA block inherits it (see
+    :func:`rewrite_api_encryption_key`); an indirected or missing OTA key
+    leaves the text unchanged.
+    """
+    api_key = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
+    if api_key is not None and is_plain_literal_scalar(api_key):
+        return yaml_text
+    return rewrite_ota_encryption_key(yaml_text, _literal_swap(new_key))
 
 
 def _literal_swap(new_key: str) -> Callable[[str], str | None]:

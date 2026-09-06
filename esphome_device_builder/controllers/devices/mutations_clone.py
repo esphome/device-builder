@@ -18,6 +18,7 @@ from ...helpers.yaml import (
     generate_api_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
+    rewrite_own_ota_encryption_key,
 )
 from ...models import ErrorCode
 from .helpers import (
@@ -95,16 +96,10 @@ async def clone_device(  # noqa: C901
         msg = f"Source device {configuration} not found"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    # Validate the source before rewrite work; the leaf rewrites
-    # keep the structure (an explicit OTA key line is dropped only
-    # when that leaves a well-formed bare block, a multi-line or
-    # indirected one is refused, and an OTA block the line walker
-    # can't read, such as ``!include``, flow style or a
-    # non-canonical layout, is left as is for esphome to judge at
-    # build time) so a valid source
-    # produces a valid clone, and bailing here points the user at
-    # the source's actual schema errors instead of burning rewrite
-    # work just to re-discover the source was unflashable.
+    # Validate the source before rewrite work; the leaf rewrites are
+    # structure-preserving or refuse (see rewrite_api_encryption_key), so a
+    # valid source produces a valid clone, and bailing here points the user
+    # at the source's actual schema errors instead of burning rewrite work.
     await controller._validate_rewritten_yaml_or_raise(
         configuration, source_content, action="clone"
     )
@@ -138,6 +133,9 @@ async def clone_device(  # noqa: C901
     # the key; those indirections stay shared with the source.
     try:
         new_content = rewrite_api_encryption_key(new_content, new_key)
+        # A source without a literal api key may give the OTA platform its
+        # own key; that is sibling-shared material too, so it gets a fresh one.
+        new_content = rewrite_own_ota_encryption_key(new_content, new_key)
     except YamlUpsertNotSupportedError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
     # Retarget the generated fallback-AP ssid, which the leaf

@@ -8,6 +8,7 @@ from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
     read_ota_encryption_key,
     rewrite_api_encryption_key,
+    rewrite_own_ota_encryption_key,
     upsert_api_encryption_key,
 )
 from esphome_device_builder.helpers.yaml.ota_encryption import drop_ota_encryption_key
@@ -211,3 +212,27 @@ def test_drop_keeps_a_comment_line_between_key_and_sibling() -> None:
     yaml_text = API + ota + "      key: oldkey\n      # note\n    port: 1\n"
     out = rewrite_api_encryption_key(yaml_text, NEW)
     assert out.endswith("    encryption:\n      # note\n    port: 1\n")
+
+
+def test_own_ota_key_is_rekeyed_without_a_literal_api_key() -> None:
+    yaml_text = (
+        "mqtt:\n  broker: b\n\nota:\n  - platform: esphome\n    encryption:\n      key: oldkey\n"
+    )
+    out = rewrite_own_ota_encryption_key(yaml_text, NEW)
+    assert out.endswith(f'    encryption:\n      key: "{NEW}"\n')
+    assert "oldkey" not in out
+
+
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        pytest.param(LIST_FORM, id="literal-api-key"),
+        pytest.param(
+            "ota:\n  - platform: esphome\n    encryption:\n      key: !secret k\n", id="secret"
+        ),
+        pytest.param(BARE_ENCRYPTION, id="bare"),
+        pytest.param("mqtt:\n  broker: b\n", id="no-ota"),
+    ],
+)
+def test_own_ota_key_rekey_leaves_other_shapes_alone(yaml_text: str) -> None:
+    assert rewrite_own_ota_encryption_key(yaml_text, NEW) == yaml_text

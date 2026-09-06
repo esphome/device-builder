@@ -50,6 +50,7 @@ from .api_encryption import generate_api_encryption_key as generate_api_encrypti
 from .api_encryption import literal_key_matches as literal_key_matches
 from .api_encryption import ota_key_matches as ota_key_matches
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
+from .api_encryption import rewrite_own_ota_encryption_key as rewrite_own_ota_encryption_key
 from .api_encryption import upsert_api_encryption_key as upsert_api_encryption_key
 from .component import _mapping_body_to_list_item as _mapping_body_to_list_item
 from .component import _normalize_multi_conf_block as _normalize_multi_conf_block

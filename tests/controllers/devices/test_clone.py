@@ -120,6 +120,30 @@ async def test_clone_device_rekeys_explicit_ota_encryption_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_mints_a_fresh_own_ota_key_without_an_api_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An MQTT-only source's own OTA key is sibling-shared material and gets a fresh one."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    api_start = SOURCE_YAML.index("api:\n")
+    api_end = SOURCE_YAML.index("ota:\n")
+    ota_key = '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
+    source = (SOURCE_YAML[:api_start] + "mqtt:\n  broker: b\n\n" + SOURCE_YAML[api_end:]).replace(
+        "  - platform: esphome\n", "  - platform: esphome\n" + ota_key
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    keys = re.findall(r'key: "([A-Za-z0-9+/=]+)"', new_yaml)
+    assert len(keys) == 1
+    assert "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64==" not in new_yaml
+    assert "api:" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_refuses_when_own_ota_key_cannot_follow(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
