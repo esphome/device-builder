@@ -48,14 +48,21 @@ def generate_api_encryption_key() -> str:
 def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
     """Replace the literal ``api.encryption.key``; an explicit OTA key is dropped or refused."""
     rewritten = rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
-    return _follow_ota_key(rewritten, new_key, follow=True)
+    return _follow_ota_key(rewritten, new_key, static_api_key=True)
 
 
 def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
     """Set ``api.encryption.key``, inserting missing structure; unsafe shapes raise."""
-    if read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH) is not None:
+    existing = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
+    if existing is not None and _strip_yaml_quotes(existing):
         return rewrite_api_encryption_key(yaml_text, new_key)
-    return _follow_ota_key(_insert_api_encryption_key(yaml_text, new_key), new_key, follow=False)
+    # An empty ``key:`` is a runtime-provisioned shape like a bare ``encryption:``.
+    inserted = (
+        rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
+        if existing is not None
+        else _insert_api_encryption_key(yaml_text, new_key)
+    )
+    return _follow_ota_key(inserted, new_key, static_api_key=False)
 
 
 def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
@@ -105,7 +112,7 @@ def _literal_swap(new_key: str) -> Callable[[str], str | None]:
     return _swap
 
 
-def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
+def _follow_ota_key(yaml_text: str, new_key: str, *, static_api_key: bool) -> str:
     """Drop an explicit OTA key next to a literal api key; refuse when the device requires it."""
     if not literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), new_key):
         return yaml_text
@@ -113,7 +120,7 @@ def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
     if ota_key is None:
         return yaml_text
     if _strip_yaml_quotes(ota_key) and not is_plain_literal_scalar(ota_key):
-        if not follow:
+        if not static_api_key:
             raise YamlUpsertNotSupportedError(
                 "the OTA platform's own encryption key is provided via !secret or a "
                 "substitution, so it cannot be checked against the new api key."
@@ -122,7 +129,11 @@ def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
             "the OTA encryption key is provided via !secret or a substitution "
             "and must match the api encryption key."
         )
-    if not follow and _strip_yaml_quotes(ota_key) and not literal_key_matches(ota_key, new_key):
+    if (
+        not static_api_key
+        and _strip_yaml_quotes(ota_key)
+        and not literal_key_matches(ota_key, new_key)
+    ):
         raise YamlUpsertNotSupportedError(
             "the config gives the OTA platform its own encryption key, which the "
             "device requires, so no api key was written."

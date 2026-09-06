@@ -399,8 +399,10 @@ async def _splice_pending_key_or_cleanup(
 
 
 def _key_round_trips(content: str, key: str) -> bool:
-    """Report whether *content* reads back with ``api.encryption.key`` == *key*."""
-    return literal_key_matches(read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH), key)
+    """Report whether *content* reads back with the api key, and any explicit OTA key, == *key*."""
+    return literal_key_matches(
+        read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH), key
+    ) and ota_key_matches(content, key)
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

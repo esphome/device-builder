@@ -250,3 +250,10 @@ def test_own_ota_key_is_rekeyed_without_a_literal_api_key() -> None:
 )
 def test_own_ota_key_rekey_leaves_other_shapes_alone(yaml_text: str) -> None:
     assert rewrite_own_ota_encryption_key(yaml_text, NEW) == yaml_text
+
+
+def test_empty_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
+    ota = "ota:\n  - platform: esphome\n    encryption:\n      key: ownkey\n"
+    yaml_text = 'api:\n  encryption:\n    key: ""\n\n' + ota
+    with pytest.raises(YamlUpsertNotSupportedError, match="own encryption key"):
+        upsert_api_encryption_key(yaml_text, NEW)
