@@ -14,9 +14,8 @@ from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
     component_block_present,
-    is_plain_literal_scalar,
     literal_key_matches,
-    read_ota_encryption_key,
+    ota_key_matches,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
@@ -115,7 +114,7 @@ async def _apply_to_device(
     content = await _read_device_yaml_or_raise(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if literal_key_matches(existing, key) and _ota_key_matches(content, key):
+    if literal_key_matches(existing, key) and ota_key_matches(content, key):
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
         # The push itself proves the device's API is up (HA set the key
@@ -140,7 +139,7 @@ async def _apply_to_device(
         return KeyHandoffResult.NOT_WRITABLE, "the key is provided via !secret or a substitution"
 
     reread = read_yaml_scalar(new_content, API_ENCRYPTION_KEY_PATH)
-    if not (literal_key_matches(reread, key) and _ota_key_matches(new_content, key)):
+    if not (literal_key_matches(reread, key) and ota_key_matches(new_content, key)):
         raise CommandError(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
@@ -159,14 +158,6 @@ async def _apply_to_device(
         configuration, new_content, message=f"Update API encryption key in {configuration}"
     )
     return KeyHandoffResult.UPDATED, ""
-
-
-def _ota_key_matches(content: str, key: str) -> bool:
-    """Whether an explicit OTA key, if any, is *key*; an indirected one is left to esphome."""
-    ota_key = read_ota_encryption_key(content)
-    return (
-        ota_key is None or literal_key_matches(ota_key, key) or not is_plain_literal_scalar(ota_key)
-    )
 
 
 async def _resolved_config_has_api(

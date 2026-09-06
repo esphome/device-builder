@@ -181,3 +181,9 @@ def test_empty_keys_are_filled_in(empty: str) -> None:
     ota = f"ota:\n  - platform: esphome\n    encryption:\n      key: {empty}\n"
     out = upsert_api_encryption_key((api + ota).replace("key: \n", "key:\n"), NEW)
     assert out.count(f'key: "{NEW}"') == 2
+
+
+def test_inserting_api_key_fills_an_empty_own_ota_key() -> None:
+    yaml_text = "api:\n  encryption:\n\nota:\n  - platform: esphome\n    encryption:\n      key:\n"
+    out = upsert_api_encryption_key(yaml_text, NEW)
+    assert out.count(f'key: "{NEW}"') == 2

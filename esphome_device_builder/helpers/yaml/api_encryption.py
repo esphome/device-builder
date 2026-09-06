@@ -28,6 +28,14 @@ def literal_key_matches(raw: str | None, key: str) -> bool:
     return raw is not None and _strip_yaml_quotes(raw) == key
 
 
+def ota_key_matches(yaml_text: str, key: str) -> bool:
+    """Whether an explicit OTA key, if any, is *key*; an indirected one is left to esphome."""
+    ota_key = read_ota_encryption_key(yaml_text)
+    return (
+        ota_key is None or literal_key_matches(ota_key, key) or not is_plain_literal_scalar(ota_key)
+    )
+
+
 def generate_api_encryption_key() -> str:
     """Return a fresh 32-byte ESPHome API encryption key, base64-encoded."""
     return base64.b64encode(secrets.token_bytes(32)).decode()
@@ -112,7 +120,8 @@ def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
     ota_key = read_ota_encryption_key(yaml_text)
     if ota_key is None or literal_key_matches(ota_key, new_key):
         return yaml_text
-    if not follow:
+    # An empty OTA ``key:`` is filled in like an empty api key.
+    if not follow and _strip_yaml_quotes(ota_key):
         if not is_plain_literal_scalar(ota_key):
             raise YamlUpsertNotSupportedError(
                 "the OTA platform's own encryption key is provided via !secret or a "

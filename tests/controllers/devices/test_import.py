@@ -342,6 +342,34 @@ async def test_import_device_full_config_splices_pending_ha_key(
     assert ctrl._pending_keys.get("kitchen") is None
 
 
+async def test_import_device_full_config_repairs_stale_ota_key_next_to_matching_api_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An api key already equal to HA's still gets a stale explicit ota key rewritten."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub(
+            f'api:\n  encryption:\n    key: "{PENDING_KEY}"\n'
+            'ota:\n  - platform: esphome\n    encryption:\n      key: "OLDKEY=="\n'
+        ),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert content.count(f'key: "{PENDING_KEY}"') == 2
+    assert "OLDKEY" not in content
+
+
 async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

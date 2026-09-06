@@ -25,6 +25,7 @@ from ...helpers.yaml import (
     component_block_present,
     generate_api_encryption_key,
     literal_key_matches,
+    ota_key_matches,
     read_yaml_scalar,
     upsert_api_encryption_key,
     write_user_yaml,
@@ -371,7 +372,7 @@ async def _splice_pending_key_or_cleanup(
         "until it re-provisions."
     )
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if literal_key_matches(existing, key):
+    if literal_key_matches(existing, key) and ota_key_matches(content, key):
         return None
     if existing is None and not component_block_present(content, "api"):
         return (
