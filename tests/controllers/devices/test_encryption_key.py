@@ -171,7 +171,7 @@ async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
     assert OTHER_KEY not in new_yaml
 
 
-async def test_set_encryption_key_rewrites_stale_ota_key_when_api_already_matches(
+async def test_set_encryption_key_drops_stale_ota_key_when_api_already_matches(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
@@ -253,7 +253,7 @@ async def test_set_encryption_key_unchanged_with_matching_api_and_indirected_ota
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
-async def test_set_encryption_key_fills_an_empty_ota_key_when_api_already_matches(
+async def test_set_encryption_key_drops_an_empty_ota_key_when_api_already_matches(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:

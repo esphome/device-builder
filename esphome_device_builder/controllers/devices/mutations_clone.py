@@ -99,8 +99,9 @@ async def clone_device(  # noqa: C901
     # keep the structure (an explicit OTA key line is dropped only
     # when that leaves a well-formed bare block, a multi-line or
     # indirected one is refused, and an OTA block the line walker
-    # can't read, such as ``!include`` or flow style, is left as
-    # is for esphome to judge at build time) so a valid source
+    # can't read, such as ``!include``, flow style or a
+    # non-canonical layout, is left as is for esphome to judge at
+    # build time) so a valid source
     # produces a valid clone, and bailing here points the user at
     # the source's actual schema errors instead of burning rewrite
     # work just to re-discover the source was unflashable.

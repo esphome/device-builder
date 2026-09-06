@@ -16,7 +16,7 @@ NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
 API = 'api:\n  encryption:\n    key: "oldkey"\n\n'
 
 LIST_FORM = API + (
-    'ota:\n  - platform: esphome\n    encryption:\n      key: "oldkey"  # keep me\n    port: 3232\n'
+    'ota:\n  - platform: esphome\n    encryption:\n      key: "oldkey"  # dropped\n    port: 3232\n'
 )
 MAPPING_FORM = API + "ota:\n  platform: esphome\n  encryption:\n    key: oldkey\n"
 BARE_MAPPING_FORM = API + "ota:\n  encryption:\n    key: oldkey\n"
