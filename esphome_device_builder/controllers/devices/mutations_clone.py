@@ -14,10 +14,10 @@ from ...helpers.device_yaml import (
 from ...helpers.yaml import (
     ESPHOME_FRIENDLY_NAME_PATH,
     ESPHOME_NAME_PATH,
+    YamlUpsertNotSupportedError,
     generate_api_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
-    rewrite_ota_encryption_key,
 )
 from ...models import ErrorCode
 from .helpers import (
@@ -131,10 +131,10 @@ async def clone_device(  # noqa: C901
         )
     # No-op when the source uses ``!secret`` / ``${...}`` for
     # the key; those indirections stay shared with the source.
-    rekeyed = rewrite_api_encryption_key(new_content, new_key)
-    if rekeyed != new_content:
-        # An explicit ota key must keep matching the api key.
-        new_content = rewrite_ota_encryption_key(rekeyed, new_key)
+    try:
+        new_content = rewrite_api_encryption_key(new_content, new_key)
+    except YamlUpsertNotSupportedError as exc:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
     # Retarget the generated fallback-AP ssid, which the leaf
     # rewrites above don't reach.
     new_content = retarget_fallback_ap_ssid(

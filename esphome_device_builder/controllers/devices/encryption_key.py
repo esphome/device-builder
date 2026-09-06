@@ -13,11 +13,10 @@ from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
-    _strip_yaml_quotes,
     component_block_present,
+    key_matches,
     read_ota_encryption_key,
     read_yaml_scalar,
-    rewrite_ota_encryption_key,
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
@@ -115,12 +114,7 @@ async def _apply_to_device(
     content = await _read_device_yaml_or_raise(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    api_matches = _holds_key(existing, key)
-    # An explicit ota key must equal the api key or esphome rejects the
-    # config, so it follows the pushed key; a bare ``encryption:`` inherits.
-    ota_existing = read_ota_encryption_key(content)
-    ota_matches = ota_existing is None or _holds_key(ota_existing, key)
-    if api_matches and ota_matches:
+    if key_matches(existing, key) and _ota_key_matches(content, key):
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
         # The push itself proves the device's API is up (HA set the key
@@ -137,15 +131,15 @@ async def _apply_to_device(
             )
             return KeyHandoffResult.NOT_WRITABLE, reason
 
-    new_content, reason = _splice_keys(
-        content, key, api_matches=api_matches, ota_matches=ota_matches
-    )
-    if new_content is None:
-        return KeyHandoffResult.NOT_WRITABLE, reason
+    try:
+        new_content = upsert_api_encryption_key(content, key)
+    except YamlUpsertNotSupportedError as exc:
+        return KeyHandoffResult.NOT_WRITABLE, str(exc)
+    if new_content == content:
+        return KeyHandoffResult.NOT_WRITABLE, "the key is provided via !secret or a substitution"
 
     reread = read_yaml_scalar(new_content, API_ENCRYPTION_KEY_PATH)
-    ota_reread = read_ota_encryption_key(new_content) if ota_existing is not None else key
-    if not (_holds_key(reread, key) and _holds_key(ota_reread, key)):
+    if not (key_matches(reread, key) and _ota_key_matches(new_content, key)):
         raise CommandError(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
@@ -166,27 +160,10 @@ async def _apply_to_device(
     return KeyHandoffResult.UPDATED, ""
 
 
-def _holds_key(raw: str | None, key: str) -> bool:
-    """Whether the raw YAML scalar *raw* is the literal *key*."""
-    return raw is not None and _strip_yaml_quotes(raw) == key
-
-
-def _splice_keys(
-    content: str, key: str, *, api_matches: bool, ota_matches: bool
-) -> tuple[str | None, str]:
-    """Rewrite the api key and any explicit ota key to *key*; ``(None, reason)`` on refusal."""
-    try:
-        new_content = upsert_api_encryption_key(content, key)
-    except YamlUpsertNotSupportedError as exc:
-        return None, str(exc)
-    if new_content == content and not api_matches:
-        return None, "the key is provided via !secret or a substitution"
-    if ota_matches:
-        return new_content, ""
-    rewritten = rewrite_ota_encryption_key(new_content, key)
-    if rewritten == new_content:
-        return None, "the OTA encryption key is provided via !secret or a substitution"
-    return rewritten, ""
+def _ota_key_matches(content: str, key: str) -> bool:
+    """Whether an explicit esphome OTA key, if any, is the literal *key*."""
+    ota_key = read_ota_encryption_key(content)
+    return ota_key is None or key_matches(ota_key, key)
 
 
 async def _resolved_config_has_api(

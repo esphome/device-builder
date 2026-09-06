@@ -47,6 +47,7 @@ from .ap_ssid import fallback_ap_ssid as fallback_ap_ssid
 from .ap_ssid import rewrite_fallback_ap_ssid as rewrite_fallback_ap_ssid
 from .api_encryption import API_ENCRYPTION_KEY_PATH as API_ENCRYPTION_KEY_PATH
 from .api_encryption import generate_api_encryption_key as generate_api_encryption_key
+from .api_encryption import key_matches as key_matches
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
 from .api_encryption import upsert_api_encryption_key as upsert_api_encryption_key
 from .component import _mapping_body_to_list_item as _mapping_body_to_list_item
@@ -66,7 +67,6 @@ from .inline import upsert_inline_handler as upsert_inline_handler
 from .inline import upsert_nested_handler as upsert_nested_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
 from .ota_encryption import read_ota_encryption_key as read_ota_encryption_key
-from .ota_encryption import rewrite_ota_encryption_key as rewrite_ota_encryption_key
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
 from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH
 from .scalar import ESPHOME_YAML_INDENT as ESPHOME_YAML_INDENT

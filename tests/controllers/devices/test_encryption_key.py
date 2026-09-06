@@ -201,6 +201,23 @@ async def test_set_encryption_key_unchanged_when_both_keys_match(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
+async def test_set_encryption_key_never_overwrites_a_devices_own_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A runtime api key next to the OTA platform's own key is refused; that key stays."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(f'    key: "{OTHER_KEY}"\n', "", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "own encryption key" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
 async def test_set_encryption_key_bare_ota_encryption_is_left_alone(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

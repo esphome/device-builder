@@ -1,62 +1,30 @@
-"""Tests for the esphome OTA platform ``encryption.key`` reader / rewriter."""
+"""Tests for the esphome OTA platform ``encryption.key`` reader and its api-key follow-along."""
 
 from __future__ import annotations
 
 import pytest
 
 from esphome_device_builder.helpers.yaml import (
+    YamlUpsertNotSupportedError,
     read_ota_encryption_key,
-    rewrite_ota_encryption_key,
+    rewrite_api_encryption_key,
+    upsert_api_encryption_key,
 )
 
 NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
+API = 'api:\n  encryption:\n    key: "oldkey"\n\n'
 
-LIST_FORM = """\
-api:
-  encryption:
-    key: "oldkey"
-
-ota:
-  - platform: esphome
-    encryption:
-      key: "oldkey"  # keep me
-    port: 3232
-"""
-
-MAPPING_FORM = """\
-ota:
-  platform: esphome
-  encryption:
-    key: oldkey
-"""
-
-BARE_MAPPING_FORM = """\
-ota:
-  encryption:
-    key: oldkey
-"""
-
-SECOND_ITEM = """\
-ota:
-  - platform: web_server
-  - platform: esphome
-    password: hunter2
-    encryption:
-      key: 'oldkey'
-"""
-
-BARE_ENCRYPTION = """\
-ota:
-  - platform: esphome
-    encryption:
-"""
-
-OTHER_PLATFORM_ONLY = """\
-ota:
-  - platform: web_server
-    encryption:
-      key: oldkey
-"""
+LIST_FORM = API + (
+    'ota:\n  - platform: esphome\n    encryption:\n      key: "oldkey"  # keep me\n    port: 3232\n'
+)
+MAPPING_FORM = API + "ota:\n  platform: esphome\n  encryption:\n    key: oldkey\n"
+BARE_MAPPING_FORM = API + "ota:\n  encryption:\n    key: oldkey\n"
+SECOND_ITEM = (
+    API + "ota:\n  - platform: web_server\n  - platform: esphome\n    password: hunter2\n"
+    "    encryption:\n      key: 'oldkey'\n"
+)
+BARE_ENCRYPTION = API + "ota:\n  - platform: esphome\n    encryption:\n"
+OTHER_PLATFORM_ONLY = API + "ota:\n  - platform: web_server\n    encryption:\n      key: oldkey\n"
 
 
 @pytest.mark.parametrize(
@@ -64,7 +32,7 @@ ota:
     [
         pytest.param(LIST_FORM, '"oldkey"', id="list"),
         pytest.param(MAPPING_FORM, "oldkey", id="mapping"),
-        pytest.param(BARE_MAPPING_FORM, "oldkey", id="mapping-no-platform"),
+        pytest.param(BARE_MAPPING_FORM, None, id="mapping-no-platform"),
         pytest.param(SECOND_ITEM, "'oldkey'", id="second-item"),
         pytest.param(
             "ota:\n  -\n    platform: esphome\n    encryption:\n      key: oldkey\n",
@@ -80,7 +48,7 @@ ota:
         pytest.param(BARE_ENCRYPTION, None, id="bare-encryption"),
         pytest.param(OTHER_PLATFORM_ONLY, None, id="other-platform"),
         pytest.param("ota:\n  - platform: esphome\n    password: x\n", None, id="no-encryption"),
-        pytest.param("api:\n  encryption:\n    key: oldkey\n", None, id="no-ota"),
+        pytest.param(API, None, id="no-ota"),
         pytest.param("", None, id="empty"),
     ],
 )
@@ -88,24 +56,30 @@ def test_read_ota_encryption_key(yaml_text: str, expected: str | None) -> None:
     assert read_ota_encryption_key(yaml_text) == expected
 
 
-def test_rewrite_list_form_keeps_comment_and_siblings() -> None:
-    out = rewrite_ota_encryption_key(LIST_FORM, NEW)
+def test_ota_key_follows_api_rewrite_keeping_comment_and_siblings() -> None:
+    out = rewrite_api_encryption_key(LIST_FORM, NEW)
+    assert out.count(f'key: "{NEW}"') == 2
     assert f'      key: "{NEW}"  # keep me\n' in out
-    assert 'api:\n  encryption:\n    key: "oldkey"' in out
     assert "    port: 3232\n" in out
-    assert read_ota_encryption_key(out) == f'"{NEW}"'
-
-
-def test_rewrite_mapping_form() -> None:
-    out = rewrite_ota_encryption_key(MAPPING_FORM, NEW)
-    assert out == f'ota:\n  platform: esphome\n  encryption:\n    key: "{NEW}"\n'
-
-
-def test_rewrite_skips_non_esphome_item() -> None:
-    out = rewrite_ota_encryption_key(SECOND_ITEM, NEW)
-    assert "  - platform: web_server\n" in out
-    assert f'      key: "{NEW}"\n' in out
     assert "oldkey" not in out
+
+
+def test_ota_key_follows_api_upsert_in_mapping_form() -> None:
+    out = upsert_api_encryption_key(MAPPING_FORM, NEW)
+    assert out.endswith(f'ota:\n  platform: esphome\n  encryption:\n    key: "{NEW}"\n')
+
+
+def test_ota_key_follows_api_upsert_skipping_other_platform() -> None:
+    out = upsert_api_encryption_key(SECOND_ITEM, NEW)
+    assert "  - platform: web_server\n" in out
+    assert out.count(f'key: "{NEW}"') == 2
+    assert "oldkey" not in out
+
+
+def test_stale_ota_key_is_repaired_when_api_already_matches() -> None:
+    yaml_text = LIST_FORM.replace('key: "oldkey"\n', f'key: "{NEW}"\n', 1)
+    out = upsert_api_encryption_key(yaml_text, NEW)
+    assert out.count(f'key: "{NEW}"') == 2
 
 
 @pytest.mark.parametrize(
@@ -117,9 +91,32 @@ def test_rewrite_skips_non_esphome_item() -> None:
         pytest.param('"${ota_key}"', id="quoted-substitution"),
     ],
 )
-def test_rewrite_leaves_indirection_alone(value: str) -> None:
-    yaml_text = f"ota:\n  - platform: esphome\n    encryption:\n      key: {value}\n"
-    assert rewrite_ota_encryption_key(yaml_text, NEW) == yaml_text
+def test_indirected_ota_key_refuses_the_api_rewrite(value: str) -> None:
+    yaml_text = API + f"ota:\n  - platform: esphome\n    encryption:\n      key: {value}\n"
+    with pytest.raises(YamlUpsertNotSupportedError, match="OTA encryption key"):
+        upsert_api_encryption_key(yaml_text, NEW)
+
+
+def test_inserting_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
+    yaml_text = (
+        "api:\n  encryption:\n\nota:\n  - platform: esphome\n    encryption:\n      key: ownkey\n"
+    )
+    with pytest.raises(YamlUpsertNotSupportedError, match="own encryption key"):
+        upsert_api_encryption_key(yaml_text, NEW)
+
+
+def test_inserting_api_key_next_to_a_matching_own_ota_key_succeeds() -> None:
+    yaml_text = (
+        f"api:\n  encryption:\n\nota:\n  - platform: esphome\n    encryption:\n      key: {NEW}\n"
+    )
+    out = upsert_api_encryption_key(yaml_text, NEW)
+    assert out.count(NEW) == 2
+    assert out.startswith(f'api:\n  encryption:\n    key: "{NEW}"\n')
+
+
+def test_indirected_api_key_leaves_ota_key_alone() -> None:
+    yaml_text = LIST_FORM.replace('key: "oldkey"\n', "key: !secret api_key\n", 1)
+    assert rewrite_api_encryption_key(yaml_text, NEW) == yaml_text
 
 
 @pytest.mark.parametrize(
@@ -127,14 +124,19 @@ def test_rewrite_leaves_indirection_alone(value: str) -> None:
     [
         pytest.param(BARE_ENCRYPTION, id="bare-encryption"),
         pytest.param(OTHER_PLATFORM_ONLY, id="other-platform"),
-        pytest.param("esphome:\n  name: x\n", id="no-ota"),
+        pytest.param(API + "esphome:\n  name: x\n", id="no-ota"),
     ],
 )
-def test_rewrite_no_key_is_noop(yaml_text: str) -> None:
-    assert rewrite_ota_encryption_key(yaml_text, NEW) == yaml_text
+def test_api_rewrite_without_explicit_ota_key_touches_api_only(yaml_text: str) -> None:
+    out = rewrite_api_encryption_key(yaml_text, NEW)
+    assert out.count(NEW) == 1
+    assert out.replace(f'key: "{NEW}"', 'key: "oldkey"', 1) == yaml_text
 
 
-def test_rewrite_preserves_crlf() -> None:
-    yaml_text = "ota:\r\n  - platform: esphome\r\n    encryption:\r\n      key: oldkey\r\n"
-    out = rewrite_ota_encryption_key(yaml_text, NEW)
-    assert out == f'ota:\r\n  - platform: esphome\r\n    encryption:\r\n      key: "{NEW}"\r\n'
+def test_ota_follow_preserves_crlf() -> None:
+    yaml_text = API.replace("\n", "\r\n") + (
+        "ota:\r\n  - platform: esphome\r\n    encryption:\r\n      key: oldkey\r\n"
+    )
+    out = rewrite_api_encryption_key(yaml_text, NEW)
+    assert out.endswith(f'    encryption:\r\n      key: "{NEW}"\r\n')
+    assert "\n" not in out.replace("\r\n", "")
