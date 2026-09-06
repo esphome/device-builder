@@ -24,7 +24,7 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     component_block_present,
     generate_api_encryption_key,
-    key_matches,
+    literal_key_matches,
     read_yaml_scalar,
     upsert_api_encryption_key,
     write_user_yaml,
@@ -365,7 +365,7 @@ async def _splice_pending_key_or_cleanup(
         "until it re-provisions."
     )
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if key_matches(existing, key):
+    if literal_key_matches(existing, key):
         return None
     if existing is None and not component_block_present(content, "api"):
         return (
@@ -393,7 +393,7 @@ async def _splice_pending_key_or_cleanup(
 
 def _key_round_trips(content: str, key: str) -> bool:
     """Report whether *content* reads back with ``api.encryption.key`` == *key*."""
-    return key_matches(read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH), key)
+    return literal_key_matches(read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH), key)
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

@@ -47,7 +47,7 @@ from .ap_ssid import fallback_ap_ssid as fallback_ap_ssid
 from .ap_ssid import rewrite_fallback_ap_ssid as rewrite_fallback_ap_ssid
 from .api_encryption import API_ENCRYPTION_KEY_PATH as API_ENCRYPTION_KEY_PATH
 from .api_encryption import generate_api_encryption_key as generate_api_encryption_key
-from .api_encryption import key_matches as key_matches
+from .api_encryption import literal_key_matches as literal_key_matches
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
 from .api_encryption import upsert_api_encryption_key as upsert_api_encryption_key
 from .component import _mapping_body_to_list_item as _mapping_body_to_list_item

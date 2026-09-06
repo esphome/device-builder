@@ -13,6 +13,7 @@ from .scalar import (
     YamlUpsertNotSupportedError,
     _quote,
     _strip_yaml_quotes,
+    is_plain_literal_scalar,
     read_yaml_scalar,
     rewrite_yaml_scalar,
 )
@@ -22,7 +23,7 @@ from .top_block import _locate_top_block, _prepend_top_block
 API_ENCRYPTION_KEY_PATH = ("api", "encryption", "key")
 
 
-def key_matches(raw: str | None, key: str) -> bool:
+def literal_key_matches(raw: str | None, key: str) -> bool:
     """Whether the raw YAML scalar *raw* is the literal *key*."""
     return raw is not None and _strip_yaml_quotes(raw) == key
 
@@ -34,27 +35,11 @@ def generate_api_encryption_key() -> str:
 
 def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
     """
-    Replace the literal ``key:`` value under ``api: -> encryption:``.
+    Replace the literal ``key:`` under ``api: -> encryption:`` with *new_key*.
 
-    An explicit esphome OTA ``encryption: key:`` literal follows, since
-    esphome rejects a config whose two keys differ and a device built
-    with a static api key encrypts OTA with that same key; an indirected
-    OTA key raises :class:`YamlUpsertNotSupportedError`.
-
-    Used by the clone path so two devices forked from the same
-    source don't share API encryption material — compromise of one
-    device must not compromise its siblings. Only rewrites a
-    *literal* key value; lines whose value is an indirection
-    (``!secret …`` / ``${…}``) are left untouched, because the
-    indirection target is shared on disk and stomping on the key
-    here would silently desync the clone from whatever
-    ``secrets.yaml`` / substitutions block actually drives the
-    encryption. Returns the original text unchanged when no
-    in-scope ``key:`` is found or when the value is an indirection.
-
-    The replacement is rendered double-quoted so a base64 value
-    that happens to start with a YAML special character
-    (``!``/``%``/``@``/``-``/``?``/``&``/``*``) parses cleanly.
+    An indirected key (``!secret`` / ``${…}``) leaves the text unchanged. An
+    explicit esphome OTA ``encryption: key:`` literal follows the api key;
+    an indirected one raises :class:`YamlUpsertNotSupportedError`.
     """
     rewritten = rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
     return _follow_ota_key(rewritten, new_key, follow=True)
@@ -64,14 +49,10 @@ def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
     """
     Set ``api.encryption.key`` to *new_key*, inserting missing structure.
 
-    Rewrites an existing literal in place, and an explicit esphome OTA
-    ``encryption: key:`` literal follows it; an indirected key
-    (``!secret`` / ``${…}``) returns the text unchanged. Inserting a key
-    next to an explicit OTA key that differs is refused: without a static
-    api key the running firmware requires the OTA key of its own, and
-    forcing it to follow would lock the device out of OTA. Raises
-    :class:`YamlUpsertNotSupportedError` for that and for shapes the
-    line-based walker can't safely edit.
+    Rewrites an existing literal like :func:`rewrite_api_encryption_key`.
+    Inserting a key next to an explicit esphome OTA key that differs raises
+    :class:`YamlUpsertNotSupportedError`, as do shapes the line-based
+    walker can't safely edit.
     """
     if read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH) is not None:
         return rewrite_api_encryption_key(yaml_text, new_key)
@@ -111,14 +92,7 @@ def _literal_swap(new_key: str) -> Callable[[str], str | None]:
     rendered = _quote(new_key)
 
     def _swap(raw: str) -> str | None:
-        # Strip quotes before checking for indirection markers — both
-        # ``key: !secret api_key`` and ``key: "${api_key}"`` are
-        # valid YAML, and the second form's quotes would otherwise
-        # mask the ``${`` prefix and cause us to rewrite a value the
-        # user explicitly indirected.
-        if _strip_yaml_quotes(raw).startswith(("!secret", "${")):
-            return None
-        return rendered
+        return rendered if is_plain_literal_scalar(raw) else None
 
     return _swap
 
@@ -130,10 +104,10 @@ def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
     With *follow* the OTA literal is rewritten to match; without it a
     differing OTA key is refused, since the device requires that key.
     """
-    if not key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), new_key):
+    if not literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), new_key):
         return yaml_text
     ota_key = read_ota_encryption_key(yaml_text)
-    if ota_key is None or key_matches(ota_key, new_key):
+    if ota_key is None or literal_key_matches(ota_key, new_key):
         return yaml_text
     if not follow:
         raise YamlUpsertNotSupportedError(
