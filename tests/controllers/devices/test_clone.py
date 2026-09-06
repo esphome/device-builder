@@ -100,6 +100,92 @@ async def test_clone_device_writes_new_yaml_and_swaps_name_friendly_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_rekeys_explicit_ota_encryption_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An explicit ota key collapses to a bare block that inherits the clone's fresh key."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ota_key = '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_key)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    keys = re.findall(r'key: "([A-Za-z0-9+/=]+)"', new_yaml)
+    assert len(keys) == 1
+    assert "  - platform: esphome\n    encryption:\n" in new_yaml
+    assert "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64==" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_mints_a_fresh_own_ota_key_without_an_api_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An MQTT-only source's own OTA key is sibling-shared material and gets a fresh one."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    api_start = SOURCE_YAML.index("api:\n")
+    api_end = SOURCE_YAML.index("ota:\n")
+    ota_key = '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
+    source = (SOURCE_YAML[:api_start] + "mqtt:\n  broker: b\n\n" + SOURCE_YAML[api_end:]).replace(
+        "  - platform: esphome\n", "  - platform: esphome\n" + ota_key
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    keys = re.findall(r'key: "([A-Za-z0-9+/=]+)"', new_yaml)
+    assert len(keys) == 1
+    assert "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64==" not in new_yaml
+    assert "api:" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_validates_the_rewrite_when_a_key_changed(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A clone whose key lines were rewritten is validated before it is written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "ota: !include common/ota.yaml\n")
+    source = source.replace("ota:\nota: !include", "ota: !include", 1)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+    ok = {"yaml_errors": [], "validation_errors": []}
+    bad = {"yaml_errors": [], "validation_errors": [{"message": "keys must match"}]}
+    validate = AsyncMock(side_effect=[ok, bad])
+    ctrl._db.editor.validate_yaml = validate
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert "keys must match" in excinfo.value.message
+    assert validate.await_args.kwargs["configuration"] == "bedroom-bulb.yaml"
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_refuses_when_own_ota_key_cannot_follow(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A secret-backed ota key can't follow the fresh api key, so the clone is refused."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ota_key = "    encryption:\n      key: !secret ota_key\n"
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_key)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "OTA encryption key" in excinfo.value.message
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_uses_explicit_friendly_name_when_provided(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

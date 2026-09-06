@@ -14,9 +14,11 @@ from ...helpers.device_yaml import (
 from ...helpers.yaml import (
     ESPHOME_FRIENDLY_NAME_PATH,
     ESPHOME_NAME_PATH,
+    YamlUpsertNotSupportedError,
     generate_api_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
+    rewrite_own_ota_encryption_key,
 )
 from ...models import ErrorCode
 from .helpers import (
@@ -94,11 +96,10 @@ async def clone_device(  # noqa: C901
         msg = f"Source device {configuration} not found"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    # Validate the source before rewrite work; the leaf rewrites
-    # are structure-preserving so a valid source produces a
-    # valid clone, and bailing here points the user at the
-    # source's actual schema errors instead of burning rewrite
-    # work just to re-discover the source was unflashable.
+    # Validate the source before rewrite work; the leaf rewrites are
+    # structure-preserving or refuse (see rewrite_api_encryption_key), so a
+    # valid source produces a valid clone, and bailing here points the user
+    # at the source's actual schema errors instead of burning rewrite work.
     await controller._validate_rewritten_yaml_or_raise(
         configuration, source_content, action="clone"
     )
@@ -130,12 +131,25 @@ async def clone_device(  # noqa: C901
         )
     # No-op when the source uses ``!secret`` / ``${...}`` for
     # the key; those indirections stay shared with the source.
-    new_content = rewrite_api_encryption_key(new_content, new_key)
+    before_keys = new_content
+    try:
+        new_content = rewrite_api_encryption_key(new_content, new_key)
+        # An own OTA key is sibling-shared material too.
+        new_content = rewrite_own_ota_encryption_key(new_content, new_key)
+    except YamlUpsertNotSupportedError as exc:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+    keys_changed = new_content != before_keys
     # Retarget the generated fallback-AP ssid, which the leaf
     # rewrites above don't reach.
     new_content = retarget_fallback_ap_ssid(
         new_content, parse_esphome_meta(source_content), parse_esphome_meta(new_content)
     )
+    # A key rewrite can leave an OTA key the line walker never saw out of
+    # step, so the result is validated whenever a key changed.
+    if keys_changed:
+        await controller._validate_rewritten_yaml_or_raise(
+            new_filename, new_content, action="clone"
+        )
 
     # Carry forward only a *user-picked* ``board_id`` since that's
     # the catalog-key indirection the user chose at wizard time and

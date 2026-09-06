@@ -139,6 +139,155 @@ async def test_set_encryption_key_refuses_secret_indirection(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
+OTA_KEY_YAML = f"""\
+esphome:
+  name: kitchen
+
+api:
+  encryption:
+    key: "{OTHER_KEY}"
+
+ota:
+  - platform: esphome
+    encryption:
+      key: "{OTHER_KEY}"
+"""
+
+
+async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An explicit ota key becomes a bare ``encryption:`` that inherits the pushed api key."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("  - platform: esphome\n    encryption:\n")
+    assert OTHER_KEY not in new_yaml
+
+
+async def test_set_encryption_key_drops_stale_ota_key_when_api_already_matches(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A stale ota key is dropped even when the api key already carries the push."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', f'key: "{KEY}"', 1))
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("    encryption:\n")
+    assert OTHER_KEY not in new_yaml
+
+
+async def test_set_encryption_key_unchanged_when_both_keys_match(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Matching api and ota keys report ``unchanged`` with no write."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_never_overwrites_a_devices_own_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A runtime api key next to the OTA platform's own key is refused; that key stays."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(f'    key: "{OTHER_KEY}"\n', "", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "own encryption key" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+async def test_set_encryption_key_bare_ota_encryption_is_left_alone(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A bare ``ota: encryption:`` inherits the api key and needs no rewrite."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML + "\nota:\n  - platform: esphome\n    encryption:\n")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(KEY) == 1
+    assert new_yaml.endswith("    encryption:\n")
+
+
+async def test_set_encryption_key_unchanged_with_matching_api_and_indirected_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A secret-backed ota key next to an already matching api key needs no write."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1).replace(
+        f'key: "{OTHER_KEY}"', "key: !secret api_key", 1
+    )
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_drops_an_empty_ota_key_when_api_already_matches(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An empty explicit ota key is dropped even when the api key already carries the push."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1).replace(f'key: "{OTHER_KEY}"', "key:", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("    encryption:\n")
+
+
+async def test_set_encryption_key_refuses_indirected_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An ota ``!secret`` key can't be made to match; refuse and keep the pending copy."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"\n', "key: !secret ota_key\n")
+    yaml_text = yaml_text.replace("key: !secret ota_key", f'key: "{OTHER_KEY}"', 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
 async def test_set_encryption_key_matches_by_mac_fallback(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
