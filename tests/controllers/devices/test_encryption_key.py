@@ -251,6 +251,21 @@ async def test_set_encryption_key_unchanged_with_matching_api_and_indirected_ota
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
+async def test_set_encryption_key_fills_an_empty_ota_key_when_api_already_matches(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An empty explicit ota key is filled even when the api key already carries the push."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1).replace(f'key: "{OTHER_KEY}"', "key:", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8").count(f'key: "{KEY}"') == 2
+
+
 async def test_set_encryption_key_refuses_indirected_ota_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

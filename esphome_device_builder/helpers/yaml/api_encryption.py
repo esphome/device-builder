@@ -31,9 +31,10 @@ def literal_key_matches(raw: str | None, key: str) -> bool:
 def ota_key_matches(yaml_text: str, key: str) -> bool:
     """Whether an explicit OTA key, if any, is *key*; an indirected one is left to esphome."""
     ota_key = read_ota_encryption_key(yaml_text)
-    return (
-        ota_key is None or literal_key_matches(ota_key, key) or not is_plain_literal_scalar(ota_key)
-    )
+    if ota_key is None or literal_key_matches(ota_key, key):
+        return True
+    # An empty key is fillable; only a tagged or substituted value is left alone.
+    return bool(_strip_yaml_quotes(ota_key)) and not is_plain_literal_scalar(ota_key)
 
 
 def generate_api_encryption_key() -> str:
@@ -125,18 +126,17 @@ def _follow_ota_key(yaml_text: str, new_key: str, *, follow: bool) -> str:
         if not is_plain_literal_scalar(ota_key):
             raise YamlUpsertNotSupportedError(
                 "the OTA platform's own encryption key is provided via !secret or a "
-                "substitution, so it cannot be checked against the pushed key; the api "
-                "key was left provisioned at runtime"
+                "substitution, so it cannot be checked against the new api key."
             )
         raise YamlUpsertNotSupportedError(
             "the config gives the OTA platform its own encryption key, which the "
-            "device requires; the api key was left provisioned at runtime"
+            "device requires, so no api key was written."
         )
     rewritten = rewrite_ota_encryption_key(yaml_text, _literal_swap(new_key))
     if rewritten == yaml_text:
         raise YamlUpsertNotSupportedError(
             "the OTA encryption key is provided via !secret or a substitution "
-            "and must match the api encryption key"
+            "and must match the api encryption key."
         )
     return rewritten
 
