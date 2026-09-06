@@ -228,6 +228,14 @@ def test_own_ota_key_is_rekeyed_without_a_literal_api_key() -> None:
     [
         pytest.param(LIST_FORM, id="literal-api-key"),
         pytest.param(
+            LIST_FORM.replace('key: "oldkey"\n', "key: !secret api_key\n", 1),
+            id="indirected-api-key",
+        ),
+        pytest.param(
+            LIST_FORM.replace('key: "oldkey"\n', "key: ${api_key}\n", 1),
+            id="substituted-api-key",
+        ),
+        pytest.param(
             "ota:\n  - platform: esphome\n    encryption:\n      key: !secret k\n", id="secret"
         ),
         pytest.param(BARE_ENCRYPTION, id="bare"),

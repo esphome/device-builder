@@ -103,14 +103,14 @@ def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
 
 def rewrite_own_ota_encryption_key(yaml_text: str, new_key: str) -> str:
     """
-    Replace the OTA platform's own literal key with *new_key* when no literal api key exists.
+    Replace the OTA platform's own literal key with *new_key* when there is no api key line.
 
-    With a literal api key the OTA block inherits it (see
-    :func:`rewrite_api_encryption_key`); an indirected or missing OTA key
-    leaves the text unchanged.
+    Any api key line means the OTA key must match it: a literal one is
+    handled by :func:`rewrite_api_encryption_key`, an indirected one stays
+    shared with the source together with the OTA key. An indirected or
+    missing OTA key leaves the text unchanged.
     """
-    api_key = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
-    if api_key is not None and is_plain_literal_scalar(api_key):
+    if read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH) is not None:
         return yaml_text
     return rewrite_ota_encryption_key(yaml_text, _literal_swap(new_key))
 
