@@ -287,7 +287,9 @@ async def _finalize_adoption_key(
         baked = fresh == pending and not full_config_import
         warning = None
         if not baked:
-            warning = await _splice_pending_key_or_cleanup(path, content, fresh["key"], cleanup)
+            warning = await _splice_pending_key_or_cleanup(
+                controller, path, content, fresh["key"], cleanup
+            )
         if warning is None:
             controller._pending_keys.pop(name)
         return warning
@@ -352,6 +354,7 @@ async def _mint_key_unless_package_encrypts(
 
 
 async def _splice_pending_key_or_cleanup(
+    controller: DevicesController,
     path: Path,
     content: str,
     key: str,
@@ -370,31 +373,51 @@ async def _splice_pending_key_or_cleanup(
         "stored; installing this config may cut Home Assistant off "
         "until it re-provisions."
     )
-    existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if api_key_settled(content, key):
         return None
-    if existing is None and not component_block_present(content, "api"):
-        return (
-            "The imported config does not declare an api: block, so there "
-            "is nowhere to put the Home Assistant provisioned key." + not_applied_tail
-        )
+    spliced, refusal = _splice_pending_key(content, key)
+    if spliced is None:
+        return refusal + not_applied_tail
+    # An OTA block the line walker can't read may still hold a key the splice
+    # can't reconcile; esphome decides before anything is written.
     try:
-        spliced = upsert_api_encryption_key(content, key)
-    except YamlUpsertNotSupportedError as exc:
-        return f"{exc}{not_applied_tail}"
-    if spliced == content:
-        return (
-            "The imported config supplies its own API encryption key via "
-            "!secret or a substitution." + not_applied_tail
+        await controller._validate_rewritten_yaml_or_raise(
+            path.name,
+            spliced,
+            action="import",
+            tolerate_unavailable=True,
+            timeout=IMPORT_VALIDATE_TIMEOUT,
         )
-    if not api_key_settled(spliced, key):
-        return "The imported config's shape defeated the key splice." + not_applied_tail
+    except CommandError as err:
+        return f"{err.message}{not_applied_tail}"
     try:
         await run_in_executor(write_user_yaml, path, spliced)
     except Exception:
         await run_in_executor(cleanup)
         raise
     return None
+
+
+def _splice_pending_key(content: str, key: str) -> tuple[str | None, str]:
+    """Splice *key* into *content*; ``(None, reason)`` when the shape refuses it."""
+    if read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH) is None and not component_block_present(
+        content, "api"
+    ):
+        return None, (
+            "The imported config does not declare an api: block, so there "
+            "is nowhere to put the Home Assistant provisioned key."
+        )
+    try:
+        spliced = upsert_api_encryption_key(content, key)
+    except YamlUpsertNotSupportedError as exc:
+        return None, str(exc)
+    if spliced == content:
+        return None, (
+            "The imported config supplies its own API encryption key via !secret or a substitution."
+        )
+    if not api_key_settled(spliced, key):
+        return None, "The imported config's shape defeated the key splice."
+    return spliced, ""
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

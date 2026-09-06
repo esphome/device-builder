@@ -574,6 +574,38 @@ async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_ke
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
+async def test_import_device_full_config_splice_that_fails_validation_keeps_both(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A spliced import esphome rejects keeps the verbatim file and the pending key."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub(
+            'api:\n  encryption:\n    key: "OLDKEY=="\nota: !include common/ota.yaml\n'
+        ),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    ok = {"yaml_errors": [], "validation_errors": []}
+    bad = {"yaml_errors": [], "validation_errors": [{"message": "keys must match"}]}
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=[ok, bad])
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "keys must match" in result["warning"]
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "OLDKEY==" in content
+    assert PENDING_KEY not in content
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+
+
 async def test_import_device_full_config_inserts_key_under_bare_encryption(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
