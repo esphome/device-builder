@@ -468,6 +468,37 @@ async def test_import_device_skips_mint_when_package_encrypts(
     assert "key:" not in content
 
 
+async def test_import_device_skips_mint_when_package_has_own_ota_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A package OTA key would have to match a baked api key, so nothing is minted."""
+    resolve = AsyncMock(
+        return_value={
+            "esphome": {"name": "kitchen"},
+            "ota": [{"platform": "esphome", "encryption": {"key": "OWNKEY=="}}],
+        }
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert "own encryption key" in result["warning"]
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "api:" not in content
+    assert "key:" not in content
+
+
 async def test_import_device_skips_mint_when_resolve_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

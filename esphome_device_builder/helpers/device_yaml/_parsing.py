@@ -621,6 +621,19 @@ def resolve_esp32_variant(
     return None
 
 
+def resolved_ota_has_own_key(config: dict | None) -> bool:
+    """Whether an esphome OTA entry in a resolved config carries its own ``encryption: key``."""
+    ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
+    entries = ota if isinstance(ota, list) else [ota]
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get(const.CONF_PLATFORM, "esphome") != "esphome":
+            continue
+        encryption = entry.get("encryption")
+        if isinstance(encryption, dict) and encryption.get("key"):
+            return True
+    return False
+
+
 def extract_ota_partition_access(config: dict | None) -> bool:
     """
     Report whether an ``ota: platform: esphome`` entry sets ``allow_partition_access``.

@@ -15,6 +15,7 @@ from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
     EsphomeConfigUnavailableError,
     generate_adoption_yaml,
+    resolved_ota_has_own_key,
     run_esphome_config,
 )
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
@@ -334,17 +335,23 @@ async def _mint_key_unless_package_encrypts(
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
         return None
+    # A package's own OTA key would have to match a baked api key; leave both out.
+    if resolved_ota_has_own_key(config):
+        return (
+            "The package gives the OTA platform its own encryption key, so no API "
+            "encryption key was generated; edit the device to use one key for both."
+        )
     new_key = generate_api_encryption_key()
+    reason = ""
     try:
         new_content = upsert_api_encryption_key(content, new_key)
     except YamlUpsertNotSupportedError as exc:
-        _LOGGER.warning("Could not splice a key into %s (%s); adopted without one", path.name, exc)
+        new_content, reason = "", f" ({exc})"
+    if not new_content or not api_key_settled(new_content, new_key):
+        _LOGGER.warning("Could not splice a key into %s%s; adopted without one", path.name, reason)
         return (
-            f"A generated API encryption key could not be spliced in ({exc}); adopted without one."
+            f"A generated API encryption key could not be spliced in{reason}; adopted without one."
         )
-    if not api_key_settled(new_content, new_key):
-        _LOGGER.warning("Could not splice a key into %s; adopted without one", path.name)
-        return "A generated API encryption key could not be spliced in; adopted without one."
     try:
         await run_in_executor(write_user_yaml, path, new_content)
     except Exception:
