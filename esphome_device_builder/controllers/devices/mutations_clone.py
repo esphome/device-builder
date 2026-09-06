@@ -133,8 +133,7 @@ async def clone_device(  # noqa: C901
     # the key; those indirections stay shared with the source.
     try:
         new_content = rewrite_api_encryption_key(new_content, new_key)
-        # A source without a literal api key may give the OTA platform its
-        # own key; that is sibling-shared material too, so it gets a fresh one.
+        # An own OTA key is sibling-shared material too.
         new_content = rewrite_own_ota_encryption_key(new_content, new_key)
     except YamlUpsertNotSupportedError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc

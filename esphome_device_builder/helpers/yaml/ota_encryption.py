@@ -21,14 +21,7 @@ _KEY_PATH = ("encryption", "key")
 
 
 def read_ota_encryption_key(yaml_text: str) -> str | None:
-    """
-    Return the raw ``encryption: key:`` value of the esphome OTA item, or ``None``.
-
-    ``None`` covers no ``ota:`` block, an ``ota:`` header the line walker
-    can't read (``!include``, flow style), no esphome platform item, no
-    ``encryption:`` block, and a bare ``encryption:`` (which inherits the
-    api key). Quotes stay intact.
-    """
+    """Raw ``encryption: key:`` of the esphome OTA item; ``None`` when absent or unreadable."""
     lines = yaml_text.splitlines(keepends=True)
     block = _locate_encryption_block(lines)
     if block is None:
@@ -38,12 +31,7 @@ def read_ota_encryption_key(yaml_text: str) -> str | None:
 
 
 def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | None]) -> str:
-    """
-    Rewrite the esphome OTA item's ``encryption: key:`` scalar through *transform*.
-
-    *transform* follows :func:`rewrite_yaml_scalar`; a missing item, block
-    or key leaves the text unchanged.
-    """
+    """Rewrite the esphome OTA item's ``encryption: key:`` scalar through *transform*."""
     lines = yaml_text.splitlines(keepends=True)
     block = _locate_encryption_block(lines)
     if block is None:
@@ -54,15 +42,7 @@ def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | 
 
 
 def drop_ota_encryption_key(yaml_text: str) -> str:
-    """
-    Remove every ``key:`` line from the esphome OTA item's ``encryption:`` block.
-
-    The bare block that remains inherits the api key. A missing item, block
-    or key leaves the text unchanged. A key whose value continues on the
-    next line (a block scalar, a value on its own line) raises
-    :class:`YamlUpsertNotSupportedError`, since dropping the line alone
-    would reshape the block.
-    """
+    """Drop the ``key:`` lines under the item's ``encryption:``; a multi-line value raises."""
     lines = yaml_text.splitlines(keepends=True)
     block = _locate_encryption_block(lines)
     if block is None:
@@ -84,7 +64,7 @@ def drop_ota_encryption_key(yaml_text: str) -> str:
 
 
 def _continues_on_next_line(lines: list[str], key_idx: int, end: int) -> bool:
-    """Whether the ``key:`` at *key_idx* has a block-scalar value or a value on a deeper line."""
+    """Whether the ``key:`` at *key_idx* is a block scalar or continues on a deeper line."""
     value, _comment = _split_value_and_comment(lines[key_idx].rstrip("\n\r").split(":", 1)[1])
     if value.strip().startswith(("|", ">")):
         return True
@@ -98,13 +78,7 @@ def _continues_on_next_line(lines: list[str], key_idx: int, end: int) -> bool:
 
 
 def _locate_encryption_block(lines: list[str]) -> tuple[int, int] | None:
-    """
-    Line span of the esphome OTA item's ``encryption:`` block, or ``None``.
-
-    An ``ota:`` header the walker can't read (``!include``, flow style)
-    reads as ``None`` too; a mismatched pair behind it is left to esphome's
-    validation, which the push path runs before persisting.
-    """
+    """Span of the item's ``encryption:`` block; ``None`` when absent or unreadable."""
     try:
         item = _locate_ota_esphome_item(lines)
     except YamlUpsertNotSupportedError:
@@ -113,17 +87,12 @@ def _locate_encryption_block(lines: list[str]) -> tuple[int, int] | None:
 
 
 def _locate_ota_esphome_item(lines: list[str]) -> tuple[int, int, str] | None:
-    """
-    Locate the esphome platform item under ``ota:`` as ``(start, end, child_indent)``.
-
-    Handles the list form (``- platform: esphome``) and the single-mapping
-    form (``platform: esphome`` directly under ``ota:``).
-    """
+    """Locate the esphome platform item under ``ota:`` as ``(start, end, child_indent)``."""
     located = _locate_top_block(lines, "ota")
     if located is None:
         return None
     block_start, block_end, _indent = located
-    # A mapping form can hold an action list; only a leading dash makes a list.
+    # A mapping body can hold an action list; only a leading dash makes a list.
     if not block_body_is_list(lines, block_start, block_end):
         return located if _item_platform(lines, *located) == "esphome" else None
     item_starts = top_list_item_starts(lines, block_start, block_end)
