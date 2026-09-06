@@ -133,7 +133,7 @@ async def test_clone_device_refuses_when_own_ota_key_cannot_follow(
     with pytest.raises(CommandError) as excinfo:
         await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
 
-    assert excinfo.value.error_code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "OTA encryption key" in excinfo.value.message
     assert not (tmp_path / "bedroom-bulb.yaml").exists()
 
