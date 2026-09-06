@@ -92,7 +92,10 @@ def _literal_swap(new_key: str) -> Callable[[str], str | None]:
     rendered = _quote(new_key)
 
     def _swap(raw: str) -> str | None:
-        return rendered if is_plain_literal_scalar(raw) else None
+        # An empty ``key:`` is fillable; only a tagged or substituted value is kept.
+        if not _strip_yaml_quotes(raw) or is_plain_literal_scalar(raw):
+            return rendered
+        return None
 
     return _swap
 

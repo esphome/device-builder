@@ -166,3 +166,11 @@ def test_ota_follow_preserves_crlf() -> None:
 def test_rewrite_without_an_encryption_block_is_a_noop() -> None:
     yaml_text = "ota:\n  - platform: esphome\n"
     assert rewrite_ota_encryption_key(yaml_text, lambda _raw: "x") == yaml_text
+
+
+@pytest.mark.parametrize("empty", ["", '""'], ids=["bare", "quoted"])
+def test_empty_keys_are_filled_in(empty: str) -> None:
+    api = f"api:\n  encryption:\n    key: {empty}\n"
+    ota = f"ota:\n  - platform: esphome\n    encryption:\n      key: {empty}\n"
+    out = upsert_api_encryption_key((api + ota).replace("key: \n", "key:\n"), NEW)
+    assert out.count(f'key: "{NEW}"') == 2
