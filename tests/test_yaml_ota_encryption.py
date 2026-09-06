@@ -10,6 +10,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_api_encryption_key,
     upsert_api_encryption_key,
 )
+from esphome_device_builder.helpers.yaml.ota_encryption import rewrite_ota_encryption_key
 
 NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
 API = 'api:\n  encryption:\n    key: "oldkey"\n\n'
@@ -160,3 +161,8 @@ def test_ota_follow_preserves_crlf() -> None:
     out = rewrite_api_encryption_key(yaml_text, NEW)
     assert out.endswith(f'    encryption:\r\n      key: "{NEW}"\r\n')
     assert "\n" not in out.replace("\r\n", "")
+
+
+def test_rewrite_without_an_encryption_block_is_a_noop() -> None:
+    yaml_text = "ota:\n  - platform: esphome\n"
+    assert rewrite_ota_encryption_key(yaml_text, lambda _raw: "x") == yaml_text

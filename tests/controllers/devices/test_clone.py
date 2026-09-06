@@ -120,6 +120,25 @@ async def test_clone_device_rekeys_explicit_ota_encryption_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_refuses_when_own_ota_key_cannot_follow(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A secret-backed ota key can't follow the fresh api key, so the clone is refused."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ota_key = "    encryption:\n      key: !secret ota_key\n"
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_key)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.error_code == ErrorCode.INVALID_ARGS
+    assert "OTA encryption key" in excinfo.value.message
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_uses_explicit_friendly_name_when_provided(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
