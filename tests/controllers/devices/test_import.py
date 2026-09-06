@@ -22,6 +22,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
+from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
 from esphome_device_builder.models import AdoptableDevice, ErrorCode, EventType
 
 from .conftest import (
@@ -701,6 +702,39 @@ async def test_import_device_mint_round_trip_failure_warns(
 
     assert "could not be spliced" in result["warning"]
     assert "key:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_import_mint_refused_by_own_ota_key_ships_keyless_with_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A splice the yaml helper refuses ships keyless with its reason, file kept."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+
+    def _refuse(content: str, key: str) -> str:
+        raise YamlUpsertNotSupportedError(
+            "the config gives the OTA platform its own encryption key"
+        )
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.upsert_api_encryption_key", _refuse
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert "own encryption key" in result["warning"]
+    assert (tmp_path / "kitchen.yaml").exists()
 
 
 async def test_import_device_full_config_splice_round_trip_failure_keeps_pending(

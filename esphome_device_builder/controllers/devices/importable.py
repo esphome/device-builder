@@ -333,7 +333,13 @@ async def _mint_key_unless_package_encrypts(
     if isinstance(api_block, dict) and "encryption" in api_block:
         return None
     new_key = generate_api_encryption_key()
-    new_content = upsert_api_encryption_key(content, new_key)
+    try:
+        new_content = upsert_api_encryption_key(content, new_key)
+    except YamlUpsertNotSupportedError as exc:
+        _LOGGER.warning("Could not splice a key into %s (%s); adopted without one", path.name, exc)
+        return (
+            f"A generated API encryption key could not be spliced in ({exc}); adopted without one."
+        )
     if not _key_round_trips(new_content, new_key):
         _LOGGER.warning("Could not splice a key into %s; adopted without one", path.name)
         return "A generated API encryption key could not be spliced in; adopted without one."
