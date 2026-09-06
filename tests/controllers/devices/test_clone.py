@@ -100,6 +100,26 @@ async def test_clone_device_writes_new_yaml_and_swaps_name_friendly_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_rekeys_explicit_ota_encryption_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An explicit ota key follows the clone's fresh api key so the clone validates."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ota_key = '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_key)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    keys = re.findall(r'key: "([A-Za-z0-9+/=]+)"', new_yaml)
+    assert len(keys) == 2
+    assert keys[0] == keys[1]
+    assert "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64==" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_uses_explicit_friendly_name_when_provided(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

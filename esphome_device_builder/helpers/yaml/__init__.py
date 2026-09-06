@@ -65,6 +65,8 @@ from .inline import synthetic_instance_index as synthetic_instance_index
 from .inline import upsert_inline_handler as upsert_inline_handler
 from .inline import upsert_nested_handler as upsert_nested_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
+from .ota_encryption import read_ota_encryption_key as read_ota_encryption_key
+from .ota_encryption import rewrite_ota_encryption_key as rewrite_ota_encryption_key
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
 from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH
 from .scalar import ESPHOME_YAML_INDENT as ESPHOME_YAML_INDENT
