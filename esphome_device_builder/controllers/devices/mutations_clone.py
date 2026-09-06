@@ -16,6 +16,7 @@ from ...helpers.yaml import (
     ESPHOME_NAME_PATH,
     YamlUpsertNotSupportedError,
     generate_api_encryption_key,
+    read_ota_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
     rewrite_own_ota_encryption_key,
@@ -142,6 +143,12 @@ async def clone_device(  # noqa: C901
     new_content = retarget_fallback_ap_ssid(
         new_content, parse_esphome_meta(source_content), parse_esphome_meta(new_content)
     )
+    # Dropping or minting an OTA key is not structure-preserving, so the
+    # result is validated too.
+    if read_ota_encryption_key(new_content) != read_ota_encryption_key(source_content):
+        await controller._validate_rewritten_yaml_or_raise(
+            new_filename, new_content, action="clone"
+        )
 
     # Carry forward only a *user-picked* ``board_id`` since that's
     # the catalog-key indirection the user chose at wizard time and

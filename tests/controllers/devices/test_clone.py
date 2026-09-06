@@ -144,6 +144,29 @@ async def test_clone_device_mints_a_fresh_own_ota_key_without_an_api_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_validates_the_rewrite_when_an_ota_key_changed(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A clone whose OTA key line was rewritten is validated before it is written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ota_key = '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_key)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+    ok = {"yaml_errors": [], "validation_errors": []}
+    bad = {"yaml_errors": [], "validation_errors": [{"message": "keys must match"}]}
+    validate = AsyncMock(side_effect=[ok, bad])
+    ctrl._db.editor.validate_yaml = validate
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert "keys must match" in excinfo.value.message
+    assert validate.await_args.kwargs["configuration"] == "bedroom-bulb.yaml"
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_refuses_when_own_ota_key_cannot_follow(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
