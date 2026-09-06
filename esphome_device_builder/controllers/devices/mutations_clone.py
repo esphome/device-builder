@@ -16,7 +16,6 @@ from ...helpers.yaml import (
     ESPHOME_NAME_PATH,
     YamlUpsertNotSupportedError,
     generate_api_encryption_key,
-    read_ota_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
     rewrite_own_ota_encryption_key,
@@ -132,20 +131,22 @@ async def clone_device(  # noqa: C901
         )
     # No-op when the source uses ``!secret`` / ``${...}`` for
     # the key; those indirections stay shared with the source.
+    before_keys = new_content
     try:
         new_content = rewrite_api_encryption_key(new_content, new_key)
         # An own OTA key is sibling-shared material too.
         new_content = rewrite_own_ota_encryption_key(new_content, new_key)
     except YamlUpsertNotSupportedError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+    keys_changed = new_content != before_keys
     # Retarget the generated fallback-AP ssid, which the leaf
     # rewrites above don't reach.
     new_content = retarget_fallback_ap_ssid(
         new_content, parse_esphome_meta(source_content), parse_esphome_meta(new_content)
     )
-    # Dropping or minting an OTA key is not structure-preserving, so the
-    # result is validated too.
-    if read_ota_encryption_key(new_content) != read_ota_encryption_key(source_content):
+    # A key rewrite can leave an OTA key the line walker never saw out of
+    # step, so the result is validated whenever a key changed.
+    if keys_changed:
         await controller._validate_rewritten_yaml_or_raise(
             new_filename, new_content, action="clone"
         )

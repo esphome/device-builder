@@ -144,14 +144,14 @@ async def test_clone_device_mints_a_fresh_own_ota_key_without_an_api_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-async def test_clone_device_validates_the_rewrite_when_an_ota_key_changed(
+async def test_clone_device_validates_the_rewrite_when_a_key_changed(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A clone whose OTA key line was rewritten is validated before it is written."""
+    """A clone whose key lines were rewritten is validated before it is written."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    ota_key = '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
-    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_key)
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "ota: !include common/ota.yaml\n")
+    source = source.replace("ota:\nota: !include", "ota: !include", 1)
     (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
     ok = {"yaml_errors": [], "validation_errors": []}
     bad = {"yaml_errors": [], "validation_errors": [{"message": "keys must match"}]}
