@@ -45,6 +45,20 @@ OTHER_PLATFORM_ONLY = API + "ota:\n  - platform: web_server\n    encryption:\n  
             id="platform-after-nested-block",
         ),
         pytest.param("ota:\n  -\n    # nothing yet\n", None, id="bare-dash-empty"),
+        pytest.param(
+            "ota:\n  platform: esphome\n  on_error:\n    - logger.log: fail\n"
+            "  encryption:\n    key: oldkey\n",
+            "oldkey",
+            id="mapping-with-action-list",
+        ),
+        pytest.param(
+            "ota:\n  platform: web_server\n  encryption:\n    key: oldkey\n",
+            None,
+            id="mapping-other-platform",
+        ),
+        pytest.param("ota: !include common/ota.yaml\n", None, id="include-header"),
+        pytest.param("ota: !remove\n", None, id="remove-header"),
+        pytest.param("ota: {platform: esphome}\n", None, id="flow-header"),
         pytest.param(BARE_ENCRYPTION, None, id="bare-encryption"),
         pytest.param(OTHER_PLATFORM_ONLY, None, id="other-platform"),
         pytest.param("ota:\n  - platform: esphome\n    password: x\n", None, id="no-encryption"),
@@ -112,6 +126,12 @@ def test_inserting_api_key_next_to_a_matching_own_ota_key_succeeds() -> None:
     out = upsert_api_encryption_key(yaml_text, NEW)
     assert out.count(NEW) == 2
     assert out.startswith(f'api:\n  encryption:\n    key: "{NEW}"\n')
+
+
+def test_unreadable_ota_header_leaves_the_api_rewrite_alone() -> None:
+    yaml_text = API + "ota: !include common/ota.yaml\n"
+    out = rewrite_api_encryption_key(yaml_text, NEW)
+    assert out == yaml_text.replace('key: "oldkey"', f'key: "{NEW}"')
 
 
 def test_indirected_api_key_leaves_ota_key_alone() -> None:

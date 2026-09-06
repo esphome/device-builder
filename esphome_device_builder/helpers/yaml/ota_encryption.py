@@ -7,8 +7,10 @@ from collections.abc import Callable
 
 from .inline import _instance_bounds, _locate_handler_range
 from .scalar import (
+    YamlUpsertNotSupportedError,
     _split_value_and_comment,
     _strip_yaml_quotes,
+    block_body_is_list,
     read_yaml_scalar,
     rewrite_yaml_scalar,
 )
@@ -22,9 +24,10 @@ def read_ota_encryption_key(yaml_text: str) -> str | None:
     """
     Return the raw ``encryption: key:`` value of the esphome OTA item, or ``None``.
 
-    ``None`` covers no ``ota:`` block, no esphome platform item, no
+    ``None`` covers no ``ota:`` block, an ``ota:`` header the line walker
+    can't read (``!include``, flow style), no esphome platform item, no
     ``encryption:`` block, and a bare ``encryption:`` (which inherits the
-    api key). Quotes stay intact, like :func:`read_yaml_scalar`.
+    api key). Quotes stay intact.
     """
     lines = yaml_text.splitlines(keepends=True)
     block = _locate_encryption_block(lines)
@@ -52,7 +55,10 @@ def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | 
 
 def _locate_encryption_block(lines: list[str]) -> tuple[int, int] | None:
     """Line span of the esphome OTA item's ``encryption:`` block, or ``None``."""
-    item = _locate_ota_esphome_item(lines)
+    try:
+        item = _locate_ota_esphome_item(lines)
+    except YamlUpsertNotSupportedError:
+        return None
     return None if item is None else _locate_handler_range(lines, item, "encryption")
 
 
@@ -67,9 +73,10 @@ def _locate_ota_esphome_item(lines: list[str]) -> tuple[int, int, str] | None:
     if located is None:
         return None
     block_start, block_end, _indent = located
-    item_starts = top_list_item_starts(lines, block_start, block_end)
-    if not item_starts:
+    # A mapping form can hold an action list; only a leading dash makes a list.
+    if not block_body_is_list(lines, block_start, block_end):
         return located if _item_platform(lines, *located) == "esphome" else None
+    item_starts = top_list_item_starts(lines, block_start, block_end)
     for span in _instance_bounds(lines, item_starts, block_end):
         if _item_platform(lines, *span) == "esphome":
             return span

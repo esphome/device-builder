@@ -14,6 +14,7 @@ from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
     component_block_present,
+    is_plain_literal_scalar,
     key_matches,
     read_ota_encryption_key,
     read_yaml_scalar,
@@ -161,9 +162,9 @@ async def _apply_to_device(
 
 
 def _ota_key_matches(content: str, key: str) -> bool:
-    """Whether an explicit esphome OTA key, if any, is the literal *key*."""
+    """Whether an explicit OTA key, if any, is *key*; an indirected one is left to esphome."""
     ota_key = read_ota_encryption_key(content)
-    return ota_key is None or key_matches(ota_key, key)
+    return ota_key is None or key_matches(ota_key, key) or not is_plain_literal_scalar(ota_key)
 
 
 async def _resolved_config_has_api(

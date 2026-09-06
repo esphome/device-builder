@@ -234,6 +234,23 @@ async def test_set_encryption_key_bare_ota_encryption_is_left_alone(
     assert new_yaml.endswith("    encryption:\n")
 
 
+async def test_set_encryption_key_unchanged_with_matching_api_and_indirected_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A secret-backed ota key next to an already matching api key needs no write."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1).replace(
+        f'key: "{OTHER_KEY}"', "key: !secret api_key", 1
+    )
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
 async def test_set_encryption_key_refuses_indirected_ota_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
