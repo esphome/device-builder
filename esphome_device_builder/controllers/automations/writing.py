@@ -730,6 +730,7 @@ def _delete_subentity_on(
 ) -> tuple[str, YamlDiff]:
     """Drop an ``on_*:`` handler from a nested sub-entity (``aht20_temperature``)."""
     ref = _subentity_context(target)
+    _resolve_location_trigger(target, location)
     try:
         if location.index is not None:
             return delete_subentity_list_entry(

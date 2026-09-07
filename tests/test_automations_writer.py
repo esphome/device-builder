@@ -2774,6 +2774,19 @@ def test_round_trip_subentity_handler_is_parsed_back() -> None:
     assert [a.action_id for a in parsed[0].automation.actions] == ["light.toggle"]
 
 
+def test_delete_subentity_rejects_a_key_that_is_not_a_catalog_trigger() -> None:
+    """Sub-entity delete validates the key so a config block is never stripped."""
+    text = _AHT10.replace(
+        "      name: Kit Temperature\n",
+        "      name: Kit Temperature\n      filters:\n        - offset: 1\n",
+    )
+    with pytest.raises(CommandError) as excinfo:
+        render_delete(
+            text, location=ComponentOnLocation(component_id="aht20_temperature", trigger="filters")
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
 def test_delete_subentity_handler_round_trips_to_original() -> None:
     """Deleting the sub-entity handler restores the byte-identical original."""
     loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
