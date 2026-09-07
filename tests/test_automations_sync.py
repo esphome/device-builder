@@ -933,6 +933,74 @@ def test_build_automations_merged_hub_trigger_dedupes_against_base(tmp_path: Pat
     assert len(matching) == 1
 
 
+def _trigger_section(key: str, docs: str = "") -> dict:
+    return {
+        "schemas": {
+            "CONFIG_SCHEMA": {
+                "schema": {
+                    "config_vars": {key: {"key": "Optional", "type": "trigger", "docs": docs}}
+                },
+            },
+        },
+    }
+
+
+def test_build_automations_drops_platform_twins_of_domain_level_triggers(tmp_path: Path) -> None:
+    """A driver's restated ``on_touch`` yields only the documented ``touchscreen.on_touch``."""
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(tmp_path, "xpt2046.json", {"xpt2046.touchscreen": _trigger_section("on_touch")})
+    _write_schema(
+        tmp_path, "rotary_encoder.json", {"rotary_encoder.sensor": _trigger_section("on_clockwise")}
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir,
+        component_ids={"touchscreen.xpt2046", "sensor.rotary_encoder"},
+    )
+    ids = {t["id"] for t in result["triggers"]}
+    assert "touchscreen.on_touch" in ids
+    assert "xpt2046.touchscreen.on_touch" not in ids
+    assert "rotary_encoder.sensor.on_clockwise" in ids
+
+
+def test_build_automations_keeps_platform_trigger_with_its_own_params(tmp_path: Path) -> None:
+    """A platform-scoped trigger carrying params is a specialisation, not a twin."""
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(
+        tmp_path,
+        "xpt2046.json",
+        {
+            "xpt2046.touchscreen": {
+                "schemas": {
+                    "CONFIG_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "on_touch": {
+                                    "key": "Optional",
+                                    "type": "trigger",
+                                    "schema": {
+                                        "config_vars": {
+                                            "threshold": {"key": "Optional", "type": "integer"}
+                                        }
+                                    },
+                                }
+                            }
+                        },
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+    )
+    ids = {t["id"] for t in result["triggers"]}
+    assert {"touchscreen.on_touch", "xpt2046.touchscreen.on_touch"} <= ids
+
+
 def _in_range_schema_dir(tmp_path: Path) -> Path:
     return _write_schema(
         tmp_path,

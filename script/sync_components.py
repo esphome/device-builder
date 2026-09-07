@@ -9973,7 +9973,7 @@ def build_automations(  # noqa: C901
     _apply_automation_required_groups(actions, groups_by_type.get("action"))
     _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
     return {
-        "triggers": _dedupe_by_id(triggers),
+        "triggers": _drop_platform_trigger_twins(_dedupe_by_id(triggers)),
         "actions": actions,
         "conditions": conditions,
         "light_effects": _dedupe_by_id(effects),
@@ -10862,6 +10862,36 @@ def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
         return pretty_name
     domain_label = domain.replace("_", " ").title()
     return f"{domain_label}{_AUTOMATION_LABEL_SEPARATOR}{pretty_name}"
+
+
+def _drop_platform_trigger_twins(triggers: list[dict]) -> list[dict]:
+    """Drop platform-scoped triggers that only restate a domain-level trigger of the same key."""
+    # A driver schema re-lists its base's hooks (``xpt2046.touchscreen``
+    # carries ``on_touch``); the bare-domain entry already applies to
+    # every platform and carries the docs, so the twin only shadows it.
+    by_domain_key = {
+        (t["applies_to"][0], _bare_trigger_key(t["id"])): t
+        for t in triggers
+        if not t["is_device_level"] and len(t["applies_to"]) == 1 and "." not in t["applies_to"][0]
+    }
+    out: list[dict] = []
+    for trigger in triggers:
+        scope = trigger["applies_to"][0] if len(trigger["applies_to"]) == 1 else ""
+        twin = by_domain_key.get((scope.split(".", 1)[0], _bare_trigger_key(trigger["id"])))
+        if (
+            "." in scope
+            and twin is not None
+            and not trigger["config_entries"]
+            and trigger["supports_list"] == twin["supports_list"]
+        ):
+            continue
+        out.append(trigger)
+    return out
+
+
+def _bare_trigger_key(trigger_id: str) -> str:
+    """Return the ``on_*`` YAML key a trigger id ends in."""
+    return trigger_id.rsplit(".", 1)[-1]
 
 
 def _dedupe_by_id(entries: list[dict]) -> list[dict]:
