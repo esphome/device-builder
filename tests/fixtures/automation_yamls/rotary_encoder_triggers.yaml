@@ -1,0 +1,35 @@
+esphome:
+  name: dimmer
+output:
+  - platform: ledc
+    id: output_ledc_1
+    pin: GPIO4
+  - platform: ledc
+    id: output_ledc_2
+    pin: GPIO5
+light:
+  - platform: monochromatic
+    id: light_monochromatic_1
+    name: Lamp 1
+    output: output_ledc_1
+  - platform: monochromatic
+    id: light_monochromatic_2
+    name: Lamp 2
+    output: output_ledc_2
+sensor:
+  - platform: rotary_encoder
+    id: sensor_rotary_encoder_1
+    name: Dial
+    pin_a: GPIO18
+    pin_b: GPIO19
+    on_clockwise:
+      - logger.log: clockwise
+      - light.dim_relative:
+          id: light_monochromatic_1
+          relative_brightness: 5%
+    on_anticlockwise:
+      then:
+        - logger.log: anticlockwise
+        - light.dim_relative:
+            id: light_monochromatic_1
+            relative_brightness: -5%

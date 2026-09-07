@@ -249,8 +249,7 @@ def _upsert_component_on(
     target = resolve_component_target(yaml_text, location.component_id)
     if target is not None and target.is_sub_entity:
         return _upsert_subentity_on(yaml_text, tree, location, target)
-    instance_domain = target.domain if target is not None else _component_domain(location)
-    trigger = _require_trigger(instance_domain, location)
+    instance_domain, trigger = _resolve_location_trigger(target, location)
     if location.index is not None:
         return upsert_component_on_entry(
             yaml_text,
@@ -261,11 +260,10 @@ def _upsert_component_on(
             trigger=trigger,
             index=location.index,
         )
-    domain = trigger.applies_to[0] if trigger.applies_to else ""
     rendered = render_trigger_handler(tree, key=location.trigger)
     res = upsert_inline_handler(
         yaml_text,
-        component_domain=domain,
+        component_domain=instance_domain,
         component_id=location.component_id,
         handler_key=location.trigger,
         rendered_yaml=rendered,
@@ -273,7 +271,7 @@ def _upsert_component_on(
     if res is None:
         msg = (
             f"Component instance id={location.component_id!r} not found "
-            f"under {domain!r}; can't splice handler {location.trigger!r}"
+            f"under {instance_domain!r}; can't splice handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     new_text, from_line, to_line, replacement = res
@@ -292,7 +290,7 @@ def _upsert_subentity_on(
 ) -> tuple[str, YamlDiff]:
     """Splice an ``on_*:`` handler under a nested sub-entity (``aht20_temperature``)."""
     ref = _subentity_context(target)
-    trigger = _require_trigger(target.domain, location)
+    _, trigger = _resolve_location_trigger(target, location)
     try:
         if location.index is not None:
             return upsert_subentity_on_entry(
@@ -700,7 +698,7 @@ def _delete_component_on(
     target = resolve_component_target(yaml_text, location.component_id)
     if target is not None and target.is_sub_entity:
         return _delete_subentity_on(yaml_text, location, target)
-    instance_domain = target.domain if target is not None else _component_domain(location)
+    instance_domain = target.domain if target is not None else _infer_component_scope(location)[0]
     if location.index is not None:
         return delete_list_entry(
             yaml_text,
@@ -709,18 +707,16 @@ def _delete_component_on(
             handler_key=location.trigger,
             index=location.index,
         )
-    trigger = catalog.trigger_by_id(f"{instance_domain}.{location.trigger}")
-    domain = trigger.applies_to[0] if trigger and trigger.applies_to else ""
     res = remove_inline_handler(
         yaml_text,
-        component_domain=domain,
+        component_domain=instance_domain,
         component_id=location.component_id,
         handler_key=location.trigger,
     )
     if res is None:
         msg = (
             f"Component instance id={location.component_id!r} not found "
-            f"under {domain!r}; can't delete handler {location.trigger!r}"
+            f"under {instance_domain!r}; can't delete handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line = res
@@ -845,13 +841,22 @@ def _delete_api_action(
 # ---------------------------------------------------------------------------
 
 
-def _require_trigger(domain: str, location: ComponentOnLocation) -> AutomationTrigger:
-    """Look up the catalog trigger for ``<domain>.<trigger>``; raise if unknown."""
-    trigger = catalog.trigger_by_id(f"{domain}.{location.trigger}")
+def _resolve_location_trigger(
+    target: ComponentTarget | None, location: ComponentOnLocation
+) -> tuple[str, AutomationTrigger]:
+    """``(top_level_domain, trigger)`` for *location*; raise if the trigger is unknown."""
+    if target is None:
+        domain, trigger_id = _infer_component_scope(location)
+        trigger = catalog.trigger_by_id(trigger_id) if trigger_id else None
+    else:
+        domain = target.domain
+        trigger = catalog.resolve_component_trigger(
+            target.catalog_id, target.domain, location.trigger
+        )
     if trigger is None:
         msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return trigger
+    return domain, trigger
 
 
 def _subentity_context(target: ComponentTarget) -> SubEntityRef:
@@ -862,35 +867,11 @@ def _subentity_context(target: ComponentTarget) -> SubEntityRef:
     return SubEntityRef(target.parent_domain, target.parent_id, target.sub_key)
 
 
-def _component_domain(location: ComponentOnLocation) -> str:
-    """Return the inferred domain from a ComponentOnLocation.
-
-    The location object carries ``component_id`` (a YAML id) and a
-    trigger key, but not a domain. The trigger catalog maps the
-    trigger key + domain to a full id; we resolve by enumerating
-    every domain a known trigger of that key applies to and picking
-    the first one. ``binary_sensor.on_press`` and ``switch.on_press``
-    don't collide because their applies_to lists are disjoint.
-
-    Catalog-only fallback for when ``location.component_id`` isn't found in
-    the YAML (``resolve_component_target`` returned ``None``); the writer
-    prefers the resolved instance's actual domain when it has one. Picking
-    alphabetically here can mis-attribute a shared trigger key (``on_turn_on``
-    on ``fan`` vs ``switch``), but the upsert then surfaces a clear
-    "id not found" error.
-    """
-    matches = [
-        t
-        for t in catalog.all_triggers()
-        if not t.is_device_level and t.id.endswith("." + location.trigger)
-    ]
-    if not matches:
-        return ""
-    if len(matches) > 1:
-        # Multiple domains share this trigger key. We don't know
-        # which one the caller intended; the caller must disambiguate
-        # via the trigger.applies_to list on a fully-qualified
-        # location. For now pick the alphabetically-first domain so
-        # tests are deterministic.
-        matches.sort(key=lambda t: t.applies_to[0] if t.applies_to else "")
-    return matches[0].applies_to[0] if matches[0].applies_to else ""
+def _infer_component_scope(location: ComponentOnLocation) -> tuple[str, str | None]:
+    """Catalog-only ``(top_level_domain, trigger_id)`` for an instance the YAML doesn't contain."""
+    # The location carries a YAML id and a trigger key but no domain. Picking
+    # the alphabetically-first scope hosting that key keeps tests deterministic
+    # but can mis-attribute a shared key (``on_turn_on`` on ``fan`` vs
+    # ``switch``); the upsert then surfaces a clear "id not found" error.
+    matches = catalog.component_triggers_for_key(location.trigger)
+    return matches[0] if matches else ("", None)

@@ -2799,6 +2799,86 @@ def test_two_subsensors_on_one_platform_target_independently() -> None:
     assert ("aht20_humidity", "on_value_range") in targeted
 
 
+_ROTARY = _load("rotary_encoder_triggers.yaml")
+_ROTARY_LOC = ComponentOnLocation(component_id="sensor_rotary_encoder_1", trigger="on_clockwise")
+_ROTARY_ANTI_LOC = ComponentOnLocation(
+    component_id="sensor_rotary_encoder_1", trigger="on_anticlockwise"
+)
+
+
+def _clockwise_tree() -> AutomationTree:
+    return AutomationTree(
+        trigger_id="rotary_encoder.sensor.on_clockwise",
+        trigger_params={},
+        actions=[ActionNode(action_id="logger.log", params={"format": "turned"})],
+    )
+
+
+def test_upsert_platform_scoped_trigger_splices_under_top_level_domain() -> None:
+    """A ``rotary_encoder.sensor.on_clockwise`` handler lands under the ``sensor:`` instance."""
+    without = _ROTARY.replace(
+        "    on_clockwise:\n"
+        "      - logger.log: clockwise\n"
+        "      - light.dim_relative:\n"
+        "          id: light_monochromatic_1\n"
+        "          relative_brightness: 5%\n",
+        "",
+    )
+    assert "on_clockwise" not in without
+    new_text, diff = render_upsert(without, tree=_clockwise_tree(), location=_ROTARY_LOC)
+    assert "sensor.rotary_encoder:" not in new_text
+    assert "    on_clockwise:\n      then:\n        - logger.log: turned\n" in new_text
+    assert _apply_diff(without, diff) == new_text
+    parsed = parse_device_yaml(new_text)
+    assert [(p.automation.trigger_id, p.location) for p in parsed] == [
+        ("rotary_encoder.sensor.on_anticlockwise", _ROTARY_ANTI_LOC),
+        ("rotary_encoder.sensor.on_clockwise", _ROTARY_LOC),
+    ]
+
+
+def test_upsert_platform_scoped_trigger_replaces_existing_handler() -> None:
+    """Re-saving an existing ``on_clockwise`` replaces its body in place."""
+    new_text, _diff = render_upsert(_ROTARY, tree=_clockwise_tree(), location=_ROTARY_LOC)
+    assert "logger.log: clockwise" not in new_text
+    assert "logger.log: turned" in new_text
+    assert "logger.log: anticlockwise" in new_text
+
+
+def test_upsert_platform_scoped_trigger_list_entry_appends() -> None:
+    """``index=1`` on a list-capable platform trigger appends a second entry."""
+    new_text, _diff = render_upsert(
+        _ROTARY,
+        tree=_clockwise_tree(),
+        location=ComponentOnLocation(
+            component_id="sensor_rotary_encoder_1", trigger="on_clockwise", index=1
+        ),
+    )
+    clockwise = [p for p in parse_device_yaml(new_text) if p.location.trigger == "on_clockwise"]
+    assert [p.location.index for p in clockwise] == [0, 1]
+    assert [a.action_id for a in clockwise[1].automation.actions] == ["logger.log"]
+
+
+def test_delete_platform_scoped_trigger_removes_only_that_handler() -> None:
+    """Deleting ``on_clockwise`` leaves the sibling ``on_anticlockwise`` intact."""
+    new_text, diff = render_delete(_ROTARY, location=_ROTARY_LOC)
+    assert "on_clockwise" not in new_text
+    assert "on_anticlockwise:" in new_text
+    assert _apply_diff(_ROTARY, diff) == new_text
+    assert [p.location.trigger for p in parse_device_yaml(new_text)] == ["on_anticlockwise"]
+
+
+def test_upsert_platform_scoped_trigger_without_instance_names_top_level_domain() -> None:
+    """A missing instance reports the YAML domain, not the trigger's catalog id."""
+    with pytest.raises(CommandError) as excinfo:
+        render_upsert(
+            "esphome:\n  name: x\nsensor: []\n",
+            tree=_clockwise_tree(),
+            location=ComponentOnLocation(component_id="ghost", trigger="on_clockwise"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "not found under 'sensor'" in str(excinfo.value)
+
+
 _AHT10_IDLESS = (
     "esphome:\n  name: x\n"
     "sensor:\n"

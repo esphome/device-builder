@@ -234,6 +234,34 @@ def component_trigger_domains() -> frozenset[str]:
     return _component_trigger_domains()
 
 
+def hosts_component_triggers(domain: str, catalog_id: str | None) -> bool:
+    """Return whether *domain* or the instance's *catalog_id* scopes a component trigger."""
+    scopes = _component_trigger_domains()
+    return domain in scopes or catalog_id in scopes
+
+
+@cache
+def _component_trigger_index() -> dict[tuple[str, str], str]:
+    """``(applies_to scope, bare key) -> trigger id`` over every component trigger."""
+    out: dict[tuple[str, str], str] = {}
+    for trigger in _slim_triggers():
+        if trigger.is_device_level:
+            continue
+        key = trigger.id.rsplit(".", 1)[-1]
+        for scope in trigger.applies_to:
+            out[(scope, key)] = trigger.id
+    return out
+
+
+def component_triggers_for_key(key: str) -> list[tuple[str, str]]:
+    """``(top_level_domain, trigger_id)`` per scope hosting *key*, sorted by scope."""
+    return [
+        (scope.split(".", 1)[0], trigger_id)
+        for (scope, scope_key), trigger_id in sorted(_component_trigger_index().items())
+        if scope_key == key
+    ]
+
+
 def all_actions() -> list[AutomationActionIndex]:
     """Return the slim action catalog (picker fields, no config_entries)."""
     return list(_editable_actions())
@@ -263,6 +291,17 @@ def all_filters() -> list[FilterIndex]:
 def trigger_by_id(trigger_id: str) -> AutomationTrigger | None:
     """Look up one trigger's full body by qualified id (e.g. ``binary_sensor.on_press``)."""
     return _TRIGGER_STORE.get_sync(trigger_id)
+
+
+def resolve_component_trigger(
+    catalog_id: str | None, domain: str, key: str
+) -> AutomationTrigger | None:
+    """Trigger for an instance's ``on_*`` *key*, scoped to its platform first, then its domain."""
+    index = _component_trigger_index()
+    trigger_id = index.get((catalog_id, key)) if catalog_id else None
+    if trigger_id is None:
+        trigger_id = index.get((domain, key))
+    return trigger_by_id(trigger_id) if trigger_id else None
 
 
 def action_by_id(action_id: str) -> AutomationAction | None:
