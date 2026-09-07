@@ -850,7 +850,7 @@ def _resolve_location_trigger(
         domain, trigger_id = _infer_component_scope(location)
         trigger = catalog.trigger_by_id(trigger_id) if trigger_id else None
     else:
-        domain = target.domain
+        domain = target.parent_domain or target.domain
         trigger = catalog.resolve_component_trigger(
             target.trigger_scope, target.domain, location.trigger
         )
