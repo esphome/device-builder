@@ -70,6 +70,19 @@ def test_catalog_has_no_action_field_triggers() -> None:
 
 
 @pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("on_clockwise", ("sensor", "rotary_encoder.sensor.on_clockwise")),
+        ("on_turn_on", ("fan", "fan.on_turn_on")),
+        ("on_nope", None),
+    ],
+)
+def test_infer_component_scope(key: str, expected: tuple[str, str] | None) -> None:
+    """The alphabetically-first scope hosting a key wins; an unknown key infers nothing."""
+    assert catalog.infer_component_scope(key) == expected
+
+
+@pytest.mark.parametrize(
     ("catalog_id", "domain", "key", "expected"),
     [
         ("sensor.rotary_encoder", "sensor", "on_clockwise", "rotary_encoder.sensor.on_clockwise"),
