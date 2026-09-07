@@ -87,6 +87,8 @@ def test_infer_component_scope(key: str, expected: tuple[str, str] | None) -> No
     [
         ("sensor.rotary_encoder", "sensor", "on_clockwise", "rotary_encoder.sensor.on_clockwise"),
         ("sensor.rotary_encoder", "sensor", "on_value", "sensor.on_value"),
+        ("touchscreen.xpt2046", "touchscreen", "on_touch", "xpt2046.touchscreen.on_touch"),
+        (None, "touchscreen", "on_touch", "touchscreen.on_touch"),
         ("binary_sensor.gpio", "binary_sensor", "on_press", "binary_sensor.on_press"),
         (None, "binary_sensor", "on_press", "binary_sensor.on_press"),
         ("sensor.aht10", "sensor", "on_value_range", "sensor.on_value_range"),
