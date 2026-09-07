@@ -850,10 +850,8 @@ def _resolve_location_trigger(
         trigger = catalog.trigger_by_id(trigger_id) if trigger_id else None
     else:
         domain = target.domain
-        # A sub-entity hosts only domain-level triggers; the parent's
-        # platform scope must not resolve onto its nested block.
         trigger = catalog.resolve_component_trigger(
-            None if target.is_sub_entity else target.catalog_id, target.domain, location.trigger
+            target.trigger_scope, target.domain, location.trigger
         )
     if trigger is None:
         msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"

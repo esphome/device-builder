@@ -317,6 +317,11 @@ class ComponentTarget(NamedTuple):
     sub_key: str | None = None
     catalog_id: str | None = None
 
+    @property
+    def trigger_scope(self) -> str | None:
+        """Catalog id scoping this target's triggers; a sub-entity hosts only domain-level ones."""
+        return None if self.is_sub_entity else self.catalog_id
+
 
 def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
     """
@@ -456,15 +461,10 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
     """Walk component instances for inline ``on_*:`` handlers."""
     out: list[ParsedAutomation] = []
     for domain, instance, comp_id, target in _iter_instance_targets(root):
-        if not catalog.hosts_component_triggers(domain, target.catalog_id):
+        if not catalog.hosts_component_triggers(domain, target.trigger_scope):
             continue
         out.extend(
-            _parse_instance_triggers(
-                domain,
-                instance,
-                comp_id,
-                catalog_id=None if target.is_sub_entity else target.catalog_id,
-            )
+            _parse_instance_triggers(domain, instance, comp_id, catalog_id=target.trigger_scope)
         )
     return out
 
