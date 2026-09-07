@@ -229,11 +229,6 @@ def _component_trigger_domains() -> frozenset[str]:
     return frozenset(out)
 
 
-def component_trigger_domains() -> frozenset[str]:
-    """Domains that host inline component ``on_*`` triggers."""
-    return _component_trigger_domains()
-
-
 def hosts_component_triggers(domain: str, catalog_id: str | None) -> bool:
     """Return whether *domain* or the instance's *catalog_id* scopes a component trigger."""
     scopes = _component_trigger_domains()
@@ -253,13 +248,19 @@ def _component_trigger_index() -> dict[tuple[str, str], str]:
     return out
 
 
-def component_triggers_for_key(key: str) -> list[tuple[str, str]]:
-    """``(top_level_domain, trigger_id)`` per scope hosting *key*, sorted by scope."""
-    return [
-        (scope.split(".", 1)[0], trigger_id)
-        for (scope, scope_key), trigger_id in sorted(_component_trigger_index().items())
+def infer_component_scope(key: str) -> tuple[str, str] | None:
+    """``(top_level_domain, trigger_id)`` of the alphabetically-first scope hosting *key*."""
+    # Several domains can host one key (``on_turn_on`` on ``fan`` and
+    # ``switch``); the first scope keeps the guess deterministic.
+    matches = sorted(
+        (scope, trigger_id)
+        for (scope, scope_key), trigger_id in _component_trigger_index().items()
         if scope_key == key
-    ]
+    )
+    if not matches:
+        return None
+    scope, trigger_id = matches[0]
+    return scope.split(".", 1)[0], trigger_id
 
 
 def all_actions() -> list[AutomationActionIndex]:

@@ -2867,6 +2867,31 @@ def test_delete_platform_scoped_trigger_removes_only_that_handler() -> None:
     assert [p.location.trigger for p in parse_device_yaml(new_text)] == ["on_anticlockwise"]
 
 
+def test_upsert_rejects_parent_platform_trigger_on_subentity() -> None:
+    """A parent platform's scoped key never splices under a nested sub-block."""
+    text = (
+        "esphome:\n  name: x\n"
+        "sensor:\n"
+        "  - platform: ltr_als_ps\n"
+        "    id: ltr\n"
+        "    ambient_light:\n"
+        "      id: ltr_als\n"
+    )
+    tree = AutomationTree(
+        trigger_id="ltr_als_ps.sensor.on_ps_high_threshold",
+        trigger_params={},
+        actions=[ActionNode(action_id="logger.log", params={"format": "bright"})],
+    )
+    with pytest.raises(CommandError) as excinfo:
+        render_upsert(
+            text,
+            tree=tree,
+            location=ComponentOnLocation(component_id="ltr_als", trigger="on_ps_high_threshold"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Unknown trigger id 'on_ps_high_threshold'" in str(excinfo.value)
+
+
 def test_upsert_platform_scoped_trigger_without_instance_names_top_level_domain() -> None:
     """A missing instance reports the YAML domain, not the trigger's catalog id."""
     with pytest.raises(CommandError) as excinfo:

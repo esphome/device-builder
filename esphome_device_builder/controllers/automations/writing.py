@@ -850,8 +850,10 @@ def _resolve_location_trigger(
         trigger = catalog.trigger_by_id(trigger_id) if trigger_id else None
     else:
         domain = target.domain
+        # A sub-entity hosts only domain-level triggers; the parent's
+        # platform scope must not resolve onto its nested block.
         trigger = catalog.resolve_component_trigger(
-            target.catalog_id, target.domain, location.trigger
+            None if target.is_sub_entity else target.catalog_id, target.domain, location.trigger
         )
     if trigger is None:
         msg = f"Unknown trigger id {location.trigger!r} on component {location.component_id!r}"
@@ -869,9 +871,6 @@ def _subentity_context(target: ComponentTarget) -> SubEntityRef:
 
 def _infer_component_scope(location: ComponentOnLocation) -> tuple[str, str | None]:
     """Catalog-only ``(top_level_domain, trigger_id)`` for an instance the YAML doesn't contain."""
-    # The location carries a YAML id and a trigger key but no domain. Picking
-    # the alphabetically-first scope hosting that key keeps tests deterministic
-    # but can mis-attribute a shared key (``on_turn_on`` on ``fan`` vs
-    # ``switch``); the upsert then surfaces a clear "id not found" error.
-    matches = catalog.component_triggers_for_key(location.trigger)
-    return matches[0] if matches else ("", None)
+    # A mis-attributed shared key surfaces as a clear "id not found" error
+    # from the splice, never as a silent write under the wrong domain.
+    return catalog.infer_component_scope(location.trigger) or ("", None)

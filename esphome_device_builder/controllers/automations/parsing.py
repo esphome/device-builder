@@ -459,7 +459,12 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
         if not catalog.hosts_component_triggers(domain, target.catalog_id):
             continue
         out.extend(
-            _parse_instance_triggers(domain, instance, comp_id, catalog_id=target.catalog_id)
+            _parse_instance_triggers(
+                domain,
+                instance,
+                comp_id,
+                catalog_id=None if target.is_sub_entity else target.catalog_id,
+            )
         )
     return out
 

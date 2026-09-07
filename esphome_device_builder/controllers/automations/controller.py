@@ -320,7 +320,9 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
         if isinstance(section, list):
             domains.update(_qualified_domains(domain, section))
             devices.extend(_scope_component_instances(domain, section))
-        elif isinstance(section, dict) and catalog.hosts_component_triggers(domain, None):
+        elif isinstance(section, dict) and catalog.hosts_component_triggers(
+            domain, parsing.catalog_id(domain, section.get("platform"))
+        ):
             devices.extend(_scope_singleton_instance(domain, section))
     return _ScopedYaml(domains=domains, scripts=scripts, devices=devices)
 

@@ -1035,6 +1035,20 @@ def test_parse_subentity_trigger_resolves_domain_id_under_platform_parent() -> N
     assert [p.automation.trigger_id for p in parsed] == ["sensor.on_value_range"]
 
 
+def test_parse_subentity_never_hosts_parent_platform_trigger() -> None:
+    """A parent platform's scoped key on a nested sub-block is not a trigger."""
+    text = (
+        "sensor:\n"
+        "  - platform: ltr_als_ps\n"
+        "    id: ltr\n"
+        "    ambient_light:\n"
+        "      id: ltr_als\n"
+        "      on_ps_high_threshold:\n"
+        "        - logger.log: bright\n"
+    )
+    assert parse_device_yaml(text) == []
+
+
 def test_parse_walks_domains_with_only_platform_scoped_triggers() -> None:
     """An ``image`` instance parses although no domain-level ``image.on_*`` trigger exists."""
     text = (
