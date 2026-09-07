@@ -442,6 +442,9 @@ default_components:
 featured_bundles:
 - id: audio_setup
   name: Audio Input/Output (full setup)
+  description: |
+    Mono audio input/output using 3.5mm jack or onboard mic and speaker header.
+    Adds a switch to control speaker header amplifier.
   component_ids:
   - i2c_bus
   - audio_bus
