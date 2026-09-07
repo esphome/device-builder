@@ -460,7 +460,7 @@ featured_bundles:
     Also sets up a light component for controlling the display backlight.
   component_ids:
   - mipi_dsi_ldo
-  - waveshare_7_dsi_touch_a_display
+  - waveshare_10_1_dsi_touch_a_display
   - i2c_bus
   - waveshare_display_backlight_i2c_device
   - waveshare_display_backlight_output
