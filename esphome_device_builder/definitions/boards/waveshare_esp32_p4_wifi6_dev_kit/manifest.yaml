@@ -1,18 +1,13 @@
 id: waveshare_esp32_p4_wifi6_dev_kit
-name: Waveshare ESP32-P4-WIFI6-DEV-KIT
+name: Waveshare ESP32-P4-WIFI6-DEV-KIT (Rev1.1 and earlier)
 description: |
   Waveshare ESP32-P4-WIFI6-DEV-KIT in Raspberry Pi form factor.
-  Uses the ESP32-P4NRW32 or ESP32-P4NRW32X (dual-core RISC-V @ 400MHz, 16MB flash, 32MB PSRAM).
-  The ESP32-P4 has no built-in radio; Wi-Fi 6 and Bluetooth are supported through the onboard ESP32-C6 co-processor.
-  100M RJ45 Ethernet (with optional PoE using a hat), MIPI DSI display and MIPI CSI camera connectors, microSD slot,
-  3.5mm audio jack plus onboard microphone and amplified speaker header, I2C/I3C headers, RTC battery header,
-  USB-A OTG (jumper-switchable), USB-C USB serial adapter and Serial/JTAG ports, 28 user GPIOs.
-  The GPIO pins use the Raspberry Pi 40-pin header layout, and some Raspberry Pi hats are compatible.
-  Different revisions of the ESP32-P4-WIFI6-DEV-KIT may use engineering samples or production variants of the ESP32-P4.
-  Several bundles were available, including additional components:
-  **ESP32-P4-WIFI6-DEV-KIT-A:** Waveshare RPi Camera B.
-  **ESP32-P4-WIFI6-DEV-KIT-B:** Waveshare RPi Camera B, Waveshare 7-DSI-TOUCH-A Display.
-  **ESP32-P4-WIFI6-DEV-KIT-C:** Waveshare RPi Camera B, Waveshare 10.1-DSI-TOUCH-A Display.
+  Uses the ESP32-P4NRW32 (dual-core RISC-V @ 400MHz, 16MB flash, 32MB PSRAM).
+  Wi-Fi 6 and Bluetooth are supported through the onboard ESP32-C6 co-processor.
+  100M RJ45 Ethernet (optional PoE), MIPI DSI display and MIPI CSI camera connectors, microSD slot,
+  3.5mm audio jack plus microphone and speaker header, I2C/I3C headers, RTC battery header,
+  USB-A OTG (jumper-switchable) and USB-C, 28 user GPIOs in RPi-compatible 40pin header.
+  Optionally bundled with RPi Camera B, 7-DSI-TOUCH-A display, or 10.1-DSI-TOUCH-A display.
 manufacturer: Waveshare
 images:
 - https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-p4-wifi6-dev-kit-1_3.jpg
