@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
 
+from ...helpers.automation_keys import bare_trigger_key
 from ...helpers.json import loads as json_loads
 from ...helpers.lazy_catalog import LazyBodyStore, is_unsafe_catalog_id
 from ...models.automations import (
@@ -242,7 +243,7 @@ def _component_trigger_index() -> dict[tuple[str, str], str]:
     for trigger in _slim_triggers():
         if trigger.is_device_level:
             continue
-        key = trigger.id.rsplit(".", 1)[-1]
+        key = bare_trigger_key(trigger.id)
         for scope in trigger.applies_to:
             out[(scope, key)] = trigger.id
     return out

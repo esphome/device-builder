@@ -126,7 +126,10 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
-from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    bare_trigger_key,
+    is_trigger_key,
+)
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.migration_rule_kinds import (  # noqa: E402
     MIGRATION_RULE_EXTRA_FIELDS,
@@ -10869,29 +10872,24 @@ def _drop_platform_trigger_twins(triggers: list[dict]) -> list[dict]:
     # A driver schema re-lists its base's hooks (``xpt2046.touchscreen``
     # carries ``on_touch``); the bare-domain entry already applies to
     # every platform and carries the docs, so the twin only shadows it.
-    by_domain_key = {
-        (t["applies_to"][0], _bare_trigger_key(t["id"])): t
+    domain_level = {
+        (t["applies_to"][0], bare_trigger_key(t["id"])): t
         for t in triggers
-        if not t["is_device_level"] and len(t["applies_to"]) == 1 and "." not in t["applies_to"][0]
+        if len(t["applies_to"]) == 1 and "." not in t["applies_to"][0]
     }
-    out: list[dict] = []
-    for trigger in triggers:
-        scope = trigger["applies_to"][0] if len(trigger["applies_to"]) == 1 else ""
-        twin = by_domain_key.get((scope.split(".", 1)[0], _bare_trigger_key(trigger["id"])))
-        if (
-            "." in scope
-            and twin is not None
-            and not trigger["config_entries"]
+
+    def is_twin(trigger: dict) -> bool:
+        if len(trigger["applies_to"]) != 1 or "." not in trigger["applies_to"][0]:
+            return False
+        domain = trigger["applies_to"][0].split(".", 1)[0]
+        twin = domain_level.get((domain, bare_trigger_key(trigger["id"])))
+        return (
+            twin is not None
+            and trigger["config_entries"] == twin["config_entries"]
             and trigger["supports_list"] == twin["supports_list"]
-        ):
-            continue
-        out.append(trigger)
-    return out
+        )
 
-
-def _bare_trigger_key(trigger_id: str) -> str:
-    """Return the ``on_*`` YAML key a trigger id ends in."""
-    return trigger_id.rsplit(".", 1)[-1]
+    return [t for t in triggers if not is_twin(t)]
 
 
 def _dedupe_by_id(entries: list[dict]) -> list[dict]:

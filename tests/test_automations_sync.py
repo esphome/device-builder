@@ -933,16 +933,11 @@ def test_build_automations_merged_hub_trigger_dedupes_against_base(tmp_path: Pat
     assert len(matching) == 1
 
 
-def _trigger_section(key: str, docs: str = "") -> dict:
-    return {
-        "schemas": {
-            "CONFIG_SCHEMA": {
-                "schema": {
-                    "config_vars": {key: {"key": "Optional", "type": "trigger", "docs": docs}}
-                },
-            },
-        },
-    }
+def _trigger_section(key: str, docs: str = "", schema: dict | None = None) -> dict:
+    var: dict = {"key": "Optional", "type": "trigger", "docs": docs}
+    if schema is not None:
+        var["schema"] = schema
+    return {"schemas": {"CONFIG_SCHEMA": {"schema": {"config_vars": {key: var}}}}}
 
 
 def test_build_automations_drops_platform_twins_of_domain_level_triggers(tmp_path: Path) -> None:
@@ -973,25 +968,10 @@ def test_build_automations_keeps_platform_trigger_with_its_own_params(tmp_path: 
         tmp_path,
         "xpt2046.json",
         {
-            "xpt2046.touchscreen": {
-                "schemas": {
-                    "CONFIG_SCHEMA": {
-                        "schema": {
-                            "config_vars": {
-                                "on_touch": {
-                                    "key": "Optional",
-                                    "type": "trigger",
-                                    "schema": {
-                                        "config_vars": {
-                                            "threshold": {"key": "Optional", "type": "integer"}
-                                        }
-                                    },
-                                }
-                            }
-                        },
-                    },
-                },
-            },
+            "xpt2046.touchscreen": _trigger_section(
+                "on_touch",
+                schema={"config_vars": {"threshold": {"key": "Optional", "type": "integer"}}},
+            )
         },
     )
     result = sync_components.build_automations(
