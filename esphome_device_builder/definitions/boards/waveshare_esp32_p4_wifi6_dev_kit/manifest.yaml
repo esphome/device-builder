@@ -127,6 +127,9 @@ featured_components:
       value:
         number: GPIO35
         inverted: true
+        mode:
+          input: true
+          pullup: true
         ignore_strapping_warning: true
       locked: true
     id: boot_button
