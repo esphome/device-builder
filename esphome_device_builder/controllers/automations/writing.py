@@ -698,7 +698,7 @@ def _delete_component_on(
     target = resolve_component_target(yaml_text, location.component_id)
     if target is not None and target.is_sub_entity:
         return _delete_subentity_on(yaml_text, location, target)
-    instance_domain = target.domain if target is not None else _infer_component_scope(location)[0]
+    instance_domain, _trigger = _resolve_location_trigger(target, location)
     if location.index is not None:
         return delete_list_entry(
             yaml_text,

@@ -464,7 +464,7 @@ def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
         if not catalog.hosts_component_triggers(domain, target.trigger_scope):
             continue
         out.extend(
-            _parse_instance_triggers(domain, instance, comp_id, catalog_id=target.trigger_scope)
+            _parse_instance_triggers(domain, instance, comp_id, trigger_scope=target.trigger_scope)
         )
     return out
 
@@ -657,7 +657,7 @@ def _parse_instance_triggers(
     instance: dict,
     comp_id: str,
     *,
-    catalog_id: str | None,
+    trigger_scope: str | None,
 ) -> list[ParsedAutomation]:
     """Emit every recognised inline ``on_*:`` handler on one component instance."""
     comp_name = str(instance.get("name") or comp_id)
@@ -665,7 +665,7 @@ def _parse_instance_triggers(
     for key, body in list(instance.items()):
         if not is_trigger_key(key):
             continue
-        trigger = catalog.resolve_component_trigger(catalog_id, domain, key)
+        trigger = catalog.resolve_component_trigger(trigger_scope, domain, key)
         if trigger is None:
             # Not a known component trigger — skip rather than surface
             # as a parse error. Component schemas occasionally carry

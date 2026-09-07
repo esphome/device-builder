@@ -2867,6 +2867,17 @@ def test_delete_platform_scoped_trigger_removes_only_that_handler() -> None:
     assert [p.location.trigger for p in parse_device_yaml(new_text)] == ["on_anticlockwise"]
 
 
+def test_delete_rejects_a_key_that_is_not_a_catalog_trigger() -> None:
+    """Delete validates the handler key so a config field is never stripped."""
+    with pytest.raises(CommandError) as excinfo:
+        render_delete(
+            _ROTARY,
+            location=ComponentOnLocation(component_id="sensor_rotary_encoder_1", trigger="pin_a"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "pin_a: GPIO18" in _ROTARY
+
+
 def test_upsert_rejects_parent_platform_trigger_on_subentity() -> None:
     """A parent platform's scoped key never splices under a nested sub-block."""
     text = (
