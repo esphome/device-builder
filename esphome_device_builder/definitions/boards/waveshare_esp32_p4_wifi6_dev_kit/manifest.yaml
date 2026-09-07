@@ -1,10 +1,16 @@
+# This manifest is for ESP32-P4-WIFI6-DEV-KIT boards with pre-v3.0 ESP-P4 chips
+# no Rev silkscreen (i.e. Rev1.0) → chip revision v1.0
+# Rev1.1 silkscreen → chip revision v1.3
+# Rev1.2 silkscreen → chip revision v3.1
+
 id: waveshare_esp32_p4_wifi6_dev_kit
 name: Waveshare ESP32-P4-WIFI6-DEV-KIT (Rev1.1 and earlier)
 description: |
-  Waveshare ESP32-P4-WIFI6-DEV-KIT in Raspberry Pi form factor.
-  Uses the ESP32-P4NRW32 (dual-core RISC-V @ 400MHz, 16MB flash, 32MB PSRAM).
+  Dev kit in Raspberry Pi form factor with engineering sample ESP32-P4
+  (verify [chip marking](https://docs.espressif.com/projects/esp-chip-errata/en/latest/esp32p4/01-chip-identification/index.html#chip-marking) is v1.x).
+  ESP32-P4NRW32 (dual-core RISC-V @ 400MHz, 16MB flash, 32MB PSRAM).
   Wi-Fi 6 and Bluetooth are supported through the onboard ESP32-C6 co-processor.
-  100M RJ45 Ethernet (optional PoE), MIPI DSI display and MIPI CSI camera connectors, microSD slot,
+  100M RJ45 Ethernet (optional PoE via HAT), MIPI DSI display and MIPI CSI camera connectors, microSD slot,
   3.5mm audio jack plus microphone and speaker header, I2C/I3C headers, RTC battery header,
   USB-A OTG (jumper-switchable) and USB-C, 28 user GPIOs in RPi-compatible 40pin header.
   Optionally bundled with RPi Camera B, 7-DSI-TOUCH-A display, or 10.1-DSI-TOUCH-A display.
@@ -109,6 +115,8 @@ featured_components:
     power_pin:
       value: GPIO51
       locked: true
+    # ESP-P4 IO_MUX support multiple options for RMII connections.
+    # TODO: Lock these pins when RMII pin configuration is exposed.
     # crs_dv/rxdv pin: GPIO28
     # rxd0 pin: GPIO29
     # rxd1 pin: GPIO30
@@ -137,13 +145,13 @@ featured_components:
 - id: i2c_bus
   name: Onboard / Shared I²C bus
   description: |
-    The shared I²C bus used for onboard components (Audio codec),
-    and available for external devices via the I²C connector,
+    Shared I²C bus used for onboard components (Audio codec),
+    and exposed on I²C connector,
     MIPI SCI and DSI connectors,
-    and SDA/SCL pins on the 40pin header.
-    This will also allow you to use some Raspberry Pi hats with I²C peripherals.
-    Onboard components support max frequency 400kHz.
-    If you connect additional peripherals, you may need to reduce the frequency.
+    and SDA/SCL pins on the 40pin header,
+    allows you to use some Raspberry Pi hats with I²C peripherals.
+    Onboard components support max 400kHz.
+    You may need to reduce the frequency if you connect additional peripherals.
   component_id: i2c
   fields:
     id:
@@ -340,12 +348,13 @@ featured_components:
 - id: rpi_header_spi0
   name: Raspberry Pi GPIO header SPI0 bus
   description: |
-    Set up an SPI bus on the 40pin header corresponding to Raspberry Pi SPI0.
-    This will allow you to use some Raspberry Pi hats with SPI peripherals.
-    Use this for hats where SCLK is on header pin 23 (RPi GPIO11),
+    SPI bus on the 40pin header corresponding to Raspberry Pi SPI0,
+    allows you to use some Raspberry Pi hats with SPI peripherals.
+    Conflicts with external 32.768kHz crystal.
+    SCLK is on header pin 23 (RPi GPIO11),
     MISO is on header pin 21 (RPi GPIO9),
     and MOSI is on header pin 19 (RPi GPIO10).
-    The SPI CS will be on GPIO36 (header pin 24 / RPi GPIO8)
+    SPI CS will be on GPIO36 (header pin 24 / RPi GPIO8)
     or GPIO32 (conflicts with I³C connector – header pin 26 / RPi GPIO7).
   component_id: spi
   fields:
@@ -365,13 +374,13 @@ featured_components:
 - id: rpi_header_spi1
   name: Raspberry Pi GPIO header SPI1 bus
   description: |
-    Set up an SPI bus on the 40pin header corresponding to Raspberry Pi SPI1.
-    This will allow you to use some Raspberry Pi hats with SPI peripherals.
-    This SPI bus conflicts with the microSD power supply and audio amplifier control.
-    Use this for hats where SCLK is on header pin 40 (RPi GPIO21),
+    SPI bus on the 40pin header corresponding to Raspberry Pi SPI1,
+    allows you to use some Raspberry Pi hats with SPI peripherals.
+    Conflicts with microSD power supply and audio amplifier control.
+    SCLK is on header pin 40 (RPi GPIO21),
     MISO is on header pin 35 (RPi GPIO19),
     and MOSI is on header pin 38 (RPi GPIO20).
-    The SPI CS will be on GPIO22 (header pin 12 / RPi GPIO18),
+    SPI CS will be on GPIO22 (header pin 12 / RPi GPIO18),
     GPIO21 (header pin 11 / RPi GPIO17),
     or GPIO46 (header pin 36 / RPi GPIO16).
   component_id: spi
@@ -475,7 +484,7 @@ pins:
   features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
   available: true
   occupied_by: 32.768kHz crystal
-  notes: 40pin header pin 23 (RPi GPIO11 / SPI0 CLK) ­– XTAL_32K_N
+  notes: 40pin header pin 23 (RPi GPIO11 / SPI0 CLK) – XTAL_32K_N
 - gpio: 1
   label: GPIO1
   features: [pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
