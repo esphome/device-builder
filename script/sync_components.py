@@ -10872,11 +10872,15 @@ def _drop_platform_trigger_twins(triggers: list[dict]) -> list[dict]:
     # A driver schema re-lists its base's hooks (``xpt2046.touchscreen``
     # carries ``on_touch``); the bare-domain entry already applies to
     # every platform and carries the docs, so the twin only shadows it.
-    domain_level = {
-        (t["applies_to"][0], bare_trigger_key(t["id"])): t
-        for t in triggers
-        if len(t["applies_to"]) == 1 and "." not in t["applies_to"][0]
-    }
+    domain_level: dict[tuple[str, str], dict] = {}
+    for t in triggers:
+        if len(t["applies_to"]) != 1 or "." in t["applies_to"][0]:
+            continue
+        slot = (t["applies_to"][0], bare_trigger_key(t["id"]))
+        if slot in domain_level:
+            msg = f"{domain_level[slot]['id']} and {t['id']} both host {slot[1]} on {slot[0]}"
+            raise RuntimeError(msg)
+        domain_level[slot] = t
 
     def is_twin(trigger: dict) -> bool:
         if len(trigger["applies_to"]) != 1 or "." not in trigger["applies_to"][0]:
@@ -10885,6 +10889,8 @@ def _drop_platform_trigger_twins(triggers: list[dict]) -> list[dict]:
         twin = domain_level.get((domain, bare_trigger_key(trigger["id"])))
         return (
             twin is not None
+            and not trigger["description"]
+            and trigger["docs_url"] == _CORE_AUTOMATION_DOCS
             and trigger["config_entries"] == twin["config_entries"]
             and trigger["supports_list"] == twin["supports_list"]
         )

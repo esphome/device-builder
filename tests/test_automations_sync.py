@@ -16,6 +16,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # The sync script lives under ``script/`` and isn't on the package
 # path; add it to ``sys.path`` once at module import.
 _SCRIPT_DIR = Path(__file__).parent.parent / "script"
@@ -979,6 +981,53 @@ def test_build_automations_keeps_platform_trigger_with_its_own_params(tmp_path: 
     )
     ids = {t["id"] for t in result["triggers"]}
     assert {"touchscreen.on_touch", "xpt2046.touchscreen.on_touch"} <= ids
+
+
+def test_build_automations_keeps_platform_trigger_with_its_own_docs(tmp_path: Path) -> None:
+    """A documented platform-scoped trigger is a specialisation, not a twin."""
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(
+        tmp_path,
+        "xpt2046.json",
+        {"xpt2046.touchscreen": _trigger_section("on_touch", "Fires on this driver.")},
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+    )
+    assert "xpt2046.touchscreen.on_touch" in {t["id"] for t in result["triggers"]}
+
+
+def test_build_automations_keeps_platform_trigger_with_its_own_list_shape(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A platform-scoped trigger whose list shape differs from the domain's is kept."""
+    monkeypatch.setattr(
+        sync_components,
+        "_live_trigger_singles",
+        lambda top_key: {"on_touch": False} if top_key == "xpt2046.touchscreen" else {},
+    )
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(tmp_path, "xpt2046.json", {"xpt2046.touchscreen": _trigger_section("on_touch")})
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+    )
+    kept = {t["id"]: t for t in result["triggers"]}
+    assert kept["xpt2046.touchscreen.on_touch"]["supports_list"] is True
+    assert kept["touchscreen.on_touch"]["supports_list"] is False
+
+
+def test_build_automations_fails_on_two_domain_triggers_for_one_key(tmp_path: Path) -> None:
+    """Two domain-level ids hosting one key on one domain fail the sync loudly."""
+    schema_dir = _write_schema(
+        tmp_path, "display.json", {"display": _trigger_section("on_page", "Fires.")}
+    )
+    _write_schema(tmp_path, "page.json", {"page.display": _trigger_section("on_page")})
+    with pytest.raises(RuntimeError, match="on_page"):
+        sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
 
 
 def _in_range_schema_dir(tmp_path: Path) -> Path:
