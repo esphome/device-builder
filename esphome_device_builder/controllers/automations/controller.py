@@ -307,7 +307,6 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
     if not isinstance(data, dict):
         return _ScopedYaml(domains=set(), scripts=[], devices=[])
 
-    component_domains = _component_trigger_domains()
     scripts: list[AvailableScript] = []
     devices: list[AvailableComponentInstance] = []
     domains: set[str] = set(data.keys())
@@ -320,9 +319,10 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
         section = data.get(domain)
         if isinstance(section, list):
             domains.update(_qualified_domains(domain, section))
-            if domain in component_domains:
-                devices.extend(_scope_component_instances(domain, section))
-        elif isinstance(section, dict) and domain in component_domains:
+            devices.extend(_scope_component_instances(domain, section))
+        elif isinstance(section, dict) and catalog.hosts_component_triggers(
+            domain, parsing.catalog_id(domain, section.get("platform"))
+        ):
             devices.extend(_scope_singleton_instance(domain, section))
     return _ScopedYaml(domains=domains, scripts=scripts, devices=devices)
 
@@ -333,19 +333,9 @@ def _qualified_domains(domain: str, section: list) -> set[str]:
     for item in section:
         if not isinstance(item, dict):
             continue
-        platform = item.get("platform")
-        if isinstance(platform, str) and platform:
-            out.add(f"{domain}.{platform}")
-    return out
-
-
-def _component_trigger_domains() -> set[str]:
-    """Return every domain that hosts component-level triggers."""
-    out: set[str] = set()
-    for trigger in catalog.all_triggers():
-        if trigger.is_device_level:
-            continue
-        out.update(trigger.applies_to)
+        cat_id = parsing.catalog_id(domain, item.get("platform"))
+        if cat_id != domain:
+            out.add(cat_id)
     return out
 
 
@@ -371,7 +361,7 @@ def _scope_component_instances(
     section: list,
 ) -> list[AvailableComponentInstance]:
     """
-    Pick configured component instance ids under one domain.
+    Pick configured instance ids under one domain whose domain or platform hosts triggers.
 
     A multi-entity platform surfaces each configured sub-entity
     (``parent_id`` set) and flags the container ``is_entity_container``.
@@ -381,6 +371,8 @@ def _scope_component_instances(
         if not isinstance(item, dict):
             continue
         catalog_id = parsing.catalog_id(domain, item.get("platform"))
+        if not catalog.hosts_component_triggers(domain, catalog_id):
+            continue
         # An id-less instance keys on the parser and writer's declared-or-
         # positional id, so it round-trips. Container-ness comes from the
         # catalog definition, not from which sub-blocks the YAML happens to

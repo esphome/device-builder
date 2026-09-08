@@ -136,6 +136,7 @@ def test_parse_inline_on_press_with_explicit_then() -> None:
     assert item.location.kind == "component_on"
     assert item.location.component_id == "kitchen_button"
     assert item.location.trigger == "on_press"
+    assert item.automation.trigger_id == "binary_sensor.on_press"
     assert [a.action_id for a in item.automation.actions] == [
         "switch.toggle",
         "delay",
@@ -1000,6 +1001,67 @@ def test_parse_recognises_hand_authored_subentity_handler() -> None:
     assert len(parsed) == 1
     assert parsed[0].location.component_id == "aht20_temperature"
     assert parsed[0].location.trigger == "on_value_range"
+
+
+def test_parse_platform_scoped_triggers_on_rotary_encoder() -> None:
+    """``on_clockwise`` / ``on_anticlockwise`` resolve to the platform-scoped catalog ids."""
+    parsed = parse_device_yaml(_load("rotary_encoder_triggers.yaml"))
+    assert [(p.automation.trigger_id, p.location.trigger) for p in parsed] == [
+        ("rotary_encoder.sensor.on_clockwise", "on_clockwise"),
+        ("rotary_encoder.sensor.on_anticlockwise", "on_anticlockwise"),
+    ]
+    assert {p.location.component_id for p in parsed} == {"sensor_rotary_encoder_1"}
+    for item in parsed:
+        assert [a.action_id for a in item.automation.actions] == [
+            "logger.log",
+            "light.dim_relative",
+        ]
+
+
+def test_parse_subentity_trigger_resolves_domain_id_under_platform_parent() -> None:
+    """A sub-sensor's ``on_value_range`` resolves through the parent's platform to the domain id."""
+    text = (
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n"
+        "      id: aht20_temperature\n"
+        "      on_value_range:\n"
+        "        above: 10\n"
+        "        then:\n"
+        "          - logger.log: hot\n"
+    )
+    parsed = parse_device_yaml(text)
+    assert [p.automation.trigger_id for p in parsed] == ["sensor.on_value_range"]
+
+
+def test_parse_subentity_never_hosts_parent_platform_trigger() -> None:
+    """A parent platform's scoped key on a nested sub-block is not a trigger."""
+    text = (
+        "sensor:\n"
+        "  - platform: ltr_als_ps\n"
+        "    id: ltr\n"
+        "    ambient_light:\n"
+        "      id: ltr_als\n"
+        "      on_ps_high_threshold:\n"
+        "        - logger.log: bright\n"
+    )
+    assert parse_device_yaml(text) == []
+
+
+def test_parse_walks_domains_with_only_platform_scoped_triggers() -> None:
+    """An ``image`` instance parses although no domain-level ``image.on_*`` trigger exists."""
+    text = (
+        "image:\n"
+        "  - platform: sendspin\n"
+        "    id: art\n"
+        "    on_image_display:\n"
+        "      - logger.log: shown\n"
+    )
+    parsed = parse_device_yaml(text)
+    assert [(p.automation.trigger_id, p.location.component_id) for p in parsed] == [
+        ("sendspin.image.on_image_display", "art")
+    ]
 
 
 # Nested action-list config fields (dotted ``field`` paths)

@@ -317,6 +317,11 @@ class ComponentTarget(NamedTuple):
     sub_key: str | None = None
     catalog_id: str | None = None
 
+    @property
+    def trigger_scope(self) -> str | None:
+        """Catalog id scoping this target's triggers; a sub-entity hosts only domain-level ones."""
+        return None if self.is_sub_entity else self.catalog_id
+
 
 def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
     """
@@ -385,9 +390,9 @@ def _iter_instance_targets(
     """
     Yield ``(domain, instance, comp_id, target)`` for every instance + sub-entity.
 
-    The one document walk shared by :func:`_iter_component_instances` and
-    :func:`resolve_component_target` (list instances, flat singletons, nested
-    sub-entities).
+    The one document walk shared by :func:`_parse_inline_component_triggers`
+    and :func:`resolve_component_target` (list instances, flat singletons,
+    nested sub-entities).
     """
     if not isinstance(root, dict):
         return
@@ -425,14 +430,6 @@ def _iter_instance_targets(
                 )
 
 
-def _iter_component_instances(
-    root: Any,
-) -> Iterator[tuple[str, dict, str]]:
-    """Yield ``(domain, instance, comp_id)`` for every instance + sub-entity."""
-    for domain, instance, comp_id, _target in _iter_instance_targets(root):
-        yield domain, instance, comp_id
-
-
 def catalog_id(domain: str, platform: Any) -> str:
     """Return the component's catalog id: ``<domain>.<platform>``, or the bare domain."""
     return f"{domain}.{platform}" if isinstance(platform, str) and platform else domain
@@ -462,12 +459,13 @@ def iter_subentities(
 
 def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
     """Walk component instances for inline ``on_*:`` handlers."""
-    trigger_domains = catalog.component_trigger_domains()
     out: list[ParsedAutomation] = []
-    for domain, instance, comp_id in _iter_component_instances(root):
-        if domain not in trigger_domains:
+    for domain, instance, comp_id, target in _iter_instance_targets(root):
+        if not catalog.hosts_component_triggers(domain, target.trigger_scope):
             continue
-        out.extend(_parse_instance_triggers(domain, instance, comp_id))
+        out.extend(
+            _parse_instance_triggers(domain, instance, comp_id, trigger_scope=target.trigger_scope)
+        )
     return out
 
 
@@ -658,6 +656,8 @@ def _parse_instance_triggers(
     domain: str,
     instance: dict,
     comp_id: str,
+    *,
+    trigger_scope: str | None,
 ) -> list[ParsedAutomation]:
     """Emit every recognised inline ``on_*:`` handler on one component instance."""
     comp_name = str(instance.get("name") or comp_id)
@@ -665,7 +665,7 @@ def _parse_instance_triggers(
     for key, body in list(instance.items()):
         if not is_trigger_key(key):
             continue
-        trigger = catalog.trigger_by_id(f"{domain}.{key}")
+        trigger = catalog.resolve_component_trigger(trigger_scope, domain, key)
         if trigger is None:
             # Not a known component trigger — skip rather than surface
             # as a parse error. Component schemas occasionally carry

@@ -69,6 +69,41 @@ def test_catalog_has_no_action_field_triggers() -> None:
     assert offenders == []
 
 
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("on_clockwise", ("sensor", "rotary_encoder.sensor.on_clockwise")),
+        ("on_turn_on", ("fan", "fan.on_turn_on")),
+        ("on_nope", None),
+    ],
+)
+def test_infer_component_scope(key: str, expected: tuple[str, str] | None) -> None:
+    """The alphabetically-first scope hosting a key wins; an unknown key infers nothing."""
+    assert catalog.infer_component_scope(key) == expected
+
+
+@pytest.mark.parametrize(
+    ("catalog_id", "domain", "key", "expected"),
+    [
+        ("sensor.rotary_encoder", "sensor", "on_clockwise", "rotary_encoder.sensor.on_clockwise"),
+        ("sensor.rotary_encoder", "sensor", "on_value", "sensor.on_value"),
+        ("touchscreen.xpt2046", "touchscreen", "on_touch", "xpt2046.touchscreen.on_touch"),
+        (None, "touchscreen", "on_touch", "touchscreen.on_touch"),
+        ("binary_sensor.gpio", "binary_sensor", "on_press", "binary_sensor.on_press"),
+        (None, "binary_sensor", "on_press", "binary_sensor.on_press"),
+        ("sensor.aht10", "sensor", "on_value_range", "sensor.on_value_range"),
+        (None, "sensor", "on_clockwise", None),
+        ("sensor.rotary_encoder", "sensor", "on_nope", None),
+    ],
+)
+def test_resolve_component_trigger(
+    catalog_id: str | None, domain: str, key: str, expected: str | None
+) -> None:
+    """Platform-scoped ids win; the domain-level id is the fallback."""
+    trigger = catalog.resolve_component_trigger(catalog_id, domain, key)
+    assert (trigger.id if trigger else None) == expected
+
+
 async def test_get_available_excludes_action_field_triggers(tmp_path: Path) -> None:
     """A ``number.template`` with ``set_action:`` offers ``on_*`` triggers, not the action-field."""
     config = tmp_path / "num.yaml"
@@ -290,6 +325,26 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert ("switch.gpio", "relay_two") in devices
     # A single-reading platform with no sub-entity blocks is never a container.
     assert devices[("switch.gpio", "relay_one")]["is_entity_container"] is False
+
+
+async def test_get_available_lists_instances_with_only_platform_scoped_triggers(
+    tmp_path: Path,
+) -> None:
+    """A ``sendspin`` image is targetable although no domain-level ``image.on_*`` exists."""
+    config = tmp_path / "device.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "image:\n"
+        "  - platform: sendspin\n"
+        "    id: art\n"
+        "  - file: logo.png\n"
+        "    id: logo\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="device.yaml")
+    assert [(d["component_id"], d["id"]) for d in result["devices"]] == [("image.sendspin", "art")]
+    assert "sendspin.image.on_image_display" in {t["id"] for t in result["triggers"]}
 
 
 async def test_get_available_devices_follow_document_order(tmp_path: Path) -> None:

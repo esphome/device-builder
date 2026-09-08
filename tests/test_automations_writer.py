@@ -2774,6 +2774,19 @@ def test_round_trip_subentity_handler_is_parsed_back() -> None:
     assert [a.action_id for a in parsed[0].automation.actions] == ["light.toggle"]
 
 
+def test_delete_subentity_rejects_a_key_that_is_not_a_catalog_trigger() -> None:
+    """Sub-entity delete validates the key so a config block is never stripped."""
+    text = _AHT10.replace(
+        "      name: Kit Temperature\n",
+        "      name: Kit Temperature\n      filters:\n        - offset: 1\n",
+    )
+    with pytest.raises(CommandError) as excinfo:
+        render_delete(
+            text, location=ComponentOnLocation(component_id="aht20_temperature", trigger="filters")
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
 def test_delete_subentity_handler_round_trips_to_original() -> None:
     """Deleting the sub-entity handler restores the byte-identical original."""
     loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
@@ -2797,6 +2810,122 @@ def test_two_subsensors_on_one_platform_target_independently() -> None:
     targeted = {(p.location.component_id, p.location.trigger) for p in parse_device_yaml(both)}
     assert ("aht20_temperature", "on_value_range") in targeted
     assert ("aht20_humidity", "on_value_range") in targeted
+
+
+_ROTARY = _load("rotary_encoder_triggers.yaml")
+_ROTARY_LOC = ComponentOnLocation(component_id="sensor_rotary_encoder_1", trigger="on_clockwise")
+_ROTARY_ANTI_LOC = ComponentOnLocation(
+    component_id="sensor_rotary_encoder_1", trigger="on_anticlockwise"
+)
+
+
+def _clockwise_tree() -> AutomationTree:
+    return AutomationTree(
+        trigger_id="rotary_encoder.sensor.on_clockwise",
+        trigger_params={},
+        actions=[ActionNode(action_id="logger.log", params={"format": "turned"})],
+    )
+
+
+def test_upsert_platform_scoped_trigger_splices_under_top_level_domain() -> None:
+    """A ``rotary_encoder.sensor.on_clockwise`` handler lands under the ``sensor:`` instance."""
+    without = _ROTARY.replace(
+        "    on_clockwise:\n"
+        "      - logger.log: clockwise\n"
+        "      - light.dim_relative:\n"
+        "          id: light_monochromatic_1\n"
+        "          relative_brightness: 5%\n",
+        "",
+    )
+    assert "on_clockwise" not in without
+    new_text, diff = render_upsert(without, tree=_clockwise_tree(), location=_ROTARY_LOC)
+    assert "sensor.rotary_encoder:" not in new_text
+    assert "    on_clockwise:\n      then:\n        - logger.log: turned\n" in new_text
+    assert _apply_diff(without, diff) == new_text
+    parsed = parse_device_yaml(new_text)
+    assert [(p.automation.trigger_id, p.location) for p in parsed] == [
+        ("rotary_encoder.sensor.on_anticlockwise", _ROTARY_ANTI_LOC),
+        ("rotary_encoder.sensor.on_clockwise", _ROTARY_LOC),
+    ]
+
+
+def test_upsert_platform_scoped_trigger_replaces_existing_handler() -> None:
+    """Re-saving an existing ``on_clockwise`` replaces its body in place."""
+    new_text, _diff = render_upsert(_ROTARY, tree=_clockwise_tree(), location=_ROTARY_LOC)
+    assert "logger.log: clockwise" not in new_text
+    assert "logger.log: turned" in new_text
+    assert "logger.log: anticlockwise" in new_text
+
+
+def test_upsert_platform_scoped_trigger_list_entry_appends() -> None:
+    """``index=1`` on a list-capable platform trigger appends a second entry."""
+    new_text, _diff = render_upsert(
+        _ROTARY,
+        tree=_clockwise_tree(),
+        location=ComponentOnLocation(
+            component_id="sensor_rotary_encoder_1", trigger="on_clockwise", index=1
+        ),
+    )
+    clockwise = [p for p in parse_device_yaml(new_text) if p.location.trigger == "on_clockwise"]
+    assert [p.location.index for p in clockwise] == [0, 1]
+    assert [a.action_id for a in clockwise[1].automation.actions] == ["logger.log"]
+
+
+def test_delete_platform_scoped_trigger_removes_only_that_handler() -> None:
+    """Deleting ``on_clockwise`` leaves the sibling ``on_anticlockwise`` intact."""
+    new_text, diff = render_delete(_ROTARY, location=_ROTARY_LOC)
+    assert "on_clockwise" not in new_text
+    assert "on_anticlockwise:" in new_text
+    assert _apply_diff(_ROTARY, diff) == new_text
+    assert [p.location.trigger for p in parse_device_yaml(new_text)] == ["on_anticlockwise"]
+
+
+def test_delete_rejects_a_key_that_is_not_a_catalog_trigger() -> None:
+    """Delete validates the handler key so a config field is never stripped."""
+    with pytest.raises(CommandError) as excinfo:
+        render_delete(
+            _ROTARY,
+            location=ComponentOnLocation(component_id="sensor_rotary_encoder_1", trigger="pin_a"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "pin_a: GPIO18" in _ROTARY
+
+
+def test_upsert_rejects_parent_platform_trigger_on_subentity() -> None:
+    """A parent platform's scoped key never splices under a nested sub-block."""
+    text = (
+        "esphome:\n  name: x\n"
+        "sensor:\n"
+        "  - platform: ltr_als_ps\n"
+        "    id: ltr\n"
+        "    ambient_light:\n"
+        "      id: ltr_als\n"
+    )
+    tree = AutomationTree(
+        trigger_id="ltr_als_ps.sensor.on_ps_high_threshold",
+        trigger_params={},
+        actions=[ActionNode(action_id="logger.log", params={"format": "bright"})],
+    )
+    with pytest.raises(CommandError) as excinfo:
+        render_upsert(
+            text,
+            tree=tree,
+            location=ComponentOnLocation(component_id="ltr_als", trigger="on_ps_high_threshold"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Unknown trigger id 'on_ps_high_threshold'" in str(excinfo.value)
+
+
+def test_upsert_platform_scoped_trigger_without_instance_names_top_level_domain() -> None:
+    """A missing instance reports the YAML domain, not the trigger's catalog id."""
+    with pytest.raises(CommandError) as excinfo:
+        render_upsert(
+            "esphome:\n  name: x\nsensor: []\n",
+            tree=_clockwise_tree(),
+            location=ComponentOnLocation(component_id="ghost", trigger="on_clockwise"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "not found under 'sensor'" in str(excinfo.value)
 
 
 _AHT10_IDLESS = (
