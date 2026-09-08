@@ -964,8 +964,11 @@ def test_build_automations_drops_platform_twins_of_domain_level_triggers(
     assert "rotary_encoder.sensor.on_clockwise" in ids
 
 
-def test_build_automations_keeps_platform_trigger_with_its_own_params(tmp_path: Path) -> None:
+def test_build_automations_keeps_platform_trigger_with_its_own_params(
+    tmp_path: Path, monkeypatch
+) -> None:
     """A platform-scoped trigger carrying params is a specialisation, not a twin."""
+    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: frozenset())
     schema_dir = _write_schema(
         tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
     )
@@ -986,8 +989,11 @@ def test_build_automations_keeps_platform_trigger_with_its_own_params(tmp_path: 
     assert {"touchscreen.on_touch", "xpt2046.touchscreen.on_touch"} <= ids
 
 
-def test_build_automations_keeps_platform_trigger_with_its_own_docs(tmp_path: Path) -> None:
+def test_build_automations_keeps_platform_trigger_with_its_own_docs(
+    tmp_path: Path, monkeypatch
+) -> None:
     """A documented platform-scoped trigger is a specialisation, not a twin."""
+    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: frozenset())
     schema_dir = _write_schema(
         tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
     )
