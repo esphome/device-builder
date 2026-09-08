@@ -946,7 +946,7 @@ def test_build_automations_drops_platform_twins_of_domain_level_triggers(
     tmp_path: Path, monkeypatch
 ) -> None:
     """A driver's restated ``on_touch`` yields only the documented ``touchscreen.on_touch``."""
-    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: {})
+    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: frozenset())
     schema_dir = _write_schema(
         tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
     )
@@ -1009,7 +1009,9 @@ def test_build_automations_keeps_platform_trigger_with_its_own_list_shape(
     monkeypatch.setattr(
         sync_components,
         "_live_trigger_singles",
-        lambda top_key: {"on_touch": False} if top_key == "xpt2046.touchscreen" else {},
+        lambda top_key: frozenset(
+            {("on_touch", False)} if top_key == "xpt2046.touchscreen" else ()
+        ),
     )
     schema_dir = _write_schema(
         tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
