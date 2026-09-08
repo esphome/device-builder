@@ -942,8 +942,11 @@ def _trigger_section(key: str, docs: str = "", schema: dict | None = None) -> di
     return {"schemas": {"CONFIG_SCHEMA": {"schema": {"config_vars": {key: var}}}}}
 
 
-def test_build_automations_drops_platform_twins_of_domain_level_triggers(tmp_path: Path) -> None:
+def test_build_automations_drops_platform_twins_of_domain_level_triggers(
+    tmp_path: Path, monkeypatch
+) -> None:
     """A driver's restated ``on_touch`` yields only the documented ``touchscreen.on_touch``."""
+    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: {})
     schema_dir = _write_schema(
         tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
     )
