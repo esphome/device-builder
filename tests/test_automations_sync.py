@@ -16,6 +16,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # The sync script lives under ``script/`` and isn't on the package
 # path; add it to ``sys.path`` once at module import.
 _SCRIPT_DIR = Path(__file__).parent.parent / "script"
@@ -931,6 +933,112 @@ def test_build_automations_merged_hub_trigger_dedupes_against_base(tmp_path: Pat
     result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     matching = [t for t in result["triggers"] if t["id"] == "fakehub.on_tag"]
     assert len(matching) == 1
+
+
+def _trigger_section(key: str, docs: str = "", schema: dict | None = None) -> dict:
+    var: dict = {"key": "Optional", "type": "trigger", "docs": docs}
+    if schema is not None:
+        var["schema"] = schema
+    return {"schemas": {"CONFIG_SCHEMA": {"schema": {"config_vars": {key: var}}}}}
+
+
+def test_build_automations_drops_platform_twins_of_domain_level_triggers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A driver's restated ``on_touch`` yields only the documented ``touchscreen.on_touch``."""
+    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: frozenset())
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(tmp_path, "xpt2046.json", {"xpt2046.touchscreen": _trigger_section("on_touch")})
+    _write_schema(
+        tmp_path, "rotary_encoder.json", {"rotary_encoder.sensor": _trigger_section("on_clockwise")}
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir,
+        component_ids={"touchscreen.xpt2046", "sensor.rotary_encoder"},
+    )
+    ids = {t["id"] for t in result["triggers"]}
+    assert "touchscreen.on_touch" in ids
+    assert "xpt2046.touchscreen.on_touch" not in ids
+    assert "rotary_encoder.sensor.on_clockwise" in ids
+
+
+def test_build_automations_keeps_platform_trigger_with_its_own_params(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A platform-scoped trigger carrying params is a specialisation, not a twin."""
+    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: frozenset())
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(
+        tmp_path,
+        "xpt2046.json",
+        {
+            "xpt2046.touchscreen": _trigger_section(
+                "on_touch",
+                schema={"config_vars": {"threshold": {"key": "Optional", "type": "integer"}}},
+            )
+        },
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+    )
+    ids = {t["id"] for t in result["triggers"]}
+    assert {"touchscreen.on_touch", "xpt2046.touchscreen.on_touch"} <= ids
+
+
+def test_build_automations_keeps_platform_trigger_with_its_own_docs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A documented platform-scoped trigger is a specialisation, not a twin."""
+    monkeypatch.setattr(sync_components, "_live_trigger_singles", lambda top_key: frozenset())
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(
+        tmp_path,
+        "xpt2046.json",
+        {"xpt2046.touchscreen": _trigger_section("on_touch", "Fires on this driver.")},
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+    )
+    assert "xpt2046.touchscreen.on_touch" in {t["id"] for t in result["triggers"]}
+
+
+def test_build_automations_keeps_platform_trigger_with_its_own_list_shape(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A platform-scoped trigger whose list shape differs from the domain's is kept."""
+    monkeypatch.setattr(
+        sync_components,
+        "_live_trigger_singles",
+        lambda top_key: frozenset(
+            {("on_touch", False)} if top_key == "xpt2046.touchscreen" else ()
+        ),
+    )
+    schema_dir = _write_schema(
+        tmp_path, "touchscreen.json", {"touchscreen": _trigger_section("on_touch", "Fires.")}
+    )
+    _write_schema(tmp_path, "xpt2046.json", {"xpt2046.touchscreen": _trigger_section("on_touch")})
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+    )
+    kept = {t["id"]: t for t in result["triggers"]}
+    assert kept["xpt2046.touchscreen.on_touch"]["supports_list"] is True
+    assert kept["touchscreen.on_touch"]["supports_list"] is False
+
+
+def test_build_automations_fails_on_two_domain_triggers_for_one_key(tmp_path: Path) -> None:
+    """Two domain-level ids hosting one key on one domain fail the sync loudly."""
+    schema_dir = _write_schema(
+        tmp_path, "display.json", {"display": _trigger_section("on_page", "Fires.")}
+    )
+    _write_schema(tmp_path, "page.json", {"page.display": _trigger_section("on_page")})
+    with pytest.raises(RuntimeError, match="on_page"):
+        sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
 
 
 def _in_range_schema_dir(tmp_path: Path) -> Path:

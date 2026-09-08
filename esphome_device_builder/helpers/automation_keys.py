@@ -13,3 +13,8 @@ TRIGGER_KEY_PREFIXES: tuple[str, ...] = ("on_",)
 def is_trigger_key(key: str) -> bool:
     """Return True when *key* names an inline automation trigger (``on_*``)."""
     return key.startswith(TRIGGER_KEY_PREFIXES)
+
+
+def bare_trigger_key(trigger_id: str) -> str:
+    """Return the ``on_*`` YAML key a catalog trigger id ends in."""
+    return trigger_id.rsplit(".", 1)[-1]

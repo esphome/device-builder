@@ -82,13 +82,28 @@ def test_infer_component_scope(key: str, expected: tuple[str, str] | None) -> No
     assert catalog.infer_component_scope(key) == expected
 
 
+def test_resolve_component_trigger_prefers_the_platform_scope(monkeypatch) -> None:
+    """A key hosted at both the platform and the domain scope resolves to the platform id."""
+    index = {
+        ("touchscreen.fake", "on_touch"): "fake.touchscreen.on_touch",
+        ("touchscreen", "on_touch"): "touchscreen.on_touch",
+    }
+    monkeypatch.setattr(catalog, "_component_trigger_index", lambda: index)
+    monkeypatch.setattr(catalog, "trigger_by_id", lambda trigger_id: trigger_id)
+    assert (
+        catalog.resolve_component_trigger("touchscreen.fake", "touchscreen", "on_touch")
+        == "fake.touchscreen.on_touch"
+    )
+    assert (
+        catalog.resolve_component_trigger(None, "touchscreen", "on_touch") == "touchscreen.on_touch"
+    )
+
+
 @pytest.mark.parametrize(
     ("catalog_id", "domain", "key", "expected"),
     [
         ("sensor.rotary_encoder", "sensor", "on_clockwise", "rotary_encoder.sensor.on_clockwise"),
         ("sensor.rotary_encoder", "sensor", "on_value", "sensor.on_value"),
-        ("touchscreen.xpt2046", "touchscreen", "on_touch", "xpt2046.touchscreen.on_touch"),
-        (None, "touchscreen", "on_touch", "touchscreen.on_touch"),
         ("binary_sensor.gpio", "binary_sensor", "on_press", "binary_sensor.on_press"),
         (None, "binary_sensor", "on_press", "binary_sensor.on_press"),
         ("sensor.aht10", "sensor", "on_value_range", "sensor.on_value_range"),
