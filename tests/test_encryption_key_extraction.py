@@ -1,4 +1,4 @@
-"""Tests for the Native API encryption-key extraction + scanner flag.
+"""Tests for the encryption-key extraction (api and esphome OTA) + scanner flags.
 
 Covers the helper layer (resolves through ESPHome's YAML loader so
 ``!secret`` / ``!include`` / packages all work) and the scan-time
@@ -26,6 +26,7 @@ from esphome_device_builder.helpers.device_yaml import (
     get_resolved_encryption_key,
     has_top_level_block,
     load_device_yaml,
+    resolved_ota_has_encryption,
     yaml_has_ota_encryption,
 )
 from esphome_device_builder.models import Device
@@ -65,7 +66,25 @@ def test_get_ota_encryption_block_list_form() -> None:
 
 
 def test_get_ota_encryption_block_mapping_form_defaults_platform() -> None:
-    assert get_ota_encryption_block({"ota": {"encryption": {}}}) == {}
+    assert get_ota_encryption_block({"ota": {"encryption": {"key": "k"}}}) == {"key": "k"}
+
+
+def test_get_ota_encryption_block_none_for_bare_block() -> None:
+    assert get_ota_encryption_block({"ota": {"encryption": None}}) is None
+
+
+def test_resolved_ota_has_encryption_counts_a_bare_block() -> None:
+    assert resolved_ota_has_encryption({"ota": [{"platform": "esphome", "encryption": None}]})
+    assert resolved_ota_has_encryption({"ota": {"encryption": {"key": "k"}}})
+    assert not resolved_ota_has_encryption({"ota": [{"platform": "esphome"}]})
+    other = {"ota": [{"platform": "web_server", "encryption": None}]}
+    assert not resolved_ota_has_encryption(other)
+    assert not resolved_ota_has_encryption(None)
+
+
+def test_get_ota_encryption_key_scans_every_esphome_entry() -> None:
+    config = {"ota": [{"platform": "esphome", "encryption": None}, {"encryption": {"key": "k"}}]}
+    assert get_ota_encryption_key(config) == "k"
 
 
 def test_get_ota_encryption_block_none_when_absent() -> None:
@@ -76,7 +95,7 @@ def test_get_ota_encryption_block_none_when_absent() -> None:
 
 
 def test_get_ota_encryption_key_empty_for_bare_block() -> None:
-    assert get_ota_encryption_key({"ota": [{"platform": "esphome", "encryption": {}}]}) == ""
+    assert get_ota_encryption_key({"ota": [{"platform": "esphome", "encryption": None}]}) == ""
     keyed = {"ota": [{"platform": "esphome", "encryption": {"key": "k"}}]}
     assert get_ota_encryption_key(keyed) == "k"
 
@@ -423,6 +442,19 @@ def test_load_device_from_storage_sets_ota_encryption_required(
     )
     assert device.api_enabled is False
     assert device.api_encrypted is False
+    assert device.ota_encryption_required is True
+
+
+def test_load_device_from_storage_ota_encryption_required_for_bare_block(
+    isolated_storage: Path,
+) -> None:
+    device = _scan(
+        isolated_storage / "inherit.yaml",
+        "esphome:\n  name: inherit\n"
+        'api:\n  encryption:\n    key: "ZGFzaA=="\n'
+        "ota:\n  - platform: esphome\n    encryption:\n",
+    )
+    assert device.api_encrypted is True
     assert device.ota_encryption_required is True
 
 

@@ -633,12 +633,8 @@ def resolve_esp32_variant(
 
 
 def get_ota_encryption_block(config: dict | None) -> dict | None:
-    """Return the esphome OTA entry's ``encryption`` mapping from a parsed config, or ``None``."""
-    ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
-    entries = ota if isinstance(ota, list) else [ota]
-    for entry in entries:
-        if not isinstance(entry, dict) or entry.get(const.CONF_PLATFORM, "esphome") != "esphome":
-            continue
+    """Return the first esphome OTA entry's ``encryption`` mapping, or ``None``."""
+    for entry in _ota_esphome_entries(config):
         encryption = entry.get("encryption")
         if isinstance(encryption, dict):
             return encryption
@@ -646,17 +642,33 @@ def get_ota_encryption_block(config: dict | None) -> dict | None:
 
 
 def get_ota_encryption_key(config: dict | None) -> str:
-    """Return the esphome OTA entry's own ``encryption: key`` (``${var}`` unresolved) or ``""``."""
-    encryption = get_ota_encryption_block(config)
-    if encryption is None:
-        return ""
-    key = encryption.get("key")
-    return key if isinstance(key, str) else ""
+    """Return the first esphome OTA entry's own ``encryption: key`` (``${var}`` kept) or ``""``."""
+    for entry in _ota_esphome_entries(config):
+        encryption = entry.get("encryption")
+        key = encryption.get("key") if isinstance(encryption, dict) else None
+        if isinstance(key, str) and key:
+            return key
+    return ""
+
+
+def resolved_ota_has_encryption(config: dict | None) -> bool:
+    """Whether an esphome OTA entry declares ``encryption:``; a bare block parses to ``None``."""
+    return any("encryption" in entry for entry in _ota_esphome_entries(config))
 
 
 def resolved_ota_has_own_key(config: dict | None) -> bool:
     """Whether an esphome OTA entry in a resolved config carries its own ``encryption: key``."""
     return bool(get_ota_encryption_key(config))
+
+
+def _ota_esphome_entries(config: dict | None) -> list[dict]:
+    ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
+    entries = ota if isinstance(ota, list) else [ota]
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get(const.CONF_PLATFORM, "esphome") == "esphome"
+    ]
 
 
 def extract_ota_partition_access(config: dict | None) -> bool:

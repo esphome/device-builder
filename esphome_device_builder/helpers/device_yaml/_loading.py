@@ -39,11 +39,11 @@ from ._parsing import (
     extract_logger_interface,
     extract_ota_partition_access,
     get_api_encryption_block,
-    get_ota_encryption_block,
     has_top_level_block,
     mdns_disabled_enabled,
     name_add_mac_suffix_enabled,
     parse_esphome_meta,
+    resolved_ota_has_encryption,
     safe_stat_key,
     yaml_has_api_encryption,
     yaml_has_ota_encryption,
@@ -326,7 +326,7 @@ def load_device_from_storage(
         or bool(runtime.api_encryption_active)
     )
     ota_encryption_required = (
-        get_ota_encryption_block(resolved_config) is not None
+        resolved_ota_has_encryption(resolved_config)
         if resolved_config is not None
         else yaml_has_ota_encryption(yaml_content)
     )
