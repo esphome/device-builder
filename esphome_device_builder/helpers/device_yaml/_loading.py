@@ -325,9 +325,11 @@ def load_device_from_storage(
         or yaml_has_api_encryption(yaml_content)
         or bool(runtime.api_encryption_active)
     )
-    ota_encryption_required = get_ota_encryption_block(
-        resolved_config
-    ) is not None or yaml_has_ota_encryption(yaml_content)
+    ota_encryption_required = (
+        get_ota_encryption_block(resolved_config) is not None
+        if resolved_config is not None
+        else yaml_has_ota_encryption(yaml_content)
+    )
     return Device(
         runtime_state=runtime,
         name=name,

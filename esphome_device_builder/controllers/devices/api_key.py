@@ -19,15 +19,7 @@ if TYPE_CHECKING:
 
 
 async def get_encryption_key(controller: DevicesController, configuration: str) -> dict[str, str]:
-    """
-    Return the resolved encryption key (api, else esphome OTA) for *configuration*.
-
-    Tries the in-process YAML loader first, then falls back to
-    ``esphome config --show-secrets`` for configs whose key is
-    constructed by Jinja-templated ``packages`` (issue #437).
-    Returns ``{"key": ""}`` when both paths fail; the caller
-    treats that as the "open the editor and check" signal.
-    """
+    """Return ``{"key": ...}`` for *configuration*, api key else esphome OTA key, ``""`` if none."""
     path = controller._db.settings.rel_path(configuration)
     config = await run_in_executor(load_device_yaml, path)
     key = get_resolved_encryption_key(config)

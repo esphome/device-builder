@@ -910,7 +910,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Return the resolved encryption key (api, else esphome OTA) for *configuration*."""
         return await api_key.get_encryption_key(self, configuration)
 
-    async def _resolve_api_key_via_esphome_config(self, configuration: str) -> str:
+    async def _resolve_encryption_key_via_esphome_config(self, configuration: str) -> str:
         return await api_key.resolve_via_esphome_config(self, configuration)
 
     async def _resolve_device_api_connection(self, configuration: str) -> tuple[str, int]:
