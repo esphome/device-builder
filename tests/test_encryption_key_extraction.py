@@ -69,6 +69,14 @@ def test_get_ota_encryption_block_mapping_form_defaults_platform() -> None:
     assert get_ota_encryption_block({"ota": {"encryption": {"key": "k"}}}) == {"key": "k"}
 
 
+def test_get_ota_encryption_block_legacy_mapping_form_with_platform() -> None:
+    config = {"ota": {"platform": "esphome", "encryption": {"key": "k"}}}
+    assert get_ota_encryption_block(config) == {"key": "k"}
+    assert get_ota_encryption_key(config) == "k"
+    assert resolved_ota_has_encryption(config)
+    assert get_resolved_encryption_key(config) == "k"
+
+
 def test_get_ota_encryption_block_none_for_bare_block() -> None:
     assert get_ota_encryption_block({"ota": {"encryption": None}}) is None
 
@@ -442,6 +450,16 @@ def test_load_device_from_storage_sets_ota_encryption_required(
     )
     assert device.api_enabled is False
     assert device.api_encrypted is False
+    assert device.ota_encryption_required is True
+
+
+def test_load_device_from_storage_reads_legacy_mapping_form_ota(
+    isolated_storage: Path,
+) -> None:
+    device = _scan(
+        isolated_storage / "legacy.yaml",
+        'esphome:\n  name: legacy\nota:\n  platform: esphome\n  encryption:\n    key: "ZGFzaA=="\n',
+    )
     assert device.ota_encryption_required is True
 
 

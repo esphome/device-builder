@@ -344,6 +344,21 @@ async def test_get_encryption_key_reads_the_esphome_ota_key_without_api(
     assert result == {"key": "ota-only-key=="}
 
 
+async def test_get_encryption_key_reads_the_legacy_mapping_form_ota_key(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "legacy.yaml").write_text(
+        "esphome:\n  name: legacy\nota:\n  platform: esphome\n  encryption:\n"
+        "    key: legacy-ota-key==\n",
+        encoding="utf-8",
+    )
+
+    result = await controller.get_encryption_key(configuration="legacy.yaml")
+
+    assert result == {"key": "legacy-ota-key=="}
+
+
 async def test_get_encryption_key_falls_back_to_esphome_config_subprocess(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
