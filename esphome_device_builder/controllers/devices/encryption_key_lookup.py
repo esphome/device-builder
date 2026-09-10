@@ -34,7 +34,8 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
 
     In-process only — unlike :func:`get_encryption_key` this never shells out
     to ``esphome config``, so the background API-info sweep pays no
-    per-device subprocess. A device whose key resolves only through
+    per-device subprocess. The key is the api one only: an OTA-side key
+    never encrypts the Native API. A device whose key resolves only through
     Jinja-templated ``packages`` returns an empty key here and is left
     for mDNS. Raises :class:`ValueError` when the YAML is missing or
     unparsable so the caller records a miss instead of dialing a doomed
