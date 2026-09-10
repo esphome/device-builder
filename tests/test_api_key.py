@@ -26,6 +26,7 @@ from esphome_device_builder.helpers.device_yaml import (
     get_resolved_encryption_key,
     has_top_level_block,
     load_device_yaml,
+    yaml_has_ota_encryption,
 )
 from esphome_device_builder.models import Device
 
@@ -102,6 +103,25 @@ def test_get_resolved_encryption_key_empty_when_unresolved_or_missing() -> None:
     assert get_resolved_encryption_key({"ota": {"encryption": {"key": "${missing}"}}}) == ""
     assert get_resolved_encryption_key({"api": {}}) == ""
     assert get_resolved_encryption_key(None) == ""
+
+
+_OTA_LIST = "ota:\n  - platform: esphome\n    encryption:\n"
+_API_KEYED = "api:\n  encryption:\n    key: k\n"
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(_OTA_LIST + "      key: k\n", True, id="list"),
+        pytest.param("ota:\n  platform: esphome\n  encryption:\n    key: k\n", True, id="mapping"),
+        pytest.param(_OTA_LIST, True, id="bare"),
+        pytest.param("ota:\n  - platform: esphome\n    password: x\n", False, id="no-encryption"),
+        pytest.param("ota:\n  - platform: esphome\n" + _API_KEYED, False, id="api-block"),
+        pytest.param(_API_KEYED, False, id="no-ota"),
+    ],
+)
+def test_yaml_has_ota_encryption(yaml_text: str, expected: bool) -> None:
+    assert yaml_has_ota_encryption(yaml_text) is expected
 
 
 def test_get_api_encryption_key_returns_resolved_string() -> None:

@@ -240,6 +240,17 @@ _RAW_API_ENCRYPTION_RE = re.compile(
 )
 
 
+_RAW_OTA_ENCRYPTION_RE = re.compile(
+    r"^ota:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+encryption:(?:\s|$)",
+    re.MULTILINE,
+)
+
+
+def yaml_has_ota_encryption(yaml_content: str) -> bool:
+    """Heuristic: True when raw YAML appears to declare ``encryption:`` under ``ota:``."""
+    return bool(_RAW_OTA_ENCRYPTION_RE.search(yaml_content))
+
+
 def yaml_has_api_encryption(yaml_content: str) -> bool:
     """Heuristic: True when raw YAML appears to declare ``api: encryption:``.
 

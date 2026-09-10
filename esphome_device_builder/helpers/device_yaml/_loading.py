@@ -23,7 +23,6 @@ from ..mac_addresses import derive_interface_macs
 from ..migrations import has_pending_migrations
 from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
-from ..yaml import yaml_has_ota_encryption
 from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
@@ -47,6 +46,7 @@ from ._parsing import (
     parse_esphome_meta,
     safe_stat_key,
     yaml_has_api_encryption,
+    yaml_has_ota_encryption,
     yaml_has_top_level_block,
 )
 

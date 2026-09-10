@@ -30,11 +30,6 @@ def read_ota_encryption_key(yaml_text: str) -> str | None:
     return read_yaml_scalar("".join(lines[start:end]), _KEY_PATH)
 
 
-def yaml_has_ota_encryption(yaml_text: str) -> bool:
-    """Whether the raw YAML's esphome OTA item declares ``encryption:``."""
-    return _locate_encryption_block(yaml_text.splitlines(keepends=True)) is not None
-
-
 def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | None]) -> str:
     """Rewrite the esphome OTA item's ``encryption: key:`` scalar through *transform*."""
     lines = yaml_text.splitlines(keepends=True)
