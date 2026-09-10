@@ -1,4 +1,4 @@
-"""Tests for the Native API encryption-key extraction + scanner flag.
+"""Tests for the encryption-key extraction (api and esphome OTA) + scanner flags.
 
 Covers the helper layer (resolves through ESPHome's YAML loader so
 ``!secret`` / ``!include`` / packages all work) and the scan-time
@@ -20,9 +20,15 @@ from esphome_device_builder.helpers.device_yaml import (
     get_api_encryption_block,
     get_api_encryption_key,
     get_api_port,
+    get_ota_encryption_key,
     get_resolved_api_encryption_key,
+    get_resolved_encryption_key,
     has_top_level_block,
     load_device_yaml,
+)
+from esphome_device_builder.helpers.device_yaml._parsing import (
+    resolved_ota_has_encryption,
+    yaml_has_ota_encryption,
 )
 from esphome_device_builder.models import Device
 
@@ -51,6 +57,94 @@ def test_get_api_encryption_block_handles_non_dict_inputs() -> None:
     assert get_api_encryption_block(None) is None
     assert get_api_encryption_block({"api": "not-a-dict"}) is None
     assert get_api_encryption_block({"api": {"encryption": "not-a-dict"}}) is None
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        pytest.param(
+            {
+                "ota": [
+                    {"platform": "web_server"},
+                    {"platform": "esphome", "encryption": {"key": "k"}},
+                ]
+            },
+            "k",
+            id="list",
+        ),
+        pytest.param(
+            {"ota": {"platform": "esphome", "encryption": {"key": "k"}}}, "k", id="legacy"
+        ),
+        pytest.param({"ota": {"encryption": {"key": "k"}}}, "k", id="mapping-default-platform"),
+        pytest.param(
+            {"ota": [{"platform": "esphome", "encryption": None}, {"encryption": {"key": "k"}}]},
+            "k",
+            id="second-entry",
+        ),
+        pytest.param({"ota": [{"platform": "esphome", "encryption": None}]}, "", id="bare"),
+        pytest.param({"ota": [{"platform": "esphome", "encryption": "x"}]}, "", id="non-dict"),
+        pytest.param(
+            {"ota": [{"platform": "web_server", "encryption": {"key": "k"}}]}, "", id="other"
+        ),
+        pytest.param(None, "", id="no-config"),
+    ],
+)
+def test_get_ota_encryption_key(config: dict | None, expected: str) -> None:
+    assert get_ota_encryption_key(config) == expected
+
+
+def test_resolved_ota_has_encryption_counts_a_bare_block() -> None:
+    assert resolved_ota_has_encryption({"ota": [{"platform": "esphome", "encryption": None}]})
+    assert resolved_ota_has_encryption({"ota": {"platform": "esphome", "encryption": {"key": "k"}}})
+    assert not resolved_ota_has_encryption({"ota": [{"platform": "esphome"}]})
+    other = {"ota": [{"platform": "web_server", "encryption": None}]}
+    assert not resolved_ota_has_encryption(other)
+    assert not resolved_ota_has_encryption(None)
+
+
+def test_get_resolved_encryption_key_prefers_api() -> None:
+    config = {"api": {"encryption": {"key": "api=="}}, "ota": {"encryption": {"key": "ota=="}}}
+    assert get_resolved_encryption_key(config) == "api=="
+
+
+def test_get_resolved_encryption_key_falls_back_to_ota() -> None:
+    config = {"ota": [{"platform": "esphome", "encryption": {"key": "ota=="}}]}
+    assert get_resolved_encryption_key(config) == "ota=="
+    unresolved_api = {"api": {"encryption": {"key": "${missing}"}}, **config}
+    assert get_resolved_encryption_key(unresolved_api) == "ota=="
+
+
+def test_get_resolved_encryption_key_expands_ota_substitution() -> None:
+    config = {
+        "substitutions": {"psk": "ZGFzaA=="},
+        "ota": [{"platform": "esphome", "encryption": {"key": "${psk}"}}],
+    }
+    assert get_resolved_encryption_key(config) == "ZGFzaA=="
+
+
+def test_get_resolved_encryption_key_empty_when_unresolved_or_missing() -> None:
+    assert get_resolved_encryption_key({"ota": {"encryption": {"key": "${missing}"}}}) == ""
+    assert get_resolved_encryption_key({"api": {}}) == ""
+    assert get_resolved_encryption_key(None) == ""
+
+
+_OTA_LIST = "ota:\n  - platform: esphome\n    encryption:\n"
+_API_KEYED = "api:\n  encryption:\n    key: k\n"
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(_OTA_LIST + "      key: k\n", True, id="list"),
+        pytest.param("ota:\n  platform: esphome\n  encryption:\n    key: k\n", True, id="mapping"),
+        pytest.param(_OTA_LIST, True, id="bare"),
+        pytest.param("ota:\n  - platform: esphome\n    password: x\n", False, id="no-encryption"),
+        pytest.param("ota:\n  - platform: esphome\n" + _API_KEYED, False, id="api-block"),
+        pytest.param(_API_KEYED, False, id="no-ota"),
+    ],
+)
+def test_yaml_has_ota_encryption(yaml_text: str, expected: bool) -> None:
+    assert yaml_has_ota_encryption(yaml_text) is expected
 
 
 def test_get_api_encryption_key_returns_resolved_string() -> None:
@@ -176,7 +270,7 @@ def test_load_device_yaml_resolves_secrets(tmp_path: Path) -> None:
     """``!secret`` references resolve through the sibling ``secrets.yaml``.
 
     The regex-on-raw-YAML approach the frontend used to do gave up
-    here — backend resolution is the whole reason ``devices/get_api_key``
+    here — backend resolution is the whole reason ``devices/get_encryption_key``
     exists.
     """
     (tmp_path / "secrets.yaml").write_text("api_key: 'AAAA=='\n")
@@ -339,6 +433,62 @@ def test_load_device_from_storage_sets_api_encrypted_from_resolved_yaml(
     )
     assert device.api_enabled is True
     assert device.api_encrypted is True
+
+
+@pytest.mark.parametrize(
+    "ota_block",
+    [
+        pytest.param(
+            'ota:\n  - platform: esphome\n    encryption:\n      key: "ZGFzaA=="\n', id="list"
+        ),
+        pytest.param(
+            'ota:\n  platform: esphome\n  encryption:\n    key: "ZGFzaA=="\n', id="legacy"
+        ),
+    ],
+)
+def test_load_device_from_storage_sets_ota_encryption_required(
+    isolated_storage: Path, ota_block: str
+) -> None:
+    """A key only under the esphome OTA item sets the OTA flag, not the api ones."""
+    device = _scan(isolated_storage / "gate.yaml", "esphome:\n  name: gate\n" + ota_block)
+    assert device.api_enabled is False
+    assert device.api_encrypted is False
+    assert device.ota_encryption_required is True
+
+
+def test_load_device_from_storage_ota_encryption_required_for_bare_block(
+    isolated_storage: Path,
+) -> None:
+    device = _scan(
+        isolated_storage / "inherit.yaml",
+        "esphome:\n  name: inherit\n"
+        'api:\n  encryption:\n    key: "ZGFzaA=="\n'
+        "ota:\n  - platform: esphome\n    encryption:\n",
+    )
+    assert device.api_encrypted is True
+    assert device.ota_encryption_required is True
+
+
+def test_load_device_from_storage_ota_encryption_required_false_without_block(
+    isolated_storage: Path,
+) -> None:
+    device = _scan(
+        isolated_storage / "plain.yaml",
+        "esphome:\n  name: plain\nota:\n  - platform: esphome\n    password: x\n",
+    )
+    assert device.ota_encryption_required is False
+
+
+def test_load_device_from_storage_ota_encryption_required_falls_back_for_invalid_draft(
+    isolated_storage: Path,
+) -> None:
+    device = _scan(
+        isolated_storage / "broken-ota.yaml",
+        "esphome:\n  name: broken-ota\n"
+        'ota:\n  - platform: esphome\n    encryption:\n      key: "ZGFzaA=="\n'
+        "sensor:\n  - platform: !\n    bad: [unterminated\n",
+    )
+    assert device.ota_encryption_required is True
 
 
 def test_load_device_from_storage_api_disabled_for_mqtt_only(

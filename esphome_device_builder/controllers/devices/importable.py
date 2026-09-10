@@ -15,7 +15,7 @@ from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
     EsphomeConfigUnavailableError,
     generate_adoption_yaml,
-    resolved_ota_has_own_key,
+    get_ota_encryption_key,
     run_esphome_config,
 )
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
@@ -336,7 +336,7 @@ async def _mint_key_unless_package_encrypts(
     if isinstance(api_block, dict) and "encryption" in api_block:
         return None
     # A package's own OTA key would have to match a baked api key; leave both out.
-    if resolved_ota_has_own_key(config):
+    if get_ota_encryption_key(config):
         return (
             "The package gives the OTA platform its own encryption key, so no API "
             "encryption key was generated; edit the device to use one key for both."

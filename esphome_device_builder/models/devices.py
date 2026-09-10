@@ -262,9 +262,12 @@ class Device(DashboardModel):
     # as a flatten-to-False signal.
     #
     # The actual key is fetched on demand via
-    # ``devices/get_api_key``.
+    # ``devices/get_encryption_key``.
     api_enabled: bool = False
     api_encrypted: bool = False
+    # esphome shares one key between api and OTA, so a device whose key
+    # lives only under ``ota:`` still has one for ``devices/get_encryption_key``.
+    ota_encryption_required: bool = False
     # Encryption status as observed from the device's
     # ``_esphomelib._tcp.local.`` mDNS broadcast.
     #   None  → mDNS not seen yet. The frontend trusts ``api_encrypted``
