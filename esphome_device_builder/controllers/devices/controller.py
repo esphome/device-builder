@@ -910,9 +910,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Return the resolved encryption key (api, else esphome OTA) for *configuration*."""
         return await encryption_key_lookup.get_encryption_key(self, configuration)
 
-    async def _resolve_encryption_key_via_esphome_config(self, configuration: str) -> str:
-        return await encryption_key_lookup.resolve_via_esphome_config(self, configuration)
-
     async def _resolve_device_api_connection(self, configuration: str) -> tuple[str, int]:
         """Native API (encryption key, port) for the state monitor's API info fallback."""
         return await encryption_key_lookup.get_api_connection(self, configuration)
