@@ -22,10 +22,9 @@ async def get_encryption_key(controller: DevicesController, configuration: str) 
     """Return ``{"key": ...}`` for *configuration*, api key else esphome OTA key, ``""`` if none."""
     path = controller._db.settings.rel_path(configuration)
     config = await run_in_executor(load_device_yaml, path)
-    key = get_resolved_encryption_key(config)
-    if key:
-        return {"key": key}
-    key = await resolve_via_esphome_config(controller, configuration)
+    key = get_resolved_encryption_key(config) or await _resolve_via_esphome_config(
+        controller, configuration
+    )
     return {"key": key}
 
 
@@ -48,7 +47,7 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
     return get_resolved_api_encryption_key(config), get_api_port(config)
 
 
-async def resolve_via_esphome_config(controller: DevicesController, configuration: str) -> str:
+async def _resolve_via_esphome_config(controller: DevicesController, configuration: str) -> str:
     """
     Subprocess fallback for :func:`get_encryption_key`.
 

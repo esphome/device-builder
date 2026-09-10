@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -225,8 +226,8 @@ def extract_component_source_fingerprint(yaml_content: str) -> str:
     return _digest_lines(lines)
 
 
-_RAW_API_ENCRYPTION_RE = re.compile(
-    # Matches an ``encryption:`` line that's indented under ``api:``
+def _nested_key_re(block: str, key: str) -> re.Pattern[str]:
+    # Matches a *key* line that's indented under top-level *block*
     # (any depth ≥ 1 space). Used as a draft-time heuristic — once
     # ``load_device_yaml`` succeeds, the resolved-config check wins.
     #
@@ -235,20 +236,19 @@ _RAW_API_ENCRYPTION_RE = re.compile(
     # line. No overlap, so the engine can't backtrack between them on a
     # long run of newlines (the previous ``\s*\n`` alternative could
     # also consume a bare ``\n``, which CodeQL flagged as exponential).
-    r"^api:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+encryption:(?:\s|$)",
-    re.MULTILINE,
-)
+    return re.compile(
+        rf"^{block}:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+{key}:(?:\s|$)",
+        re.MULTILINE,
+    )
 
 
-_RAW_OTA_ENCRYPTION_RE = re.compile(
-    r"^ota:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+encryption:(?:\s|$)",
-    re.MULTILINE,
-)
+_RAW_API_ENCRYPTION_RE = _nested_key_re("api", "encryption")
+_RAW_OTA_ENCRYPTION_RE = _nested_key_re("ota", "encryption")
 
 
 def yaml_has_ota_encryption(yaml_content: str) -> bool:
     """Heuristic: True when raw YAML appears to declare ``encryption:`` under ``ota:``."""
-    return bool(_RAW_OTA_ENCRYPTION_RE.search(yaml_content))
+    return "encryption:" in yaml_content and bool(_RAW_OTA_ENCRYPTION_RE.search(yaml_content))
 
 
 def yaml_has_api_encryption(yaml_content: str) -> bool:
@@ -259,7 +259,7 @@ def yaml_has_api_encryption(yaml_content: str) -> bool:
     a syntax error. The resolved-config check is preferred whenever
     available (catches ``!include`` / packages this regex can't see).
     """
-    return bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
+    return "encryption:" in yaml_content and bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
 
 
 def _truthy_child_re(block: str, key: str) -> re.Pattern[str]:
@@ -323,6 +323,17 @@ def mdns_disabled_enabled(resolved_config: dict | None, yaml_content: str) -> bo
     if resolved_config is not None:
         return _config_truthy_child(resolved_config, "mdns", "disabled")
     return bool(_RAW_MDNS_DISABLED_RE.search(yaml_content))
+
+
+def ota_encryption_declared(resolved_config: dict | None, yaml_content: str) -> bool:
+    """
+    Detect an esphome OTA ``encryption:`` block: resolved config wins, raw text fills in.
+
+    The raw-text fallback applies only when resolution failed.
+    """
+    if resolved_config is not None:
+        return resolved_ota_has_encryption(resolved_config)
+    return yaml_has_ota_encryption(yaml_content)
 
 
 def config_has_top_level_block(config: dict | None, key: str) -> bool:
@@ -632,15 +643,6 @@ def resolve_esp32_variant(
     return None
 
 
-def get_ota_encryption_block(config: dict | None) -> dict | None:
-    """Return the first esphome OTA entry's ``encryption`` mapping, or ``None``."""
-    for entry in _ota_esphome_entries(config):
-        encryption = entry.get("encryption")
-        if isinstance(encryption, dict):
-            return encryption
-    return None
-
-
 def get_ota_encryption_key(config: dict | None) -> str:
     """Return the first esphome OTA entry's own ``encryption: key`` (``${var}`` kept) or ``""``."""
     for entry in _ota_esphome_entries(config):
@@ -656,37 +658,20 @@ def resolved_ota_has_encryption(config: dict | None) -> bool:
     return any("encryption" in entry for entry in _ota_esphome_entries(config))
 
 
-def resolved_ota_has_own_key(config: dict | None) -> bool:
-    """Whether an esphome OTA entry in a resolved config carries its own ``encryption: key``."""
-    return bool(get_ota_encryption_key(config))
-
-
-def _ota_esphome_entries(config: dict | None) -> list[dict]:
-    ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
-    entries = ota if isinstance(ota, list) else [ota]
-    return [
-        entry
-        for entry in entries
-        if isinstance(entry, dict) and entry.get(const.CONF_PLATFORM, "esphome") == "esphome"
-    ]
-
-
 def extract_ota_partition_access(config: dict | None) -> bool:
-    """
-    Report whether an ``ota: platform: esphome`` entry sets ``allow_partition_access``.
+    """Report whether an esphome OTA entry sets ``allow_partition_access``."""
+    return any(
+        entry.get(_CONF_ALLOW_PARTITION_ACCESS) is True for entry in _ota_esphome_entries(config)
+    )
 
-    Accepts both the list-of-platforms form and the legacy single-mapping
-    form (which implies the esphome platform).
-    """
+
+def _ota_esphome_entries(config: dict | None) -> Iterator[dict]:
+    """Yield the esphome-platform ``ota:`` entries; list form and the legacy single mapping."""
     ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
     entries = ota if isinstance(ota, list) else [ota]
     for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        platform = entry.get(const.CONF_PLATFORM, "esphome")
-        if platform == "esphome" and entry.get(_CONF_ALLOW_PARTITION_ACCESS) is True:
-            return True
-    return False
+        if isinstance(entry, dict) and entry.get(const.CONF_PLATFORM, "esphome") == "esphome":
+            yield entry
 
 
 def _str_or_none(value: object) -> str | None:
@@ -908,8 +893,9 @@ def get_resolved_encryption_key(config: dict | None) -> str:
 
 
 def _resolve_key(config: dict | None, key: str) -> str:
-    if not key:
-        return ""
+    """Expand ``${var}`` in *key* against *config*'s substitutions; ``""`` if unresolved."""
+    if "$" not in key:
+        return key
     key = _resolve_substitutions(key, _extract_resolved_substitutions(config)) or ""
     if _UNRESOLVED_SUBSTITUTION_RE.search(key):
         return ""

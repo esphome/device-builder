@@ -265,10 +265,8 @@ class Device(DashboardModel):
     # ``devices/get_encryption_key``.
     api_enabled: bool = False
     api_encrypted: bool = False
-    # The esphome OTA item declares ``encryption:`` (its own key, or a
-    # bare block inheriting the api key), from the resolved YAML or the
-    # raw-text scan. esphome shares one key between api and OTA, so this
-    # is the other place ``devices/get_encryption_key`` finds it.
+    # esphome shares one key between api and OTA, so a device whose key
+    # lives only under ``ota:`` still has one for ``devices/get_encryption_key``.
     ota_encryption_required: bool = False
     # Encryption status as observed from the device's
     # ``_esphomelib._tcp.local.`` mDNS broadcast.
