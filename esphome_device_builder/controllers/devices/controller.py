@@ -905,10 +905,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _finalize_regen_success(self, configuration: str) -> None:
         await storage_regen.finalize_success(self, configuration)
 
-    @api_command("devices/get_api_key")
-    async def get_api_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
-        """Return the resolved Native API encryption key for *configuration*."""
-        return await api_key.get_api_key(self, configuration)
+    @api_command("devices/get_encryption_key")
+    async def get_encryption_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
+        """Return the resolved encryption key (api, else esphome OTA) for *configuration*."""
+        return await api_key.get_encryption_key(self, configuration)
 
     async def _resolve_api_key_via_esphome_config(self, configuration: str) -> str:
         return await api_key.resolve_via_esphome_config(self, configuration)

@@ -1,7 +1,7 @@
 """Tests for ``helpers.device_yaml.run_esphome_config``.
 
 The subprocess primitive behind ``/json-config`` and the
-``devices/get_api_key`` package fallback — it runs ``esphome config
+``devices/get_encryption_key`` package fallback — it runs ``esphome config
 --show-secrets`` and parses the fully-resolved output.
 """
 

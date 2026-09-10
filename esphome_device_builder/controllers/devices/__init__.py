@@ -12,7 +12,7 @@ resolving after the subpackage split. Submodules:
 - ``add_component`` — ``devices/add_component`` WS command
   body (featured-id resolution + manifest-driven preset
   merge + atomic YAML rewrite).
-- ``api_key`` — Native API encryption-key resolver
+- ``api_key`` — encryption-key and Native API connection resolver
   (in-process YAML loader fast path + ``esphome config``
   subprocess fallback).
 - ``archive`` — archive / unarchive / delete helpers + the

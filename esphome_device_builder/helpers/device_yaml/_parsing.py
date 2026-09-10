@@ -621,17 +621,31 @@ def resolve_esp32_variant(
     return None
 
 
-def resolved_ota_has_own_key(config: dict | None) -> bool:
-    """Whether an esphome OTA entry in a resolved config carries its own ``encryption: key``."""
+def get_ota_encryption_block(config: dict | None) -> dict | None:
+    """Return the esphome OTA entry's ``encryption`` mapping from a parsed config, or ``None``."""
     ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
     entries = ota if isinstance(ota, list) else [ota]
     for entry in entries:
         if not isinstance(entry, dict) or entry.get(const.CONF_PLATFORM, "esphome") != "esphome":
             continue
         encryption = entry.get("encryption")
-        if isinstance(encryption, dict) and encryption.get("key"):
-            return True
-    return False
+        if isinstance(encryption, dict):
+            return encryption
+    return None
+
+
+def get_ota_encryption_key(config: dict | None) -> str:
+    """Return the esphome OTA entry's own ``encryption: key`` (``${var}`` unresolved) or ``""``."""
+    encryption = get_ota_encryption_block(config)
+    if encryption is None:
+        return ""
+    key = encryption.get("key")
+    return key if isinstance(key, str) else ""
+
+
+def resolved_ota_has_own_key(config: dict | None) -> bool:
+    """Whether an esphome OTA entry in a resolved config carries its own ``encryption: key``."""
+    return bool(get_ota_encryption_key(config))
 
 
 def extract_ota_partition_access(config: dict | None) -> bool:
@@ -860,7 +874,17 @@ def get_api_encryption_key(config: dict | None) -> str:
 
 def get_resolved_api_encryption_key(config: dict | None) -> str:
     """Native API encryption key with ``${var}`` resolved; ``""`` if absent or unresolved."""
-    key = get_api_encryption_key(config)
+    return _resolve_key(config, get_api_encryption_key(config))
+
+
+def get_resolved_encryption_key(config: dict | None) -> str:
+    """Return the device's one key, api or esphome OTA, ``${var}`` resolved; ``""`` if none."""
+    return get_resolved_api_encryption_key(config) or _resolve_key(
+        config, get_ota_encryption_key(config)
+    )
+
+
+def _resolve_key(config: dict | None, key: str) -> str:
     if not key:
         return ""
     key = _resolve_substitutions(key, _extract_resolved_substitutions(config)) or ""

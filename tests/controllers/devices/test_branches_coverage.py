@@ -8,7 +8,7 @@ alone, even before reading the assertion.
 
 Grouped by surface:
 
-- **API command wiring** (delete / delete_bulk / get_api_key /
+- **API command wiring** (delete / delete_bulk / get_encryption_key /
   add_component error branches) — these are the public commands
   that go through the WS layer; pin both the happy-path return
   shape and the typed-error branches the dashboard relies on.
@@ -217,14 +217,14 @@ async def test_archive_bulk_returns_per_device_success_with_mixed_outcomes(
 
 
 # ---------------------------------------------------------------------------
-# get_api_key public-API wiring
+# get_encryption_key public-API wiring
 # ---------------------------------------------------------------------------
 
 
-async def test_get_api_key_resolves_through_yaml_loader(
+async def test_get_encryption_key_resolves_through_yaml_loader(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``devices/get_api_key`` returns the resolved encryption key.
+    """``devices/get_encryption_key`` returns the resolved encryption key.
 
     The handler runs through ESPHome's YAML loader so ``!secret``
     references resolve the same way they do at compile time —
@@ -239,15 +239,15 @@ async def test_get_api_key_resolves_through_yaml_loader(
         encoding="utf-8",
     )
 
-    result = await controller.get_api_key(configuration="kitchen.yaml")
+    result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+inline-key=="}
 
 
-async def test_get_api_key_resolves_substitution_from_secret(
+async def test_get_encryption_key_resolves_substitution_from_secret(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``devices/get_api_key`` expands ``${api_key}`` over a ``!secret`` substitution (#1691)."""
+    """``devices/get_encryption_key`` expands ``${api_key}`` over a ``!secret`` substitution."""
     controller = make_controller(tmp_path)
     (tmp_path / "secrets.yaml").write_text("api_key: a/c+secret-key==\n", encoding="utf-8")
     (tmp_path / "kitchen.yaml").write_text(
@@ -257,7 +257,7 @@ async def test_get_api_key_resolves_substitution_from_secret(
         encoding="utf-8",
     )
 
-    result = await controller.get_api_key(configuration="kitchen.yaml")
+    result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+secret-key=="}
 
@@ -307,7 +307,7 @@ async def test_resolve_device_api_connection_raises_on_unloadable_config(
         await controller._resolve_device_api_connection("kitchen.yaml")
 
 
-async def test_get_api_key_returns_empty_when_no_encryption(
+async def test_get_encryption_key_returns_empty_when_no_encryption(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A device without ``api.encryption`` returns ``{"key": ""}``.
@@ -323,12 +323,28 @@ async def test_get_api_key_returns_empty_when_no_encryption(
         encoding="utf-8",
     )
 
-    result = await controller.get_api_key(configuration="kitchen.yaml")
+    result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_falls_back_to_esphome_config_subprocess(
+async def test_get_encryption_key_reads_the_esphome_ota_key_without_api(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A key only under the esphome OTA item is the device's key."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "gate.yaml").write_text(
+        "esphome:\n  name: gate\nota:\n  - platform: esphome\n    encryption:\n"
+        "      key: ota-only-key==\n",
+        encoding="utf-8",
+    )
+
+    result = await controller.get_encryption_key(configuration="gate.yaml")
+
+    assert result == {"key": "ota-only-key=="}
+
+
+async def test_get_encryption_key_falls_back_to_esphome_config_subprocess(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     r"""When the in-process loader misses, ``esphome config`` subprocess wins.
@@ -370,12 +386,12 @@ async def test_get_api_key_falls_back_to_esphome_config_subprocess(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _fake_create_subprocess)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "ZGFzaGJvYXJkLWtleS1mcm9tLWVzcGhvbWUtY29uZmln"}
 
 
-async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
+async def test_get_encryption_key_subprocess_returns_empty_on_nonzero_exit(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A subprocess that exits non-zero still returns ``{"key": ""}``.
@@ -403,12 +419,12 @@ async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _fake_create_subprocess)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
+async def test_get_encryption_key_subprocess_returns_empty_on_unparsable_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """Subprocess output that doesn't parse as YAML degrades to ``""``.
@@ -434,12 +450,12 @@ async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _fake_create_subprocess)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_subprocess_returns_empty_on_oserror(
+async def test_get_encryption_key_subprocess_returns_empty_on_oserror(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A subprocess startup failure (``OSError``) still returns ``""``.
@@ -461,12 +477,12 @@ async def test_get_api_key_subprocess_returns_empty_on_oserror(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _boom)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
+async def test_get_encryption_key_skips_subprocess_when_fast_path_finds_key(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """The fast path's hit short-circuits — no subprocess overhead.
@@ -486,13 +502,13 @@ async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", spawn_spy)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+inline-key=="}
     spawn_spy.assert_not_called()
 
 
-async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
+async def test_get_encryption_key_fallback_skipped_when_esphome_cmd_unset(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """The subprocess fallback is a no-op without ``_esphome_cmd``.
@@ -517,7 +533,7 @@ async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", spawn_spy)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
     spawn_spy.assert_not_called()

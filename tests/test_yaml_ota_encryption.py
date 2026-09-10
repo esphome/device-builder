@@ -11,7 +11,10 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_own_ota_encryption_key,
     upsert_api_encryption_key,
 )
-from esphome_device_builder.helpers.yaml.ota_encryption import drop_ota_encryption_key
+from esphome_device_builder.helpers.yaml.ota_encryption import (
+    drop_ota_encryption_key,
+    yaml_has_ota_encryption,
+)
 
 NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
 API = 'api:\n  encryption:\n    key: "oldkey"\n\n'
@@ -76,6 +79,21 @@ OTHER_PLATFORM_ONLY = API + "ota:\n  - platform: web_server\n    encryption:\n  
 )
 def test_read_ota_encryption_key(yaml_text: str, expected: str | None) -> None:
     assert read_ota_encryption_key(yaml_text) == expected
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(LIST_FORM, True, id="list"),
+        pytest.param(MAPPING_FORM, True, id="mapping"),
+        pytest.param(BARE_ENCRYPTION, True, id="bare-encryption"),
+        pytest.param(OTHER_PLATFORM_ONLY, False, id="other-platform"),
+        pytest.param("ota:\n  - platform: esphome\n    password: x\n", False, id="no-encryption"),
+        pytest.param(API, False, id="no-ota"),
+    ],
+)
+def test_yaml_has_ota_encryption(yaml_text: str, expected: bool) -> None:
+    assert yaml_has_ota_encryption(yaml_text) is expected
 
 
 def test_ota_key_collapses_to_a_bare_block_on_api_rewrite() -> None:

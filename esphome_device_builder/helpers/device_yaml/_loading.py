@@ -23,6 +23,7 @@ from ..mac_addresses import derive_interface_macs
 from ..migrations import has_pending_migrations
 from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
+from ..yaml import yaml_has_ota_encryption
 from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
@@ -39,6 +40,7 @@ from ._parsing import (
     extract_logger_interface,
     extract_ota_partition_access,
     get_api_encryption_block,
+    get_ota_encryption_block,
     has_top_level_block,
     mdns_disabled_enabled,
     name_add_mac_suffix_enabled,
@@ -323,6 +325,9 @@ def load_device_from_storage(
         or yaml_has_api_encryption(yaml_content)
         or bool(runtime.api_encryption_active)
     )
+    ota_encryption_required = get_ota_encryption_block(
+        resolved_config
+    ) is not None or yaml_has_ota_encryption(yaml_content)
     return Device(
         runtime_state=runtime,
         name=name,
@@ -369,6 +374,7 @@ def load_device_from_storage(
         mdns_disabled=mdns_disabled_enabled(resolved_config, yaml_content),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
+        ota_encryption_required=ota_encryption_required,
         mac_address=mac_address,
         ethernet_mac=ethernet_mac,
         bluetooth_mac=bluetooth_mac,
