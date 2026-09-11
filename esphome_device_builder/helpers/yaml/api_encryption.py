@@ -18,6 +18,7 @@ from .scalar import (
     _quote,
     _strip_yaml_quotes,
     is_indirected_scalar,
+    is_plain_literal_scalar,
     read_yaml_scalar,
     rewrite_yaml_scalar,
 )
@@ -137,8 +138,7 @@ def _ota_key_competes(yaml_text: str, key: str) -> bool:
     ota_key = read_ota_encryption_key(yaml_text)
     return (
         ota_key is not None
-        and bool(_strip_yaml_quotes(ota_key))
-        and not is_indirected_scalar(ota_key)
+        and is_plain_literal_scalar(ota_key)
         and not _literal_key_matches(ota_key, key)
     )
 
