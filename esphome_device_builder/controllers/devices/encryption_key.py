@@ -121,6 +121,7 @@ def describe_indirected_key(verdict: IndirectedKeyVerdict) -> str:
     """Why an indirected api key was left alone, as a lowercase clause with no trailing period."""
     prefix = "the key is provided via !secret, !include, or a substitution"
     return {
+        IndirectedKeyVerdict.MATCHES: "",
         IndirectedKeyVerdict.DIFFERS: f"{prefix} and resolves to a different value",
         IndirectedKeyVerdict.UNRESOLVED: f"{prefix} that could not be resolved",
         IndirectedKeyVerdict.OTA_DIFFERS: (

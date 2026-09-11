@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
+from esphome_device_builder.controllers.devices import encryption_key_lookup
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
@@ -180,6 +182,32 @@ ota:
     encryption:
       key: "{OTHER_KEY}"
 """
+
+
+async def test_set_encryption_key_stalled_resolve_reads_as_unresolved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A loader stuck past the ceiling (a cold package clone) keeps the key for a later attempt."""
+    monkeypatch.setattr(encryption_key_lookup, "ESPHOME_CONFIG_TIMEOUT", 0.05)
+
+    async def stalled(controller, configuration):
+        await asyncio.sleep(0.3)
+        return tmp_path / "kitchen.yaml", None
+
+    monkeypatch.setattr(encryption_key_lookup, "load_config", stalled)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    _configure(ctrl, tmp_path, SECRET_KEY_YAML)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "could not be resolved" in result["reason"]
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+    assert "exceeded 0.05s" in caplog.text
 
 
 async def test_set_encryption_key_matching_secret_next_to_a_differing_ota_key_is_refused(

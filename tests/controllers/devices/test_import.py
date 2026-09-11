@@ -553,14 +553,16 @@ async def test_import_device_pending_key_skips_package_resolve(
     assert f'    key: "{PENDING_KEY}"\n' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
 
 
+OTHER_KEY = "b3RoZXJrZXlvdGhlcmtleW90aGVya2V5b3RoZXJrZXlvdA=="
+
+
 @pytest.mark.parametrize(
-    ("secret", "fragment"),
+    ("secret", "ota_key", "fragment"),
     [
-        pytest.param(PENDING_KEY, "", id="matches"),
-        pytest.param(
-            "b3RoZXJrZXlvdGhlcmtleW90aGVya2V5b3RoZXJrZXlvdA==", "different value", id="differs"
-        ),
-        pytest.param(None, "could not be resolved", id="unresolved"),
+        pytest.param(PENDING_KEY, None, "", id="matches"),
+        pytest.param(OTHER_KEY, None, "different value", id="differs"),
+        pytest.param(None, None, "could not be resolved", id="unresolved"),
+        pytest.param(PENDING_KEY, OTHER_KEY, "OTA encryption key differs", id="ota_differs"),
     ],
 )
 async def test_import_device_full_config_indirected_key_is_resolved_never_rewritten(
@@ -568,12 +570,15 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
     secret: str | None,
+    ota_key: str | None,
     fragment: str,
 ) -> None:
     """An upstream ``!secret`` key is compared after resolving; only a match consumes the key."""
+    yaml_text = "api:\n  encryption:\n    key: !secret api_key\n"
+    if ota_key is not None:
+        yaml_text += f'ota:\n  - platform: esphome\n    encryption:\n      key: "{ota_key}"\n'
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
-        _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
+        "esphome.components.dashboard_import.import_config", _full_config_stub(yaml_text)
     )
     if secret is not None:
         (tmp_path / "secrets.yaml").write_text(f'api_key: "{secret}"\n', encoding="utf-8")
@@ -591,6 +596,7 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
     if fragment:
         assert "!secret" in result["warning"] and fragment in result["warning"]
         assert "stays stored" in result["warning"]
+        assert ("cut Home Assistant off" in result["warning"]) is (ota_key is None)
         assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
     else:
         assert "warning" not in result

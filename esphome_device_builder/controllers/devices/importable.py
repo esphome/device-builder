@@ -380,11 +380,7 @@ async def _splice_pending_key_or_cleanup(
         return None
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if existing is not None and is_indirected_scalar(existing):
-        verdict = await judge_indirected_key(controller, path, key)
-        if verdict is IndirectedKeyVerdict.MATCHES:
-            return None
-        reason = describe_indirected_key(verdict)
-        return f"{reason[0].upper()}{reason[1:]}.{not_applied_tail}"
+        return await _indirected_key_warning(controller, path, key, not_applied_tail)
     spliced, refusal = _splice_pending_key(content, key)
     if spliced is None:
         return refusal + not_applied_tail
@@ -406,6 +402,24 @@ async def _splice_pending_key_or_cleanup(
         await run_in_executor(cleanup)
         raise
     return None
+
+
+async def _indirected_key_warning(
+    controller: DevicesController, path: Path, key: str, not_applied_tail: str
+) -> str | None:
+    """Warn for an indirected api key that doesn't resolve to *key*; ``None`` when it does."""
+    verdict = await judge_indirected_key(controller, path, key)
+    if verdict is IndirectedKeyVerdict.MATCHES:
+        return None
+    reason = describe_indirected_key(verdict)
+    sentence = f"{reason[0].upper()}{reason[1:]}."
+    if verdict is IndirectedKeyVerdict.OTA_DIFFERS:
+        # The api key is right; only the OTA key needs the user's hand.
+        return (
+            f"{sentence} The key Home Assistant provisioned stays stored; make the "
+            "OTA encryption key match before installing."
+        )
+    return sentence + not_applied_tail
 
 
 def _splice_pending_key(content: str, key: str) -> tuple[str | None, str]:

@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.device_yaml import (
+    ESPHOME_CONFIG_TIMEOUT,
     get_api_port,
     get_resolved_api_encryption_key,
     get_resolved_encryption_key,
     get_resolved_ota_encryption_key,
 )
 from .resolve import load_config, resolve_config_subprocess
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,7 +39,19 @@ async def get_resolved_api_and_ota_keys(
     controller: DevicesController, configuration: str | Path
 ) -> tuple[str, str]:
     """Resolve ``(api key, OTA key)`` in process, never via a subprocess; ``""`` if unresolved."""
-    _, config = await load_config(controller, configuration)
+    try:
+        # Same ceiling as the subprocess: a never-cloned package makes the loader
+        # fetch it, and git carries no timeout of its own.
+        _, config = await asyncio.wait_for(
+            load_config(controller, configuration), timeout=ESPHOME_CONFIG_TIMEOUT
+        )
+    except TimeoutError:
+        _LOGGER.warning(
+            "In-process resolve of %s exceeded %ss; keys treated as unresolved",
+            configuration,
+            ESPHOME_CONFIG_TIMEOUT,
+        )
+        return "", ""
     return get_resolved_api_encryption_key(config), get_resolved_ota_encryption_key(config)
 
 
