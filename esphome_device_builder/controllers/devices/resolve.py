@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,8 @@ from ...helpers.device_yaml import (
     resolution_incomplete,
     run_esphome_config,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..config.settings import DashboardSettings
@@ -30,6 +33,11 @@ async def resolve_config(controller: DevicesController, path: Path) -> dict[Any,
             load_config(controller, path), timeout=ESPHOME_CONFIG_TIMEOUT
         )
     except TimeoutError:
+        _LOGGER.warning(
+            "In-process resolve of %s exceeded %ss; falling back to esphome config",
+            path,
+            ESPHOME_CONFIG_TIMEOUT,
+        )
         config = None
     if resolution_incomplete(config):
         config = await resolve_config_subprocess(controller, path)

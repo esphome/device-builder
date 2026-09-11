@@ -114,6 +114,7 @@ async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A loader stuck past the ceiling (a cold package clone) hands off to the subprocess."""
     subprocess = AsyncMock(return_value=RESOLVED)
@@ -130,6 +131,7 @@ async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
 
     assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") == RESOLVED
     subprocess.assert_awaited_once()
+    assert "exceeded 0.05s; falling back to esphome config" in caplog.text
 
 
 async def test_resolve_config_subprocess_skips_the_executor_for_a_path(
