@@ -186,10 +186,30 @@ async def test_set_encryption_key_matching_secret_next_to_a_differing_ota_key_is
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A differing literal OTA key refuses before the secret is even resolved."""
+    """A differing literal OTA key next to a matching secret is refused, nothing written."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
     yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key differs" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_matching_secret_next_to_a_package_ota_key_is_refused(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An OTA key the raw file can't show (package-merged) is still compared after resolving."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = SECRET_KEY_YAML + (
+        "\npackages:\n  ota_pkg:\n    ota:\n      - platform: esphome\n"
+        f'        encryption:\n          key: "{OTHER_KEY}"\n'
+    )
     _configure(ctrl, tmp_path, yaml_text)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)

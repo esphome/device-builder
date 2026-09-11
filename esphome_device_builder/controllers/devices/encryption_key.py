@@ -16,13 +16,12 @@ from ...helpers.yaml import (
     api_key_settled,
     component_block_present,
     is_indirected_scalar,
-    ota_key_competes,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
-from .encryption_key_lookup import get_resolved_api_key
+from .encryption_key_lookup import get_resolved_encryption_keys
 from .mutations_simple import _read_device_yaml_or_raise
 
 if TYPE_CHECKING:
@@ -112,7 +111,7 @@ async def _apply_to_device(
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if existing is not None and is_indirected_scalar(existing):
-        return await _settle_indirected_key(controller, configuration, content, key)
+        return await _settle_indirected_key(controller, configuration, key)
     if api_key_settled(content, key):
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
@@ -153,15 +152,15 @@ async def _apply_to_device(
 
 
 async def _settle_indirected_key(
-    controller: DevicesController, configuration: str, content: str, key: str
+    controller: DevicesController, configuration: str, key: str
 ) -> tuple[KeyHandoffResult, str]:
     """Never rewrite a ``!secret`` / ``${…}`` api key; UNCHANGED only when it resolves to *key*."""
-    prefix = "the key is provided via !secret or a substitution"
-    if ota_key_competes(content, key):
-        reason = f"{prefix} and the explicit OTA encryption key differs from it"
-        return KeyHandoffResult.NOT_WRITABLE, reason
-    resolved = await get_resolved_api_key(controller, configuration)
+    prefix = "the key is provided via !secret, !include, or a substitution"
+    resolved, ota_resolved = await get_resolved_encryption_keys(controller, configuration)
     if resolved == key:
+        if ota_resolved and ota_resolved != key:
+            reason = f"{prefix} and the resolved OTA encryption key differs from it"
+            return KeyHandoffResult.NOT_WRITABLE, reason
         return KeyHandoffResult.UNCHANGED, ""
     if not resolved:
         return (

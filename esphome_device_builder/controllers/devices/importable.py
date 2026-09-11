@@ -420,7 +420,8 @@ def _splice_pending_key(content: str, key: str) -> tuple[str | None, str]:
         return None, str(exc)
     if spliced == content:
         return None, (
-            "The imported config supplies its own API encryption key via !secret or a substitution."
+            "The imported config supplies its own API encryption key via !secret, !include, or a "
+            "substitution."
         )
     if not api_key_settled(spliced, key):
         return None, "The imported config's shape defeated the key splice."

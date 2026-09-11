@@ -6,12 +6,12 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
-    ota_key_competes,
     read_ota_encryption_key,
     rewrite_api_encryption_key,
     rewrite_own_ota_encryption_key,
     upsert_api_encryption_key,
 )
+from esphome_device_builder.helpers.yaml.api_encryption import _ota_key_competes
 from esphome_device_builder.helpers.yaml.ota_encryption import drop_ota_encryption_key
 
 NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
@@ -272,4 +272,4 @@ def test_empty_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
     ],
 )
 def test_ota_key_competes(yaml_text: str, expected: bool) -> None:
-    assert ota_key_competes(yaml_text, "k") is expected
+    assert _ota_key_competes(yaml_text, "k") is expected

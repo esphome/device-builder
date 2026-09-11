@@ -10,6 +10,7 @@ from ...helpers.device_yaml import (
     get_api_port,
     get_resolved_api_encryption_key,
     get_resolved_encryption_key,
+    get_resolved_ota_encryption_key,
     load_device_yaml,
     run_esphome_config,
 )
@@ -28,11 +29,13 @@ async def get_encryption_key(controller: DevicesController, configuration: str) 
     return {"key": key}
 
 
-async def get_resolved_api_key(controller: DevicesController, configuration: str) -> str:
-    """Resolve the api key in process, never via a subprocess; ``""`` if none or unresolved."""
+async def get_resolved_encryption_keys(
+    controller: DevicesController, configuration: str
+) -> tuple[str, str]:
+    """Resolve ``(api key, OTA key)`` in process, never via a subprocess; ``""`` if unresolved."""
     path = controller._db.settings.rel_path(configuration)
     config = await run_in_executor(load_device_yaml, path)
-    return get_resolved_api_encryption_key(config)
+    return get_resolved_api_encryption_key(config), get_resolved_ota_encryption_key(config)
 
 
 async def get_api_connection(controller: DevicesController, configuration: str) -> tuple[str, int]:

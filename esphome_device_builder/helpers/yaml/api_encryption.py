@@ -34,17 +34,6 @@ def api_key_settled(yaml_text: str, key: str) -> bool:
     )
 
 
-def ota_key_competes(yaml_text: str, key: str) -> bool:
-    """Whether a non-empty literal OTA key differs from *key*; empty and indirected ones don't."""
-    ota_key = read_ota_encryption_key(yaml_text)
-    return (
-        ota_key is not None
-        and bool(_strip_yaml_quotes(ota_key))
-        and not is_indirected_scalar(ota_key)
-        and not _literal_key_matches(ota_key, key)
-    )
-
-
 def generate_api_encryption_key() -> str:
     """Return a fresh 32-byte ESPHome API encryption key, base64-encoded."""
     return base64.b64encode(secrets.token_bytes(32)).decode()
@@ -63,7 +52,7 @@ def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
         return rewrite_api_encryption_key(yaml_text, new_key)
     # An empty ``key:`` is a runtime-provisioned shape like a bare ``encryption:``;
     # the device then requires the OTA platform's own key, which must not change.
-    if ota_key_competes(yaml_text, new_key):
+    if _ota_key_competes(yaml_text, new_key):
         raise YamlUpsertNotSupportedError(
             "the config gives the OTA platform its own encryption key, which the "
             "device requires, so no api key was written."
@@ -130,7 +119,7 @@ def _follow_ota_key(yaml_text: str, new_key: str) -> str:
         return yaml_text
     if is_indirected_scalar(ota_key):
         raise YamlUpsertNotSupportedError(
-            "the OTA encryption key is provided via !secret or a substitution "
+            "the OTA encryption key is provided via !secret, !include, or a substitution "
             "and must match the api encryption key."
         )
     # Dropped, not copied: with a static api key the firmware encrypts OTA with
@@ -141,6 +130,17 @@ def _follow_ota_key(yaml_text: str, new_key: str) -> str:
 def _literal_key_matches(raw: str | None, key: str) -> bool:
     """Whether the raw YAML scalar *raw* is the literal *key*."""
     return raw is not None and _strip_yaml_quotes(raw) == key
+
+
+def _ota_key_competes(yaml_text: str, key: str) -> bool:
+    """Whether a non-empty literal OTA key differs from *key*; empty and indirected ones don't."""
+    ota_key = read_ota_encryption_key(yaml_text)
+    return (
+        ota_key is not None
+        and bool(_strip_yaml_quotes(ota_key))
+        and not is_indirected_scalar(ota_key)
+        and not _literal_key_matches(ota_key, key)
+    )
 
 
 def _ota_key_matches(yaml_text: str, key: str) -> bool:
