@@ -3853,6 +3853,7 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
         pytest.param(None, True, id="missing"),
         pytest.param({"packages": {"v": "github://x/y.yaml"}}, True, id="unmerged_package"),
         pytest.param({"ota": "${ota}"}, True, id="substituted_block"),
+        pytest.param({"ota": ["${ota_entry}"]}, True, id="substituted_list_item"),
         pytest.param({"ota": [{"platform": "esphome"}]}, False, id="plain_list"),
         pytest.param({"esphome": {"name": "k"}}, False, id="no_ota"),
     ],

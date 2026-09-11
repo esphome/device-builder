@@ -557,7 +557,7 @@ def ota_block_unreadable(config: dict | None) -> bool:
     if not isinstance(config, dict):
         return True
     ota = config.get(const.CONF_OTA)
-    return _has_packages_block(config) or isinstance(ota, str) or _holds_deferred_marker(ota)
+    return _has_packages_block(config) or _is_substituted(ota) or _holds_deferred_marker(ota)
 
 
 def _has_packages_block(config: dict) -> bool:
@@ -569,13 +569,13 @@ def _has_substituted_block(config: dict) -> bool:
     """Whether a top-level block, or an item of one, is still a substitution string."""
     # Deferred detection covers block presence only; a value nested inside a
     # block is a caller's own concern (see importable's OTA guard).
-    for value in config.values():
-        items = value if isinstance(value, list) else [value]
-        if any(
-            isinstance(item, str) and _UNRESOLVED_SUBSTITUTION_RE.search(item) for item in items
-        ):
-            return True
-    return False
+    return any(_is_substituted(value) for value in config.values())
+
+
+def _is_substituted(value: object) -> bool:
+    """Whether *value*, or an item of it when it is a list, is still a substitution string."""
+    items = value if isinstance(value, list) else [value]
+    return any(isinstance(item, str) and _UNRESOLVED_SUBSTITUTION_RE.search(item) for item in items)
 
 
 def _holds_deferred_marker(value: object) -> bool:
