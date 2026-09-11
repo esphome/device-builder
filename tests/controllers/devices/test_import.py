@@ -663,6 +663,39 @@ async def test_import_device_full_config_indirected_key_stall_is_bounded_by_the_
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
+async def test_import_device_full_config_keeps_a_key_pushed_while_the_secret_was_judged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A push that lands mid-judgement is newer than the matched key and must survive the pop."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
+    )
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{PENDING_KEY}"\n', encoding="utf-8")
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    real_judge = importable.judge_indirected_key
+
+    async def judge_then_push(*args, **kwargs):
+        verdict = await real_judge(*args, **kwargs)
+        ctrl._pending_keys.set("kitchen", OTHER_KEY)
+        return verdict
+
+    monkeypatch.setattr(importable, "judge_indirected_key", judge_then_push)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "warning" not in result
+    assert ctrl._pending_keys.get("kitchen") == {"key": OTHER_KEY}
+
+
 async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

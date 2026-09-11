@@ -553,11 +553,24 @@ def resolution_incomplete(config: dict | None) -> bool:
 
 
 def ota_block_unreadable(config: dict | None) -> bool:
-    """Whether an OTA key may hide in unmerged packages or a deferred ``ota:`` block."""
+    """Whether an OTA key may hide where the loader didn't reach: packages or the ``ota:`` block."""
     if not isinstance(config, dict):
         return True
+    packages = config.get(CONF_PACKAGES)
     ota = config.get(const.CONF_OTA)
-    return _has_packages_block(config) or _is_substituted(ota) or _holds_deferred_marker(ota)
+    entries = ota if isinstance(ota, list) else [ota]
+    return (
+        _has_packages_block(config)
+        or _is_substituted(packages)
+        or _holds_deferred_marker(packages)
+        or _is_substituted(ota)
+        or _holds_deferred_marker(ota)
+        # An entry whose platform is still a substitution may be the esphome one.
+        or any(
+            isinstance(entry, dict) and _is_substituted(entry.get(const.CONF_PLATFORM))
+            for entry in entries
+        )
+    )
 
 
 def _has_packages_block(config: dict) -> bool:
