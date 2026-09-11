@@ -6,7 +6,7 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
-    ota_key_matches,
+    ota_key_competes,
     read_ota_encryption_key,
     rewrite_api_encryption_key,
     rewrite_own_ota_encryption_key,
@@ -263,11 +263,13 @@ def test_empty_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
 @pytest.mark.parametrize(
     ("yaml_text", "expected"),
     [
-        pytest.param(API, True, id="no_ota_key"),
-        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', '"k"'), True, id="literal_matches"),
-        pytest.param(LIST_FORM, False, id="literal_differs"),
-        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', "!secret k"), True, id="indirected"),
+        pytest.param(API, False, id="no_ota_key"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', '"k"'), False, id="literal_matches"),
+        pytest.param(LIST_FORM, True, id="literal_differs"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', "!secret k"), False, id="indirected"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', ""), False, id="empty"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', '""'), False, id="quoted_empty"),
     ],
 )
-def test_ota_key_matches(yaml_text: str, expected: bool) -> None:
-    assert ota_key_matches(yaml_text, "k") is expected
+def test_ota_key_competes(yaml_text: str, expected: bool) -> None:
+    assert ota_key_competes(yaml_text, "k") is expected

@@ -16,7 +16,7 @@ from ...helpers.yaml import (
     api_key_settled,
     component_block_present,
     is_indirected_scalar,
-    ota_key_matches,
+    ota_key_competes,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
@@ -157,7 +157,7 @@ async def _settle_indirected_key(
 ) -> tuple[KeyHandoffResult, str]:
     """Never rewrite a ``!secret`` / ``${…}`` api key; UNCHANGED only when it resolves to *key*."""
     prefix = "the key is provided via !secret or a substitution"
-    if not ota_key_matches(content, key):
+    if ota_key_competes(content, key):
         reason = f"{prefix} and the explicit OTA encryption key differs from it"
         return KeyHandoffResult.NOT_WRITABLE, reason
     resolved = await get_resolved_api_key(controller, configuration)

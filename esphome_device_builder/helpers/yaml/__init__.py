@@ -48,7 +48,7 @@ from .ap_ssid import rewrite_fallback_ap_ssid as rewrite_fallback_ap_ssid
 from .api_encryption import API_ENCRYPTION_KEY_PATH as API_ENCRYPTION_KEY_PATH
 from .api_encryption import api_key_settled as api_key_settled
 from .api_encryption import generate_api_encryption_key as generate_api_encryption_key
-from .api_encryption import ota_key_matches as ota_key_matches
+from .api_encryption import ota_key_competes as ota_key_competes
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
 from .api_encryption import rewrite_own_ota_encryption_key as rewrite_own_ota_encryption_key
 from .api_encryption import upsert_api_encryption_key as upsert_api_encryption_key

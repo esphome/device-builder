@@ -199,6 +199,23 @@ async def test_set_encryption_key_matching_secret_next_to_a_differing_ota_key_is
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
+async def test_set_encryption_key_matching_secret_next_to_an_empty_ota_key_is_unchanged(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An empty OTA ``key:`` inherits the api key, so nothing competes and nothing is written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    yaml_text = yaml_text.replace(f'key: "{OTHER_KEY}"', "key:", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
 async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
