@@ -11,6 +11,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_own_ota_encryption_key,
     upsert_api_encryption_key,
 )
+from esphome_device_builder.helpers.yaml.api_encryption import _ota_key_competes
 from esphome_device_builder.helpers.yaml.ota_encryption import drop_ota_encryption_key
 
 NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
@@ -257,3 +258,18 @@ def test_empty_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
     yaml_text = 'api:\n  encryption:\n    key: ""\n\n' + ota
     with pytest.raises(YamlUpsertNotSupportedError, match="own encryption key"):
         upsert_api_encryption_key(yaml_text, NEW)
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(API, False, id="no_ota_key"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', '"k"'), False, id="literal_matches"),
+        pytest.param(LIST_FORM, True, id="literal_differs"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', "!secret k"), False, id="indirected"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', ""), False, id="empty"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', '""'), False, id="quoted_empty"),
+    ],
+)
+def test_ota_key_competes(yaml_text: str, expected: bool) -> None:
+    assert _ota_key_competes(yaml_text, "k") is expected

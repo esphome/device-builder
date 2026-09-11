@@ -123,20 +123,48 @@ async def test_set_encryption_key_refuses_resolved_apiless_configuration(
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
-async def test_set_encryption_key_refuses_secret_indirection(
+SECRET_KEY_YAML = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n"
+SUBSTITUTED_KEY_YAML = (
+    f'substitutions:\n  api_key: "{KEY}"\n\nesphome:\n  name: kitchen\n\n'
+    "api:\n  encryption:\n    key: ${api_key}\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "secret", "expected", "fragment"),
+    [
+        pytest.param(SECRET_KEY_YAML, KEY, "unchanged", "", id="secret_matches"),
+        pytest.param(SUBSTITUTED_KEY_YAML, None, "unchanged", "", id="substitution_matches"),
+        pytest.param(SECRET_KEY_YAML, OTHER_KEY, "not_writable", "different value", id="differs"),
+        pytest.param(SECRET_KEY_YAML, None, "not_writable", "could not be resolved", id="missing"),
+    ],
+)
+async def test_set_encryption_key_indirected_key_is_resolved_never_rewritten(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
+    yaml_text: str,
+    secret: str | None,
+    expected: str,
+    fragment: str,
 ) -> None:
-    """A ``!secret`` key is user-managed material; refuse and report."""
+    """An indirected key settles only by resolving to the pushed key; the file is never touched."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
-    yaml_text = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n"
+    if secret is not None:
+        (tmp_path / "secrets.yaml").write_text(f'api_key: "{secret}"\n', encoding="utf-8")
     _configure(ctrl, tmp_path, yaml_text)
+    ctrl._pending_keys.set("kitchen", KEY, "")
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
-    assert result["result"] == "not_writable"
-    assert "!secret" in result["reason"]
+    assert result["result"] == expected
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    if expected == "unchanged":
+        assert "reason" not in result
+        assert ctrl._pending_keys.get("kitchen") is None
+    else:
+        assert "!secret" in result["reason"]
+        assert fragment in result["reason"]
+        assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
 OTA_KEY_YAML = f"""\
@@ -152,6 +180,88 @@ ota:
     encryption:
       key: "{OTHER_KEY}"
 """
+
+
+async def test_set_encryption_key_matching_secret_next_to_a_differing_ota_key_is_refused(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A differing literal OTA key next to a matching secret is refused, nothing written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key differs" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_matching_secret_next_to_a_package_ota_key_is_refused(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An OTA key the raw file can't show (package-merged) is still compared after resolving."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = SECRET_KEY_YAML + (
+        "\npackages:\n  ota_pkg:\n    ota:\n      - platform: esphome\n"
+        f'        encryption:\n          key: "{OTHER_KEY}"\n'
+    )
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key differs" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+@pytest.mark.parametrize(
+    ("ota_secret", "expected"),
+    [
+        pytest.param(KEY, "unchanged", id="same"),
+        pytest.param(OTHER_KEY, "not_writable", id="differs"),
+    ],
+)
+async def test_set_encryption_key_indirected_ota_key_is_resolved_next_to_a_matching_secret(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    ota_secret: str,
+    expected: str,
+) -> None:
+    """An indirected OTA key is compared after resolving, not deferred to esphome."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(
+        f'api_key: "{KEY}"\nota_key: "{ota_secret}"\n', encoding="utf-8"
+    )
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    yaml_text = yaml_text.replace(f'key: "{OTHER_KEY}"', "key: !secret ota_key", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == expected
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_matching_secret_next_to_an_empty_ota_key_is_unchanged(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An empty OTA ``key:`` inherits the api key, so nothing competes and nothing is written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    yaml_text = yaml_text.replace(f'key: "{OTHER_KEY}"', "key:", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
 async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(

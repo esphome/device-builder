@@ -885,11 +885,14 @@ def get_resolved_api_encryption_key(config: dict | None) -> str:
     return _resolve_key(config, get_api_encryption_key(config))
 
 
+def get_resolved_ota_encryption_key(config: dict | None) -> str:
+    """Esphome OTA entry's own key with ``${var}`` resolved; ``""`` if absent or unresolved."""
+    return _resolve_key(config, get_ota_encryption_key(config))
+
+
 def get_resolved_encryption_key(config: dict | None) -> str:
     """Return the device's one key, api or esphome OTA, ``${var}`` resolved; ``""`` if none."""
-    return get_resolved_api_encryption_key(config) or _resolve_key(
-        config, get_ota_encryption_key(config)
-    )
+    return get_resolved_api_encryption_key(config) or get_resolved_ota_encryption_key(config)
 
 
 def _resolve_key(config: dict | None, key: str) -> str:

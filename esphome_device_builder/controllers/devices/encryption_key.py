@@ -15,11 +15,13 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     api_key_settled,
     component_block_present,
+    is_indirected_scalar,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
+from .encryption_key_lookup import get_resolved_api_and_ota_keys
 from .mutations_simple import _read_device_yaml_or_raise
 
 if TYPE_CHECKING:
@@ -29,6 +31,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _KEY_BYTES = 32
+_KEPT_FOR_LATER = "the key was kept for a later attempt"
 
 
 class KeyHandoffResult(StrEnum):
@@ -43,13 +46,7 @@ class KeyHandoffResult(StrEnum):
 async def set_encryption_key(
     controller: DevicesController, *, name: str, key: str, mac: str = ""
 ) -> dict[str, Any]:
-    """
-    Land an HA-provisioned key: splice into configured YAML(s) or stash for adoption.
-
-    The pushed key reflects what the device actually accepted, so an
-    existing literal is overwritten; indirections (``!secret`` /
-    ``${…}``) and API-less configurations are refused with a reason.
-    """
+    """Land an HA-provisioned key: splice into configured YAML(s) or stash for adoption."""
     _validate_key(key)
     normalized_mac = normalize_mac(mac)
     devices = _match_devices(controller, name, normalized_mac)
@@ -113,6 +110,8 @@ async def _apply_to_device(
     content = await _read_device_yaml_or_raise(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
+    if existing is not None and is_indirected_scalar(existing):
+        return await _settle_indirected_key(controller, configuration, key)
     if api_key_settled(content, key):
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
@@ -126,7 +125,7 @@ async def _apply_to_device(
                 "the resolved configuration does not enable the native API"
                 if has_api is False
                 else "the configuration could not be resolved to confirm the "
-                "native API; the key was kept for a later attempt"
+                f"native API; {_KEPT_FOR_LATER}"
             )
             return KeyHandoffResult.NOT_WRITABLE, reason
 
@@ -134,9 +133,6 @@ async def _apply_to_device(
         new_content = upsert_api_encryption_key(content, key)
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
-    if new_content == content:
-        return KeyHandoffResult.NOT_WRITABLE, "the key is provided via !secret or a substitution"
-
     if not api_key_settled(new_content, key):
         raise CommandError(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
@@ -147,15 +143,34 @@ async def _apply_to_device(
             configuration, new_content, action="update encryption key"
         )
     except (TimeoutError, ValidatorUnavailableError):
-        reason = (
-            "the rewritten configuration could not be validated in time; "
-            "the key was kept for a later attempt"
-        )
+        reason = f"the rewritten configuration could not be validated in time; {_KEPT_FOR_LATER}"
         return KeyHandoffResult.NOT_WRITABLE, reason
     await controller._persist_yaml_mutation(
         configuration, new_content, message=f"Update API encryption key in {configuration}"
     )
     return KeyHandoffResult.UPDATED, ""
+
+
+async def _settle_indirected_key(
+    controller: DevicesController, configuration: str, key: str
+) -> tuple[KeyHandoffResult, str]:
+    """Never rewrite a ``!secret`` / ``${…}`` api key; UNCHANGED only when it resolves to *key*."""
+    prefix = "the key is provided via !secret, !include, or a substitution"
+    resolved, ota_resolved = await get_resolved_api_and_ota_keys(controller, configuration)
+    if resolved == key:
+        if ota_resolved and ota_resolved != key:
+            reason = (
+                f"{prefix} and already resolves to the pushed key, but the resolved "
+                "OTA encryption key differs from it"
+            )
+            return KeyHandoffResult.NOT_WRITABLE, reason
+        return KeyHandoffResult.UNCHANGED, ""
+    if not resolved:
+        return (
+            KeyHandoffResult.NOT_WRITABLE,
+            f"{prefix} that could not be resolved; {_KEPT_FOR_LATER}",
+        )
+    return KeyHandoffResult.NOT_WRITABLE, f"{prefix} and resolves to a different value"
 
 
 async def _resolved_config_has_api(
