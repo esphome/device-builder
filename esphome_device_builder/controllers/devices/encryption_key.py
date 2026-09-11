@@ -29,6 +29,7 @@ from .resolve import resolve_config_subprocess
 
 if TYPE_CHECKING:
     from ...models import Device
+    from ..config.settings import DashboardSettings
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
@@ -160,8 +161,7 @@ async def _resolved_config_has_api(
     controller: DevicesController, configuration: str
 ) -> bool | None:
     """Whether ``esphome config`` sees ``api:``; a no-api verdict is kept per file identity."""
-    path = await run_in_executor(controller._db.settings.rel_path, configuration)
-    identity = await run_in_executor(_file_identity, path)
+    path, identity = await run_in_executor(_locate_and_stat, controller._db.settings, configuration)
     memo = controller.state.apiless_resolves
     if identity is not None and memo.get(configuration) == identity:
         return False
@@ -176,13 +176,16 @@ async def _resolved_config_has_api(
     return has_api
 
 
-def _file_identity(path: Path) -> tuple[int, int] | None:
-    """``(mtime_ns, size)`` of *path*, ``None`` when it can't be stat'ed."""
+def _locate_and_stat(
+    settings: DashboardSettings, configuration: str
+) -> tuple[Path, tuple[int, int] | None]:
+    """Resolve *configuration* and stat it in one hop; identity is ``None`` when the stat fails."""
+    path = settings.rel_path(configuration)
     try:
         st = path.stat()
     except OSError:
-        return None
-    return st.st_mtime_ns, st.st_size
+        return path, None
+    return path, (st.st_mtime_ns, st.st_size)
 
 
 async def _settle_indirected_key(

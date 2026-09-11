@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     get_api_port,
     get_resolved_api_encryption_key,
@@ -22,9 +21,9 @@ async def get_encryption_key(controller: DevicesController, configuration: str) 
     # A key behind a Jinja-templated package or an ``!include`` resolves only out of process;
     # an infra fault and a keyless config both collapse to the ``""`` the UI reads as
     # "open the editor and check".
-    path = await run_in_executor(controller._db.settings.rel_path, configuration)
-    key = get_resolved_encryption_key(await load_config(controller, path)) or (
-        get_resolved_encryption_key(await resolve_config_subprocess(controller, path))
+    path, config = await load_config(controller, configuration)
+    key = get_resolved_encryption_key(config) or get_resolved_encryption_key(
+        await resolve_config_subprocess(controller, path)
     )
     return {"key": key}
 
@@ -33,7 +32,7 @@ async def get_resolved_api_and_ota_keys(
     controller: DevicesController, configuration: str
 ) -> tuple[str, str]:
     """Resolve ``(api key, OTA key)`` in process, never via a subprocess; ``""`` if unresolved."""
-    config = await load_config(controller, configuration)
+    _, config = await load_config(controller, configuration)
     return get_resolved_api_encryption_key(config), get_resolved_ota_encryption_key(config)
 
 
@@ -50,7 +49,7 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
     unparsable so the caller records a miss instead of dialing a doomed
     plaintext/default-port connection it can't have resolved correctly.
     """
-    config = await load_config(controller, configuration)
+    _, config = await load_config(controller, configuration)
     if config is None:
         raise ValueError(f"could not load YAML for {configuration}")
     return get_resolved_api_encryption_key(config), get_api_port(config)
