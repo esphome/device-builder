@@ -291,8 +291,10 @@ async def _finalize_adoption_key(
             warning = await _splice_pending_key_or_cleanup(
                 controller, path, content, fresh["key"], cleanup
             )
+        # A push that landed during the validate or write is newer than the
+        # key that was spliced; leave it for the next handoff.
         if warning is None:
-            controller._pending_keys.pop(name)
+            controller._pending_keys.pop_if(name, fresh["key"])
         return warning
     if encryption and not full_config_import:
         return await _mint_key_unless_package_encrypts(controller, path, content, cleanup)

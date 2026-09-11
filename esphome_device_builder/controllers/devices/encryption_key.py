@@ -72,7 +72,10 @@ async def set_encryption_key(
         outcomes.add(outcome)
         reason = reason or why
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
-        # Consume the pending entry only once the key actually landed.
+        # Consume the pending entry only once the key actually landed. Unconditional
+        # on purpose: the device is configured now, so an older entry is stale cruft
+        # to clear, which pop_if would keep; adoption is the side that must not drop
+        # a push that overtook the key it spliced.
         controller._pending_keys.pop(name)
     else:
         # Nothing accepted the key — keep a copy so a later push, the

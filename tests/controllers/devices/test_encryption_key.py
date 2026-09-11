@@ -765,6 +765,16 @@ async def test_pending_keys_store_set_same_entry_skips_save(tmp_path: Path) -> N
     assert saves == []
 
 
+async def test_pending_keys_store_pop_if_keeps_a_newer_key(tmp_path: Path) -> None:
+    """``pop_if`` consumes the entry only while it still holds the key that was handled."""
+    store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)
+    store.set("kitchen", KEY)
+    assert store.pop_if("kitchen", OTHER_KEY) is None
+    assert store.get("kitchen") == {"key": KEY}
+    assert store.pop_if("kitchen", KEY) == {"key": KEY}
+    assert store.pop_if("kitchen", KEY) is None
+
+
 async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:
     """RAM semantics: set overwrites, pop returns and clears, mac optional."""
     store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)

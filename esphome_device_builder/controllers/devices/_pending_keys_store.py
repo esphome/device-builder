@@ -91,6 +91,13 @@ class PendingKeysStore:
         self._state[name] = entry
         self._store.async_delay_save(self._snapshot, delay=_SAVE_DELAY)
 
+    def pop_if(self, name: str, key: str) -> dict[str, str] | None:
+        """Drop *name*'s entry only while it still holds *key*; a newer push survives."""
+        entry = self._state.get(name)
+        if entry is None or entry["key"] != key:
+            return None
+        return self.pop(name)
+
     def pop(self, name: str) -> dict[str, str] | None:
         """Drop and return *name*'s pending entry, or ``None``."""
         entry = self._state.pop(name, None)
