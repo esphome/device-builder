@@ -3817,12 +3817,22 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
-    ("config", "expected"),
+    ("yaml_text", "expected"),
     [
-        pytest.param(None, True, id="missing"),
-        pytest.param({"packages": {"v": "github://x/y.yaml"}}, True, id="unmerged"),
-        pytest.param({"esphome": {"name": "k"}}, False, id="merged"),
+        pytest.param("esphome:\n  name: k\n", False, id="plain"),
+        pytest.param(
+            "packages:\n  v:\n    api:\n\nesphome:\n  name: k\n", False, id="merged_package"
+        ),
+        pytest.param("packages:\n  v: github://x/y.yaml\n", True, id="unmerged_package"),
+        pytest.param("api: !include api.yaml\n", True, id="include_marker"),
+        pytest.param("packages:\n  v:\n    api: {}\napi: !remove\n", True, id="remove_marker"),
+        pytest.param("logger: !extend\n", True, id="extend_marker"),
+        pytest.param(": :", True, id="unparsable"),
     ],
 )
-def test_package_merge_incomplete(config: dict | None, expected: bool) -> None:
-    assert device_yaml.package_merge_incomplete(config) is expected
+def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -> None:
+    """Deferred markers and unmerged packages read as incomplete; a clean merge does not."""
+    (tmp_path / "k.yaml").write_text(yaml_text, encoding="utf-8")
+    (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
+    config = device_yaml.load_device_yaml(tmp_path / "k.yaml")
+    assert device_yaml.resolution_incomplete(config) is expected

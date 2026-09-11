@@ -33,8 +33,8 @@ from ._loading import (
     dotted_loaded_platforms,
     load_device_from_storage,
     load_device_yaml,
-    package_merge_incomplete,
     pending_changes_via_hash,
+    resolution_incomplete,
 )
 from ._mqtt_block import (
     SecretRef,
@@ -120,10 +120,10 @@ __all__ = [
     "has_top_level_block",
     "load_device_from_storage",
     "load_device_yaml",
-    "package_merge_incomplete",
     "parse_esphome_meta",
     "parse_platform_from_yaml",
     "pending_changes_via_hash",
+    "resolution_incomplete",
     "resolved_device_name",
     "retarget_fallback_ap_ssid",
     "run_esphome_config",

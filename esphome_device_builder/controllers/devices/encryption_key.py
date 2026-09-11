@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
+from ...helpers.device_yaml import config_has_top_level_block
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
@@ -22,7 +23,7 @@ from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
 from .mutations_simple import _read_device_yaml_or_raise
-from .resolve import resolve_config
+from .resolve import resolve_config_subprocess
 
 if TYPE_CHECKING:
     from ...models import Device
@@ -119,7 +120,10 @@ async def _apply_to_device(
         # over it), but a package device that has never been compiled is
         # indistinguishable from a config the user stripped api: out of
         # — resolve the config and let ground truth decide.
-        has_api = await _resolved_config_has_api(controller, configuration)
+        # The scanner's own in-process load already found no ``api:`` (that is
+        # what cleared ``api_enabled``), so only ``esphome config`` adds information.
+        config = await resolve_config_subprocess(controller, configuration)
+        has_api = None if config is None else config_has_top_level_block(config, "api")
         if not has_api:
             reason = (
                 "the resolved configuration does not enable the native API"
@@ -171,14 +175,6 @@ async def _settle_indirected_key(
             f"{prefix} that could not be resolved; {_KEPT_FOR_LATER}",
         )
     return KeyHandoffResult.NOT_WRITABLE, f"{prefix} and resolves to a different value"
-
-
-async def _resolved_config_has_api(
-    controller: DevicesController, configuration: str
-) -> bool | None:
-    """Whether the fully resolved config carries ``api:``; ``None`` when unresolvable."""
-    config = await resolve_config(controller, configuration)
-    return None if config is None else "api" in config
 
 
 def _validate_key(key: str) -> None:

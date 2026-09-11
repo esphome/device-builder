@@ -18,12 +18,10 @@ if TYPE_CHECKING:
 
 async def get_encryption_key(controller: DevicesController, configuration: str) -> dict[str, str]:
     """Return ``{"key": ...}`` for *configuration*, api key else esphome OTA key, ``""`` if none."""
-    key = get_resolved_encryption_key(await load_config(controller, configuration))
-    if not key:
-        # A key behind a Jinja-templated package or an ``!include`` resolves only out of process.
-        key = get_resolved_encryption_key(
-            await resolve_config_subprocess(controller, configuration)
-        )
+    # A key behind a Jinja-templated package or an ``!include`` resolves only out of process.
+    key = get_resolved_encryption_key(await load_config(controller, configuration)) or (
+        get_resolved_encryption_key(await resolve_config_subprocess(controller, configuration))
+    )
     return {"key": key}
 
 

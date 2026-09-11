@@ -312,10 +312,8 @@ async def _mint_key_unless_package_encrypts(
     package skips the mint for the same reason. Returns a user-facing
     warning when the adoption ships without a key.
     """
-    # Deliberately unbudgeted (run_esphome_config's own 60s ceiling
-    # governs): adoption is user-triggered, and whether the device
-    # gets a key at all outweighs dialog latency.
-    config = await resolve_config(controller, path.name)
+    # Unbudgeted: adoption is user-triggered, and getting a key beats dialog latency.
+    config = await resolve_config(controller, path)
     if config is None:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
         return (

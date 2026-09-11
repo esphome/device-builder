@@ -41,6 +41,8 @@ from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wire_secrets_writer
 
+ESPHOME_CONFIG_STUB_TARGET = "esphome_device_builder.controllers.devices.resolve.run_esphome_config"
+
 
 class _RecordingAddressCache:
     """

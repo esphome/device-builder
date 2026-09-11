@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from esphome import const, yaml_util
 from esphome.components.packages import resolve_packages
+from esphome.config_helpers import Extend, Remove
 from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
@@ -50,6 +51,8 @@ from ._parsing import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_DEFERRED_MARKERS = (yaml_util.IncludeFile, Remove, Extend)
 
 # ---------------------------------------------------------------------------
 # Device construction
@@ -516,7 +519,7 @@ def load_device_yaml(path: Path) -> dict | None:
     # content with no per-repo ``git fetch``. The legacy dashboard read
     # StorageJSON only and never resolved packages, so it did no git work here;
     # real builds refresh via the esphome CLI's own resolve.
-    if isinstance(config.get(CONF_PACKAGES), (dict, list)):
+    if _has_packages_block(config):
         try:
             config = resolve_packages(config)
         except Exception:
@@ -538,9 +541,25 @@ def load_device_yaml(path: Path) -> dict | None:
     return cast("dict[Any, Any] | None", config)
 
 
-def package_merge_incomplete(config: dict | None) -> bool:
-    """Whether *config* is missing or still carries an unmerged ``packages:`` block."""
-    return config is None or CONF_PACKAGES in config
+def resolution_incomplete(config: dict | None) -> bool:
+    """Whether the in-process load left work only ``esphome config`` can finish."""
+    return config is None or _has_packages_block(config) or _holds_deferred_marker(config)
+
+
+def _has_packages_block(config: dict) -> bool:
+    """Whether *config* carries a ``packages:`` block the loader would try to merge."""
+    return isinstance(config.get(CONF_PACKAGES), (dict, list))
+
+
+def _holds_deferred_marker(value: object) -> bool:
+    """Whether an ``!include`` / ``!remove`` / ``!extend`` marker survives anywhere in *value*."""
+    if isinstance(value, _DEFERRED_MARKERS):
+        return True
+    if isinstance(value, dict):
+        return any(_holds_deferred_marker(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_holds_deferred_marker(v) for v in value)
+    return False
 
 
 def compiled_config_has_ota_partition_access(configuration: str) -> bool:

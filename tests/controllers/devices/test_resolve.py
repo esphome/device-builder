@@ -10,17 +10,13 @@ import pytest
 from esphome_device_builder.controllers.devices.resolve import resolve_config
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 
-from .conftest import MakeControllerFactory
+from .conftest import ESPHOME_CONFIG_STUB_TARGET, MakeControllerFactory
 
 PLAIN_YAML = "esphome:\n  name: kitchen\n\napi:\n"
-UNMERGEABLE_PACKAGE_YAML = "packages:\n  v: github://x/y.yaml\n\nesphome:\n  name: kitchen\n"
 INLINE_PACKAGE_YAML = "packages:\n  v:\n    api:\n      port: 6054\n\nesphome:\n  name: kitchen\n"
-
-
-def _patch_subprocess(monkeypatch: pytest.MonkeyPatch, mock: AsyncMock) -> None:
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", mock
-    )
+UNMERGEABLE_PACKAGE_YAML = "packages:\n  v: github://x/y.yaml\n\nesphome:\n  name: kitchen\n"
+INCLUDED_API_YAML = "esphome:\n  name: kitchen\n\napi: !include api.yaml\n"
+RESOLVED = {"esphome": {"name": "kitchen"}, "api": {}}
 
 
 @pytest.mark.parametrize(
@@ -33,8 +29,9 @@ async def test_resolve_config_in_process_result_skips_the_subprocess(
     make_controller: MakeControllerFactory,
     yaml_text: str,
 ) -> None:
+    """A load with nothing deferred is the answer; ``esphome config`` never spawns."""
     subprocess = AsyncMock()
-    _patch_subprocess(monkeypatch, subprocess)
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
 
@@ -48,6 +45,7 @@ async def test_resolve_config_in_process_result_skips_the_subprocess(
     "yaml_text",
     [
         pytest.param(UNMERGEABLE_PACKAGE_YAML, id="unmerged_package"),
+        pytest.param(INCLUDED_API_YAML, id="deferred_include"),
         pytest.param(": :", id="unparsable"),
     ],
 )
@@ -57,38 +55,51 @@ async def test_resolve_config_falls_back_to_the_subprocess(
     make_controller: MakeControllerFactory,
     yaml_text: str,
 ) -> None:
-    subprocess = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "api": {}})
-    _patch_subprocess(monkeypatch, subprocess)
+    """Deferred work the loader can't finish hands the whole resolve to ``esphome config``."""
+    subprocess = AsyncMock(return_value=RESOLVED)
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
+    (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
 
-    config = await resolve_config(ctrl, "kitchen.yaml")
-
-    assert config == {"esphome": {"name": "kitchen"}, "api": {}}
+    assert await resolve_config(ctrl, "kitchen.yaml") == RESOLVED
     subprocess.assert_awaited_once()
 
 
 @pytest.mark.parametrize(
-    ("esphome_cmd", "subprocess"),
+    "mode",
     [
-        pytest.param([], AsyncMock(), id="no_cli"),
-        pytest.param(
-            ["esphome"], AsyncMock(side_effect=EsphomeConfigUnavailableError("x")), id="unavailable"
-        ),
-        pytest.param(["esphome"], AsyncMock(return_value=None), id="invalid"),
+        pytest.param("no_cli", id="no_cli"),
+        pytest.param("unavailable", id="unavailable"),
+        pytest.param("invalid", id="invalid"),
     ],
 )
 async def test_resolve_config_collapses_every_subprocess_failure_to_none(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    esphome_cmd: list[str],
-    subprocess: AsyncMock,
+    mode: str,
 ) -> None:
-    _patch_subprocess(monkeypatch, subprocess)
-    ctrl = make_controller(tmp_path, esphome_cmd=esphome_cmd)
+    """No CLI, an infra fault, and an invalid config all read as unresolvable."""
+    if mode == "unavailable":
+        subprocess = AsyncMock(side_effect=EsphomeConfigUnavailableError("x"))
+    else:
+        subprocess = AsyncMock(return_value=None)
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
+    ctrl = make_controller(tmp_path, esphome_cmd=[] if mode == "no_cli" else ["esphome"])
     (tmp_path / "kitchen.yaml").write_text(UNMERGEABLE_PACKAGE_YAML, encoding="utf-8")
 
     assert await resolve_config(ctrl, "kitchen.yaml") is None
-    if not esphome_cmd:
-        subprocess.assert_not_awaited()
+    assert subprocess.await_count == (0 if mode == "no_cli" else 1)
+
+
+async def test_resolve_config_accepts_a_path_the_caller_already_holds(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A ``Path`` is used as is instead of being re-resolved from its name."""
+    ctrl = make_controller(tmp_path, esphome_cmd=[])
+    path = tmp_path / "kitchen.yaml"
+    path.write_text(PLAIN_YAML, encoding="utf-8")
+
+    assert await resolve_config(ctrl, path) == {"esphome": {"name": "kitchen"}, "api": None}
