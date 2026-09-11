@@ -5,9 +5,11 @@ from __future__ import annotations
 import base64
 import logging
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import config_has_top_level_block
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
@@ -120,10 +122,7 @@ async def _apply_to_device(
         # over it), but a package device that has never been compiled is
         # indistinguishable from a config the user stripped api: out of
         # — resolve the config and let ground truth decide.
-        # The scanner's own in-process load already found no ``api:`` (that is
-        # what cleared ``api_enabled``), so only ``esphome config`` adds information.
-        config = await resolve_config_subprocess(controller, configuration)
-        has_api = None if config is None else config_has_top_level_block(config, "api")
+        has_api = await _resolved_config_has_api(controller, configuration)
         if not has_api:
             reason = (
                 "the resolved configuration does not enable the native API"
@@ -153,6 +152,41 @@ async def _apply_to_device(
         configuration, new_content, message=f"Update API encryption key in {configuration}"
     )
     return KeyHandoffResult.UPDATED, ""
+
+
+async def _resolved_config_has_api(
+    controller: DevicesController, configuration: str
+) -> bool | None:
+    """
+    ``esphome config``'s verdict on ``api:``; ``None`` when unresolvable.
+
+    The scanner's in-process load already cleared ``api_enabled``, so only the
+    subprocess adds information; a "no api" verdict is remembered per file
+    identity so a repeat push against an unchanged YAML doesn't respawn it.
+    """
+    path = await run_in_executor(controller._db.settings.rel_path, configuration)
+    identity = await run_in_executor(_file_identity, path)
+    memo = controller.state.apiless_resolves
+    if identity is not None and memo.get(configuration) == identity:
+        return False
+    config = await resolve_config_subprocess(controller, path)
+    if config is None:
+        return None
+    has_api = config_has_top_level_block(config, "api")
+    if has_api or identity is None:
+        memo.pop(configuration, None)
+    else:
+        memo[configuration] = identity
+    return has_api
+
+
+def _file_identity(path: Path) -> tuple[int, int] | None:
+    """``(mtime_ns, size)`` of *path*, ``None`` when it can't be stat'ed."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
 
 
 async def _settle_indirected_key(

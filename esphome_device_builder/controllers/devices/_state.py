@@ -107,3 +107,8 @@ class DevicesState:
     # without juggling full mDNS service-instance names.
     import_result: dict[str, AdoptableDevice] = field(default_factory=dict)
     ignored_devices: set[str] = field(default_factory=set)
+
+    # ``esphome config`` verdicts of "no api:" for the HA key handoff, keyed by
+    # configuration and stamped with the YAML's ``(mtime_ns, size)``; a repeat
+    # push against an unchanged file answers without a second spawn.
+    apiless_resolves: dict[str, tuple[int, int]] = field(default_factory=dict)

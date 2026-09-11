@@ -3833,6 +3833,9 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
             id="marker_inside_list",
         ),
         pytest.param("ota:\n  - platform: esphome\n    port: 3232\n", False, id="clean_list"),
+        pytest.param("api: ${api_block}\n", True, id="substituted_block"),
+        pytest.param("ota:\n  - ${ota_item}\n", True, id="substituted_list_item"),
+        pytest.param("esphome:\n  name: ${name}\n", False, id="substituted_scalar_inside"),
         pytest.param(": :", True, id="unparsable"),
     ],
 )

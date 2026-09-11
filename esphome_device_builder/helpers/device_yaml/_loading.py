@@ -543,12 +543,26 @@ def load_device_yaml(path: Path) -> dict | None:
 
 def resolution_incomplete(config: dict | None) -> bool:
     """Whether the in-process load left work only ``esphome config`` can finish."""
-    return config is None or _has_packages_block(config) or _holds_deferred_marker(config)
+    return (
+        config is None
+        or _has_packages_block(config)
+        or _holds_deferred_marker(config)
+        or _has_substituted_block(config)
+    )
 
 
 def _has_packages_block(config: dict) -> bool:
     """Whether *config* carries a ``packages:`` block the loader would try to merge."""
     return isinstance(config.get(CONF_PACKAGES), (dict, list))
+
+
+def _has_substituted_block(config: dict) -> bool:
+    """Whether a top-level block, or an item of one, is still a substitution string."""
+    for value in config.values():
+        items = value if isinstance(value, list) else [value]
+        if any(isinstance(item, str) and "$" in item for item in items):
+            return True
+    return False
 
 
 def _holds_deferred_marker(value: object) -> bool:
