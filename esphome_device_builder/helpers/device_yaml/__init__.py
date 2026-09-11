@@ -33,6 +33,7 @@ from ._loading import (
     dotted_loaded_platforms,
     load_device_from_storage,
     load_device_yaml,
+    ota_block_unreadable,
     pending_changes_via_hash,
     resolution_incomplete,
 )
@@ -122,6 +123,7 @@ __all__ = [
     "has_top_level_block",
     "load_device_from_storage",
     "load_device_yaml",
+    "ota_block_unreadable",
     "ota_encryption_block_unresolved",
     "parse_esphome_meta",
     "parse_platform_from_yaml",

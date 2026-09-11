@@ -3845,3 +3845,26 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
     (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
     config = device_yaml.load_device_yaml(tmp_path / "k.yaml")
     assert device_yaml.resolution_incomplete(config) is expected
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        pytest.param(None, True, id="missing"),
+        pytest.param({"packages": {"v": "github://x/y.yaml"}}, True, id="unmerged_package"),
+        pytest.param({"ota": "${ota}"}, True, id="substituted_block"),
+        pytest.param({"ota": [{"platform": "esphome"}]}, False, id="plain_list"),
+        pytest.param({"esphome": {"name": "k"}}, False, id="no_ota"),
+    ],
+)
+def test_ota_block_unreadable(config: dict | None, expected: bool) -> None:
+    """Unmerged packages and a deferred ``ota:`` hide a key the loader can't surface."""
+    assert device_yaml.ota_block_unreadable(config) is expected
+
+
+def test_ota_block_unreadable_sees_a_deferred_include(tmp_path: Path) -> None:
+    (tmp_path / "k.yaml").write_text("ota: !include ota.yaml\n", encoding="utf-8")
+    (tmp_path / "ota.yaml").write_text("- platform: esphome\n", encoding="utf-8")
+    assert (
+        device_yaml.ota_block_unreadable(device_yaml.load_device_yaml(tmp_path / "k.yaml")) is True
+    )

@@ -13,6 +13,7 @@ from ...helpers.device_yaml import (
     get_resolved_api_encryption_key,
     get_resolved_encryption_key,
     get_resolved_ota_encryption_key,
+    ota_block_unreadable,
     ota_encryption_block_unresolved,
 )
 from .resolve import load_config, resolve_config_subprocess
@@ -71,9 +72,12 @@ async def get_resolved_api_and_ota_keys(
     return ResolvedKeys(
         api=get_resolved_api_encryption_key(config),
         ota=ota,
-        # A declared key whose substitution didn't expand is as unreadable as a bare block.
+        # A declared key whose substitution didn't expand, or a block the loader
+        # never reached (unmerged package, deferred ``ota:``), is as unreadable
+        # as a bare-string ``encryption:``.
         ota_unreadable=ota_encryption_block_unresolved(config)
-        or (not ota and bool(get_ota_encryption_key(config))),
+        or (not ota and bool(get_ota_encryption_key(config)))
+        or ota_block_unreadable(config),
     )
 
 

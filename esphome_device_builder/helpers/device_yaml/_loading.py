@@ -552,6 +552,14 @@ def resolution_incomplete(config: dict | None) -> bool:
     )
 
 
+def ota_block_unreadable(config: dict | None) -> bool:
+    """Whether an OTA key may hide in unmerged packages or a deferred ``ota:`` block."""
+    if not isinstance(config, dict):
+        return True
+    ota = config.get(const.CONF_OTA)
+    return _has_packages_block(config) or isinstance(ota, str) or _holds_deferred_marker(ota)
+
+
 def _has_packages_block(config: dict) -> bool:
     """Whether *config* carries a ``packages:`` block the loader would try to merge."""
     return isinstance(config.get(CONF_PACKAGES), (dict, list))

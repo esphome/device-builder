@@ -588,6 +588,12 @@ OTA_ENTRY = "ota:\n  - platform: esphome\n"
             "could not be read",
             id="ota_unresolved_key",
         ),
+        pytest.param(
+            PENDING_KEY,
+            "packages:\n  v: github://x/y.yaml\n",
+            "could not be read",
+            id="ota_behind_unmerged_package",
+        ),
     ],
 )
 async def test_import_device_full_config_indirected_key_is_resolved_never_rewritten(
