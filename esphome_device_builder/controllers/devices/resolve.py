@@ -20,21 +20,19 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def resolve_config(
-    controller: DevicesController, configuration: str | Path
-) -> dict[Any, Any] | None:
+async def resolve_config(controller: DevicesController, path: Path) -> dict[Any, Any] | None:
     """Load in process, then ``esphome config`` if work was deferred; ``None`` if neither works."""
     try:
         # Same ceiling as the subprocess: a never-cloned package makes the loader
         # fetch it, and git carries no timeout of its own. A timeout frees the
         # caller, not the executor thread, and counts as deferred work.
-        path, config = await asyncio.wait_for(
-            load_config(controller, configuration), timeout=ESPHOME_CONFIG_TIMEOUT
+        _, config = await asyncio.wait_for(
+            load_config(controller, path), timeout=ESPHOME_CONFIG_TIMEOUT
         )
     except TimeoutError:
-        path, config = await run_in_executor(_locate, controller._db.settings, configuration), None
+        config = None
     if resolution_incomplete(config):
-        config = await _resolve_subprocess(controller, path)
+        config = await resolve_config_subprocess(controller, path)
     return config
 
 
@@ -49,7 +47,13 @@ async def resolve_config_subprocess(
     controller: DevicesController, path: Path
 ) -> dict[Any, Any] | None:
     """Resolve through ``esphome config`` alone; ``None`` with no CLI, on a fault, or if invalid."""
-    return await _resolve_subprocess(controller, path)
+    esphome_cmd = controller.state.esphome_cmd
+    if not esphome_cmd:
+        return None
+    try:
+        return await run_esphome_config(esphome_cmd, path)
+    except EsphomeConfigUnavailableError:
+        return None
 
 
 def _locate(settings: DashboardSettings, configuration: str | Path) -> Path:
@@ -64,13 +68,3 @@ def _locate_and_load(
 ) -> tuple[Path, dict[Any, Any] | None]:
     path = _locate(settings, configuration)
     return path, load_device_yaml(path)
-
-
-async def _resolve_subprocess(controller: DevicesController, path: Path) -> dict[Any, Any] | None:
-    esphome_cmd = controller.state.esphome_cmd
-    if not esphome_cmd:
-        return None
-    try:
-        return await run_esphome_config(esphome_cmd, path)
-    except EsphomeConfigUnavailableError:
-        return None

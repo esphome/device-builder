@@ -40,7 +40,7 @@ async def test_resolve_config_in_process_result_skips_the_subprocess(
     ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
 
-    config = await resolve_config(ctrl, "kitchen.yaml")
+    config = await resolve_config(ctrl, tmp_path / "kitchen.yaml")
 
     assert config is not None and "api" in config and "packages" not in config
     subprocess.assert_not_awaited()
@@ -67,7 +67,7 @@ async def test_resolve_config_falls_back_to_the_subprocess(
     (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
     (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
 
-    assert await resolve_config(ctrl, "kitchen.yaml") == RESOLVED
+    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") == RESOLVED
     subprocess.assert_awaited_once()
 
 
@@ -94,7 +94,7 @@ async def test_resolve_config_collapses_every_subprocess_failure_to_none(
     ctrl = make_controller(tmp_path, esphome_cmd=[] if mode == "no_cli" else ["esphome"])
     (tmp_path / "kitchen.yaml").write_text(UNMERGEABLE_PACKAGE_YAML, encoding="utf-8")
 
-    assert await resolve_config(ctrl, "kitchen.yaml") is None
+    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") is None
     assert subprocess.await_count == (0 if mode == "no_cli" else 1)
 
 
@@ -128,7 +128,7 @@ async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
     ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(PLAIN_YAML, encoding="utf-8")
 
-    assert await resolve_config(ctrl, "kitchen.yaml") == RESOLVED
+    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") == RESOLVED
     subprocess.assert_awaited_once()
 
 
