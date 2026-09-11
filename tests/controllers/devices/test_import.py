@@ -561,14 +561,33 @@ async def test_import_device_pending_key_skips_package_resolve(
 OTHER_KEY = "b3RoZXJrZXlvdGhlcmtleW90aGVya2V5b3RoZXJrZXlvdA=="
 
 
+OTA_ENTRY = "ota:\n  - platform: esphome\n"
+
+
 @pytest.mark.parametrize(
-    ("secret", "ota_key", "fragment"),
+    ("secret", "ota_block", "fragment"),
     [
-        pytest.param(PENDING_KEY, None, "", id="matches"),
-        pytest.param(OTHER_KEY, None, "different value", id="differs"),
-        pytest.param(None, None, "could not be resolved", id="unresolved"),
-        pytest.param(PENDING_KEY, OTHER_KEY, "OTA encryption key differs", id="ota_differs"),
-        pytest.param(PENDING_KEY, "${ota_key}", "could not be read", id="ota_unresolved"),
+        pytest.param(PENDING_KEY, "", "", id="matches"),
+        pytest.param(OTHER_KEY, "", "different value", id="differs"),
+        pytest.param(None, "", "could not be resolved", id="unresolved"),
+        pytest.param(
+            PENDING_KEY,
+            OTA_ENTRY + f'    encryption:\n      key: "{OTHER_KEY}"\n',
+            "OTA encryption key differs",
+            id="ota_differs",
+        ),
+        pytest.param(
+            PENDING_KEY,
+            OTA_ENTRY + "    encryption: ${ota_key}\n",
+            "could not be read",
+            id="ota_bare",
+        ),
+        pytest.param(
+            PENDING_KEY,
+            OTA_ENTRY + "    encryption:\n      key: ${ota_key}\n",
+            "could not be read",
+            id="ota_unresolved_key",
+        ),
     ],
 )
 async def test_import_device_full_config_indirected_key_is_resolved_never_rewritten(
@@ -576,15 +595,11 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
     secret: str | None,
-    ota_key: str | None,
+    ota_block: str,
     fragment: str,
 ) -> None:
     """An upstream ``!secret`` key is compared after resolving; only a match consumes the key."""
-    yaml_text = "api:\n  encryption:\n    key: !secret api_key\n"
-    if ota_key is not None and ota_key.startswith("$"):
-        yaml_text += f"ota:\n  - platform: esphome\n    encryption: {ota_key}\n"
-    elif ota_key is not None:
-        yaml_text += f'ota:\n  - platform: esphome\n    encryption:\n      key: "{ota_key}"\n'
+    yaml_text = "api:\n  encryption:\n    key: !secret api_key\n" + ota_block
     monkeypatch.setattr(
         "esphome.components.dashboard_import.import_config", _full_config_stub(yaml_text)
     )
@@ -604,7 +619,7 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
     if fragment:
         assert "!secret" in result["warning"] and fragment in result["warning"]
         assert "stays stored" in result["warning"]
-        assert ("cut Home Assistant off" in result["warning"]) is (ota_key is None)
+        assert ("cut Home Assistant off" in result["warning"]) is (not ota_block)
         assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
     else:
         assert "warning" not in result
