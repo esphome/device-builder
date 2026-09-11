@@ -292,7 +292,7 @@ async def test_import_device_full_config_url_delegates_to_dashboard_import(
     assert captured["args"][4] == "github://x/y.yaml@main?full_config"
 
 
-OTHER_KEY = "b3RoZXJrZXlvdGhlcmtleW90aGVya2V5b3RoZXJrZXlvdA=="
+OTHER_KEY = base64.b64encode(b"o" * 32).decode()
 PENDING_KEY = base64.b64encode(b"p" * 32).decode()
 
 
@@ -595,7 +595,7 @@ async def test_import_device_keeps_a_key_pushed_while_the_splice_was_in_flight(
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
     real_splice = importable._splice_pending_key_or_cleanup
 
-    async def splice_then_push(*args, **kwargs):
+    async def splice_then_push(*args: Any, **kwargs: Any) -> str | None:
         warning = await real_splice(*args, **kwargs)
         ctrl._pending_keys.set("kitchen", OTHER_KEY)
         return warning
