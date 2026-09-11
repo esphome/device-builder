@@ -67,7 +67,7 @@ async def get_resolved_api_and_ota_keys(
             configuration,
             timeout,
         )
-        return ResolvedKeys(api="", ota="", ota_unreadable=False)
+        return ResolvedKeys(api="", ota="", ota_unreadable=True)
     ota = get_resolved_ota_encryption_key(config)
     return ResolvedKeys(
         api=get_resolved_api_encryption_key(config),
