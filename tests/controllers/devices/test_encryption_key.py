@@ -210,16 +210,22 @@ async def test_set_encryption_key_stalled_resolve_reads_as_unresolved(
     assert "exceeded 0.05s" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "ota_block",
+    [
+        pytest.param("    encryption: ${ota_encryption}\n", id="bare_string"),
+        pytest.param("    encryption:\n      key: ${ota_key}\n", id="unresolved_key"),
+    ],
+)
 async def test_set_encryption_key_matching_secret_next_to_an_unreadable_ota_block_is_refused(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
+    ota_block: str,
 ) -> None:
-    """An OTA ``encryption:`` left as a string can't confirm the pair; refuse, don't assume."""
+    """An OTA key the loader can't read can't confirm the pair; refuse, don't assume."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
-    yaml_text = (
-        SECRET_KEY_YAML + "\nota:\n  - platform: esphome\n    encryption: ${ota_encryption}\n"
-    )
+    yaml_text = SECRET_KEY_YAML + "\nota:\n  - platform: esphome\n" + ota_block
     _configure(ctrl, tmp_path, yaml_text)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)

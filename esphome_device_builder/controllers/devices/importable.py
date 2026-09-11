@@ -413,7 +413,7 @@ async def _indirected_key_warning(
     if verdict is IndirectedKeyVerdict.MATCHES:
         return None
     reason = describe_indirected_key(verdict)
-    sentence = f"{reason[0].upper()}{reason[1:]}."
+    sentence = f"{reason[:1].upper()}{reason[1:]}."
     if verdict in (IndirectedKeyVerdict.OTA_DIFFERS, IndirectedKeyVerdict.OTA_UNRESOLVED):
         # The api key is right; only the OTA key needs the user's hand.
         return (

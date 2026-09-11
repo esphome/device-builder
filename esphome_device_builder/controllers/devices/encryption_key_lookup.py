@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, NamedTuple
 from ...helpers.device_yaml import (
     ESPHOME_CONFIG_TIMEOUT,
     get_api_port,
+    get_ota_encryption_key,
     get_resolved_api_encryption_key,
     get_resolved_encryption_key,
     get_resolved_ota_encryption_key,
@@ -20,7 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ResolvedKeys(NamedTuple):
-    """In-process view of a config's keys; ``ota_unreadable`` flags an OTA block left a string."""
+    """In-process view of a config's keys; ``ota_unreadable`` flags an OTA key it can't read."""
 
     api: str
     ota: str
@@ -66,10 +67,13 @@ async def get_resolved_api_and_ota_keys(
             timeout,
         )
         return ResolvedKeys(api="", ota="", ota_unreadable=False)
+    ota = get_resolved_ota_encryption_key(config)
     return ResolvedKeys(
-        get_resolved_api_encryption_key(config),
-        get_resolved_ota_encryption_key(config),
-        ota_encryption_block_unresolved(config),
+        api=get_resolved_api_encryption_key(config),
+        ota=ota,
+        # A declared key whose substitution didn't expand is as unreadable as a bare block.
+        ota_unreadable=ota_encryption_block_unresolved(config)
+        or (not ota and bool(get_ota_encryption_key(config))),
     )
 
 
