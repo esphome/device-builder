@@ -45,6 +45,7 @@ class IndirectedKeyVerdict(StrEnum):
     DIFFERS = "differs"
     UNRESOLVED = "unresolved"
     OTA_DIFFERS = "ota_differs"
+    OTA_UNRESOLVED = "ota_unresolved"
 
 
 class KeyHandoffResult(StrEnum):
@@ -111,15 +112,15 @@ async def judge_indirected_key(
     timeout: float | None = None,
 ) -> IndirectedKeyVerdict:
     """Resolve an indirected api key in process and compare it (and any OTA key) to *key*."""
-    resolved, ota_resolved = await get_resolved_api_and_ota_keys(
-        controller, configuration, timeout=timeout
-    )
-    if not resolved:
+    keys = await get_resolved_api_and_ota_keys(controller, configuration, timeout=timeout)
+    if not keys.api:
         return IndirectedKeyVerdict.UNRESOLVED
-    if resolved != key:
+    if keys.api != key:
         return IndirectedKeyVerdict.DIFFERS
-    if ota_resolved and ota_resolved != key:
+    if keys.ota and keys.ota != key:
         return IndirectedKeyVerdict.OTA_DIFFERS
+    if keys.ota_unreadable:
+        return IndirectedKeyVerdict.OTA_UNRESOLVED
     return IndirectedKeyVerdict.MATCHES
 
 
@@ -133,6 +134,10 @@ def describe_indirected_key(verdict: IndirectedKeyVerdict) -> str:
         IndirectedKeyVerdict.OTA_DIFFERS: (
             f"{prefix} and already resolves to the pushed key, but the resolved "
             "OTA encryption key differs from it"
+        ),
+        IndirectedKeyVerdict.OTA_UNRESOLVED: (
+            f"{prefix} and already resolves to the pushed key, but the OTA encryption "
+            "key could not be read to confirm it matches"
         ),
     }[verdict]
 

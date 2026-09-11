@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from ...helpers.device_yaml import (
     ESPHOME_CONFIG_TIMEOUT,
@@ -12,10 +12,20 @@ from ...helpers.device_yaml import (
     get_resolved_api_encryption_key,
     get_resolved_encryption_key,
     get_resolved_ota_encryption_key,
+    ota_encryption_block_unresolved,
 )
 from .resolve import load_config, resolve_config_subprocess
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class ResolvedKeys(NamedTuple):
+    """In-process view of a config's keys; ``ota_unreadable`` flags an OTA block left a string."""
+
+    api: str
+    ota: str
+    ota_unreadable: bool
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -40,13 +50,14 @@ async def get_resolved_api_and_ota_keys(
     configuration: str | Path,
     *,
     timeout: float | None = None,
-) -> tuple[str, str]:
-    """Resolve ``(api key, OTA key)`` in process, never via a subprocess; ``""`` if unresolved."""
+) -> ResolvedKeys:
+    """Resolve the api and OTA keys in process, never via a subprocess; ``""`` if unresolved."""
     if timeout is None:
         timeout = ESPHOME_CONFIG_TIMEOUT
     try:
         # Bounded like the subprocess: a never-cloned package makes the loader
-        # fetch it, and git carries no timeout of its own.
+        # fetch it, and git carries no timeout of its own. A timeout frees the
+        # caller, not the executor thread.
         _, config = await asyncio.wait_for(load_config(controller, configuration), timeout=timeout)
     except TimeoutError:
         _LOGGER.warning(
@@ -54,8 +65,12 @@ async def get_resolved_api_and_ota_keys(
             configuration,
             timeout,
         )
-        return "", ""
-    return get_resolved_api_encryption_key(config), get_resolved_ota_encryption_key(config)
+        return ResolvedKeys(api="", ota="", ota_unreadable=False)
+    return ResolvedKeys(
+        get_resolved_api_encryption_key(config),
+        get_resolved_ota_encryption_key(config),
+        ota_encryption_block_unresolved(config),
+    )
 
 
 async def get_api_connection(controller: DevicesController, configuration: str) -> tuple[str, int]:

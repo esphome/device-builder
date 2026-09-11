@@ -210,6 +210,25 @@ async def test_set_encryption_key_stalled_resolve_reads_as_unresolved(
     assert "exceeded 0.05s" in caplog.text
 
 
+async def test_set_encryption_key_matching_secret_next_to_an_unreadable_ota_block_is_refused(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An OTA ``encryption:`` left as a string can't confirm the pair; refuse, don't assume."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = (
+        SECRET_KEY_YAML + "\nota:\n  - platform: esphome\n    encryption: ${ota_encryption}\n"
+    )
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key could not be read" in result["reason"]
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
 async def test_set_encryption_key_matching_secret_next_to_a_differing_ota_key_is_refused(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

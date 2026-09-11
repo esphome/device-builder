@@ -568,6 +568,7 @@ OTHER_KEY = "b3RoZXJrZXlvdGhlcmtleW90aGVya2V5b3RoZXJrZXlvdA=="
         pytest.param(OTHER_KEY, None, "different value", id="differs"),
         pytest.param(None, None, "could not be resolved", id="unresolved"),
         pytest.param(PENDING_KEY, OTHER_KEY, "OTA encryption key differs", id="ota_differs"),
+        pytest.param(PENDING_KEY, "${ota_key}", "could not be read", id="ota_unresolved"),
     ],
 )
 async def test_import_device_full_config_indirected_key_is_resolved_never_rewritten(
@@ -580,7 +581,9 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
 ) -> None:
     """An upstream ``!secret`` key is compared after resolving; only a match consumes the key."""
     yaml_text = "api:\n  encryption:\n    key: !secret api_key\n"
-    if ota_key is not None:
+    if ota_key is not None and ota_key.startswith("$"):
+        yaml_text += f"ota:\n  - platform: esphome\n    encryption: {ota_key}\n"
+    elif ota_key is not None:
         yaml_text += f'ota:\n  - platform: esphome\n    encryption:\n      key: "{ota_key}"\n'
     monkeypatch.setattr(
         "esphome.components.dashboard_import.import_config", _full_config_stub(yaml_text)

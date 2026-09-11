@@ -414,7 +414,7 @@ async def _indirected_key_warning(
         return None
     reason = describe_indirected_key(verdict)
     sentence = f"{reason[0].upper()}{reason[1:]}."
-    if verdict is IndirectedKeyVerdict.OTA_DIFFERS:
+    if verdict in (IndirectedKeyVerdict.OTA_DIFFERS, IndirectedKeyVerdict.OTA_UNRESOLVED):
         # The api key is right; only the OTA key needs the user's hand.
         return (
             f"{sentence} The key Home Assistant provisioned stays stored; make the "
