@@ -219,6 +219,34 @@ async def test_set_encryption_key_matching_secret_next_to_a_package_ota_key_is_r
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
+@pytest.mark.parametrize(
+    ("ota_secret", "expected"),
+    [
+        pytest.param(KEY, "unchanged", id="same"),
+        pytest.param(OTHER_KEY, "not_writable", id="differs"),
+    ],
+)
+async def test_set_encryption_key_indirected_ota_key_is_resolved_next_to_a_matching_secret(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    ota_secret: str,
+    expected: str,
+) -> None:
+    """An indirected OTA key is compared after resolving, not deferred to esphome."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(
+        f'api_key: "{KEY}"\nota_key: "{ota_secret}"\n', encoding="utf-8"
+    )
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    yaml_text = yaml_text.replace(f'key: "{OTHER_KEY}"', "key: !secret ota_key", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == expected
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
 async def test_set_encryption_key_matching_secret_next_to_an_empty_ota_key_is_unchanged(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

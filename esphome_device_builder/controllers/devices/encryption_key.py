@@ -21,7 +21,7 @@ from ...helpers.yaml import (
 )
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
-from .encryption_key_lookup import get_resolved_encryption_keys
+from .encryption_key_lookup import get_resolved_api_and_ota_keys
 from .mutations_simple import _read_device_yaml_or_raise
 
 if TYPE_CHECKING:
@@ -156,10 +156,13 @@ async def _settle_indirected_key(
 ) -> tuple[KeyHandoffResult, str]:
     """Never rewrite a ``!secret`` / ``${…}`` api key; UNCHANGED only when it resolves to *key*."""
     prefix = "the key is provided via !secret, !include, or a substitution"
-    resolved, ota_resolved = await get_resolved_encryption_keys(controller, configuration)
+    resolved, ota_resolved = await get_resolved_api_and_ota_keys(controller, configuration)
     if resolved == key:
         if ota_resolved and ota_resolved != key:
-            reason = f"{prefix} and the resolved OTA encryption key differs from it"
+            reason = (
+                f"{prefix} and already resolves to the pushed key, but the resolved "
+                "OTA encryption key differs from it"
+            )
             return KeyHandoffResult.NOT_WRITABLE, reason
         return KeyHandoffResult.UNCHANGED, ""
     if not resolved:

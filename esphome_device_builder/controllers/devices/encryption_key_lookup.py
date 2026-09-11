@@ -29,7 +29,7 @@ async def get_encryption_key(controller: DevicesController, configuration: str) 
     return {"key": key}
 
 
-async def get_resolved_encryption_keys(
+async def get_resolved_api_and_ota_keys(
     controller: DevicesController, configuration: str
 ) -> tuple[str, str]:
     """Resolve ``(api key, OTA key)`` in process, never via a subprocess; ``""`` if unresolved."""
