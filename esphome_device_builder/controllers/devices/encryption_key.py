@@ -8,7 +8,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
-from ...helpers.device_yaml import EsphomeConfigUnavailableError, run_esphome_config
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
@@ -23,6 +22,7 @@ from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
 from .mutations_simple import _read_device_yaml_or_raise
+from .resolve import resolve_config
 
 if TYPE_CHECKING:
     from ...models import Device
@@ -177,17 +177,8 @@ async def _resolved_config_has_api(
     controller: DevicesController, configuration: str
 ) -> bool | None:
     """Whether the fully resolved config carries ``api:``; ``None`` when unresolvable."""
-    esphome_cmd = controller.state.esphome_cmd
-    if not esphome_cmd:
-        return None
-    path = controller._db.settings.rel_path(configuration)
-    try:
-        config = await run_esphome_config(esphome_cmd, path)
-    except EsphomeConfigUnavailableError:
-        return None
-    if config is None:
-        return None
-    return "api" in config
+    config = await resolve_config(controller, configuration)
+    return None if config is None else "api" in config
 
 
 def _validate_key(key: str) -> None:

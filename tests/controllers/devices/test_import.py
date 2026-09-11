@@ -95,7 +95,7 @@ async def test_import_device_writes_adoption_yaml_and_returns_path(
 ) -> None:
     """Happy path: write the adoption shape, run a scan, return the configuration name."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config",
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config",
         AsyncMock(return_value={"esphome": {"name": "kitchen-1a2b3c"}}),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
@@ -394,11 +394,11 @@ async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
-async def test_import_device_without_cli_skips_mint_silently(
+async def test_import_device_without_cli_and_unresolvable_package_warns(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """The unreachable-in-production no-CLI branch ships keyless with no warning."""
+    """No CLI and a package the in-process loader can't merge ships keyless with the warning."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -409,7 +409,7 @@ async def test_import_device_without_cli_skips_mint_silently(
         encryption="true",
     )
 
-    assert "warning" not in result
+    assert "could not be resolved" in result["warning"]
     assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
 
 
@@ -421,7 +421,7 @@ async def test_import_device_mints_key_when_package_lacks_encryption(
     """The resolved package has no ``encryption:`` → legacy behaviour, mint a key."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -451,7 +451,7 @@ async def test_import_device_skips_mint_when_package_encrypts(
     """A package-provided ``encryption:`` means an NVS key may exist — never mint."""
     resolve = AsyncMock(return_value={"api": {"encryption": encryption_value}})
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -481,7 +481,7 @@ async def test_import_device_skips_mint_when_package_has_own_ota_key(
         }
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -507,7 +507,7 @@ async def test_import_device_skips_mint_when_resolve_unavailable(
     """An unresolvable package skips the mint; plaintext self-heals, a competing key doesn't."""
     resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -532,7 +532,7 @@ async def test_import_device_pending_key_skips_package_resolve(
     """A pending HA key is baked directly; no resolve subprocess runs."""
     resolve = AsyncMock()
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -778,7 +778,7 @@ async def test_import_device_mint_write_failure_rolls_back(
     """A failed mint write cleans up the half-imported YAML."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
 
     monkeypatch.setattr(
@@ -806,7 +806,7 @@ async def test_import_device_mint_round_trip_failure_warns(
     """A mint whose splice doesn't read back ships keyless with a warning."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.importable.upsert_api_encryption_key",
@@ -834,7 +834,7 @@ async def test_import_mint_refused_by_own_ota_key_ships_keyless_with_warning(
     """A splice the yaml helper refuses ships keyless with its reason, file kept."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
 
     def _refuse(content: str, key: str) -> str:
@@ -896,7 +896,7 @@ async def test_import_device_push_during_validate_window_never_mints(
     """A key pushed after the generate-time peek still blocks a competing mint."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+        "esphome_device_builder.controllers.devices.resolve.run_esphome_config", resolve
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)

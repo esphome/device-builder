@@ -538,6 +538,11 @@ def load_device_yaml(path: Path) -> dict | None:
     return cast("dict[Any, Any] | None", config)
 
 
+def package_merge_incomplete(config: dict | None) -> bool:
+    """Whether *config* is missing or still carries an unmerged ``packages:`` block."""
+    return config is None or CONF_PACKAGES in config
+
+
 def compiled_config_has_ota_partition_access(configuration: str) -> bool:
     """
     Report whether the last compile's validated-config cache enables partition access.

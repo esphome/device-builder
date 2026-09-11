@@ -3814,3 +3814,15 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
     device = load_device_from_storage(yaml_path)
 
     assert device.ota_partition_access is False
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        pytest.param(None, True, id="missing"),
+        pytest.param({"packages": {"v": "github://x/y.yaml"}}, True, id="unmerged"),
+        pytest.param({"esphome": {"name": "k"}}, False, id="merged"),
+    ],
+)
+def test_package_merge_incomplete(config: dict | None, expected: bool) -> None:
+    assert device_yaml.package_merge_incomplete(config) is expected
