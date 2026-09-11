@@ -27,11 +27,20 @@ from .top_block import _locate_top_block, _prepend_top_block
 API_ENCRYPTION_KEY_PATH = ("api", "encryption", "key")
 
 
-def api_key_settled(yaml_text: str, key: str) -> bool:
-    """Whether the api key is the literal *key* and any explicit OTA key matches or is indirect."""
-    return _literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), key) and (
-        _ota_key_matches(yaml_text, key)
-    )
+def api_key_settled(yaml_text: str, key: str, *, resolved_key: str = "") -> bool:
+    """
+    Whether the api key already is *key* and any explicit OTA key matches or is indirect.
+
+    An indirected api scalar counts when *resolved_key* (its resolved value) is *key*.
+    """
+    raw = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
+    if raw is None:
+        return False
+    if is_indirected_scalar(raw):
+        api_matches = bool(resolved_key) and resolved_key == key
+    else:
+        api_matches = _literal_key_matches(raw, key)
+    return api_matches and _ota_key_matches(yaml_text, key)
 
 
 def generate_api_encryption_key() -> str:

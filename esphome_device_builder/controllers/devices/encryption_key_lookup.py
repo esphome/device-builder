@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ...helpers.async_ import run_in_executor
@@ -20,12 +21,12 @@ if TYPE_CHECKING:
 
 async def get_encryption_key(controller: DevicesController, configuration: str) -> dict[str, str]:
     """Return ``{"key": ...}`` for *configuration*, api key else esphome OTA key, ``""`` if none."""
-    path = controller._db.settings.rel_path(configuration)
-    config = await run_in_executor(load_device_yaml, path)
-    key = get_resolved_encryption_key(config) or await _resolve_via_esphome_config(
-        controller, configuration
-    )
-    return {"key": key}
+    return {"key": await _resolve_key(controller, configuration, get_resolved_encryption_key)}
+
+
+async def get_resolved_api_key(controller: DevicesController, configuration: str) -> str:
+    """Resolve the api key only (never the OTA one); ``""`` if none or unresolvable."""
+    return await _resolve_key(controller, configuration, get_resolved_api_encryption_key)
 
 
 async def get_api_connection(controller: DevicesController, configuration: str) -> tuple[str, int]:
@@ -48,9 +49,20 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
     return get_resolved_api_encryption_key(config), get_api_port(config)
 
 
-async def _resolve_via_esphome_config(controller: DevicesController, configuration: str) -> str:
+async def _resolve_key(
+    controller: DevicesController, configuration: str, read: Callable[[dict | None], str]
+) -> str:
+    """*read* off the in-process load, else off an ``esphome config`` resolve; ``""`` if neither."""
+    path = controller._db.settings.rel_path(configuration)
+    config = await run_in_executor(load_device_yaml, path)
+    return read(config) or await _resolve_via_esphome_config(controller, configuration, read)
+
+
+async def _resolve_via_esphome_config(
+    controller: DevicesController, configuration: str, read: Callable[[dict | None], str]
+) -> str:
     """
-    Subprocess fallback for :func:`get_encryption_key`.
+    Subprocess fallback for :func:`_resolve_key`.
 
     Delegates to :func:`helpers.device_yaml.run_esphome_config`, which fully
     resolves substitutions / packages / secrets. Returns ``""`` on every
@@ -67,4 +79,4 @@ async def _resolve_via_esphome_config(controller: DevicesController, configurati
         return ""
     if config is None:
         return ""
-    return get_resolved_encryption_key(config)
+    return read(config)

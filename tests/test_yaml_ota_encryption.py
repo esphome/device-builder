@@ -6,6 +6,7 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
+    api_key_settled,
     read_ota_encryption_key,
     rewrite_api_encryption_key,
     rewrite_own_ota_encryption_key,
@@ -257,3 +258,35 @@ def test_empty_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
     yaml_text = 'api:\n  encryption:\n    key: ""\n\n' + ota
     with pytest.raises(YamlUpsertNotSupportedError, match="own encryption key"):
         upsert_api_encryption_key(yaml_text, NEW)
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "resolved_key", "expected"),
+    [
+        pytest.param('api:\n  encryption:\n    key: "k"\n', "", True, id="literal"),
+        pytest.param(
+            'api:\n  encryption:\n    key: "k"\n', "other", True, id="literal_ignores_resolved"
+        ),
+        pytest.param("api:\n  encryption:\n    key: !secret k\n", "k", True, id="secret_resolved"),
+        pytest.param("api:\n  encryption:\n    key: ${k}\n", "k", True, id="substitution_resolved"),
+        pytest.param(
+            "api:\n  encryption:\n    key: !secret k\n", "", False, id="secret_unresolved"
+        ),
+        pytest.param(
+            "api:\n  encryption:\n    key: !secret k\n", "other", False, id="secret_differs"
+        ),
+        pytest.param("api:\n  encryption:\n    key: \n", "k", False, id="empty_scalar"),
+        pytest.param("api:\n", "k", False, id="no_key"),
+        pytest.param(
+            "api:\n  encryption:\n    key: !secret k\nota:\n  - platform: esphome\n"
+            "    encryption:\n      key: other\n",
+            "k",
+            False,
+            id="secret_resolved_ota_differs",
+        ),
+    ],
+)
+def test_api_key_settled_accepts_a_resolved_indirected_key(
+    yaml_text: str, resolved_key: str, expected: bool
+) -> None:
+    assert api_key_settled(yaml_text, "k", resolved_key=resolved_key) is expected

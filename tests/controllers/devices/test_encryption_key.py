@@ -123,19 +123,109 @@ async def test_set_encryption_key_refuses_resolved_apiless_configuration(
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
-async def test_set_encryption_key_refuses_secret_indirection(
+SECRET_KEY_YAML = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n"
+
+
+async def test_set_encryption_key_secret_resolving_to_the_key_is_unchanged(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A ``!secret`` key is user-managed material; refuse and report."""
+    """A ``!secret`` key that already resolves to the pushed key needs no write."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
-    yaml_text = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n"
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    _configure(ctrl, tmp_path, SECRET_KEY_YAML)
+    ctrl._pending_keys.set("kitchen", KEY, "")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == SECRET_KEY_YAML
+    assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_set_encryption_key_substitution_resolving_to_the_key_is_unchanged(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = (
+        f'substitutions:\n  api_key: "{KEY}"\n\nesphome:\n  name: kitchen\n\n'
+        "api:\n  encryption:\n    key: ${api_key}\n"
+    )
     _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "unchanged"
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_refuses_secret_resolving_to_another_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A ``!secret`` key is user-managed material; a differing one is refused and reported."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{OTHER_KEY}"\n', encoding="utf-8")
+    _configure(ctrl, tmp_path, SECRET_KEY_YAML)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
     assert "!secret" in result["reason"]
+    assert "different value" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == SECRET_KEY_YAML
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+async def test_set_encryption_key_refuses_unresolvable_secret(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, SECRET_KEY_YAML)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "!secret" in result["reason"]
+    assert "could not be resolved" in result["reason"]
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+async def test_set_encryption_key_secret_resolves_through_esphome_config_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A key the in-process loader can't resolve is settled by the ``esphome config`` fallback."""
+    resolve = AsyncMock(return_value={"api": {"encryption": {"key": KEY}}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.encryption_key_lookup.run_esphome_config",
+        resolve,
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _configure(ctrl, tmp_path, SECRET_KEY_YAML)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "unchanged"
+    resolve.assert_awaited_once()
+
+
+async def test_set_encryption_key_refuses_matching_secret_next_to_a_differing_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key differs" in result["reason"]
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 

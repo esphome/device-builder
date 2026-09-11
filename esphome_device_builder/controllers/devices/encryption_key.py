@@ -15,11 +15,13 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     api_key_settled,
     component_block_present,
+    is_indirected_scalar,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
+from .encryption_key_lookup import get_resolved_api_key
 from .mutations_simple import _read_device_yaml_or_raise
 
 if TYPE_CHECKING:
@@ -113,8 +115,12 @@ async def _apply_to_device(
     content = await _read_device_yaml_or_raise(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if api_key_settled(content, key):
+    indirected = existing is not None and is_indirected_scalar(existing)
+    resolved = await get_resolved_api_key(controller, configuration) if indirected else ""
+    if api_key_settled(content, key, resolved_key=resolved):
         return KeyHandoffResult.UNCHANGED, ""
+    if indirected:
+        return KeyHandoffResult.NOT_WRITABLE, _indirected_refusal(resolved, key)
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
         # The push itself proves the device's API is up (HA set the key
         # over it), but a package device that has never been compiled is
@@ -134,9 +140,6 @@ async def _apply_to_device(
         new_content = upsert_api_encryption_key(content, key)
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
-    if new_content == content:
-        return KeyHandoffResult.NOT_WRITABLE, "the key is provided via !secret or a substitution"
-
     if not api_key_settled(new_content, key):
         raise CommandError(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
@@ -156,6 +159,16 @@ async def _apply_to_device(
         configuration, new_content, message=f"Update API encryption key in {configuration}"
     )
     return KeyHandoffResult.UPDATED, ""
+
+
+def _indirected_refusal(resolved: str, key: str) -> str:
+    """Reason an indirected api key could not be settled to *key*."""
+    prefix = "the key is provided via !secret or a substitution"
+    if not resolved:
+        return f"{prefix} that could not be resolved; the key was kept for a later attempt"
+    if resolved != key:
+        return f"{prefix} and resolves to a different value"
+    return f"{prefix} and the explicit OTA encryption key differs from it"
 
 
 async def _resolved_config_has_api(

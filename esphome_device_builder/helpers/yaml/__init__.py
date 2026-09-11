@@ -77,6 +77,7 @@ from .scalar import _quote as _quote
 from .scalar import _safe_yaml_scalar as _safe_yaml_scalar
 from .scalar import _split_value_and_comment as _split_value_and_comment
 from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
+from .scalar import is_indirected_scalar as is_indirected_scalar
 from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
 from .scalar import parse_config_boolean as parse_config_boolean
 from .scalar import read_yaml_scalar as read_yaml_scalar
