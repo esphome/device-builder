@@ -46,12 +46,9 @@ async def load_config(
 
 
 async def resolve_config_subprocess(
-    controller: DevicesController, configuration: str | Path
+    controller: DevicesController, path: Path
 ) -> dict[Any, Any] | None:
     """Resolve through ``esphome config`` alone; ``None`` with no CLI, on a fault, or if invalid."""
-    if isinstance(configuration, Path):
-        return await _resolve_subprocess(controller, configuration)
-    path = await run_in_executor(controller._db.settings.rel_path, configuration)
     return await _resolve_subprocess(controller, path)
 
 

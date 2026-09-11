@@ -137,7 +137,7 @@ async def test_resolve_config_subprocess_skips_the_executor_for_a_path(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A caller's ``Path`` goes straight to the subprocess with no thread-pool round trip."""
+    """The subprocess-only entry takes a located ``Path`` and never touches the thread pool."""
     subprocess = AsyncMock(return_value=RESOLVED)
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     monkeypatch.setattr(resolve_module, "run_in_executor", AsyncMock(side_effect=AssertionError))
