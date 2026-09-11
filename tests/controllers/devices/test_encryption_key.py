@@ -9,14 +9,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
+from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
 
-from .conftest import MakeControllerFactory
+from .conftest import ESPHOME_CONFIG_STUB_TARGET, MakeControllerFactory
 
 KEY = base64.b64encode(b"k" * 32).decode()
 OTHER_KEY = base64.b64encode(b"j" * 32).decode()
@@ -107,9 +109,7 @@ async def test_set_encryption_key_refuses_resolved_apiless_configuration(
 ) -> None:
     """The resolved config genuinely lacks ``api:`` → refuse, don't re-enable it."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     yaml_text = "esphome:\n  name: kitchen\n\nmqtt:\n  broker: b\n"
     _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["mqtt", "wifi"], api_enabled=False)
@@ -515,9 +515,7 @@ async def test_set_encryption_key_never_compiled_package_device_gets_key(
 ) -> None:
     """A package device with no compile yet still gets the key once resolve confirms api."""
     resolve = AsyncMock(return_value={"api": None, "esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
     _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
@@ -529,6 +527,82 @@ async def test_set_encryption_key_never_compiled_package_device_gets_key(
 
     assert result["result"] == "updated"
     assert f'key: "{KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_set_encryption_key_apiless_verdict_is_kept_until_the_yaml_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A resolved no-``api:`` verdict answers the next push off the file identity, not a spawn."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    first = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    second = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert first["result"] == second["result"] == "not_writable"
+    assert "does not enable the native API" in second["reason"]
+    assert resolve.await_count == 1
+
+    (tmp_path / "kitchen.yaml").write_text(yaml_text + "# edited\n", encoding="utf-8")
+    third = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert third["result"] == "not_writable"
+    assert resolve.await_count == 2
+
+
+async def test_set_encryption_key_apiless_verdict_is_dropped_when_the_scanner_sees_a_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A scan UPDATED or REMOVED for the configuration prunes its remembered verdict."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    device = _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    assert "kitchen.yaml" in ctrl.state.apiless_resolves
+
+    ctrl._on_scan_change(ScanChange.REMOVED, device)
+
+    assert ctrl.state.apiless_resolves == {}
+
+
+def test_locate_and_stat_has_no_identity_for_a_missing_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A YAML that vanished between the read and the stat carries no identity to remember."""
+    settings = make_controller(tmp_path)._db.settings
+    path, identity = _locate_and_stat(settings, "gone.yaml")
+    assert path == tmp_path / "gone.yaml" and identity is None
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n", encoding="utf-8")
+    assert _locate_and_stat(settings, "kitchen.yaml")[1] is not None
+
+
+async def test_set_encryption_key_unresolvable_verdict_is_retried_on_the_next_push(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A failed resolve is never remembered; the retained key gets another attempt."""
+    resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert resolve.await_count == 2
+    assert ctrl.state.apiless_resolves == {}
 
 
 @pytest.mark.parametrize(
@@ -550,9 +624,7 @@ async def test_set_encryption_key_unresolvable_config_keeps_key(
         resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
     else:
         resolve = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     esphome_cmd = [] if mode == "no_cli" else ["esphome"]
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=esphome_cmd)
     yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"

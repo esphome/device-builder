@@ -3814,3 +3814,34 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
     device = load_device_from_storage(yaml_path)
 
     assert device.ota_partition_access is False
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param("esphome:\n  name: k\n", False, id="plain"),
+        pytest.param(
+            "packages:\n  v:\n    api:\n\nesphome:\n  name: k\n", False, id="merged_package"
+        ),
+        pytest.param("packages:\n  v: github://x/y.yaml\n", True, id="unmerged_package"),
+        pytest.param("api: !include api.yaml\n", True, id="include_marker"),
+        pytest.param("packages:\n  v:\n    api: {}\napi: !remove\n", True, id="remove_marker"),
+        pytest.param("logger: !extend\n", True, id="extend_marker"),
+        pytest.param(
+            "ota:\n  - platform: esphome\n    encryption: !include api.yaml\n",
+            True,
+            id="marker_inside_list",
+        ),
+        pytest.param("ota:\n  - platform: esphome\n    port: 3232\n", False, id="clean_list"),
+        pytest.param("api: ${api_block}\n", True, id="substituted_block"),
+        pytest.param("ota:\n  - ${ota_item}\n", True, id="substituted_list_item"),
+        pytest.param("esphome:\n  name: ${name}\n", False, id="substituted_scalar_inside"),
+        pytest.param(": :", True, id="unparsable"),
+    ],
+)
+def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -> None:
+    """Deferred markers and unmerged packages read as incomplete; a clean merge does not."""
+    (tmp_path / "k.yaml").write_text(yaml_text, encoding="utf-8")
+    (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
+    config = device_yaml.load_device_yaml(tmp_path / "k.yaml")
+    assert device_yaml.resolution_incomplete(config) is expected

@@ -13,10 +13,9 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
-    EsphomeConfigUnavailableError,
     generate_adoption_yaml,
     get_ota_encryption_key,
-    run_esphome_config,
+    ota_encryption_block_unresolved,
 )
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
@@ -39,6 +38,7 @@ from ...models import (
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT
 from .mutations_yaml import packages_block_span
+from .resolve import resolve_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -313,16 +313,9 @@ async def _mint_key_unless_package_encrypts(
     package skips the mint for the same reason. Returns a user-facing
     warning when the adoption ships without a key.
     """
-    esphome_cmd = controller.state.esphome_cmd
-    if not esphome_cmd:
-        return None
-    try:
-        # Deliberately unbudgeted (run_esphome_config's own 60s ceiling
-        # governs): adoption is user-triggered, and whether the device
-        # gets a key at all outweighs dialog latency.
-        config = await run_esphome_config(esphome_cmd, path)
-    except EsphomeConfigUnavailableError:
-        config = None
+    # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
+    # and getting a key beats dialog latency.
+    config = await resolve_config(controller, path)
     if config is None:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
         return (
@@ -336,7 +329,8 @@ async def _mint_key_unless_package_encrypts(
     if isinstance(api_block, dict) and "encryption" in api_block:
         return None
     # A package's own OTA key would have to match a baked api key; leave both out.
-    if get_ota_encryption_key(config):
+    # A whole ``encryption:`` the loader left as a bare string is read the same way.
+    if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return (
             "The package gives the OTA platform its own encryption key, so no API "
             "encryption key was generated; edit the device to use one key for both."

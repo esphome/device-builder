@@ -26,6 +26,7 @@ from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
 from esphome_device_builder.models import AdoptableDevice, ErrorCode, EventType
 
 from .conftest import (
+    ESPHOME_CONFIG_STUB_TARGET,
     CaptureDevicesEventsFactory,
     MakeControllerFactory,
     RecordingStateMonitor,
@@ -95,7 +96,7 @@ async def test_import_device_writes_adoption_yaml_and_returns_path(
 ) -> None:
     """Happy path: write the adoption shape, run a scan, return the configuration name."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config",
+        ESPHOME_CONFIG_STUB_TARGET,
         AsyncMock(return_value={"esphome": {"name": "kitchen-1a2b3c"}}),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
@@ -394,25 +395,6 @@ async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
-async def test_import_device_without_cli_skips_mint_silently(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """The unreachable-in-production no-CLI branch ships keyless with no warning."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-
-    result = await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x/y.yaml@main",
-        encryption="true",
-    )
-
-    assert "warning" not in result
-    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-
-
 async def test_import_device_mints_key_when_package_lacks_encryption(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -420,9 +402,7 @@ async def test_import_device_mints_key_when_package_lacks_encryption(
 ) -> None:
     """The resolved package has no ``encryption:`` → legacy behaviour, mint a key."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
 
@@ -450,9 +430,7 @@ async def test_import_device_skips_mint_when_package_encrypts(
 ) -> None:
     """A package-provided ``encryption:`` means an NVS key may exist — never mint."""
     resolve = AsyncMock(return_value={"api": {"encryption": encryption_value}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
 
@@ -468,6 +446,33 @@ async def test_import_device_skips_mint_when_package_encrypts(
     assert "key:" not in content
 
 
+async def test_import_device_skips_mint_when_package_ota_encryption_is_substituted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A whole OTA ``encryption:`` left as ``${…}`` may hide an own key; nothing is minted."""
+    resolve = AsyncMock(
+        return_value={
+            "esphome": {"name": "kitchen"},
+            "ota": [{"platform": "esphome", "encryption": "${ota_encryption}"}],
+        }
+    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert "own encryption key" in result["warning"]
+    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
 async def test_import_device_skips_mint_when_package_has_own_ota_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -480,9 +485,7 @@ async def test_import_device_skips_mint_when_package_has_own_ota_key(
             "ota": [{"platform": "esphome", "encryption": {"key": "OWNKEY=="}}],
         }
     )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
 
@@ -499,17 +502,20 @@ async def test_import_device_skips_mint_when_package_has_own_ota_key(
     assert "key:" not in content
 
 
-async def test_import_device_skips_mint_when_resolve_unavailable(
+@pytest.mark.parametrize(
+    "mode", [pytest.param("no_cli", id="no_cli"), pytest.param("unavailable", id="unavailable")]
+)
+async def test_import_device_unresolvable_package_ships_keyless_with_warning(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    mode: str,
 ) -> None:
-    """An unresolvable package skips the mint; plaintext self-heals, a competing key doesn't."""
+    """A package neither the loader nor ``esphome config`` can resolve skips the mint and warns."""
     resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
-    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    esphome_cmd = [] if mode == "no_cli" else ["esphome"]
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=esphome_cmd)
     _seed_import_state(ctrl)
 
     result = await ctrl.import_device(
@@ -519,9 +525,9 @@ async def test_import_device_skips_mint_when_resolve_unavailable(
         encryption="true",
     )
 
-    assert result["configuration"] == "kitchen.yaml"
-    assert "no API encryption key was generated" in result["warning"]
+    assert "could not be resolved" in result["warning"]
     assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert resolve.await_count == (0 if mode == "no_cli" else 1)
 
 
 async def test_import_device_pending_key_skips_package_resolve(
@@ -531,9 +537,7 @@ async def test_import_device_pending_key_skips_package_resolve(
 ) -> None:
     """A pending HA key is baked directly; no resolve subprocess runs."""
     resolve = AsyncMock()
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
@@ -777,9 +781,7 @@ async def test_import_device_mint_write_failure_rolls_back(
 ) -> None:
     """A failed mint write cleans up the half-imported YAML."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.importable.write_user_yaml", _boom
@@ -805,9 +807,7 @@ async def test_import_device_mint_round_trip_failure_warns(
 ) -> None:
     """A mint whose splice doesn't read back ships keyless with a warning."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.importable.upsert_api_encryption_key",
         lambda content, key: content + "# junk\n",
@@ -833,9 +833,7 @@ async def test_import_mint_refused_by_own_ota_key_ships_keyless_with_warning(
 ) -> None:
     """A splice the yaml helper refuses ships keyless with its reason, file kept."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
 
     def _refuse(content: str, key: str) -> str:
         raise YamlUpsertNotSupportedError(
@@ -895,9 +893,7 @@ async def test_import_device_push_during_validate_window_never_mints(
 ) -> None:
     """A key pushed after the generate-time peek still blocks a competing mint."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
     real_get = ctrl._pending_keys.get
