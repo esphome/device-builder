@@ -6,26 +6,30 @@ import base64
 import logging
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.device_yaml import config_has_top_level_block
+from ...helpers.device_yaml import (
+    config_has_top_level_block,
+    get_resolved_api_encryption_key,
+    get_resolved_ota_encryption_key,
+    ota_key_unreadable,
+)
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
+    api_key_is_indirected,
     api_key_settled,
     component_block_present,
-    is_indirected_scalar,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
-from .encryption_key_lookup import get_resolved_api_and_ota_keys
 from .mutations_simple import _read_device_yaml_or_raise
-from .resolve import resolve_config_subprocess
+from .resolve import load_config, resolve_config_subprocess
 
 if TYPE_CHECKING:
     from ...models import Device
@@ -38,14 +42,11 @@ _KEY_BYTES = 32
 _KEPT_FOR_LATER = "the key was kept for a later attempt"
 
 
-class IndirectedKeyVerdict(StrEnum):
-    """How a ``!secret`` / ``${…}`` api key, resolved in process, compares to a pushed key."""
+class IndirectedKeyProblem(NamedTuple):
+    """Why an indirected api key was left alone; ``ota_side`` means the api key itself matched."""
 
-    MATCHES = "matches"
-    DIFFERS = "differs"
-    UNRESOLVED = "unresolved"
-    OTA_DIFFERS = "ota_differs"
-    OTA_UNRESOLVED = "ota_unresolved"
+    reason: str
+    ota_side: bool
 
 
 class KeyHandoffResult(StrEnum):
@@ -110,36 +111,26 @@ async def judge_indirected_key(
     key: str,
     *,
     timeout: float | None = None,
-) -> IndirectedKeyVerdict:
-    """Resolve an indirected api key in process and compare it (and any OTA key) to *key*."""
-    keys = await get_resolved_api_and_ota_keys(controller, configuration, timeout=timeout)
-    if not keys.api:
-        return IndirectedKeyVerdict.UNRESOLVED
-    if keys.api != key:
-        return IndirectedKeyVerdict.DIFFERS
-    if keys.ota and keys.ota != key:
-        return IndirectedKeyVerdict.OTA_DIFFERS
-    if keys.ota_unreadable:
-        return IndirectedKeyVerdict.OTA_UNRESOLVED
-    return IndirectedKeyVerdict.MATCHES
-
-
-def describe_indirected_key(verdict: IndirectedKeyVerdict) -> str:
-    """Why an indirected api key was left alone, as a lowercase clause with no trailing period."""
+) -> IndirectedKeyProblem | None:
+    """Resolve an indirected api key in process; ``None`` when it and any OTA key equal *key*."""
+    _, config = await load_config(controller, configuration, timeout=timeout)
     prefix = "the key is provided via !secret, !include, or a substitution"
-    return {
-        IndirectedKeyVerdict.MATCHES: "",
-        IndirectedKeyVerdict.DIFFERS: f"{prefix} and resolves to a different value",
-        IndirectedKeyVerdict.UNRESOLVED: f"{prefix} that could not be resolved",
-        IndirectedKeyVerdict.OTA_DIFFERS: (
-            f"{prefix} and already resolves to the pushed key, but the resolved "
-            "OTA encryption key differs from it"
-        ),
-        IndirectedKeyVerdict.OTA_UNRESOLVED: (
-            f"{prefix} and already resolves to the pushed key, but the OTA encryption "
-            "key could not be read to confirm it matches"
-        ),
-    }[verdict]
+    api = get_resolved_api_encryption_key(config)
+    if not api:
+        return IndirectedKeyProblem(f"{prefix} that could not be resolved", ota_side=False)
+    if api != key:
+        return IndirectedKeyProblem(f"{prefix} and resolves to a different value", ota_side=False)
+    matched = f"{prefix} and already resolves to the pushed key, but the"
+    ota = get_resolved_ota_encryption_key(config)
+    if ota and ota != key:
+        return IndirectedKeyProblem(
+            f"{matched} resolved OTA encryption key differs from it", ota_side=True
+        )
+    if ota_key_unreadable(config):
+        return IndirectedKeyProblem(
+            f"{matched} OTA encryption key could not be read to confirm it matches", ota_side=True
+        )
+    return None
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
@@ -162,8 +153,14 @@ async def _apply_to_device(
     content = await _read_device_yaml_or_raise(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if existing is not None and is_indirected_scalar(existing):
-        return await _settle_indirected_key(controller, configuration, key)
+    if api_key_is_indirected(content):
+        # Never rewritten: UNCHANGED only when it already resolves to the pushed key.
+        problem = await judge_indirected_key(controller, configuration, key)
+        return (
+            (KeyHandoffResult.UNCHANGED, "")
+            if problem is None
+            else (KeyHandoffResult.NOT_WRITABLE, f"{problem.reason}; {_KEPT_FOR_LATER}")
+        )
     if api_key_settled(content, key):
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
@@ -234,19 +231,6 @@ def _locate_and_stat(
     except OSError:
         return path, None
     return path, (st.st_mtime_ns, st.st_size)
-
-
-async def _settle_indirected_key(
-    controller: DevicesController, configuration: str, key: str
-) -> tuple[KeyHandoffResult, str]:
-    """Never rewrite a ``!secret`` / ``${…}`` api key; UNCHANGED only when it resolves to *key*."""
-    verdict = await judge_indirected_key(controller, configuration, key)
-    if verdict is IndirectedKeyVerdict.MATCHES:
-        return KeyHandoffResult.UNCHANGED, ""
-    reason = describe_indirected_key(verdict)
-    if verdict is IndirectedKeyVerdict.UNRESOLVED:
-        reason = f"{reason}; {_KEPT_FOR_LATER}"
-    return KeyHandoffResult.NOT_WRITABLE, reason
 
 
 def _validate_key(key: str) -> None:

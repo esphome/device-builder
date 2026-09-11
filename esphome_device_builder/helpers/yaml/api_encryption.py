@@ -35,6 +35,12 @@ def api_key_settled(yaml_text: str, key: str) -> bool:
     )
 
 
+def api_key_is_indirected(yaml_text: str) -> bool:
+    """Whether ``api.encryption.key`` is present but spelled as a tag or a substitution."""
+    raw = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
+    return raw is not None and is_indirected_scalar(raw)
+
+
 def generate_api_encryption_key() -> str:
     """Return a fresh 32-byte ESPHome API encryption key, base64-encoded."""
     return base64.b64encode(secrets.token_bytes(32)).decode()

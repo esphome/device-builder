@@ -653,11 +653,6 @@ def get_ota_encryption_key(config: dict | None) -> str:
     return ""
 
 
-def ota_encryption_block_unresolved(config: dict | None) -> bool:
-    """Whether an esphome OTA entry's ``encryption:`` is a bare string the loader could not read."""
-    return any(isinstance(entry.get("encryption"), str) for entry in _ota_esphome_entries(config))
-
-
 def resolved_ota_has_encryption(config: dict | None) -> bool:
     """Whether an esphome OTA entry declares ``encryption:``; a bare block parses to ``None``."""
     return any("encryption" in entry for entry in _ota_esphome_entries(config))
@@ -888,6 +883,26 @@ def get_api_encryption_key(config: dict | None) -> str:
 def get_resolved_api_encryption_key(config: dict | None) -> str:
     """Native API encryption key with ``${var}`` resolved; ``""`` if absent or unresolved."""
     return _resolve_key(config, get_api_encryption_key(config))
+
+
+def read_resolved_ota_encryption_key(config: dict | None) -> str | None:
+    """Esphome OTA key with ``${…}`` expanded; ``""`` when none, ``None`` when it can't be read."""
+    ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
+    for entry in ota if isinstance(ota, list) else [ota]:
+        if not isinstance(entry, dict):
+            continue
+        platform = entry.get(const.CONF_PLATFORM, "esphome")
+        if isinstance(platform, str) and _UNRESOLVED_SUBSTITUTION_RE.search(platform):
+            return None  # may be the esphome one
+        if platform != "esphome":
+            continue
+        encryption = entry.get("encryption")
+        if isinstance(encryption, str):
+            return None  # a whole block the loader left as a substitution
+        key = encryption.get("key") if isinstance(encryption, dict) else None
+        if isinstance(key, str) and key:
+            return _resolve_key(config, key) or None
+    return ""
 
 
 def get_resolved_ota_encryption_key(config: dict | None) -> str:

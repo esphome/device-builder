@@ -25,30 +25,29 @@ if TYPE_CHECKING:
 
 async def resolve_config(controller: DevicesController, path: Path) -> dict[Any, Any] | None:
     """Load in process, then ``esphome config`` if work was deferred; ``None`` if neither works."""
-    try:
-        # Same ceiling as the subprocess: a never-cloned package makes the loader
-        # fetch it, and git carries no timeout of its own. A timeout frees the
-        # caller, not the executor thread, and counts as deferred work.
-        _, config = await asyncio.wait_for(
-            load_config(controller, path), timeout=ESPHOME_CONFIG_TIMEOUT
-        )
-    except TimeoutError:
-        _LOGGER.warning(
-            "In-process resolve of %s exceeded %ss; falling back to esphome config",
-            path,
-            ESPHOME_CONFIG_TIMEOUT,
-        )
-        config = None
+    _, config = await load_config(controller, path)
     if resolution_incomplete(config):
         config = await resolve_config_subprocess(controller, path)
     return config
 
 
 async def load_config(
-    controller: DevicesController, configuration: str | Path
+    controller: DevicesController, configuration: str | Path, *, timeout: float | None = None
 ) -> tuple[Path, dict[Any, Any] | None]:
-    """Locate and load through ESPHome's loader in one hop; config is ``None`` if unparsable."""
-    return await run_in_executor(_locate_and_load, controller._db.settings, configuration)
+    """Locate and load in one hop under a ceiling; config ``None`` if unparsable or stalled."""
+    if timeout is None:
+        timeout = ESPHOME_CONFIG_TIMEOUT
+    try:
+        # Same ceiling as the subprocess: a never-cloned package makes the loader
+        # fetch it, and git carries no timeout of its own. A timeout frees the
+        # caller, not the executor thread, and counts as deferred work.
+        return await asyncio.wait_for(
+            run_in_executor(_locate_and_load, controller._db.settings, configuration),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        _LOGGER.warning("In-process resolve of %s exceeded %ss", configuration, timeout)
+        return await run_in_executor(_locate, controller._db.settings, configuration), None
 
 
 async def resolve_config_subprocess(

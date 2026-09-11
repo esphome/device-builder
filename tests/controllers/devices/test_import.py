@@ -10,8 +10,8 @@ exists the write raises ``FileExistsError``, re-surfaced as a
 
 from __future__ import annotations
 
-import asyncio
 import base64
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,9 +21,9 @@ import pytest
 
 from esphome_device_builder.controllers.devices import (
     DevicesController,
-    encryption_key_lookup,
     importable,
 )
+from esphome_device_builder.controllers.devices import resolve as resolve_module
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
@@ -565,34 +565,17 @@ OTA_ENTRY = "ota:\n  - platform: esphome\n"
 
 
 @pytest.mark.parametrize(
-    ("secret", "ota_block", "fragment"),
+    ("secret", "ota_block", "fragment", "tail"),
     [
-        pytest.param(PENDING_KEY, "", "", id="matches"),
-        pytest.param(OTHER_KEY, "", "different value", id="differs"),
-        pytest.param(None, "", "could not be resolved", id="unresolved"),
+        pytest.param(PENDING_KEY, "", "", "", id="matches"),
+        pytest.param(OTHER_KEY, "", "different value", "cut Home Assistant off", id="differs"),
+        pytest.param(None, "", "could not be resolved", "cut Home Assistant off", id="unresolved"),
         pytest.param(
             PENDING_KEY,
             OTA_ENTRY + f'    encryption:\n      key: "{OTHER_KEY}"\n',
             "OTA encryption key differs",
+            "make the OTA encryption key match",
             id="ota_differs",
-        ),
-        pytest.param(
-            PENDING_KEY,
-            OTA_ENTRY + "    encryption: ${ota_key}\n",
-            "could not be read",
-            id="ota_bare",
-        ),
-        pytest.param(
-            PENDING_KEY,
-            OTA_ENTRY + "    encryption:\n      key: ${ota_key}\n",
-            "could not be read",
-            id="ota_unresolved_key",
-        ),
-        pytest.param(
-            PENDING_KEY,
-            "packages:\n  v: github://x/y.yaml\n",
-            "could not be read",
-            id="ota_behind_unmerged_package",
         ),
     ],
 )
@@ -603,6 +586,7 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
     secret: str | None,
     ota_block: str,
     fragment: str,
+    tail: str,
 ) -> None:
     """An upstream ``!secret`` key is compared after resolving; only a match consumes the key."""
     yaml_text = "api:\n  encryption:\n    key: !secret api_key\n" + ota_block
@@ -624,8 +608,7 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
     assert "!secret api_key" in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     if fragment:
         assert "!secret" in result["warning"] and fragment in result["warning"]
-        assert "stays stored" in result["warning"]
-        assert ("cut Home Assistant off" in result["warning"]) is (not ota_block)
+        assert "stays stored" in result["warning"] and tail in result["warning"]
         assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
     else:
         assert "warning" not in result
@@ -644,11 +627,11 @@ async def test_import_device_full_config_indirected_key_stall_is_bounded_by_the_
     )
     monkeypatch.setattr(importable, "IMPORT_VALIDATE_TIMEOUT", 0.05)
 
-    async def stalled(controller, configuration):
-        await asyncio.sleep(0.3)
+    def stalled(settings, configuration):
+        time.sleep(0.3)
         return tmp_path / "kitchen.yaml", None
 
-    monkeypatch.setattr(encryption_key_lookup, "load_config", stalled)
+    monkeypatch.setattr(resolve_module, "_locate_and_load", stalled)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)

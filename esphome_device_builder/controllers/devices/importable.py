@@ -14,18 +14,17 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
     generate_adoption_yaml,
-    get_ota_encryption_key,
-    ota_encryption_block_unresolved,
+    read_resolved_ota_encryption_key,
 )
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
+    api_key_is_indirected,
     api_key_settled,
     component_block_present,
     generate_api_encryption_key,
-    is_indirected_scalar,
     read_yaml_scalar,
     upsert_api_encryption_key,
     write_user_yaml,
@@ -38,7 +37,7 @@ from ...models import (
     ImportableDeviceRemovedData,
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT
-from .encryption_key import IndirectedKeyVerdict, describe_indirected_key, judge_indirected_key
+from .encryption_key import judge_indirected_key
 from .mutations_yaml import packages_block_span
 from .resolve import resolve_config
 
@@ -49,6 +48,17 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+_NOT_APPLIED_TAIL = (
+    " The key Home Assistant provisioned was not applied and stays "
+    "stored; installing this config may cut Home Assistant off "
+    "until it re-provisions."
+)
+# The api key is right; only the OTA key needs the user's hand, so no "cut off".
+_OTA_MISMATCH_TAIL = (
+    " The key Home Assistant provisioned stays stored; make the OTA "
+    "encryption key match before installing."
+)
 
 
 async def import_device(
@@ -293,10 +303,8 @@ async def _finalize_adoption_key(
             warning = await _splice_pending_key_or_cleanup(
                 controller, path, content, fresh["key"], cleanup
             )
-        current = controller._pending_keys.get(name)
-        # A push that landed while the key was being judged or spliced is newer; keep it.
-        if warning is None and (current is None or current["key"] == fresh["key"]):
-            controller._pending_keys.pop(name)
+        if warning is None:
+            controller._pending_keys.pop_if(name, fresh["key"])
         return warning
     if encryption and not full_config_import:
         return await _mint_key_unless_package_encrypts(controller, path, content, cleanup)
@@ -332,9 +340,9 @@ async def _mint_key_unless_package_encrypts(
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
         return None
-    # A package's own OTA key would have to match a baked api key; leave both out.
-    # A whole ``encryption:`` the loader left as a bare string is read the same way.
-    if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
+    # A package's own OTA key would have to match a baked api key; leave both out,
+    # and treat a key the loader couldn't read the same way.
+    if read_resolved_ota_encryption_key(config) != "":
         return (
             "The package gives the OTA platform its own encryption key, so no API "
             "encryption key was generated; edit the device to use one key for both."
@@ -373,19 +381,18 @@ async def _splice_pending_key_or_cleanup(
     indirected key (``!secret`` / ``${…}``) is never rewritten: one that
     resolves to the pushed key lands nothing and needs no warning.
     """
-    not_applied_tail = (
-        " The key Home Assistant provisioned was not applied and stays "
-        "stored; installing this config may cut Home Assistant off "
-        "until it re-provisions."
-    )
     if api_key_settled(content, key):
         return None
-    existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if existing is not None and is_indirected_scalar(existing):
-        return await _indirected_key_warning(controller, path, key, not_applied_tail)
+    if api_key_is_indirected(content):
+        # Same interactive budget as the validate below; a stall reads as unresolved.
+        problem = await judge_indirected_key(controller, path, key, timeout=IMPORT_VALIDATE_TIMEOUT)
+        if problem is None:
+            return None
+        sentence = f"{problem.reason[:1].upper()}{problem.reason[1:]}."
+        return sentence + (_OTA_MISMATCH_TAIL if problem.ota_side else _NOT_APPLIED_TAIL)
     spliced, refusal = _splice_pending_key(content, key)
     if spliced is None:
-        return refusal + not_applied_tail
+        return refusal + _NOT_APPLIED_TAIL
     # An OTA block the line walker can't read may still hold a key the splice
     # can't reconcile; esphome decides before anything is written.
     try:
@@ -397,32 +404,13 @@ async def _splice_pending_key_or_cleanup(
             timeout=IMPORT_VALIDATE_TIMEOUT,
         )
     except CommandError as err:
-        return f"{err.message}{not_applied_tail}"
+        return f"{err.message}{_NOT_APPLIED_TAIL}"
     try:
         await run_in_executor(write_user_yaml, path, spliced)
     except Exception:
         await run_in_executor(cleanup)
         raise
     return None
-
-
-async def _indirected_key_warning(
-    controller: DevicesController, path: Path, key: str, not_applied_tail: str
-) -> str | None:
-    """Warn for an indirected api key that doesn't resolve to *key*; ``None`` when it does."""
-    # The same interactive budget as the validate above; a stall is UNRESOLVED.
-    verdict = await judge_indirected_key(controller, path, key, timeout=IMPORT_VALIDATE_TIMEOUT)
-    if verdict is IndirectedKeyVerdict.MATCHES:
-        return None
-    reason = describe_indirected_key(verdict)
-    sentence = f"{reason[:1].upper()}{reason[1:]}."
-    if verdict in (IndirectedKeyVerdict.OTA_DIFFERS, IndirectedKeyVerdict.OTA_UNRESOLVED):
-        # The api key is right; only the OTA key needs the user's hand.
-        return (
-            f"{sentence} The key Home Assistant provisioned stays stored; make the "
-            "OTA encryption key match before installing."
-        )
-    return sentence + not_applied_tail
 
 
 def _splice_pending_key(content: str, key: str) -> tuple[str | None, str]:

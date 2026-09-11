@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
-from esphome_device_builder.controllers.devices import encryption_key_lookup
+from esphome_device_builder.controllers.devices import resolve as resolve_module
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
@@ -191,13 +191,13 @@ async def test_set_encryption_key_stalled_resolve_reads_as_unresolved(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A loader stuck past the ceiling (a cold package clone) keeps the key for a later attempt."""
-    monkeypatch.setattr(encryption_key_lookup, "ESPHOME_CONFIG_TIMEOUT", 0.05)
+    monkeypatch.setattr(resolve_module, "ESPHOME_CONFIG_TIMEOUT", 0.05)
 
-    async def stalled(controller, configuration):
-        await asyncio.sleep(0.3)
+    def stalled(settings, configuration):
+        time.sleep(0.3)
         return tmp_path / "kitchen.yaml", None
 
-    monkeypatch.setattr(encryption_key_lookup, "load_config", stalled)
+    monkeypatch.setattr(resolve_module, "_locate_and_load", stalled)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
     _configure(ctrl, tmp_path, SECRET_KEY_YAML)
@@ -210,32 +210,16 @@ async def test_set_encryption_key_stalled_resolve_reads_as_unresolved(
     assert "exceeded 0.05s" in caplog.text
 
 
-@pytest.mark.parametrize(
-    "ota_block",
-    [
-        pytest.param("    encryption: ${ota_encryption}\n", id="bare_string"),
-        pytest.param("    encryption:\n      key: ${ota_key}\n", id="unresolved_key"),
-        pytest.param("!include", id="deferred_ota_block"),
-        pytest.param("!packages", id="unmerged_package"),
-        pytest.param("!item", id="substituted_list_item"),
-    ],
-)
 async def test_set_encryption_key_matching_secret_next_to_an_unreadable_ota_block_is_refused(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
-    ota_block: str,
 ) -> None:
     """An OTA key the loader can't read can't confirm the pair; refuse, don't assume."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
-    if ota_block == "!include":
-        yaml_text = SECRET_KEY_YAML + "\nota: !include ota.yaml\n"
-    elif ota_block == "!packages":
-        yaml_text = SECRET_KEY_YAML + "\npackages:\n  v: github://x/y.yaml\n"
-    elif ota_block == "!item":
-        yaml_text = SECRET_KEY_YAML + "\nota:\n  - ${ota_entry}\n"
-    else:
-        yaml_text = SECRET_KEY_YAML + "\nota:\n  - platform: esphome\n" + ota_block
+    yaml_text = (
+        SECRET_KEY_YAML + "\nota:\n  - platform: esphome\n    encryption: ${ota_encryption}\n"
+    )
     _configure(ctrl, tmp_path, yaml_text)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
@@ -826,6 +810,16 @@ async def test_pending_keys_store_set_same_entry_skips_save(tmp_path: Path) -> N
     store._store.async_delay_save = lambda *a, **kw: saves.append(a)  # type: ignore[method-assign]
     store.set("a", KEY, "AA:BB:CC:DD:EE:FF")
     assert saves == []
+
+
+async def test_pending_keys_store_pop_if_keeps_a_newer_key(tmp_path: Path) -> None:
+    """``pop_if`` consumes the entry only while it still holds the key that was handled."""
+    store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)
+    store.set("kitchen", KEY, "")
+    assert store.pop_if("kitchen", OTHER_KEY) is None
+    assert store.get("kitchen") == {"key": KEY}
+    assert store.pop_if("kitchen", KEY) == {"key": KEY}
+    assert store.pop_if("kitchen", KEY) is None
 
 
 async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:

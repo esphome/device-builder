@@ -26,7 +26,7 @@ from esphome_device_builder.helpers.device_yaml import (
     get_resolved_ota_encryption_key,
     has_top_level_block,
     load_device_yaml,
-    ota_encryption_block_unresolved,
+    read_resolved_ota_encryption_key,
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
     resolved_ota_has_encryption,
@@ -116,12 +116,41 @@ def test_get_resolved_encryption_key_falls_back_to_ota() -> None:
     assert get_resolved_encryption_key(unresolved_api) == "ota=="
 
 
-def test_ota_encryption_block_unresolved() -> None:
-    substituted = {"ota": [{"platform": "esphome", "encryption": "${enc}"}]}
-    assert ota_encryption_block_unresolved(substituted) is True
-    assert ota_encryption_block_unresolved({"ota": [{"platform": "esphome"}]}) is False
-    assert ota_encryption_block_unresolved({"ota": [{"encryption": {"key": "k"}}]}) is False
-    assert ota_encryption_block_unresolved(None) is False
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        pytest.param(None, "", id="missing"),
+        pytest.param({"ota": [{"platform": "esphome"}]}, "", id="no_key"),
+        pytest.param(
+            {"ota": [{"platform": "esphome", "encryption": {"key": "k=="}}]}, "k==", id="literal"
+        ),
+        pytest.param(
+            {"ota": [{"platform": "web_server", "encryption": {"key": "k=="}}]},
+            "",
+            id="other_platform",
+        ),
+        pytest.param(
+            {"ota": [{"platform": "esphome", "encryption": "${enc}"}]}, None, id="bare_block"
+        ),
+        pytest.param(
+            {"ota": [{"platform": "esphome", "encryption": {"key": "${k}"}}]},
+            None,
+            id="unexpanded_key",
+        ),
+        pytest.param({"ota": [{"platform": "${p}"}]}, None, id="substituted_platform"),
+        pytest.param(
+            {
+                "substitutions": {"k": "k=="},
+                "ota": [{"platform": "esphome", "encryption": {"key": "${k}"}}],
+            },
+            "k==",
+            id="expanded_key",
+        ),
+    ],
+)
+def test_read_resolved_ota_encryption_key(config: dict | None, expected: str | None) -> None:
+    """``""`` for no key, the key when readable, ``None`` when the loader couldn't read it."""
+    assert read_resolved_ota_encryption_key(config) == expected
 
 
 def test_get_resolved_ota_encryption_key_ignores_the_api_key() -> None:

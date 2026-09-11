@@ -41,14 +41,12 @@ from ._parsing import (
     extract_logger_interface,
     extract_ota_partition_access,
     get_api_encryption_block,
-    get_ota_encryption_key,
-    get_resolved_ota_encryption_key,
     has_top_level_block,
     mdns_disabled_enabled,
     name_add_mac_suffix_enabled,
-    ota_encryption_block_unresolved,
     ota_encryption_declared,
     parse_esphome_meta,
+    read_resolved_ota_encryption_key,
     safe_stat_key,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
@@ -557,31 +555,13 @@ def resolution_incomplete(config: dict | None) -> bool:
 
 def ota_key_unreadable(config: dict | None) -> bool:
     """Whether the in-process load can't vouch for the OTA key: hidden, unexpanded, or bare."""
-    return (
-        _ota_block_unreadable(config)
-        or ota_encryption_block_unresolved(config)
-        or (bool(get_ota_encryption_key(config)) and not get_resolved_ota_encryption_key(config))
-    )
-
-
-def _ota_block_unreadable(config: dict | None) -> bool:
-    """Whether an OTA key may hide where the loader didn't reach: packages or the ``ota:`` block."""
     if not isinstance(config, dict):
         return True
-    packages = config.get(CONF_PACKAGES)
-    ota = config.get(const.CONF_OTA)
-    entries = ota if isinstance(ota, list) else [ota]
+    blocks = (config.get(CONF_PACKAGES), config.get(const.CONF_OTA))
     return (
         _has_packages_block(config)
-        or _is_substituted(packages)
-        or _holds_deferred_marker(packages)
-        or _is_substituted(ota)
-        or _holds_deferred_marker(ota)
-        # An entry whose platform is still a substitution may be the esphome one.
-        or any(
-            isinstance(entry, dict) and _is_substituted(entry.get(const.CONF_PLATFORM))
-            for entry in entries
-        )
+        or any(_is_substituted(block) or _holds_deferred_marker(block) for block in blocks)
+        or read_resolved_ota_encryption_key(config) is None
     )
 
 
