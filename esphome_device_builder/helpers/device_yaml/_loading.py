@@ -27,6 +27,7 @@ from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
+    _UNRESOLVED_SUBSTITUTION_RE,
     _extract_resolved_substitutions,
     _is_valid_esphome_name,
     _pick_meta,
@@ -562,7 +563,9 @@ def _has_substituted_block(config: dict) -> bool:
     # block is a caller's own concern (see importable's OTA guard).
     for value in config.values():
         items = value if isinstance(value, list) else [value]
-        if any(isinstance(item, str) and "$" in item for item in items):
+        if any(
+            isinstance(item, str) and _UNRESOLVED_SUBSTITUTION_RE.search(item) for item in items
+        ):
             return True
     return False
 
