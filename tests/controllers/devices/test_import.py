@@ -574,7 +574,7 @@ OTA_ENTRY = "ota:\n  - platform: esphome\n"
             PENDING_KEY,
             OTA_ENTRY + f'    encryption:\n      key: "{OTHER_KEY}"\n',
             "OTA encryption key differs",
-            "make the OTA encryption key match",
+            "resolves to the same value",
             id="ota_differs",
         ),
     ],

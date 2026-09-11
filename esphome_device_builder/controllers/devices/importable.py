@@ -55,9 +55,10 @@ _NOT_APPLIED_TAIL = (
     "until it re-provisions."
 )
 # The api key is right; only the OTA key needs the user's hand, so no "cut off".
+# Neutral on purpose: it also follows a key the loader could not read.
 _OTA_MISMATCH_TAIL = (
-    " The key Home Assistant provisioned stays stored; make the OTA "
-    "encryption key match before installing."
+    " The key Home Assistant provisioned stays stored; confirm the OTA "
+    "encryption key resolves to the same value before installing."
 )
 
 
