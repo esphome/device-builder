@@ -121,7 +121,9 @@ async def _apply_to_device(
         # The push itself proves the device's API is up (HA set the key
         # over it), but a package device that has never been compiled is
         # indistinguishable from a config the user stripped api: out of
-        # — resolve the config and let ground truth decide.
+        # — resolve the config and let ground truth decide. The scanner's own
+        # in-process load is what cleared ``api_enabled``, so only the
+        # subprocess adds information here.
         has_api = await _resolved_config_has_api(controller, configuration)
         if not has_api:
             reason = (
@@ -157,13 +159,7 @@ async def _apply_to_device(
 async def _resolved_config_has_api(
     controller: DevicesController, configuration: str
 ) -> bool | None:
-    """
-    ``esphome config``'s verdict on ``api:``; ``None`` when unresolvable.
-
-    The scanner's in-process load already cleared ``api_enabled``, so only the
-    subprocess adds information; a "no api" verdict is remembered per file
-    identity so a repeat push against an unchanged YAML doesn't respawn it.
-    """
+    """Whether ``esphome config`` sees ``api:``; a no-api verdict is kept per file identity."""
     path = await run_in_executor(controller._db.settings.rel_path, configuration)
     identity = await run_in_executor(_file_identity, path)
     memo = controller.state.apiless_resolves

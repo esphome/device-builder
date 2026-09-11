@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _file_identity
 from esphome_device_builder.helpers.api import CommandError
@@ -552,6 +553,26 @@ async def test_set_encryption_key_apiless_verdict_is_kept_until_the_yaml_changes
 
     assert third["result"] == "not_writable"
     assert resolve.await_count == 2
+
+
+async def test_set_encryption_key_apiless_verdict_is_dropped_when_the_scanner_sees_a_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A scan UPDATED or REMOVED for the configuration prunes its remembered verdict."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    device = _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    assert "kitchen.yaml" in ctrl.state.apiless_resolves
+
+    ctrl._on_scan_change(ScanChange.REMOVED, device)
+
+    assert ctrl.state.apiless_resolves == {}
 
 
 def test_file_identity_is_none_for_a_missing_file(tmp_path: Path) -> None:

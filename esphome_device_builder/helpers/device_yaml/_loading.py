@@ -558,6 +558,8 @@ def _has_packages_block(config: dict) -> bool:
 
 def _has_substituted_block(config: dict) -> bool:
     """Whether a top-level block, or an item of one, is still a substitution string."""
+    # Deferred detection covers block presence only; a value nested inside a
+    # block is a caller's own concern (see importable's OTA guard).
     for value in config.values():
         items = value if isinstance(value, list) else [value]
         if any(isinstance(item, str) and "$" in item for item in items):

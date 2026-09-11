@@ -136,12 +136,13 @@ def _reconcile_regen_state(
     device: Device,
 ) -> bool:
     """
-    Drop regen bookkeeping when the YAML changed or is gone; True iff a retry was armed.
+    Drop regen and resolve bookkeeping when the YAML changed or is gone; True iff a retry was armed.
 
     RELOADED leaves everything alone.
     """
     if kind not in (ScanChange.UPDATED, ScanChange.REMOVED):
         return False
+    controller.state.apiless_resolves.pop(device.configuration, None)
     return controller.state.regen.forget(device.configuration)
 
 

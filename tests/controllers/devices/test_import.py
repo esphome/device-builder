@@ -446,6 +446,33 @@ async def test_import_device_skips_mint_when_package_encrypts(
     assert "key:" not in content
 
 
+async def test_import_device_skips_mint_when_package_ota_encryption_is_substituted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A whole OTA ``encryption:`` left as ``${…}`` may hide an own key; nothing is minted."""
+    resolve = AsyncMock(
+        return_value={
+            "esphome": {"name": "kitchen"},
+            "ota": [{"platform": "esphome", "encryption": "${ota_encryption}"}],
+        }
+    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert "own encryption key" in result["warning"]
+    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
 async def test_import_device_skips_mint_when_package_has_own_ota_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
