@@ -553,16 +553,30 @@ async def test_import_device_pending_key_skips_package_resolve(
     assert f'    key: "{PENDING_KEY}"\n' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
 
 
-async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
+@pytest.mark.parametrize(
+    ("secret", "fragment"),
+    [
+        pytest.param(PENDING_KEY, "", id="matches"),
+        pytest.param(
+            "b3RoZXJrZXlvdGhlcmtleW90aGVya2V5b3RoZXJrZXlvdA==", "different value", id="differs"
+        ),
+        pytest.param(None, "could not be resolved", id="unresolved"),
+    ],
+)
+async def test_import_device_full_config_indirected_key_is_resolved_never_rewritten(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    secret: str | None,
+    fragment: str,
 ) -> None:
-    """An upstream ``!secret`` key IS competing; warn and keep the pending key."""
+    """An upstream ``!secret`` key is compared after resolving; only a match consumes the key."""
     monkeypatch.setattr(
         "esphome.components.dashboard_import.import_config",
         _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
     )
+    if secret is not None:
+        (tmp_path / "secrets.yaml").write_text(f'api_key: "{secret}"\n', encoding="utf-8")
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
@@ -573,10 +587,14 @@ async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
         package_import_url="github://x/y.yaml@main?full_config",
     )
 
-    assert "supplies its own API encryption key" in result["warning"]
-    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert "!secret api_key" in content
-    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+    assert "!secret api_key" in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    if fragment:
+        assert "!secret" in result["warning"] and fragment in result["warning"]
+        assert "stays stored" in result["warning"]
+        assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+    else:
+        assert "warning" not in result
+        assert ctrl._pending_keys.get("kitchen") is None
 
 
 async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_key(
@@ -715,7 +733,7 @@ async def test_import_device_joins_validation_and_key_warnings(
     )
 
     assert "Validator unavailable" in result["warning"]
-    assert "supplies its own API encryption key" in result["warning"]
+    assert "!secret" in result["warning"] and "could not be resolved" in result["warning"]
 
 
 async def test_import_device_full_config_equal_key_is_noop(

@@ -25,6 +25,7 @@ from ...helpers.yaml import (
     api_key_settled,
     component_block_present,
     generate_api_encryption_key,
+    is_indirected_scalar,
     read_yaml_scalar,
     upsert_api_encryption_key,
     write_user_yaml,
@@ -37,6 +38,7 @@ from ...models import (
     ImportableDeviceRemovedData,
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT
+from .encryption_key import IndirectedKeyVerdict, describe_indirected_key, judge_indirected_key
 from .mutations_yaml import packages_block_span
 from .resolve import resolve_config
 
@@ -366,8 +368,8 @@ async def _splice_pending_key_or_cleanup(
 
     The key is rewritten over a competing literal or inserted under an
     existing ``api:`` block; a YAML with no ``api:`` stays verbatim. An
-    indirected key (``!secret`` / ``${…}``) IS competing but can't be
-    rewritten safely — the warning says so.
+    indirected key (``!secret`` / ``${…}``) is never rewritten: one that
+    resolves to the pushed key lands nothing and needs no warning.
     """
     not_applied_tail = (
         " The key Home Assistant provisioned was not applied and stays "
@@ -376,6 +378,13 @@ async def _splice_pending_key_or_cleanup(
     )
     if api_key_settled(content, key):
         return None
+    existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
+    if existing is not None and is_indirected_scalar(existing):
+        verdict = await judge_indirected_key(controller, path, key)
+        if verdict is IndirectedKeyVerdict.MATCHES:
+            return None
+        reason = describe_indirected_key(verdict)
+        return f"{reason[0].upper()}{reason[1:]}.{not_applied_tail}"
     spliced, refusal = _splice_pending_key(content, key)
     if spliced is None:
         return refusal + not_applied_tail
@@ -412,11 +421,6 @@ def _splice_pending_key(content: str, key: str) -> tuple[str | None, str]:
         spliced = upsert_api_encryption_key(content, key)
     except YamlUpsertNotSupportedError as exc:
         return None, str(exc)
-    if spliced == content:
-        return None, (
-            "The imported config supplies its own API encryption key via !secret, !include, or a "
-            "substitution."
-        )
     if not api_key_settled(spliced, key):
         return None, "The imported config's shape defeated the key splice."
     return spliced, ""

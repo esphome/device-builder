@@ -38,6 +38,15 @@ _KEY_BYTES = 32
 _KEPT_FOR_LATER = "the key was kept for a later attempt"
 
 
+class IndirectedKeyVerdict(StrEnum):
+    """How a ``!secret`` / ``${…}`` api key, resolved in process, compares to a pushed key."""
+
+    MATCHES = "matches"
+    DIFFERS = "differs"
+    UNRESOLVED = "unresolved"
+    OTA_DIFFERS = "ota_differs"
+
+
 class KeyHandoffResult(StrEnum):
     """Wire ``result`` values for the HA encryption-key handoff."""
 
@@ -92,6 +101,33 @@ async def set_encryption_key(
         response["reason"] = reason
         _LOGGER.info("HA key handoff for %s refused: %s", name, reason)
     return response
+
+
+async def judge_indirected_key(
+    controller: DevicesController, configuration: str | Path, key: str
+) -> IndirectedKeyVerdict:
+    """Resolve an indirected api key in process and compare it (and any OTA key) to *key*."""
+    resolved, ota_resolved = await get_resolved_api_and_ota_keys(controller, configuration)
+    if not resolved:
+        return IndirectedKeyVerdict.UNRESOLVED
+    if resolved != key:
+        return IndirectedKeyVerdict.DIFFERS
+    if ota_resolved and ota_resolved != key:
+        return IndirectedKeyVerdict.OTA_DIFFERS
+    return IndirectedKeyVerdict.MATCHES
+
+
+def describe_indirected_key(verdict: IndirectedKeyVerdict) -> str:
+    """Why an indirected api key was left alone, as a lowercase clause with no trailing period."""
+    prefix = "the key is provided via !secret, !include, or a substitution"
+    return {
+        IndirectedKeyVerdict.DIFFERS: f"{prefix} and resolves to a different value",
+        IndirectedKeyVerdict.UNRESOLVED: f"{prefix} that could not be resolved",
+        IndirectedKeyVerdict.OTA_DIFFERS: (
+            f"{prefix} and already resolves to the pushed key, but the resolved "
+            "OTA encryption key differs from it"
+        ),
+    }[verdict]
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
@@ -192,22 +228,13 @@ async def _settle_indirected_key(
     controller: DevicesController, configuration: str, key: str
 ) -> tuple[KeyHandoffResult, str]:
     """Never rewrite a ``!secret`` / ``${…}`` api key; UNCHANGED only when it resolves to *key*."""
-    prefix = "the key is provided via !secret, !include, or a substitution"
-    resolved, ota_resolved = await get_resolved_api_and_ota_keys(controller, configuration)
-    if resolved == key:
-        if ota_resolved and ota_resolved != key:
-            reason = (
-                f"{prefix} and already resolves to the pushed key, but the resolved "
-                "OTA encryption key differs from it"
-            )
-            return KeyHandoffResult.NOT_WRITABLE, reason
+    verdict = await judge_indirected_key(controller, configuration, key)
+    if verdict is IndirectedKeyVerdict.MATCHES:
         return KeyHandoffResult.UNCHANGED, ""
-    if not resolved:
-        return (
-            KeyHandoffResult.NOT_WRITABLE,
-            f"{prefix} that could not be resolved; {_KEPT_FOR_LATER}",
-        )
-    return KeyHandoffResult.NOT_WRITABLE, f"{prefix} and resolves to a different value"
+    reason = describe_indirected_key(verdict)
+    if verdict is IndirectedKeyVerdict.UNRESOLVED:
+        reason = f"{reason}; {_KEPT_FOR_LATER}"
+    return KeyHandoffResult.NOT_WRITABLE, reason
 
 
 def _validate_key(key: str) -> None:

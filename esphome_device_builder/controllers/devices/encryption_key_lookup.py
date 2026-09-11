@@ -13,6 +13,8 @@ from ...helpers.device_yaml import (
 from .resolve import load_config, resolve_config_subprocess
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .controller import DevicesController
 
 
@@ -29,7 +31,7 @@ async def get_encryption_key(controller: DevicesController, configuration: str) 
 
 
 async def get_resolved_api_and_ota_keys(
-    controller: DevicesController, configuration: str
+    controller: DevicesController, configuration: str | Path
 ) -> tuple[str, str]:
     """Resolve ``(api key, OTA key)`` in process, never via a subprocess; ``""`` if unresolved."""
     _, config = await load_config(controller, configuration)
