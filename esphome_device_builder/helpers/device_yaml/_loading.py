@@ -41,9 +41,12 @@ from ._parsing import (
     extract_logger_interface,
     extract_ota_partition_access,
     get_api_encryption_block,
+    get_ota_encryption_key,
+    get_resolved_ota_encryption_key,
     has_top_level_block,
     mdns_disabled_enabled,
     name_add_mac_suffix_enabled,
+    ota_encryption_block_unresolved,
     ota_encryption_declared,
     parse_esphome_meta,
     safe_stat_key,
@@ -552,7 +555,16 @@ def resolution_incomplete(config: dict | None) -> bool:
     )
 
 
-def ota_block_unreadable(config: dict | None) -> bool:
+def ota_key_unreadable(config: dict | None) -> bool:
+    """Whether the in-process load can't vouch for the OTA key: hidden, unexpanded, or bare."""
+    return (
+        _ota_block_unreadable(config)
+        or ota_encryption_block_unresolved(config)
+        or (bool(get_ota_encryption_key(config)) and not get_resolved_ota_encryption_key(config))
+    )
+
+
+def _ota_block_unreadable(config: dict | None) -> bool:
     """Whether an OTA key may hide where the loader didn't reach: packages or the ``ota:`` block."""
     if not isinstance(config, dict):
         return True

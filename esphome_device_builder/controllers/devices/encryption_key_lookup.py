@@ -9,12 +9,10 @@ from typing import TYPE_CHECKING, NamedTuple
 from ...helpers.device_yaml import (
     ESPHOME_CONFIG_TIMEOUT,
     get_api_port,
-    get_ota_encryption_key,
     get_resolved_api_encryption_key,
     get_resolved_encryption_key,
     get_resolved_ota_encryption_key,
-    ota_block_unreadable,
-    ota_encryption_block_unresolved,
+    ota_key_unreadable,
 )
 from .resolve import load_config, resolve_config_subprocess
 
@@ -68,16 +66,10 @@ async def get_resolved_api_and_ota_keys(
             timeout,
         )
         return ResolvedKeys(api="", ota="", ota_unreadable=True)
-    ota = get_resolved_ota_encryption_key(config)
     return ResolvedKeys(
         api=get_resolved_api_encryption_key(config),
-        ota=ota,
-        # A declared key whose substitution didn't expand, or a block the loader
-        # never reached (unmerged package, deferred ``ota:``), is as unreadable
-        # as a bare-string ``encryption:``.
-        ota_unreadable=ota_encryption_block_unresolved(config)
-        or (not ota and bool(get_ota_encryption_key(config)))
-        or ota_block_unreadable(config),
+        ota=get_resolved_ota_encryption_key(config),
+        ota_unreadable=ota_key_unreadable(config),
     )
 
 
