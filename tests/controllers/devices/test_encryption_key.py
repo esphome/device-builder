@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
+from esphome_device_builder.controllers.devices.encryption_key import _file_identity
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
@@ -551,6 +552,13 @@ async def test_set_encryption_key_apiless_verdict_is_kept_until_the_yaml_changes
 
     assert third["result"] == "not_writable"
     assert resolve.await_count == 2
+
+
+def test_file_identity_is_none_for_a_missing_file(tmp_path: Path) -> None:
+    """A YAML that vanished between the read and the stat carries no identity to remember."""
+    assert _file_identity(tmp_path / "gone.yaml") is None
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n", encoding="utf-8")
+    assert _file_identity(tmp_path / "kitchen.yaml") is not None
 
 
 async def test_set_encryption_key_unresolvable_verdict_is_retried_on_the_next_push(
