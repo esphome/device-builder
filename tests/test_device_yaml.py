@@ -3827,6 +3827,12 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
         pytest.param("api: !include api.yaml\n", True, id="include_marker"),
         pytest.param("packages:\n  v:\n    api: {}\napi: !remove\n", True, id="remove_marker"),
         pytest.param("logger: !extend\n", True, id="extend_marker"),
+        pytest.param(
+            "ota:\n  - platform: esphome\n    encryption: !include api.yaml\n",
+            True,
+            id="marker_inside_list",
+        ),
+        pytest.param("ota:\n  - platform: esphome\n    port: 3232\n", False, id="clean_list"),
         pytest.param(": :", True, id="unparsable"),
     ],
 )
