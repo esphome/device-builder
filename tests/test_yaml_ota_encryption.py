@@ -6,7 +6,7 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
-    api_key_settled,
+    ota_key_matches,
     read_ota_encryption_key,
     rewrite_api_encryption_key,
     rewrite_own_ota_encryption_key,
@@ -261,32 +261,13 @@ def test_empty_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    ("yaml_text", "resolved_key", "expected"),
+    ("yaml_text", "expected"),
     [
-        pytest.param('api:\n  encryption:\n    key: "k"\n', "", True, id="literal"),
-        pytest.param(
-            'api:\n  encryption:\n    key: "k"\n', "other", True, id="literal_ignores_resolved"
-        ),
-        pytest.param("api:\n  encryption:\n    key: !secret k\n", "k", True, id="secret_resolved"),
-        pytest.param("api:\n  encryption:\n    key: ${k}\n", "k", True, id="substitution_resolved"),
-        pytest.param(
-            "api:\n  encryption:\n    key: !secret k\n", "", False, id="secret_unresolved"
-        ),
-        pytest.param(
-            "api:\n  encryption:\n    key: !secret k\n", "other", False, id="secret_differs"
-        ),
-        pytest.param("api:\n  encryption:\n    key: \n", "k", False, id="empty_scalar"),
-        pytest.param("api:\n", "k", False, id="no_key"),
-        pytest.param(
-            "api:\n  encryption:\n    key: !secret k\nota:\n  - platform: esphome\n"
-            "    encryption:\n      key: other\n",
-            "k",
-            False,
-            id="secret_resolved_ota_differs",
-        ),
+        pytest.param(API, True, id="no_ota_key"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', '"k"'), True, id="literal_matches"),
+        pytest.param(LIST_FORM, False, id="literal_differs"),
+        pytest.param(LIST_FORM.replace('"oldkey"  # dropped', "!secret k"), True, id="indirected"),
     ],
 )
-def test_api_key_settled_accepts_a_resolved_indirected_key(
-    yaml_text: str, resolved_key: str, expected: bool
-) -> None:
-    assert api_key_settled(yaml_text, "k", resolved_key=resolved_key) is expected
+def test_ota_key_matches(yaml_text: str, expected: bool) -> None:
+    assert ota_key_matches(yaml_text, "k") is expected

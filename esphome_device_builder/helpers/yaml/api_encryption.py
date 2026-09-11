@@ -27,20 +27,17 @@ from .top_block import _locate_top_block, _prepend_top_block
 API_ENCRYPTION_KEY_PATH = ("api", "encryption", "key")
 
 
-def api_key_settled(yaml_text: str, key: str, *, resolved_key: str = "") -> bool:
-    """
-    Whether the api key already is *key* and any explicit OTA key matches or is indirect.
+def api_key_settled(yaml_text: str, key: str) -> bool:
+    """Whether the api key is the literal *key* and any explicit OTA key matches or is indirect."""
+    return _literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), key) and (
+        ota_key_matches(yaml_text, key)
+    )
 
-    An indirected api scalar counts when *resolved_key* (its resolved value) is *key*.
-    """
-    raw = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
-    if raw is None:
-        return False
-    if is_indirected_scalar(raw):
-        api_matches = bool(resolved_key) and resolved_key == key
-    else:
-        api_matches = _literal_key_matches(raw, key)
-    return api_matches and _ota_key_matches(yaml_text, key)
+
+def ota_key_matches(yaml_text: str, key: str) -> bool:
+    """Whether an explicit OTA key, if any, is *key*; an indirected one is left to esphome."""
+    ota_key = read_ota_encryption_key(yaml_text)
+    return ota_key is None or _literal_key_matches(ota_key, key) or is_indirected_scalar(ota_key)
 
 
 def generate_api_encryption_key() -> str:
@@ -145,12 +142,6 @@ def _follow_ota_key(yaml_text: str, new_key: str) -> str:
 def _literal_key_matches(raw: str | None, key: str) -> bool:
     """Whether the raw YAML scalar *raw* is the literal *key*."""
     return raw is not None and _strip_yaml_quotes(raw) == key
-
-
-def _ota_key_matches(yaml_text: str, key: str) -> bool:
-    """Whether an explicit OTA key, if any, is *key*; an indirected one is left to esphome."""
-    ota_key = read_ota_encryption_key(yaml_text)
-    return ota_key is None or _literal_key_matches(ota_key, key) or is_indirected_scalar(ota_key)
 
 
 def _find_encryption_header(
