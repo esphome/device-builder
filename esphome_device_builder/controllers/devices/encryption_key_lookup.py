@@ -36,20 +36,23 @@ async def get_encryption_key(controller: DevicesController, configuration: str) 
 
 
 async def get_resolved_api_and_ota_keys(
-    controller: DevicesController, configuration: str | Path
+    controller: DevicesController,
+    configuration: str | Path,
+    *,
+    timeout: float | None = None,
 ) -> tuple[str, str]:
     """Resolve ``(api key, OTA key)`` in process, never via a subprocess; ``""`` if unresolved."""
+    if timeout is None:
+        timeout = ESPHOME_CONFIG_TIMEOUT
     try:
-        # Same ceiling as the subprocess: a never-cloned package makes the loader
+        # Bounded like the subprocess: a never-cloned package makes the loader
         # fetch it, and git carries no timeout of its own.
-        _, config = await asyncio.wait_for(
-            load_config(controller, configuration), timeout=ESPHOME_CONFIG_TIMEOUT
-        )
+        _, config = await asyncio.wait_for(load_config(controller, configuration), timeout=timeout)
     except TimeoutError:
         _LOGGER.warning(
             "In-process resolve of %s exceeded %ss; keys treated as unresolved",
             configuration,
-            ESPHOME_CONFIG_TIMEOUT,
+            timeout,
         )
         return "", ""
     return get_resolved_api_encryption_key(config), get_resolved_ota_encryption_key(config)

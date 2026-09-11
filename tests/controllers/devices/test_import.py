@@ -10,6 +10,7 @@ exists the write raises ``FileExistsError``, re-surfaced as a
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +19,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import (
+    DevicesController,
+    encryption_key_lookup,
+    importable,
+)
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
@@ -601,6 +606,37 @@ async def test_import_device_full_config_indirected_key_is_resolved_never_rewrit
     else:
         assert "warning" not in result
         assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_full_config_indirected_key_stall_is_bounded_by_the_import_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A cold package clone behind the secret resolve gives up on the import budget, not 60 s."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
+    )
+    monkeypatch.setattr(importable, "IMPORT_VALIDATE_TIMEOUT", 0.05)
+
+    async def stalled(controller, configuration):
+        await asyncio.sleep(0.3)
+        return tmp_path / "kitchen.yaml", None
+
+    monkeypatch.setattr(encryption_key_lookup, "load_config", stalled)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "could not be resolved" in result["warning"]
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
 async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_key(

@@ -104,10 +104,16 @@ async def set_encryption_key(
 
 
 async def judge_indirected_key(
-    controller: DevicesController, configuration: str | Path, key: str
+    controller: DevicesController,
+    configuration: str | Path,
+    key: str,
+    *,
+    timeout: float | None = None,
 ) -> IndirectedKeyVerdict:
     """Resolve an indirected api key in process and compare it (and any OTA key) to *key*."""
-    resolved, ota_resolved = await get_resolved_api_and_ota_keys(controller, configuration)
+    resolved, ota_resolved = await get_resolved_api_and_ota_keys(
+        controller, configuration, timeout=timeout
+    )
     if not resolved:
         return IndirectedKeyVerdict.UNRESOLVED
     if resolved != key:

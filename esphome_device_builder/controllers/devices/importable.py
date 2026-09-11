@@ -408,7 +408,8 @@ async def _indirected_key_warning(
     controller: DevicesController, path: Path, key: str, not_applied_tail: str
 ) -> str | None:
     """Warn for an indirected api key that doesn't resolve to *key*; ``None`` when it does."""
-    verdict = await judge_indirected_key(controller, path, key)
+    # The same interactive budget as the validate above; a stall is UNRESOLVED.
+    verdict = await judge_indirected_key(controller, path, key, timeout=IMPORT_VALIDATE_TIMEOUT)
     if verdict is IndirectedKeyVerdict.MATCHES:
         return None
     reason = describe_indirected_key(verdict)
