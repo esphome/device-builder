@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     get_api_port,
     get_resolved_api_encryption_key,
@@ -21,8 +22,9 @@ async def get_encryption_key(controller: DevicesController, configuration: str) 
     # A key behind a Jinja-templated package or an ``!include`` resolves only out of process;
     # an infra fault and a keyless config both collapse to the ``""`` the UI reads as
     # "open the editor and check".
-    key = get_resolved_encryption_key(await load_config(controller, configuration)) or (
-        get_resolved_encryption_key(await resolve_config_subprocess(controller, configuration))
+    path = await run_in_executor(controller._db.settings.rel_path, configuration)
+    key = get_resolved_encryption_key(await load_config(controller, path)) or (
+        get_resolved_encryption_key(await resolve_config_subprocess(controller, path))
     )
     return {"key": key}
 

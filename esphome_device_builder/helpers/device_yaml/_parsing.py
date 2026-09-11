@@ -653,8 +653,8 @@ def get_ota_encryption_key(config: dict | None) -> str:
     return ""
 
 
-def ota_encryption_block_substituted(config: dict | None) -> bool:
-    """Whether an esphome OTA entry's whole ``encryption:`` value is still a substitution string."""
+def ota_encryption_block_unresolved(config: dict | None) -> bool:
+    """Whether an esphome OTA entry's ``encryption:`` is a bare string the loader could not read."""
     return any(isinstance(entry.get("encryption"), str) for entry in _ota_esphome_entries(config))
 
 

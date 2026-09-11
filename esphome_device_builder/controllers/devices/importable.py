@@ -15,7 +15,7 @@ from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
     generate_adoption_yaml,
     get_ota_encryption_key,
-    ota_encryption_block_substituted,
+    ota_encryption_block_unresolved,
 )
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
@@ -328,8 +328,8 @@ async def _mint_key_unless_package_encrypts(
     if isinstance(api_block, dict) and "encryption" in api_block:
         return None
     # A package's own OTA key would have to match a baked api key; leave both out.
-    # A whole ``encryption:`` still spelled as a substitution is read the same way.
-    if get_ota_encryption_key(config) or ota_encryption_block_substituted(config):
+    # A whole ``encryption:`` the loader left as a bare string is read the same way.
+    if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return (
             "The package gives the OTA platform its own encryption key, so no API "
             "encryption key was generated; edit the device to use one key for both."
