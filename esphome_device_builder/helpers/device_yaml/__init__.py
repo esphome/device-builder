@@ -75,11 +75,12 @@ from ._parsing import (
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
-from ._resolve import EsphomeConfigUnavailableError, run_esphome_config
+from ._resolve import ESPHOME_CONFIG_TIMEOUT, EsphomeConfigUnavailableError, run_esphome_config
 
 __all__ = [
     "CAPTIVE_PORTAL_PLATFORMS",
     "DEFAULT_API_PORT",
+    "ESPHOME_CONFIG_TIMEOUT",
     "NETWORK_PROVIDER_COMPONENT_IDS",
     "WIFI_RADIO_PROVIDER_COMPONENT_IDS",
     "_UNRESOLVED_SUBSTITUTION_RE",

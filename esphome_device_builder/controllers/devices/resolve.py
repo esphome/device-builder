@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
+    ESPHOME_CONFIG_TIMEOUT,
     EsphomeConfigUnavailableError,
     load_device_yaml,
     resolution_incomplete,
@@ -22,7 +24,15 @@ async def resolve_config(
     controller: DevicesController, configuration: str | Path
 ) -> dict[Any, Any] | None:
     """Load in process, then ``esphome config`` if work was deferred; ``None`` if neither works."""
-    path, config = await load_config(controller, configuration)
+    try:
+        # Same ceiling as the subprocess: a never-cloned package makes the loader
+        # fetch it, and git carries no timeout of its own. A timeout frees the
+        # caller, not the executor thread, and counts as deferred work.
+        path, config = await asyncio.wait_for(
+            load_config(controller, configuration), timeout=ESPHOME_CONFIG_TIMEOUT
+        )
+    except TimeoutError:
+        path, config = await run_in_executor(_locate, controller._db.settings, configuration), None
     if resolution_incomplete(config):
         config = await _resolve_subprocess(controller, path)
     return config
@@ -39,7 +49,9 @@ async def resolve_config_subprocess(
     controller: DevicesController, configuration: str | Path
 ) -> dict[Any, Any] | None:
     """Resolve through ``esphome config`` alone; ``None`` with no CLI, on a fault, or if invalid."""
-    path = await run_in_executor(_locate, controller._db.settings, configuration)
+    if isinstance(configuration, Path):
+        return await _resolve_subprocess(controller, configuration)
+    path = await run_in_executor(controller._db.settings.rel_path, configuration)
     return await _resolve_subprocess(controller, path)
 
 

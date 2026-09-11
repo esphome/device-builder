@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
-from esphome_device_builder.controllers.devices.resolve import resolve_config
+from esphome_device_builder.controllers.devices import resolve as resolve_module
+from esphome_device_builder.controllers.devices.resolve import (
+    resolve_config,
+    resolve_config_subprocess,
+)
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 
 from .conftest import ESPHOME_CONFIG_STUB_TARGET, MakeControllerFactory
@@ -103,3 +108,40 @@ async def test_resolve_config_accepts_a_path_the_caller_already_holds(
     path.write_text(PLAIN_YAML, encoding="utf-8")
 
     assert await resolve_config(ctrl, path) == {"esphome": {"name": "kitchen"}, "api": None}
+
+
+async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A loader stuck past the ceiling (a cold package clone) hands off to the subprocess."""
+    subprocess = AsyncMock(return_value=RESOLVED)
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
+    monkeypatch.setattr(resolve_module, "ESPHOME_CONFIG_TIMEOUT", 0.05)
+
+    def stalled(settings, configuration):
+        time.sleep(0.3)
+        return tmp_path / "kitchen.yaml", {"esphome": {"name": "kitchen"}}
+
+    monkeypatch.setattr(resolve_module, "_locate_and_load", stalled)
+    ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(PLAIN_YAML, encoding="utf-8")
+
+    assert await resolve_config(ctrl, "kitchen.yaml") == RESOLVED
+    subprocess.assert_awaited_once()
+
+
+async def test_resolve_config_subprocess_skips_the_executor_for_a_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A caller's ``Path`` goes straight to the subprocess with no thread-pool round trip."""
+    subprocess = AsyncMock(return_value=RESOLVED)
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
+    monkeypatch.setattr(resolve_module, "run_in_executor", AsyncMock(side_effect=AssertionError))
+    ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
+
+    assert await resolve_config_subprocess(ctrl, tmp_path / "kitchen.yaml") == RESOLVED
+    subprocess.assert_awaited_once()

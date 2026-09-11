@@ -313,7 +313,8 @@ async def _mint_key_unless_package_encrypts(
     package skips the mint for the same reason. Returns a user-facing
     warning when the adoption ships without a key.
     """
-    # Unbudgeted: adoption is user-triggered, and getting a key beats dialog latency.
+    # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
+    # and getting a key beats dialog latency.
     config = await resolve_config(controller, path)
     if config is None:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
