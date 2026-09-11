@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import DevicesController, importable
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
@@ -292,6 +292,7 @@ async def test_import_device_full_config_url_delegates_to_dashboard_import(
     assert captured["args"][4] == "github://x/y.yaml@main?full_config"
 
 
+OTHER_KEY = "b3RoZXJrZXlvdGhlcmtleW90aGVya2V5b3RoZXJrZXlvdA=="
 PENDING_KEY = base64.b64encode(b"p" * 32).decode()
 
 
@@ -577,6 +578,39 @@ async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert "!secret api_key" in content
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+
+
+async def test_import_device_keeps_a_key_pushed_while_the_splice_was_in_flight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A push that lands mid-splice is newer than the spliced key and must survive the pop."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\n'),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    real_splice = importable._splice_pending_key_or_cleanup
+
+    async def splice_then_push(*args, **kwargs):
+        warning = await real_splice(*args, **kwargs)
+        ctrl._pending_keys.set("kitchen", OTHER_KEY)
+        return warning
+
+    monkeypatch.setattr(importable, "_splice_pending_key_or_cleanup", splice_then_push)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "warning" not in result
+    assert f'key: "{PENDING_KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert ctrl._pending_keys.get("kitchen") == {"key": OTHER_KEY}
 
 
 async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_key(
