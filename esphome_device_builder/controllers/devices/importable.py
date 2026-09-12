@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -43,7 +44,7 @@ from .mutations_yaml import PackageWarning, packages_block_span
 from .resolve import resolve_config
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator
     from pathlib import Path
 
     from .controller import DevicesController
@@ -60,6 +61,11 @@ _OWN_OTA_KEY_WARNING = (
     "encryption key was generated; edit the device to use one key for both."
 )
 _INHERIT_ERROR_MARK = "encryption key to inherit"
+_NOT_APPLIED_TAIL = (
+    " The key Home Assistant provisioned was not applied and stays "
+    "stored; installing this config may cut Home Assistant off "
+    "until it re-provisions."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +78,15 @@ class _AdoptionKeyContext:
     content: str
     full_config_import: bool
 
+    @property
+    def insert_api(self) -> bool:
+        """Whether a splice may add the ``api:`` block; never on verbatim upstream YAML."""
+        return not self.full_config_import
+
+    def packages_span(self, text: str) -> tuple[int, int] | None:
+        """Return the span of *text* whose errors count as package-confined, or none."""
+        return None if self.full_config_import else packages_block_span(text)
+
 
 class _KeyOutcome(NamedTuple):
     """What the key step reports, plus the YAML still to write and the pending key to consume."""
@@ -80,21 +95,6 @@ class _KeyOutcome(NamedTuple):
     key_warning: str | None
     to_write: str | None = None
     consume: str | None = None
-
-
-class _KeyedRecheck(NamedTuple):
-    """Verdict of re-validating a keyed YAML: the new warning, or why the key was refused."""
-
-    warning: PackageWarning | None
-    refusal: str | None
-
-
-class _KeySwap(NamedTuple):
-    """The YAML to write after a pushed key had its say, the entry to consume, and a refusal."""
-
-    to_write: str
-    consume: str | None
-    refusal: str | None
 
 
 class _SplicedKey(NamedTuple):
@@ -123,18 +123,15 @@ async def import_device(
     adoptable = controller.state.import_result.get(name)
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     full_config_import = "full_config" in package_import_url.partition("?")[2]
-    # Peek, don't pop — a failed import must keep the key for retry.
+    # Peek, don't pop; a failed import must keep the key for retry.
     pending = controller._pending_keys.get(name)
+    content: str | None = None
     try:
         if full_config_import:
             # A ``?full_config`` import downloads and rewrites the whole
-            # upstream YAML — keep delegating those to esphome's
+            # upstream YAML; keep delegating those to esphome's
             # implementation. ``esphome.components.dashboard_import`` pulls
-            # in ~14 MB of upstream code; load it through
-            # ``async_import_module`` so the first such adoption pays the
-            # cost on the dedicated import thread (no event loop block, no
-            # concurrent-import race) and sessions that never need it skip
-            # the load entirely.
+            # in ~14 MB of upstream code, loaded lazily off the loop.
             dashboard_import = await async_import_module("esphome.components.dashboard_import")
             await run_in_executor(
                 dashboard_import.import_config,
@@ -156,53 +153,27 @@ async def import_device(
                 api_encryption=False,
                 api_encryption_key=pending["key"] if pending else None,
             )
-
-            def _write_exclusive() -> None:
-                # Staged exclusive-create, matching ``import_config``'s
-                # FileExistsError contract for a concurrent writer.
-                atomic_write_exclusive(path, content.encode("utf-8"))
-
-            await run_in_executor(_write_exclusive)
+            await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
     except FileExistsError as exc:
         msg = f"Configuration {configuration} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
-    # Validate the freshly-written YAML; on a genuine failure the cleanup
-    # callback unlinks it so a retry doesn't trip ``FileExistsError``. Adopt
-    # tolerates a validator timeout on a short budget: the config's
-    # ``github://`` fetch can outlast a full validate.
-    def _read() -> str:
-        return path.read_text(encoding="utf-8")
-
-    def _cleanup() -> None:
-        path.unlink(missing_ok=True)
-
-    try:
-        content = await run_in_executor(_read)
-    except (OSError, UnicodeDecodeError):
-        await run_in_executor(_cleanup)
-        raise
-    warning = await controller._validate_rewritten_yaml_or_raise(
-        configuration,
-        content,
-        action="import",
-        on_error_cleanup=_cleanup,
-        tolerate_unavailable=True,
-        timeout=IMPORT_VALIDATE_TIMEOUT,
-        # The delegated full-config path writes verbatim upstream YAML;
-        # only our generated adoption shape gets the keep-with-warning
-        # classification.
-        packages_span=None if full_config_import else packages_block_span(content),
-        failure_tail=". The import was rolled back; nothing was written.",
-    )
-
-    outcome = await _land_adoption_key(
-        _AdoptionKeyContext(controller, name, path, content, full_config_import),
-        warning=warning,
-        pending=pending,
-        encryption=encryption,
-        cleanup=_cleanup,
-    )
+    async with _adoption_in_flight(controller, name, path):
+        if content is None:
+            content = await run_in_executor(path.read_text, "utf-8")
+        ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
+        # Adopt tolerates a validator timeout on a short budget: the config's
+        # ``github://`` fetch can outlast a full validate.
+        warning = await controller._validate_rewritten_yaml_or_raise(
+            configuration,
+            content,
+            action="import",
+            tolerate_unavailable=True,
+            timeout=IMPORT_VALIDATE_TIMEOUT,
+            packages_span=ctx.packages_span(content),
+            failure_tail=". The import was rolled back; nothing was written.",
+        )
+        outcome = await _finalize_adoption_key(ctx, warning=warning, encryption=encryption)
 
     await controller._commit_history(configuration, f"Import {configuration}")
 
@@ -315,134 +286,88 @@ def save_ignored_devices(controller: DevicesController) -> None:
     )
 
 
-async def _land_adoption_key(
-    ctx: _AdoptionKeyContext,
-    *,
-    warning: PackageWarning | None,
-    pending: dict[str, str] | None,
-    encryption: str | None,
-    cleanup: Callable[[], None],
-) -> _KeyOutcome:
-    """Run the key step; a failure past validation rolls the adoption back so a retry works."""
-    succeeded = False
+@asynccontextmanager
+async def _adoption_in_flight(
+    controller: DevicesController, name: str, path: Path
+) -> AsyncIterator[None]:
+    """Hold *name* against the key handoff; a failure inside discards *path* so a retry works."""
+    controller.state.adopting.add(name)
     try:
-        outcome = await _finalize_adoption_key(
-            ctx, warning=warning, pending=pending, encryption=encryption
-        )
-        succeeded = True
+        yield
     finally:
-        if not succeeded and not await _rolled_back(cleanup):
-            failure = sys.exception()
-            if isinstance(failure, Exception):
-                _LOGGER.error(
-                    "Adoption of %s failed and its YAML could not be removed",
-                    ctx.name,
-                    exc_info=failure,
-                )
-                raise CommandError(
-                    ErrorCode.INTERNAL_ERROR,
-                    f"Adoption failed: {failure}. The partially written {ctx.path.name} could "
-                    "not be removed; delete it before retrying.",
-                ) from failure
-    return outcome
+        controller.state.adopting.discard(name)
+        failure = sys.exception()
+        if failure is not None and not await _discarded(path) and isinstance(failure, Exception):
+            _LOGGER.error(
+                "Adoption of %s failed and its YAML could not be removed", name, exc_info=failure
+            )
+            raise CommandError(
+                ErrorCode.INTERNAL_ERROR,
+                f"Adoption failed: {failure}. The partially written {path.name} could "
+                "not be removed; delete it before retrying.",
+            ) from failure
 
 
-async def _rolled_back(cleanup: Callable[[], None]) -> bool:
-    """Run *cleanup* off the loop, shielded; ``False`` when the file may still be there."""
+async def _discarded(path: Path) -> bool:
+    """Remove *path* off the loop, shielded; ``False`` when the file may still be there."""
     try:
-        # Shielded so a cancelled task still finishes the unlink before a retry.
-        await asyncio.shield(run_in_executor(_roll_back, cleanup))
+        await asyncio.shield(run_in_executor(_discard, path))
     except Exception:
         _LOGGER.exception("Rolling the adoption back did not complete")
         return False
     return True
 
 
-def _roll_back(cleanup: Callable[[], None]) -> None:
-    """Run *cleanup*; a failure propagates to the caller's log and verdict."""
-    cleanup()
+def _discard(path: Path) -> None:
+    """Remove the adoption YAML."""
+    path.unlink(missing_ok=True)
 
 
 async def _finalize_adoption_key(
-    ctx: _AdoptionKeyContext,
-    *,
-    warning: PackageWarning | None,
-    pending: dict[str, str] | None,
-    encryption: str | None,
+    ctx: _AdoptionKeyContext, *, warning: PackageWarning | None, encryption: str | None
 ) -> _KeyOutcome:
     """Land the right API key after validation; owns the write and the pending-key consumption."""
-    # Re-peek: a push can land during the validate window, after the
-    # generate-time peek; minting over it would bake a competing key. The
-    # generate-time value counts only while it is baked into the content: an
-    # entry the configured-device handoff consumed meanwhile put a newer key
-    # in the file, which must not be overwritten.
+    # Re-peek: a push can land during the validate window, after the generate-time peek.
     fresh = ctx.controller._pending_keys.get(ctx.name)
-    if fresh is None and pending is not None and api_key_settled(ctx.content, pending["key"]):
-        fresh = pending
-    if fresh:
+    if fresh is not None:
         outcome = await _splice_pending_key_validated(ctx, fresh["key"], warning)
     elif encryption and not ctx.full_config_import:
         outcome = await _mint_key_unless_package_encrypts(ctx, warning)
     else:
-        return _KeyOutcome(warning, None)
-    refusal = await _land_key(ctx, outcome)
-    return outcome._replace(key_warning=outcome.key_warning or refusal)
+        outcome = _KeyOutcome(warning, None)
+    return await _write_keyed(ctx, outcome)
 
 
-async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> str | None:
-    """Write the keyed YAML, a key pushed meanwhile winning; returns a refused swap's warning."""
-    to_write, consume, refusal = outcome.to_write, outcome.consume, None
-    if (
-        to_write is not None
-        and consume is not None
-        and not ctx.controller._pending_keys.get(ctx.name)
-    ):
-        # The entry went while the key was checked: the handoff wrote this file, or a
-        # duplicate-name sibling consumed it. Only a key we did not put on disk says which.
-        if await _newer_key_on_disk(ctx):
-            _LOGGER.warning(
-                "Pending key for %s landed through the handoff; write skipped", ctx.name
-            )
-            return None
-        consume = None
-    if to_write is not None:
-        swap = _prefer_pushed_key(ctx, to_write, consume)
-        to_write, consume, refusal = swap.to_write, swap.consume, swap.refusal
-        await run_in_executor(write_user_yaml, ctx.path, to_write)
-    if consume is not None:
-        ctx.controller._pending_keys.pop_if(ctx.name, consume)
-    return refusal
+async def _write_keyed(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> _KeyOutcome:
+    """Write the keyed YAML, a key pushed meanwhile winning, and consume the pending key in it."""
+    if outcome.to_write is not None:
+        outcome = _prefer_pushed_key(ctx, outcome, outcome.to_write)
+        await run_in_executor(write_user_yaml, ctx.path, outcome.to_write)
+    if outcome.consume is not None:
+        ctx.controller._pending_keys.pop_if(ctx.name, outcome.consume)
+    return outcome
 
 
-async def _newer_key_on_disk(ctx: _AdoptionKeyContext) -> bool:
-    """Whether the adoption YAML on disk carries an api key this adoption did not put there."""
-    on_disk = await run_in_executor(ctx.path.read_text, "utf-8")
-    landed = read_yaml_scalar(on_disk, API_ENCRYPTION_KEY_PATH)
-    return landed is not None and landed != read_yaml_scalar(ctx.content, API_ENCRYPTION_KEY_PATH)
-
-
-def _prefer_pushed_key(ctx: _AdoptionKeyContext, keyed: str, consume: str | None) -> _KeySwap:
+def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome, keyed: str) -> _KeyOutcome:
     """Swap a key pushed meanwhile into *keyed*; a refused splice keeps *keyed* and says so."""
     pushed = ctx.controller._pending_keys.get(ctx.name)
-    if pushed is None or pushed["key"] == consume:
-        return _KeySwap(keyed, consume, None)
-    splice = _splice_pending_key(keyed, pushed["key"], insert_api=not ctx.full_config_import)
+    if pushed is None or pushed["key"] == outcome.consume:
+        return outcome
+    splice = _splice_pending_key(keyed, pushed["key"], insert_api=ctx.insert_api)
     if splice.keyed is None:
         _LOGGER.warning(
             "Pushed key not applied to %s (%s); written key kept", ctx.path.name, splice.refusal
         )
-        return _KeySwap(
-            keyed, consume, f"{splice.refusal} The key Home Assistant pushed stays stored."
+        return outcome._replace(
+            key_warning=f"{splice.refusal} The key Home Assistant pushed stays stored."
         )
-    return _KeySwap(splice.keyed, pushed["key"], None)
+    return outcome._replace(to_write=splice.keyed, consume=pushed["key"])
 
 
 async def _mint_key_unless_package_encrypts(
     ctx: _AdoptionKeyContext, warning: PackageWarning | None
 ) -> _KeyOutcome:
     """Bake a fresh API key unless the resolved package already enables encryption."""
-    # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
-    # and getting a key beats dialog latency.
     config, resolved = await resolve_config(ctx.controller, ctx.path, spawn=warning is None)
     api_block = config.get("api") if config else None
     # Presence check, not get_api_encryption_block: a bare ``encryption:``
@@ -450,7 +375,6 @@ async def _mint_key_unless_package_encrypts(
     if isinstance(api_block, dict) and "encryption" in api_block:
         return _KeyOutcome(warning, None)
     # A package's own OTA key would have to match a baked api key; leave both out.
-    # A whole ``encryption:`` the loader left as a bare string is read the same way.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return _KeyOutcome(warning, _OWN_OTA_KEY_WARNING)
     if not resolved and (config is None or not _only_missing_inherited_key(warning)):
@@ -470,16 +394,16 @@ async def _mint_key(
         recheck = await _revalidate_keyed(
             ctx, spliced.keyed, warning, failure_tail=". Adopted without a key."
         )
-        if recheck.refusal is not None:
-            return _KeyOutcome(warning, recheck.refusal)
-        if not resolved and recheck.warning is not None:
+        if recheck.key_warning is not None:
+            return recheck
+        if not resolved and recheck.validation_warning is not None:
             _LOGGER.warning(
                 "Could not resolve %s; a key did not repair it (%s), adopted without one",
                 ctx.path.name,
-                recheck.warning.text,
+                recheck.validation_warning.text,
             )
             return _KeyOutcome(warning, _UNRESOLVED_WARNING)
-        warning = recheck.warning
+        warning = recheck.validation_warning
     return _KeyOutcome(warning, None, to_write=spliced.keyed)
 
 
@@ -487,49 +411,44 @@ async def _splice_pending_key_validated(
     ctx: _AdoptionKeyContext, key: str, warning: PackageWarning | None
 ) -> _KeyOutcome:
     """Splice the HA-provisioned *key* and let esphome check it; a refusal keeps the key pending."""
-    not_applied_tail = (
-        " The key Home Assistant provisioned was not applied and stays "
-        "stored; installing this config may cut Home Assistant off "
-        "until it re-provisions."
-    )
     if api_key_settled(ctx.content, key):
         return _KeyOutcome(warning, None, consume=key)
-    splice = _splice_pending_key(ctx.content, key, insert_api=not ctx.full_config_import)
+    splice = _splice_pending_key(ctx.content, key, insert_api=ctx.insert_api)
     if splice.keyed is None:
-        return _KeyOutcome(warning, f"{splice.refusal}{not_applied_tail}")
+        return _KeyOutcome(warning, f"{splice.refusal}{_NOT_APPLIED_TAIL}")
     # An OTA block the line walker can't read may still hold a key the splice
     # can't reconcile; esphome decides before anything is written.
     recheck = await _revalidate_keyed(
-        ctx, splice.keyed, warning, failure_tail=f".{not_applied_tail}"
+        ctx, splice.keyed, warning, failure_tail=f".{_NOT_APPLIED_TAIL}"
     )
-    if recheck.refusal is not None:
-        return _KeyOutcome(warning, recheck.refusal)
-    return _KeyOutcome(recheck.warning, None, to_write=splice.keyed, consume=key)
+    if recheck.key_warning is not None:
+        return recheck
+    return recheck._replace(to_write=splice.keyed, consume=key)
 
 
 async def _revalidate_keyed(
     ctx: _AdoptionKeyContext, keyed: str, warning: PackageWarning | None, *, failure_tail: str
-) -> _KeyedRecheck:
-    """Re-check a keyed YAML; an outage keeps *warning*, a refusal carries *failure_tail*."""
+) -> _KeyOutcome:
+    """Re-check a keyed YAML; an outage keeps *warning*, a refusal lands in ``key_warning``."""
     try:
         verdict = await ctx.controller._validate_rewritten_yaml_or_raise(
             ctx.path.name,
             keyed,
             action="import",
             timeout=IMPORT_VALIDATE_TIMEOUT,
-            packages_span=None if ctx.full_config_import else packages_block_span(keyed),
+            packages_span=ctx.packages_span(keyed),
             failure_tail=failure_tail,
         )
     except CommandError as err:
-        return _KeyedRecheck(warning, err.message)
+        return _KeyOutcome(warning, err.message)
     except ValidatorUnavailableError as err:
         _LOGGER.warning(
             "Validator unavailable during the key re-check of %s (%r); warning kept",
             ctx.path.name,
             err,
         )
-        return _KeyedRecheck(warning, None)
-    return _KeyedRecheck(verdict, None)
+        return _KeyOutcome(warning, None)
+    return _KeyOutcome(verdict, None)
 
 
 def _only_missing_inherited_key(warning: PackageWarning | None) -> bool:
@@ -542,22 +461,18 @@ def _only_missing_inherited_key(warning: PackageWarning | None) -> bool:
 
 
 def _splice_fresh_key(content: str, config_name: str) -> _SplicedKey:
-    """Splice a freshly minted key into *content*; ``(None, warning)`` when the shape refuses it."""
-    new_key = generate_api_encryption_key()
-    reason = ""
-    try:
-        keyed = upsert_api_encryption_key(content, new_key)
-    except YamlUpsertNotSupportedError as exc:
-        keyed, reason = "", f" ({exc})"
-    if not keyed or not api_key_settled(keyed, new_key):
+    """Splice a freshly minted key into *content*; a refusal when the shape defeats it."""
+    splice = _splice_pending_key(content, generate_api_encryption_key(), insert_api=True)
+    if splice.keyed is None:
         _LOGGER.warning(
-            "Could not splice a key into %s%s; adopted without one", config_name, reason
+            "Could not splice a key into %s (%s); adopted without one", config_name, splice.refusal
         )
         return _SplicedKey(
             None,
-            f"A generated API encryption key could not be spliced in{reason}; adopted without one.",
+            f"A generated API encryption key could not be spliced in ({splice.refusal}); "
+            "adopted without one.",
         )
-    return _SplicedKey(keyed, None)
+    return splice
 
 
 def _splice_pending_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:
