@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -330,21 +331,36 @@ async def _land_adoption_key(
         )
         succeeded = True
     finally:
-        if not succeeded:
-            try:
-                # Shielded so a cancelled task still finishes the unlink before a retry.
-                await asyncio.shield(run_in_executor(_roll_back, cleanup))
-            except Exception:
-                _LOGGER.exception("Rolling the adoption back did not complete")
+        if not succeeded and not await _rolled_back(cleanup):
+            failure = sys.exception()
+            if isinstance(failure, Exception):
+                _LOGGER.error(
+                    "Adoption of %s failed and its YAML could not be removed",
+                    ctx.name,
+                    exc_info=failure,
+                )
+                raise CommandError(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"Adoption failed: {failure}. The partially written {ctx.path.name} could "
+                    "not be removed; delete it before retrying.",
+                ) from failure
     return outcome
 
 
-def _roll_back(cleanup: Callable[[], None]) -> None:
-    """Run *cleanup*, logging a failure so the original error stays the one surfaced."""
+async def _rolled_back(cleanup: Callable[[], None]) -> bool:
+    """Run *cleanup* off the loop, shielded; ``False`` when the file may still be there."""
     try:
-        cleanup()
+        # Shielded so a cancelled task still finishes the unlink before a retry.
+        await asyncio.shield(run_in_executor(_roll_back, cleanup))
     except Exception:
-        _LOGGER.exception("Rolling the adoption back failed; original error kept")
+        _LOGGER.exception("Rolling the adoption back did not complete")
+        return False
+    return True
+
+
+def _roll_back(cleanup: Callable[[], None]) -> None:
+    """Run *cleanup*; a failure propagates to the caller's log and verdict."""
+    cleanup()
 
 
 async def _finalize_adoption_key(
@@ -382,8 +398,8 @@ async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> str | Non
         and not ctx.controller._pending_keys.get(ctx.name)
     ):
         # The entry went while the key was checked: the handoff wrote this file, or a
-        # duplicate-name sibling consumed it. Only a key already on disk says which.
-        if await _key_on_disk(ctx):
+        # duplicate-name sibling consumed it. Only a key we did not put on disk says which.
+        if await _newer_key_on_disk(ctx):
             _LOGGER.warning(
                 "Pending key for %s landed through the handoff; write skipped", ctx.name
             )
@@ -398,10 +414,11 @@ async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> str | Non
     return refusal
 
 
-async def _key_on_disk(ctx: _AdoptionKeyContext) -> bool:
-    """Whether the adoption YAML on disk already carries an api key."""
+async def _newer_key_on_disk(ctx: _AdoptionKeyContext) -> bool:
+    """Whether the adoption YAML on disk carries an api key this adoption did not put there."""
     on_disk = await run_in_executor(ctx.path.read_text, "utf-8")
-    return read_yaml_scalar(on_disk, API_ENCRYPTION_KEY_PATH) is not None
+    landed = read_yaml_scalar(on_disk, API_ENCRYPTION_KEY_PATH)
+    return landed is not None and landed != read_yaml_scalar(ctx.content, API_ENCRYPTION_KEY_PATH)
 
 
 def _prefer_pushed_key(ctx: _AdoptionKeyContext, keyed: str, consume: str | None) -> _KeySwap:

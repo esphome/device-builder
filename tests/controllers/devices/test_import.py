@@ -394,7 +394,7 @@ async def test_import_device_rollback_failure_keeps_the_original_error(
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unlink that fails during the rollback is logged, not surfaced over the real error."""
+    """An unlink that fails during the rollback names the stranded file next to the real error."""
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -403,7 +403,7 @@ async def test_import_device_rollback_failure_keeps_the_original_error(
     )
     monkeypatch.setattr(Path, "unlink", Mock(side_effect=PermissionError("read only")))
 
-    with pytest.raises(RuntimeError, match="real bug"):
+    with pytest.raises(CommandError) as excinfo:
         await ctrl.import_device(
             name="kitchen",
             project_name="x",
@@ -411,7 +411,10 @@ async def test_import_device_rollback_failure_keeps_the_original_error(
             encryption="true",
         )
 
-    assert "Rolling the adoption back failed" in caplog.text
+    assert "real bug" in excinfo.value.message
+    assert "delete it before retrying" in excinfo.value.message
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+    assert "could not be removed" in caplog.text
 
 
 def _rollback_dispatch_failing_with(exc: BaseException) -> Any:
@@ -432,7 +435,7 @@ async def test_import_device_rollback_dispatch_failure_keeps_the_original_error(
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An ordinary error while awaiting the rollback is logged; the real error still surfaces."""
+    """An error while awaiting the rollback is logged and the stranded file named in the reply."""
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -443,7 +446,7 @@ async def test_import_device_rollback_dispatch_failure_keeps_the_original_error(
         importable, "run_in_executor", _rollback_dispatch_failing_with(RuntimeError("no pool"))
     )
 
-    with pytest.raises(RuntimeError, match="real bug"):
+    with pytest.raises(CommandError) as excinfo:
         await ctrl.import_device(
             name="kitchen",
             project_name="x",
@@ -451,6 +454,8 @@ async def test_import_device_rollback_dispatch_failure_keeps_the_original_error(
             encryption="true",
         )
 
+    assert "real bug" in excinfo.value.message
+    assert "delete it before retrying" in excinfo.value.message
     assert "did not complete" in caplog.text
 
 
@@ -1288,6 +1293,50 @@ async def test_import_device_unresolvable_package_with_a_second_complaint_never_
     assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert "could not be resolved" in result["warning"]
     assert ctrl._db.editor.validate_yaml.await_count == 1
+
+
+async def test_import_device_sibling_consumed_push_over_a_baked_key_is_still_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Our own baked key on disk is not mistaken for the handoff having written a newer one."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    real_get = ctrl._pending_keys.get
+    peeks = 0
+
+    def _second_push_then_sibling_consumes(name: str) -> dict[str, str] | None:
+        nonlocal peeks
+        peeks += 1
+        if peeks == 2:
+            ctrl._pending_keys.set("kitchen", OTHER_KEY)
+        return real_get(name)
+
+    monkeypatch.setattr(ctrl._pending_keys, "get", _second_push_then_sibling_consumes)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if OTHER_KEY in content:
+            ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'key: "{OTHER_KEY}"' in content
+    assert PENDING_KEY not in content
+    assert "warning" not in result
 
 
 async def test_import_device_pending_key_skips_package_resolve(
