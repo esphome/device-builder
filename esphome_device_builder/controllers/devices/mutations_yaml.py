@@ -19,7 +19,7 @@ from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
-from ..editor import VALIDATOR_UNAVAILABLE_ERRORS
+from ..editor import ValidatorTimeoutError, ValidatorUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -177,10 +177,10 @@ async def validate_rewritten_yaml_or_raise(
             result = await editor.validate_yaml(
                 configuration=configuration, content=content, timeout=timeout
             )
-        except VALIDATOR_UNAVAILABLE_ERRORS as err:
+        except ValidatorUnavailableError as err:
             if not tolerate_unavailable:
                 raise
-            if isinstance(err, TimeoutError):
+            if isinstance(err, ValidatorTimeoutError):
                 # Expected on adopt: the cold ``github://`` fetch outran the budget.
                 _LOGGER.info(
                     "Validation of %s for %s timed out; keeping file, deferring to compile/install",

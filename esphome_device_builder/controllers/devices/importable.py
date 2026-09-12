@@ -36,7 +36,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
-from ..editor import IMPORT_VALIDATE_TIMEOUT, VALIDATOR_UNAVAILABLE_ERRORS
+from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
 from .mutations_yaml import packages_block_span
 from .resolve import resolve_config
 
@@ -173,17 +173,22 @@ async def import_device(
         failure_tail=". The import was rolled back; nothing was written.",
     )
 
-    warning, key_warning = await _finalize_adoption_key(
-        controller,
-        name=name,
-        path=path,
-        content=content,
-        warning=warning,
-        pending=pending,
-        encryption=encryption,
-        full_config_import=full_config_import,
-        cleanup=_cleanup,
-    )
+    try:
+        warning, key_warning = await _finalize_adoption_key(
+            controller,
+            name=name,
+            path=path,
+            content=content,
+            warning=warning,
+            pending=pending,
+            encryption=encryption,
+            full_config_import=full_config_import,
+            cleanup=_cleanup,
+        )
+    except Exception:
+        # A bug past validation must not strand a half-adopted YAML the user can't retry.
+        await run_in_executor(_cleanup)
+        raise
 
     await controller._commit_history(configuration, f"Import {configuration}")
 
@@ -404,18 +409,13 @@ async def _revalidate_keyed(
         )
     except CommandError as err:
         return _KeyedRecheck(warning, err.message)
-    except VALIDATOR_UNAVAILABLE_ERRORS as err:
+    except ValidatorUnavailableError as err:
         _LOGGER.warning(
             "Validator unavailable during the key re-check of %s (%r); warning kept",
             path.name,
             err,
         )
         return _KeyedRecheck(warning, None)
-    except Exception:
-        _LOGGER.exception("Re-check of %s with its key failed; adopted without one", path.name)
-        return _KeyedRecheck(
-            warning, "The keyed configuration could not be re-checked; adopted without a key."
-        )
     return _KeyedRecheck(verdict, None)
 
 

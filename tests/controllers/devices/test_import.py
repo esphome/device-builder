@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController, importable
+from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
@@ -685,25 +686,22 @@ async def test_import_device_unparsable_adoption_never_mints_tentatively(
     assert adoption.ctrl._db.editor.validate_yaml.await_count == 1
 
 
-@pytest.mark.parametrize("loaded", _LOADER_MERGES)
-async def test_import_device_keyed_recheck_unexpected_error_ships_keyless(
+async def test_import_device_keyed_recheck_bug_rolls_the_adoption_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    loaded: dict[str, Any],
 ) -> None:
-    """A re-check that fails for an unexpected reason never writes an unverified key."""
-    adoption = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        loaded=loaded,
-        keyed=Mock(side_effect=RuntimeError("session gone")),
-    )
+    """A re-check failing for a reason that is not an outage is a bug: it surfaces, nothing kept."""
+    with pytest.raises(RuntimeError, match="session gone"):
+        await _adopt_kitchen_with_encryption(
+            tmp_path,
+            monkeypatch,
+            make_controller,
+            loaded=_BARE_OTA_PACKAGE,
+            keyed=Mock(side_effect=RuntimeError("session gone")),
+        )
 
-    assert "api:" not in adoption.content
-    assert _INHERIT_ERROR in adoption.result["warning"]
-    assert "could not be re-checked" in adoption.result["warning"]
+    assert not (tmp_path / "kitchen.yaml").exists()
 
 
 @pytest.mark.parametrize("loaded", _LOADER_MERGES)
@@ -731,7 +729,7 @@ async def test_import_device_keyed_recheck_hard_failure_surfaces_the_diagnostic(
 @pytest.mark.parametrize(
     "keyed",
     [
-        pytest.param(Mock(side_effect=TimeoutError()), id="outage"),
+        pytest.param(Mock(side_effect=ValidatorTimeoutError("slow")), id="outage"),
         pytest.param(
             lambda ctrl, content: {
                 "yaml_errors": [],

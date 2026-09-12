@@ -60,12 +60,8 @@ class ValidatorUnavailableError(RuntimeError):
     """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
 
 
-VALIDATOR_UNAVAILABLE_ERRORS = (
-    TimeoutError,
-    ValidatorUnavailableError,
-    BrokenPipeError,
-    ConnectionResetError,
-)
+class ValidatorTimeoutError(ValidatorUnavailableError):
+    """The validation round-trip outran its budget."""
 
 
 @dataclass
@@ -428,11 +424,17 @@ class EditorController:
                         content_hash=content_hash, result=attempt, at=time.monotonic()
                     )
                     break
-            except (TimeoutError, ValidatorUnavailableError, OSError) as err:
+            except (TimeoutError, ValidatorUnavailableError, OSError, ValueError) as err:
                 # A failed re-run must not turn the first attempt's
                 # verdict into an error; return it uncached instead.
                 if result is None:
-                    raise
+                    if isinstance(err, ValidatorUnavailableError):
+                        raise
+                    if isinstance(err, TimeoutError):
+                        raise ValidatorTimeoutError("validation round-trip timed out") from err
+                    raise ValidatorUnavailableError(
+                        f"esphome vscode subprocess failed: {err!r}"
+                    ) from err
                 _LOGGER.warning(
                     "Re-validation of %s failed (%r); returning the pre-write result",
                     configuration,
@@ -442,8 +444,7 @@ class EditorController:
             finally:
                 # Any failure (timeout, subprocess loss, a bug, cancellation)
                 # can leave the stateful stdin/stdout protocol mid-message;
-                # kill it so the next call respawns clean. A first-attempt
-                # exception (typed for callers) propagates unchanged.
+                # kill it so the next call respawns clean.
                 if not ok:
                     await self._terminate_subprocess(session)
             if retry_left and remaining > _MIN_RERUN_BUDGET:
