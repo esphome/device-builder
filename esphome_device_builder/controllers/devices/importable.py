@@ -36,7 +36,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
-from ..editor import IMPORT_VALIDATE_TIMEOUT
+from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
 from .mutations_yaml import packages_block_span
 from .resolve import resolve_config
 
@@ -47,6 +47,17 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+_VALIDATOR_DOWN = (TimeoutError, ValidatorUnavailableError, BrokenPipeError)
+_UNRESOLVED_WARNING = (
+    "The package could not be resolved during adoption, so no API "
+    "encryption key was generated; edit and install the device to "
+    "add one, or let Home Assistant provision it."
+)
+_OWN_OTA_KEY_WARNING = (
+    "The package gives the OTA platform its own encryption key, so no API "
+    "encryption key was generated; edit the device to use one key for both."
+)
 
 
 async def import_device(
@@ -141,11 +152,12 @@ async def import_device(
         failure_tail=". The import was rolled back; nothing was written.",
     )
 
-    key_warning = await _finalize_adoption_key(
+    warning, key_warning = await _finalize_adoption_key(
         controller,
         name=name,
         path=path,
         content=content,
+        warning=warning,
         pending=pending,
         encryption=encryption,
         full_config_import=full_config_import,
@@ -268,17 +280,18 @@ async def _finalize_adoption_key(
     name: str,
     path: Path,
     content: str,
+    warning: str | None,
     pending: dict[str, str] | None,
     encryption: str | None,
     full_config_import: bool,
     cleanup: Callable[[], None],
-) -> str | None:
+) -> tuple[str | None, str | None]:
     """
-    Land the right API key after validation; owns pending-key consumption.
+    Land the right API key after validation; returns ``(validation_warning, key_warning)``.
 
     A pending HA-provisioned key wins; otherwise an encryption-flagged
     adoption mints unless the package already enables encryption. A
-    returned warning means no key landed; on the pending branch it also
+    key warning means no key landed; on the pending branch it also
     means the entry was kept for a later handoff.
     """
     # Re-peek: a push can land during the validate window, after the
@@ -286,74 +299,130 @@ async def _finalize_adoption_key(
     fresh = controller._pending_keys.get(name) or pending
     if fresh:
         baked = fresh == pending and not full_config_import
-        warning = None
+        key_warning = None
         if not baked:
-            warning = await _splice_pending_key_or_cleanup(
+            key_warning = await _splice_pending_key_or_cleanup(
                 controller, path, content, fresh["key"], cleanup
             )
         # A push that landed during the validate or write is newer than the
         # key that was spliced; leave it for the next handoff.
-        if warning is None:
+        if key_warning is None:
             controller._pending_keys.pop_if(name, fresh["key"])
-        return warning
+        return warning, key_warning
     if encryption and not full_config_import:
-        return await _mint_key_unless_package_encrypts(controller, path, content, cleanup)
-    return None
+        return await _mint_key_unless_package_encrypts(controller, path, content, warning, cleanup)
+    return warning, None
 
 
 async def _mint_key_unless_package_encrypts(
     controller: DevicesController,
     path: Path,
     content: str,
+    warning: str | None,
     cleanup: Callable[[], None],
-) -> str | None:
-    """
-    Bake a fresh API key unless the resolved package already enables encryption.
-
-    A package-provided ``encryption:`` means the running device may hold
-    an NVS key a competing baked key would break; an unresolvable
-    package skips the mint for the same reason. Returns a user-facing
-    warning when the adoption ships without a key.
-    """
+) -> tuple[str | None, str | None]:
+    """Bake a fresh API key unless the resolved package already enables encryption."""
     # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
     # and getting a key beats dialog latency.
     config = await resolve_config(controller, path)
     if config is None:
-        _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
-        return (
-            "The package could not be resolved during adoption, so no API "
-            "encryption key was generated; edit and install the device to "
-            "add one, or let Home Assistant provision it."
-        )
+        return await _mint_key_if_keyed_validates(controller, path, content, warning, cleanup)
     api_block = config.get("api")
     # Presence check, not get_api_encryption_block: a bare ``encryption:``
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
-        return None
+        return warning, None
     # A package's own OTA key would have to match a baked api key; leave both out.
     # A whole ``encryption:`` the loader left as a bare string is read the same way.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
-        return (
-            "The package gives the OTA platform its own encryption key, so no API "
-            "encryption key was generated; edit the device to use one key for both."
+        return warning, _OWN_OTA_KEY_WARNING
+    keyed, refusal = _splice_fresh_key(content, path.name)
+    if keyed is None:
+        return warning, refusal
+    if warning is not None:
+        warning, refusal = await _revalidate_keyed(controller, path, keyed, warning)
+        if refusal is not None:
+            return warning, refusal
+    await _write_or_cleanup(path, keyed, cleanup)
+    return warning, None
+
+
+async def _mint_key_if_keyed_validates(
+    controller: DevicesController,
+    path: Path,
+    content: str,
+    warning: str | None,
+    cleanup: Callable[[], None],
+) -> tuple[str | None, str | None]:
+    """Mint for an unresolvable package only when the key is what the package was missing."""
+    if warning is None:
+        _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
+        return warning, _UNRESOLVED_WARNING
+    keyed, refusal = _splice_fresh_key(content, path.name)
+    if keyed is None:
+        return warning, refusal
+    try:
+        clean = await _validate_keyed(controller, path, keyed) is None
+    except (*_VALIDATOR_DOWN, CommandError):
+        clean = False
+    if not clean:
+        _LOGGER.warning(
+            "Could not resolve %s and a key did not repair it; adopted without one", path.name
         )
+        return warning, _UNRESOLVED_WARNING
+    await _write_or_cleanup(path, keyed, cleanup)
+    return None, None
+
+
+async def _revalidate_keyed(
+    controller: DevicesController, path: Path, keyed: str, warning: str
+) -> tuple[str | None, str | None]:
+    """Re-check a keyed YAML whose unkeyed form warned; ``(validation_warning, refusal)``."""
+    try:
+        return await _validate_keyed(controller, path, keyed), None
+    except _VALIDATOR_DOWN:
+        _LOGGER.info("Validator unavailable re-checking %s with its key; warning kept", path.name)
+        return warning, None
+    except CommandError as err:
+        return warning, f"{err.message}; adopted without a key."
+
+
+async def _validate_keyed(controller: DevicesController, path: Path, keyed: str) -> str | None:
+    """Strictly validate *keyed*; a package-confined warning is returned, unavailability raises."""
+    return await controller._validate_rewritten_yaml_or_raise(
+        path.name,
+        keyed,
+        action="import",
+        timeout=IMPORT_VALIDATE_TIMEOUT,
+        packages_span=packages_block_span(keyed),
+    )
+
+
+def _splice_fresh_key(content: str, config_name: str) -> tuple[str | None, str | None]:
+    """Splice a freshly minted key into *content*; ``(None, warning)`` when the shape refuses it."""
     new_key = generate_api_encryption_key()
     reason = ""
     try:
-        new_content = upsert_api_encryption_key(content, new_key)
+        keyed = upsert_api_encryption_key(content, new_key)
     except YamlUpsertNotSupportedError as exc:
-        new_content, reason = "", f" ({exc})"
-    if not new_content or not api_key_settled(new_content, new_key):
-        _LOGGER.warning("Could not splice a key into %s%s; adopted without one", path.name, reason)
-        return (
+        keyed, reason = "", f" ({exc})"
+    if not keyed or not api_key_settled(keyed, new_key):
+        _LOGGER.warning(
+            "Could not splice a key into %s%s; adopted without one", config_name, reason
+        )
+        return None, (
             f"A generated API encryption key could not be spliced in{reason}; adopted without one."
         )
+    return keyed, None
+
+
+async def _write_or_cleanup(path: Path, content: str, cleanup: Callable[[], None]) -> None:
+    """Write *content* to *path*; a failed write runs *cleanup* before re-raising."""
     try:
-        await run_in_executor(write_user_yaml, path, new_content)
+        await run_in_executor(write_user_yaml, path, content)
     except Exception:
         await run_in_executor(cleanup)
         raise
-    return None
 
 
 async def _splice_pending_key_or_cleanup(
@@ -393,11 +462,7 @@ async def _splice_pending_key_or_cleanup(
         )
     except CommandError as err:
         return f"{err.message}{not_applied_tail}"
-    try:
-        await run_in_executor(write_user_yaml, path, spliced)
-    except Exception:
-        await run_in_executor(cleanup)
-        raise
+    await _write_or_cleanup(path, spliced, cleanup)
     return None
 
 
