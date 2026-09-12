@@ -38,7 +38,7 @@ from ...models import (
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT, VALIDATOR_UNAVAILABLE_ERRORS
 from .mutations_yaml import packages_block_span
-from .resolve import resolve_config
+from .resolve import resolve_config_or_loaded
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -323,10 +323,8 @@ async def _mint_key_unless_package_encrypts(
     """Bake a fresh API key unless the resolved package already enables encryption."""
     # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
     # and getting a key beats dialog latency.
-    config = await resolve_config(controller, path)
-    if config is None:
-        return await _mint_key_if_keyed_validates(controller, path, content, warning, cleanup)
-    api_block = config.get("api")
+    config, resolved = await resolve_config_or_loaded(controller, path)
+    api_block = config.get("api") if config else None
     # Presence check, not get_api_encryption_block: a bare ``encryption:``
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
@@ -335,6 +333,8 @@ async def _mint_key_unless_package_encrypts(
     # A whole ``encryption:`` the loader left as a bare string is read the same way.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return warning, _OWN_OTA_KEY_WARNING
+    if not resolved:
+        return await _mint_key_if_keyed_validates(controller, path, content, warning, cleanup)
     keyed, refusal = _splice_fresh_key(content, path.name)
     if keyed is None:
         return warning, refusal
@@ -375,11 +375,14 @@ async def _revalidate_keyed(
     """Re-check a keyed YAML whose unkeyed form warned; ``(validation_warning, refusal)``."""
     try:
         return await _validate_keyed(controller, path, keyed), None
-    except VALIDATOR_UNAVAILABLE_ERRORS:
-        _LOGGER.info("Validator unavailable re-checking %s with its key; warning kept", path.name)
-        return warning, None
     except CommandError as err:
-        return warning, f"{err.message}; adopted without one."
+        return warning, f"{err.message} Adopted without a key."
+    except VALIDATOR_UNAVAILABLE_ERRORS as err:
+        _LOGGER.warning("Could not re-check %s with its key (%r); warning kept", path.name, err)
+        return warning, None
+    except Exception:
+        _LOGGER.exception("Re-check of %s with its key failed; warning kept", path.name)
+        return warning, None
 
 
 async def _validate_keyed(controller: DevicesController, path: Path, keyed: str) -> str | None:

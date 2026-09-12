@@ -11,6 +11,7 @@ import pytest
 from esphome_device_builder.controllers.devices import resolve as resolve_module
 from esphome_device_builder.controllers.devices.resolve import (
     resolve_config,
+    resolve_config_or_loaded,
     resolve_config_subprocess,
 )
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
@@ -147,3 +148,21 @@ async def test_resolve_config_subprocess_skips_the_executor_for_a_path(
 
     assert await resolve_config_subprocess(ctrl, tmp_path / "kitchen.yaml") == RESOLVED
     subprocess.assert_awaited_once()
+
+
+async def test_resolve_config_or_loaded_hands_back_the_loader_merge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """When neither route resolves, the caller gets the in-process merge flagged unresolved."""
+    subprocess = AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
+    ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(UNMERGEABLE_PACKAGE_YAML, encoding="utf-8")
+
+    config, resolved = await resolve_config_or_loaded(ctrl, tmp_path / "kitchen.yaml")
+
+    assert resolved is False
+    assert config is not None and "packages" in config
+    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") is None
