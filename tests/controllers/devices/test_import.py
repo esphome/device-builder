@@ -354,6 +354,60 @@ async def test_import_device_baked_pending_key_survives_the_entry_being_consumed
     resolve.assert_not_awaited()
 
 
+async def test_import_device_cancelled_during_the_key_step_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A command task cancelled mid key step leaves no half-adopted YAML behind."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    monkeypatch.setattr(
+        importable, "_finalize_adoption_key", AsyncMock(side_effect=asyncio.CancelledError())
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+    for _ in range(100):
+        if not (tmp_path / "kitchen.yaml").exists():
+            break
+        await asyncio.sleep(0.01)
+    assert not (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_import_device_rollback_failure_keeps_the_original_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unlink that fails during the rollback is logged, not surfaced over the real error."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    monkeypatch.setattr(
+        importable, "_finalize_adoption_key", AsyncMock(side_effect=RuntimeError("real bug"))
+    )
+    monkeypatch.setattr(Path, "unlink", Mock(side_effect=PermissionError("read only")))
+
+    with pytest.raises(RuntimeError, match="real bug"):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+    assert "Rolling the adoption back failed" in caplog.text
+
+
 async def test_import_device_full_config_splices_pending_ha_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

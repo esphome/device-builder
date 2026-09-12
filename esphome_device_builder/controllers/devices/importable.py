@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NamedTuple
@@ -62,14 +63,13 @@ _INHERIT_ERROR_MARK = "encryption key to inherit"
 
 @dataclass(frozen=True, slots=True)
 class _AdoptionKeyContext:
-    """The adoption the key step works on: the validated unkeyed YAML and how to undo it."""
+    """The adoption the key step works on: the validated unkeyed YAML and its shape."""
 
     controller: DevicesController
     name: str
     path: Path
     content: str
     full_config_import: bool
-    cleanup: Callable[[], None]
 
 
 class _KeyOutcome(NamedTuple):
@@ -187,17 +187,13 @@ async def import_device(
         failure_tail=". The import was rolled back; nothing was written.",
     )
 
-    try:
-        outcome = await _finalize_adoption_key(
-            _AdoptionKeyContext(controller, name, path, content, full_config_import, _cleanup),
-            warning=warning,
-            pending=pending,
-            encryption=encryption,
-        )
-    except Exception:
-        # A bug past validation must not strand a half-adopted YAML the user can't retry.
-        await run_in_executor(_cleanup)
-        raise
+    outcome = await _land_adoption_key(
+        _AdoptionKeyContext(controller, name, path, content, full_config_import),
+        warning=warning,
+        pending=pending,
+        encryption=encryption,
+        cleanup=_cleanup,
+    )
     warning, key_warning = outcome.validation_warning, outcome.key_warning
 
     await controller._commit_history(configuration, f"Import {configuration}")
@@ -310,6 +306,36 @@ def save_ignored_devices(controller: DevicesController) -> None:
     )
 
 
+async def _land_adoption_key(
+    ctx: _AdoptionKeyContext,
+    *,
+    warning: str | None,
+    pending: dict[str, str] | None,
+    encryption: str | None,
+    cleanup: Callable[[], None],
+) -> _KeyOutcome:
+    """Run the key step; a failure past validation rolls the adoption back so a retry works."""
+    try:
+        return await _finalize_adoption_key(
+            ctx, warning=warning, pending=pending, encryption=encryption
+        )
+    except asyncio.CancelledError:
+        # The command task is going away; the executor finishes the unlink on its own.
+        asyncio.get_running_loop().run_in_executor(None, _roll_back, cleanup)
+        raise
+    except Exception:
+        await run_in_executor(_roll_back, cleanup)
+        raise
+
+
+def _roll_back(cleanup: Callable[[], None]) -> None:
+    """Run *cleanup*, logging a failure so the original error stays the one surfaced."""
+    try:
+        cleanup()
+    except Exception:
+        _LOGGER.exception("Rolling the adoption back failed; original error kept")
+
+
 async def _finalize_adoption_key(
     ctx: _AdoptionKeyContext,
     *,
@@ -342,7 +368,7 @@ async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> None:
     if to_write is not None:
         to_write, consume = _prefer_pushed_key(ctx, to_write, consume)
     if to_write is not None:
-        await _write_or_cleanup(ctx.path, to_write, ctx.cleanup)
+        await run_in_executor(write_user_yaml, ctx.path, to_write)
     if consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, consume)
 
@@ -480,15 +506,6 @@ def _splice_fresh_key(content: str, config_name: str) -> _SplicedKey:
             f"A generated API encryption key could not be spliced in{reason}; adopted without one.",
         )
     return _SplicedKey(keyed, None)
-
-
-async def _write_or_cleanup(path: Path, content: str, cleanup: Callable[[], None]) -> None:
-    """Write *content* to *path*; a failed write runs *cleanup* before re-raising."""
-    try:
-        await run_in_executor(write_user_yaml, path, content)
-    except Exception:
-        await run_in_executor(cleanup)
-        raise
 
 
 def _splice_pending_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:
