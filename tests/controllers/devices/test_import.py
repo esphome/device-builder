@@ -975,6 +975,47 @@ async def test_import_device_does_not_resurrect_a_pending_key_the_handoff_consum
     assert "warning" not in result
 
 
+async def test_import_device_pending_key_consumed_during_the_re_check_is_not_rewritten(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A handoff landing during the pushed key's re-check keeps its newer key in the file."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("esphome:\n  name: kitchen\n\napi:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if "key:" in content:
+            # The configured-device handoff ran during the re-check.
+            await asyncio.to_thread(
+                (tmp_path / "kitchen.yaml").write_text,
+                f'esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: "{OTHER_KEY}"\n',
+                encoding="utf-8",
+            )
+            ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'key: "{OTHER_KEY}"' in content
+    assert PENDING_KEY not in content
+    assert "warning" not in result
+
+
 async def test_import_device_pending_key_skips_package_resolve(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

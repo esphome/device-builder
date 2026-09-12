@@ -341,6 +341,7 @@ async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> None:
     to_write, consume = outcome.to_write, outcome.consume
     if to_write is not None:
         to_write, consume = _prefer_pushed_key(ctx, to_write, consume)
+    if to_write is not None:
         await _write_or_cleanup(ctx.path, to_write, ctx.cleanup)
     if consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, consume)
@@ -348,9 +349,14 @@ async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> None:
 
 def _prefer_pushed_key(
     ctx: _AdoptionKeyContext, keyed: str, consume: str | None
-) -> tuple[str, str | None]:
-    """Swap a key Home Assistant pushed meanwhile into *keyed*; a refused splice keeps *keyed*."""
+) -> tuple[str | None, str | None]:
+    """Swap a key pushed meanwhile into *keyed*; no write once the handoff consumed *consume*."""
     pushed = ctx.controller._pending_keys.get(ctx.name)
+    if pushed is None and consume is not None:
+        _LOGGER.info(
+            "Pending key for %s landed through the handoff; adoption write skipped", ctx.name
+        )
+        return None, None
     if pushed is None or pushed["key"] == consume:
         return keyed, consume
     splice = _splice_pending_key(keyed, pushed["key"], insert_api=True)
