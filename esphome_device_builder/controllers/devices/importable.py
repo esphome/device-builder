@@ -447,9 +447,13 @@ async def _write_keyed(
 ) -> None:
     """Write the minted *keyed* YAML, or the key Home Assistant pushed while it was checked."""
     pushed = controller._pending_keys.get(name)
-    spliced = _splice_pending_key(keyed, pushed["key"]).keyed if pushed else None
-    await _write_or_cleanup(path, spliced or keyed, cleanup)
-    if pushed and spliced:
+    splice = _splice_pending_key(keyed, pushed["key"]) if pushed else None
+    if splice is not None and splice.keyed is None:
+        _LOGGER.warning(
+            "Pushed key not applied to %s (%s); minted key kept", path.name, splice.refusal
+        )
+    await _write_or_cleanup(path, splice.keyed if splice and splice.keyed else keyed, cleanup)
+    if pushed and splice and splice.keyed:
         controller._pending_keys.pop_if(name, pushed["key"])
 
 

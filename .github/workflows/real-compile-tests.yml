@@ -31,6 +31,7 @@ on:
       - "esphome_device_builder/helpers/storage_path.py"
       - "esphome_device_builder/controllers/editor.py"
       - "esphome_device_builder/helpers/device_yaml/_parsing.py"
+      - "esphome_device_builder/controllers/devices/importable.py"
       - "tests/real_compile/**"
       - ".github/workflows/real-compile-tests.yml"
   pull_request:
