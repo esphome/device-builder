@@ -36,7 +36,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
-from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
+from ..editor import IMPORT_VALIDATE_TIMEOUT, VALIDATOR_UNAVAILABLE_ERRORS
 from .mutations_yaml import packages_block_span
 from .resolve import resolve_config
 
@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_VALIDATOR_DOWN = (TimeoutError, ValidatorUnavailableError, BrokenPipeError)
 _UNRESOLVED_WARNING = (
     "The package could not be resolved during adoption, so no API "
     "encryption key was generated; edit and install the device to "
@@ -357,17 +356,13 @@ async def _mint_key_if_keyed_validates(
     """Mint for an unresolvable package only when the key is what the package was missing."""
     if warning is None:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
-        return warning, _UNRESOLVED_WARNING
+        return None, _UNRESOLVED_WARNING
     keyed, refusal = _splice_fresh_key(content, path.name)
     if keyed is None:
         return warning, refusal
-    try:
-        clean = await _validate_keyed(controller, path, keyed) is None
-    except (*_VALIDATOR_DOWN, CommandError):
-        clean = False
-    if not clean:
+    if await _revalidate_keyed(controller, path, keyed, warning) != (None, None):
         _LOGGER.warning(
-            "Could not resolve %s and a key did not repair it; adopted without one", path.name
+            "Could not resolve %s; a key did not repair it, adopted without one", path.name
         )
         return warning, _UNRESOLVED_WARNING
     await _write_or_cleanup(path, keyed, cleanup)
@@ -380,11 +375,11 @@ async def _revalidate_keyed(
     """Re-check a keyed YAML whose unkeyed form warned; ``(validation_warning, refusal)``."""
     try:
         return await _validate_keyed(controller, path, keyed), None
-    except _VALIDATOR_DOWN:
+    except VALIDATOR_UNAVAILABLE_ERRORS:
         _LOGGER.info("Validator unavailable re-checking %s with its key; warning kept", path.name)
         return warning, None
     except CommandError as err:
-        return warning, f"{err.message}; adopted without a key."
+        return warning, f"{err.message}; adopted without one."
 
 
 async def _validate_keyed(controller: DevicesController, path: Path, keyed: str) -> str | None:

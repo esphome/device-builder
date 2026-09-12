@@ -22,7 +22,7 @@ from ...helpers.yaml import (
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
-from ..editor import ValidatorUnavailableError
+from ..editor import VALIDATOR_UNAVAILABLE_ERRORS
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
 from .mutations_simple import _read_device_yaml_or_raise
 from .resolve import resolve_config_subprocess
@@ -151,7 +151,7 @@ async def _apply_to_device(
         await controller._validate_rewritten_yaml_or_raise(
             configuration, new_content, action="update encryption key"
         )
-    except (TimeoutError, ValidatorUnavailableError):
+    except VALIDATOR_UNAVAILABLE_ERRORS:
         reason = f"the rewritten configuration could not be validated in time; {_KEPT_FOR_LATER}"
         return KeyHandoffResult.NOT_WRITABLE, reason
     await controller._persist_yaml_mutation(

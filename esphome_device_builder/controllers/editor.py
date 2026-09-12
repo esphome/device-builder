@@ -60,6 +60,9 @@ class ValidatorUnavailableError(RuntimeError):
     """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
 
 
+VALIDATOR_UNAVAILABLE_ERRORS = (TimeoutError, ValidatorUnavailableError, BrokenPipeError)
+
+
 @dataclass
 class _CachedValidation:
     """Snapshot of a validate_yaml result, with the inputs needed to reuse it."""
