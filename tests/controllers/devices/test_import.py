@@ -10,6 +10,7 @@ exists the write raises ``FileExistsError``, re-surfaced as a
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import Callable
 from pathlib import Path
@@ -952,7 +953,8 @@ async def test_import_device_does_not_resurrect_a_pending_key_the_handoff_consum
         *, configuration: str, content: str, timeout: float | None = None
     ) -> dict[str, Any]:
         # The configured-device handoff ran meanwhile: newer key in the file, entry consumed.
-        (tmp_path / "kitchen.yaml").write_text(
+        await asyncio.to_thread(
+            (tmp_path / "kitchen.yaml").write_text,
             f'esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: "{OTHER_KEY}"\n',
             encoding="utf-8",
         )
