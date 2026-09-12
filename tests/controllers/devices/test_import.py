@@ -320,6 +320,40 @@ async def test_import_device_uses_pending_ha_key(
     assert ctrl._pending_keys.get("kitchen") is None
 
 
+async def test_import_device_baked_pending_key_survives_the_entry_being_consumed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A key baked at generate time still counts as landed when its store entry went meanwhile."""
+    resolve = AsyncMock()
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'    key: "{PENDING_KEY}"\n' in content
+    assert content.count("key:") == 1
+    assert "warning" not in result
+    resolve.assert_not_awaited()
+
+
 async def test_import_device_full_config_splices_pending_ha_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
