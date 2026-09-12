@@ -106,6 +106,17 @@ def test_resolve_file_matches_by_basename(tmp_path: Path) -> None:
     assert result == "esphome:\n  name: in-memory\n"
 
 
+def test_resolve_file_treats_an_undecodable_include_as_unreadable(tmp_path: Path) -> None:
+    """A non-UTF-8 ``!include`` answers empty, the same as an unreadable one."""
+    controller = _make_controller(tmp_path)
+    include = tmp_path / "include.yaml"
+    include.write_bytes(b"\xff\xfe")
+
+    result = controller._resolve_file(str(include), "kitchen.yaml", "esphome:\n  name: kitchen\n")
+
+    assert result == ""
+
+
 def test_resolve_file_reads_disk_for_include(tmp_path: Path) -> None:
     """An ``!include`` path different from ``configuration`` reads from disk.
 
@@ -451,6 +462,28 @@ async def test_ensure_subprocess_no_op_when_proc_already_running(
     assert session.proc is proc
 
 
+async def test_ensure_subprocess_reports_an_oversized_version_line_as_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A startup line past the stream limit is an outage, not ``ValueError``."""
+    controller = _make_controller(tmp_path)
+    session = _EditorSession(configuration="kitchen.yaml")
+    proc, _reader, _ = _make_fake_proc([])
+    proc.stdout = asyncio.StreamReader(limit=16)
+    proc.stdout.feed_data(b"x" * 64)
+
+    async def _fake_spawn(*_args: Any, **_kwargs: Any) -> Any:
+        return proc
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec", _fake_spawn
+    )
+    controller._terminate_subprocess = AsyncMock()  # type: ignore[method-assign]
+
+    with pytest.raises(ValidatorUnavailableError, match="did not start cleanly"):
+        await controller._ensure_subprocess(session, "")
+
+
 async def test_ensure_subprocess_spawns_with_the_stdout_line_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -556,7 +589,7 @@ async def test_ensure_subprocess_terminates_session_and_raises_on_startup_timeou
     terminated = AsyncMock()
     controller._terminate_subprocess = terminated  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="did not start in time"):
+    with pytest.raises(RuntimeError, match="did not start cleanly"):
         await controller._ensure_subprocess(session, "")
 
     terminated.assert_awaited_once_with(session)

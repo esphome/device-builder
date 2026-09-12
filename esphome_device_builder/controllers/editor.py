@@ -202,10 +202,10 @@ class EditorController:
         assert session.proc.stdout is not None
         try:
             await asyncio.wait_for(session.proc.stdout.readline(), timeout=_STARTUP_TIMEOUT)
-        except TimeoutError as err:
+        except (TimeoutError, ValueError) as err:
             await self._terminate_subprocess(session)
             raise ValidatorUnavailableError(
-                "esphome vscode subprocess did not start in time"
+                "esphome vscode subprocess did not start cleanly"
             ) from err
 
     async def _terminate_subprocess(self, session: _EditorSession) -> None:
@@ -310,7 +310,7 @@ class EditorController:
             return ""
         try:
             return req_path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return ""
 
     # ------------------------------------------------------------------
