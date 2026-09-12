@@ -374,7 +374,7 @@ async def _mint_key(
     if spliced.keyed is None:
         return _KeyOutcome(warning, spliced.refusal)
     if warning is not None:
-        recheck = await _revalidate_keyed(controller, path, spliced.keyed, warning, cleanup)
+        recheck = await _revalidate_keyed(controller, path, spliced.keyed, warning)
         if recheck.refusal is not None:
             return _KeyOutcome(warning, recheck.refusal)
         if not resolved and recheck.warning is not None:
@@ -390,13 +390,9 @@ async def _mint_key(
 
 
 async def _revalidate_keyed(
-    controller: DevicesController,
-    path: Path,
-    keyed: str,
-    warning: str,
-    cleanup: Callable[[], None],
+    controller: DevicesController, path: Path, keyed: str, warning: str
 ) -> _KeyedRecheck:
-    """Re-check a keyed YAML whose unkeyed form warned; a bug rolls the adoption back."""
+    """Re-check a keyed YAML whose unkeyed form warned."""
     try:
         verdict = await controller._validate_rewritten_yaml_or_raise(
             path.name,
@@ -415,9 +411,6 @@ async def _revalidate_keyed(
             err,
         )
         return _KeyedRecheck(warning, None)
-    except Exception:
-        await run_in_executor(cleanup)
-        raise
     return _KeyedRecheck(verdict, None)
 
 
