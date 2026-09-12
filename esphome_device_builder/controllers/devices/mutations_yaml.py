@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NamedTuple, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
@@ -22,7 +22,7 @@ from ...models import ErrorCode
 from ..editor import ValidatorTimeoutError, ValidatorUnavailableError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from ...models import BoardCatalogEntry
     from ..components import ComponentCatalog
@@ -128,6 +128,13 @@ async def yaml_content_for_create(
     )
 
 
+class PackageWarning(NamedTuple):
+    """A validation that failed only inside the packages block: the user text and each message."""
+
+    text: str
+    messages: tuple[str, ...]
+
+
 async def validate_rewritten_yaml_or_raise(
     editor: EditorController | None,
     configuration: str,
@@ -142,7 +149,7 @@ async def validate_rewritten_yaml_or_raise(
     packages_root: Path | None = None,
     failure_tail: str | None = None,
     secrets_path: Path | None = None,
-) -> str | None:
+) -> PackageWarning | None:
     """
     Schema-validate *content* via the editor; raise if invalid.
 
@@ -160,7 +167,7 @@ async def validate_rewritten_yaml_or_raise(
 
     *packages_span* (0-indexed line span of the ``packages:`` block):
     when every validation error roots inside it, the file is kept and a
-    warning string is returned instead of raising. Returns ``None``
+    ``PackageWarning`` is returned instead of raising. Returns ``None``
     when *content* validates clean. *packages_root* is the package-cache
     dir the containment check compares against; the caller resolves it
     off-loop (``CORE.data_dir`` stats the disk).
@@ -285,7 +292,7 @@ def _packages_confined_warning(
     packages_root: Path | None,
     configuration: str,
     action: str,
-) -> str | None:
+) -> PackageWarning | None:
     """Warning when every validation error is attributable to the packages block, else ``None``."""
     if packages_span is None or packages_root is None or result.get("yaml_errors"):
         return None
@@ -299,16 +306,17 @@ def _packages_confined_warning(
         configuration,
         action,
     )
-    body = _summarise([str(entry.get("message", "")) for entry in entries])
+    messages = tuple(str(entry.get("message", "")) for entry in entries)
     verb = "Created" if action == "create" else "Imported"
-    return (
-        f"{verb}, but the remote package didn't validate: {body}. "
+    return PackageWarning(
+        f"{verb}, but the remote package didn't validate: {_summarise(messages)}. "
         "Fix the packages entry in the editor; install will surface "
-        "the same error until it resolves."
+        "the same error until it resolves.",
+        messages,
     )
 
 
-def _summarise(errors: list[str]) -> str:
+def _summarise(errors: Iterable[str]) -> str:
     """Join up to three non-empty messages with a ``(+N more)`` count, period-trimmed."""
     errors = [msg for msg in errors if msg]
     shown = errors[:3]

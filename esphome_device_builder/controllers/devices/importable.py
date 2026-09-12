@@ -38,7 +38,7 @@ from ...models import (
     ImportableDeviceRemovedData,
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
-from .mutations_yaml import packages_block_span
+from .mutations_yaml import PackageWarning, packages_block_span
 from .resolve import resolve_config
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ class _AdoptionKeyContext:
 class _KeyOutcome(NamedTuple):
     """What the key step reports, plus the YAML still to write and the pending key to consume."""
 
-    validation_warning: str | None
+    validation_warning: PackageWarning | None
     key_warning: str | None
     to_write: str | None = None
     consume: str | None = None
@@ -84,7 +84,7 @@ class _KeyOutcome(NamedTuple):
 class _KeyedRecheck(NamedTuple):
     """Verdict of re-validating a keyed YAML: the new warning, or why the key was refused."""
 
-    warning: str | None
+    warning: PackageWarning | None
     refusal: str | None
 
 
@@ -215,7 +215,8 @@ async def import_device(
 
     _drop_importable_row_and_probe(controller, name)
     result = {"configuration": configuration}
-    if warnings := [w for w in (outcome.validation_warning, outcome.key_warning) if w]:
+    validation = outcome.validation_warning
+    if warnings := [w for w in (validation.text if validation else None, outcome.key_warning) if w]:
         result["warning"] = "\n".join(warnings)
     return result
 
@@ -316,7 +317,7 @@ def save_ignored_devices(controller: DevicesController) -> None:
 async def _land_adoption_key(
     ctx: _AdoptionKeyContext,
     *,
-    warning: str | None,
+    warning: PackageWarning | None,
     pending: dict[str, str] | None,
     encryption: str | None,
     cleanup: Callable[[], None],
@@ -349,7 +350,7 @@ def _roll_back(cleanup: Callable[[], None]) -> None:
 async def _finalize_adoption_key(
     ctx: _AdoptionKeyContext,
     *,
-    warning: str | None,
+    warning: PackageWarning | None,
     pending: dict[str, str] | None,
     encryption: str | None,
 ) -> _KeyOutcome:
@@ -420,7 +421,7 @@ def _prefer_pushed_key(ctx: _AdoptionKeyContext, keyed: str, consume: str | None
 
 
 async def _mint_key_unless_package_encrypts(
-    ctx: _AdoptionKeyContext, warning: str | None
+    ctx: _AdoptionKeyContext, warning: PackageWarning | None
 ) -> _KeyOutcome:
     """Bake a fresh API key unless the resolved package already enables encryption."""
     # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
@@ -435,14 +436,14 @@ async def _mint_key_unless_package_encrypts(
     # A whole ``encryption:`` the loader left as a bare string is read the same way.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return _KeyOutcome(warning, _OWN_OTA_KEY_WARNING)
-    if not resolved and (config is None or _INHERIT_ERROR_MARK not in (warning or "")):
+    if not resolved and (config is None or not _only_missing_inherited_key(warning)):
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", ctx.path.name)
         return _KeyOutcome(warning, _UNRESOLVED_WARNING)
     return await _mint_key(ctx, warning, resolved=resolved)
 
 
 async def _mint_key(
-    ctx: _AdoptionKeyContext, warning: str | None, *, resolved: bool
+    ctx: _AdoptionKeyContext, warning: PackageWarning | None, *, resolved: bool
 ) -> _KeyOutcome:
     """Splice a fresh key and re-check when the unkeyed YAML warned; strict when unresolved."""
     spliced = _splice_fresh_key(ctx.content, ctx.path.name)
@@ -458,7 +459,7 @@ async def _mint_key(
             _LOGGER.warning(
                 "Could not resolve %s; a key did not repair it (%s), adopted without one",
                 ctx.path.name,
-                recheck.warning,
+                recheck.warning.text,
             )
             return _KeyOutcome(warning, _UNRESOLVED_WARNING)
         warning = recheck.warning
@@ -466,7 +467,7 @@ async def _mint_key(
 
 
 async def _splice_pending_key_validated(
-    ctx: _AdoptionKeyContext, key: str, warning: str | None
+    ctx: _AdoptionKeyContext, key: str, warning: PackageWarning | None
 ) -> _KeyOutcome:
     """Splice the HA-provisioned *key* and let esphome check it; a refusal keeps the key pending."""
     not_applied_tail = (
@@ -490,7 +491,7 @@ async def _splice_pending_key_validated(
 
 
 async def _revalidate_keyed(
-    ctx: _AdoptionKeyContext, keyed: str, warning: str | None, *, failure_tail: str
+    ctx: _AdoptionKeyContext, keyed: str, warning: PackageWarning | None, *, failure_tail: str
 ) -> _KeyedRecheck:
     """Re-check a keyed YAML; an outage keeps *warning*, a refusal carries *failure_tail*."""
     try:
@@ -512,6 +513,15 @@ async def _revalidate_keyed(
         )
         return _KeyedRecheck(warning, None)
     return _KeyedRecheck(verdict, None)
+
+
+def _only_missing_inherited_key(warning: PackageWarning | None) -> bool:
+    """Whether every package complaint is the api key a bare ``ota: encryption:`` inherits."""
+    return (
+        warning is not None
+        and bool(warning.messages)
+        and all(_INHERIT_ERROR_MARK in m for m in warning.messages)
+    )
 
 
 def _splice_fresh_key(content: str, config_name: str) -> _SplicedKey:

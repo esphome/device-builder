@@ -192,3 +192,23 @@ async def test_secrets_reclassification_logs_only_a_would_be_generator_bug(
         )
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert ("not the generator" in caplog.text) is logged
+
+
+def test_packages_confined_warning_carries_every_message(tmp_path: Path) -> None:
+    """The warning keeps all confined messages even though the text summarises three."""
+    content = "packages:\n  v: github://x/y.yaml@main\n\nesphome:\n  name: kitchen\n"
+    span = mutations_yaml.packages_block_span(content)
+    assert span is not None
+    messages = [f"complaint {n}" for n in range(3)] + ["no 'api' encryption key to inherit"]
+    entries = [
+        {"message": m, "range": {"document": "<file>", "start_line": span[0]}} for m in messages
+    ]
+
+    warning = mutations_yaml._packages_confined_warning(
+        {"yaml_errors": [], "validation_errors": entries}, span, tmp_path, "kitchen.yaml", "import"
+    )
+
+    assert warning is not None
+    assert list(warning.messages) == messages
+    assert "(+1 more)" in warning.text
+    assert "inherit" not in warning.text
