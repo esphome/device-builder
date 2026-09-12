@@ -173,17 +173,22 @@ async def import_device(
         failure_tail=". The import was rolled back; nothing was written.",
     )
 
-    warning, key_warning = await _finalize_adoption_key(
-        controller,
-        name=name,
-        path=path,
-        content=content,
-        warning=warning,
-        pending=pending,
-        encryption=encryption,
-        full_config_import=full_config_import,
-        cleanup=_cleanup,
-    )
+    try:
+        warning, key_warning = await _finalize_adoption_key(
+            controller,
+            name=name,
+            path=path,
+            content=content,
+            warning=warning,
+            pending=pending,
+            encryption=encryption,
+            full_config_import=full_config_import,
+            cleanup=_cleanup,
+        )
+    except Exception:
+        # A bug past validation must not strand a half-adopted YAML the user can't retry.
+        await run_in_executor(_cleanup)
+        raise
 
     await controller._commit_history(configuration, f"Import {configuration}")
 
