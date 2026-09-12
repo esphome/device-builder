@@ -23,13 +23,19 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def resolve_config(controller: DevicesController, path: Path) -> dict[Any, Any] | None:
-    """Load in process, then ``esphome config`` if work was deferred; ``None`` if neither works."""
+async def resolve_config(
+    controller: DevicesController, path: Path, *, spawn: bool = True
+) -> tuple[dict[Any, Any] | None, bool]:
+    """
+    Load in process, then ``esphome config`` if work was deferred; ``(config, resolved)``.
+
+    Unresolved hands back the loader's own merge; ``spawn=False`` skips the subprocess leg.
+    """
     try:
         # Same ceiling as the subprocess: a never-cloned package makes the loader
         # fetch it, and git carries no timeout of its own. A timeout frees the
         # caller, not the executor thread, and counts as deferred work.
-        _, config = await asyncio.wait_for(
+        _, loaded = await asyncio.wait_for(
             load_config(controller, path), timeout=ESPHOME_CONFIG_TIMEOUT
         )
     except TimeoutError:
@@ -38,10 +44,12 @@ async def resolve_config(controller: DevicesController, path: Path) -> dict[Any,
             path,
             ESPHOME_CONFIG_TIMEOUT,
         )
-        config = None
-    if resolution_incomplete(config):
-        config = await resolve_config_subprocess(controller, path)
-    return config
+        loaded = None
+    if not resolution_incomplete(loaded):
+        return loaded, True
+    if spawn and (config := await resolve_config_subprocess(controller, path)) is not None:
+        return config, True
+    return loaded, False
 
 
 async def load_config(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from esphome import const
 from esphome.storage_json import ignored_devices_storage_path
@@ -36,7 +36,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
-from ..editor import IMPORT_VALIDATE_TIMEOUT
+from ..editor import IMPORT_VALIDATE_TIMEOUT, VALIDATOR_UNAVAILABLE_ERRORS
 from .mutations_yaml import packages_block_span
 from .resolve import resolve_config
 
@@ -47,6 +47,38 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+_UNRESOLVED_WARNING = (
+    "The package could not be resolved during adoption, so no API "
+    "encryption key was added; edit and install the device to "
+    "add one, or let Home Assistant provision it."
+)
+_OWN_OTA_KEY_WARNING = (
+    "The package gives the OTA platform its own encryption key, so no API "
+    "encryption key was generated; edit the device to use one key for both."
+)
+_INHERIT_ERROR_MARK = "encryption key to inherit"
+
+
+class _KeyOutcome(NamedTuple):
+    """What the key step leaves the adoption with."""
+
+    validation_warning: str | None
+    key_warning: str | None
+
+
+class _KeyedRecheck(NamedTuple):
+    """Verdict of re-validating a keyed YAML: the new warning, or why the key was refused."""
+
+    warning: str | None
+    refusal: str | None
+
+
+class _SplicedKey(NamedTuple):
+    """A freshly keyed YAML, or why the shape refused the splice."""
+
+    keyed: str | None
+    refusal: str | None
 
 
 async def import_device(
@@ -141,11 +173,12 @@ async def import_device(
         failure_tail=". The import was rolled back; nothing was written.",
     )
 
-    key_warning = await _finalize_adoption_key(
+    warning, key_warning = await _finalize_adoption_key(
         controller,
         name=name,
         path=path,
         content=content,
+        warning=warning,
         pending=pending,
         encryption=encryption,
         full_config_import=full_config_import,
@@ -268,92 +301,169 @@ async def _finalize_adoption_key(
     name: str,
     path: Path,
     content: str,
+    warning: str | None,
     pending: dict[str, str] | None,
     encryption: str | None,
     full_config_import: bool,
     cleanup: Callable[[], None],
-) -> str | None:
-    """
-    Land the right API key after validation; owns pending-key consumption.
-
-    A pending HA-provisioned key wins; otherwise an encryption-flagged
-    adoption mints unless the package already enables encryption. A
-    returned warning means no key landed; on the pending branch it also
-    means the entry was kept for a later handoff.
-    """
+) -> _KeyOutcome:
+    """Land the right API key after validation; owns the pending-key consumption."""
     # Re-peek: a push can land during the validate window, after the
     # generate-time peek; minting over it would bake a competing key.
     fresh = controller._pending_keys.get(name) or pending
     if fresh:
         baked = fresh == pending and not full_config_import
-        warning = None
+        key_warning = None
         if not baked:
-            warning = await _splice_pending_key_or_cleanup(
+            key_warning = await _splice_pending_key_or_cleanup(
                 controller, path, content, fresh["key"], cleanup
             )
         # A push that landed during the validate or write is newer than the
         # key that was spliced; leave it for the next handoff.
-        if warning is None:
+        if key_warning is None:
             controller._pending_keys.pop_if(name, fresh["key"])
-        return warning
+        return _KeyOutcome(warning, key_warning)
     if encryption and not full_config_import:
-        return await _mint_key_unless_package_encrypts(controller, path, content, cleanup)
-    return None
+        return await _mint_key_unless_package_encrypts(
+            controller, name, path, content, warning, cleanup
+        )
+    return _KeyOutcome(warning, None)
 
 
 async def _mint_key_unless_package_encrypts(
     controller: DevicesController,
+    name: str,
     path: Path,
     content: str,
+    warning: str | None,
     cleanup: Callable[[], None],
-) -> str | None:
-    """
-    Bake a fresh API key unless the resolved package already enables encryption.
-
-    A package-provided ``encryption:`` means the running device may hold
-    an NVS key a competing baked key would break; an unresolvable
-    package skips the mint for the same reason. Returns a user-facing
-    warning when the adoption ships without a key.
-    """
+) -> _KeyOutcome:
+    """Bake a fresh API key unless the resolved package already enables encryption."""
     # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
     # and getting a key beats dialog latency.
-    config = await resolve_config(controller, path)
-    if config is None:
-        _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
-        return (
-            "The package could not be resolved during adoption, so no API "
-            "encryption key was generated; edit and install the device to "
-            "add one, or let Home Assistant provision it."
-        )
-    api_block = config.get("api")
+    config, resolved = await resolve_config(controller, path, spawn=warning is None)
+    api_block = config.get("api") if config else None
     # Presence check, not get_api_encryption_block: a bare ``encryption:``
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
-        return None
+        return _KeyOutcome(warning, None)
     # A package's own OTA key would have to match a baked api key; leave both out.
     # A whole ``encryption:`` the loader left as a bare string is read the same way.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
-        return (
-            "The package gives the OTA platform its own encryption key, so no API "
-            "encryption key was generated; edit the device to use one key for both."
+        return _KeyOutcome(warning, _OWN_OTA_KEY_WARNING)
+    if not resolved and (config is None or _INHERIT_ERROR_MARK not in (warning or "")):
+        _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
+        return _KeyOutcome(warning, _UNRESOLVED_WARNING)
+    return await _mint_key(
+        controller, name, path, content, warning, resolved=resolved, cleanup=cleanup
+    )
+
+
+async def _mint_key(
+    controller: DevicesController,
+    name: str,
+    path: Path,
+    content: str,
+    warning: str | None,
+    *,
+    resolved: bool,
+    cleanup: Callable[[], None],
+) -> _KeyOutcome:
+    """Splice a fresh key, re-check when the unkeyed YAML warned, write; strict when unresolved."""
+    spliced = _splice_fresh_key(content, path.name)
+    if spliced.keyed is None:
+        return _KeyOutcome(warning, spliced.refusal)
+    if warning is not None:
+        recheck = await _revalidate_keyed(controller, path, spliced.keyed, warning)
+        if recheck.refusal is not None:
+            return _KeyOutcome(warning, recheck.refusal)
+        if not resolved and recheck.warning is not None:
+            _LOGGER.warning(
+                "Could not resolve %s; a key did not repair it (%s), adopted without one",
+                path.name,
+                recheck.warning,
+            )
+            return _KeyOutcome(warning, _UNRESOLVED_WARNING)
+        warning = recheck.warning
+    await _write_keyed(controller, name, path, spliced.keyed, cleanup)
+    return _KeyOutcome(warning, None)
+
+
+async def _revalidate_keyed(
+    controller: DevicesController, path: Path, keyed: str, warning: str
+) -> _KeyedRecheck:
+    """Re-check a keyed YAML whose unkeyed form warned."""
+    try:
+        verdict = await controller._validate_rewritten_yaml_or_raise(
+            path.name,
+            keyed,
+            action="import",
+            timeout=IMPORT_VALIDATE_TIMEOUT,
+            packages_span=packages_block_span(keyed),
+            failure_tail=". Adopted without a key.",
         )
+    except CommandError as err:
+        return _KeyedRecheck(warning, err.message)
+    except VALIDATOR_UNAVAILABLE_ERRORS as err:
+        _LOGGER.warning(
+            "Validator unavailable during the key re-check of %s (%r); warning kept",
+            path.name,
+            err,
+        )
+        return _KeyedRecheck(warning, None)
+    except Exception:
+        _LOGGER.exception("Re-check of %s with its key failed; adopted without one", path.name)
+        return _KeyedRecheck(
+            warning, "The keyed configuration could not be re-checked; adopted without a key."
+        )
+    return _KeyedRecheck(verdict, None)
+
+
+def _splice_fresh_key(content: str, config_name: str) -> _SplicedKey:
+    """Splice a freshly minted key into *content*; ``(None, warning)`` when the shape refuses it."""
     new_key = generate_api_encryption_key()
     reason = ""
     try:
-        new_content = upsert_api_encryption_key(content, new_key)
+        keyed = upsert_api_encryption_key(content, new_key)
     except YamlUpsertNotSupportedError as exc:
-        new_content, reason = "", f" ({exc})"
-    if not new_content or not api_key_settled(new_content, new_key):
-        _LOGGER.warning("Could not splice a key into %s%s; adopted without one", path.name, reason)
-        return (
-            f"A generated API encryption key could not be spliced in{reason}; adopted without one."
+        keyed, reason = "", f" ({exc})"
+    if not keyed or not api_key_settled(keyed, new_key):
+        _LOGGER.warning(
+            "Could not splice a key into %s%s; adopted without one", config_name, reason
         )
+        return _SplicedKey(
+            None,
+            f"A generated API encryption key could not be spliced in{reason}; adopted without one.",
+        )
+    return _SplicedKey(keyed, None)
+
+
+async def _write_keyed(
+    controller: DevicesController,
+    name: str,
+    path: Path,
+    keyed: str,
+    cleanup: Callable[[], None],
+) -> None:
+    """Write the minted *keyed* YAML, or the key Home Assistant pushed while it was checked."""
+    pushed = controller._pending_keys.get(name)
+    splice = _splice_pending_key(keyed, pushed["key"]) if pushed else None
+    if splice is not None and splice.keyed is None:
+        _LOGGER.warning(
+            "Pushed key not applied to %s (%s); minted key kept", path.name, splice.refusal
+        )
+    await _write_or_cleanup(path, splice.keyed if splice and splice.keyed else keyed, cleanup)
+    if pushed and splice and splice.keyed:
+        controller._pending_keys.pop_if(name, pushed["key"])
+
+
+async def _write_or_cleanup(path: Path, content: str, cleanup: Callable[[], None]) -> None:
+    """Write *content* to *path*; a failed write runs *cleanup* before re-raising."""
     try:
-        await run_in_executor(write_user_yaml, path, new_content)
+        await run_in_executor(write_user_yaml, path, content)
     except Exception:
         await run_in_executor(cleanup)
         raise
-    return None
 
 
 async def _splice_pending_key_or_cleanup(
@@ -378,9 +488,10 @@ async def _splice_pending_key_or_cleanup(
     )
     if api_key_settled(content, key):
         return None
-    spliced, refusal = _splice_pending_key(content, key)
-    if spliced is None:
-        return refusal + not_applied_tail
+    splice = _splice_pending_key(content, key)
+    if splice.keyed is None:
+        return f"{splice.refusal}{not_applied_tail}"
+    spliced = splice.keyed
     # An OTA block the line walker can't read may still hold a key the splice
     # can't reconcile; esphome decides before anything is written.
     try:
@@ -390,38 +501,37 @@ async def _splice_pending_key_or_cleanup(
             action="import",
             tolerate_unavailable=True,
             timeout=IMPORT_VALIDATE_TIMEOUT,
+            failure_tail=f".{not_applied_tail}",
         )
     except CommandError as err:
-        return f"{err.message}{not_applied_tail}"
-    try:
-        await run_in_executor(write_user_yaml, path, spliced)
-    except Exception:
-        await run_in_executor(cleanup)
-        raise
+        return err.message
+    await _write_or_cleanup(path, spliced, cleanup)
     return None
 
 
-def _splice_pending_key(content: str, key: str) -> tuple[str | None, str]:
-    """Splice *key* into *content*; ``(None, reason)`` when the shape refuses it."""
+def _splice_pending_key(content: str, key: str) -> _SplicedKey:
+    """Splice *key* into *content*; a refusal when the shape defeats it."""
     if read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH) is None and not component_block_present(
         content, "api"
     ):
-        return None, (
+        return _SplicedKey(
+            None,
             "The imported config does not declare an api: block, so there "
-            "is nowhere to put the Home Assistant provisioned key."
+            "is nowhere to put the Home Assistant provisioned key.",
         )
     try:
         spliced = upsert_api_encryption_key(content, key)
     except YamlUpsertNotSupportedError as exc:
-        return None, str(exc)
+        return _SplicedKey(None, str(exc))
     if spliced == content:
-        return None, (
+        return _SplicedKey(
+            None,
             "The imported config supplies its own API encryption key via !secret, !include, or a "
-            "substitution."
+            "substitution.",
         )
     if not api_key_settled(spliced, key):
-        return None, "The imported config's shape defeated the key splice."
-    return spliced, ""
+        return _SplicedKey(None, "The imported config's shape defeated the key splice.")
+    return _SplicedKey(spliced, None)
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

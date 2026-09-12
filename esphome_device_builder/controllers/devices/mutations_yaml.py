@@ -19,7 +19,7 @@ from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
-from ..editor import ValidatorUnavailableError
+from ..editor import VALIDATOR_UNAVAILABLE_ERRORS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -177,27 +177,24 @@ async def validate_rewritten_yaml_or_raise(
             result = await editor.validate_yaml(
                 configuration=configuration, content=content, timeout=timeout
             )
-        except TimeoutError:
+        except VALIDATOR_UNAVAILABLE_ERRORS as err:
             if not tolerate_unavailable:
                 raise
-            # Expected on adopt: the cold ``github://`` fetch outran the budget.
-            _LOGGER.info(
-                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
-                configuration,
-                action,
-            )
-            succeeded = True
-            return None
-        except (ValidatorUnavailableError, BrokenPipeError):
-            if not tolerate_unavailable:
-                raise
-            # Subprocess down (a generic RuntimeError still propagates); WARNING
-            # since an always-down validator is operationally significant.
-            _LOGGER.warning(
-                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
-                action,
-                configuration,
-            )
+            if isinstance(err, TimeoutError):
+                # Expected on adopt: the cold ``github://`` fetch outran the budget.
+                _LOGGER.info(
+                    "Validation of %s for %s timed out; keeping file, deferring to compile/install",
+                    configuration,
+                    action,
+                )
+            else:
+                # Subprocess down (a generic RuntimeError still propagates); WARNING
+                # since an always-down validator is operationally significant.
+                _LOGGER.warning(
+                    "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
+                    action,
+                    configuration,
+                )
             succeeded = True
             return None
         errors = [

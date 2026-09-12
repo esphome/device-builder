@@ -18,7 +18,7 @@ from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
 
-from .conftest import ESPHOME_CONFIG_STUB_TARGET, MakeControllerFactory
+from .conftest import ESPHOME_CONFIG_STUB_TARGET, VALIDATOR_OUTAGES, MakeControllerFactory
 
 KEY = base64.b64encode(b"k" * 32).decode()
 OTHER_KEY = base64.b64encode(b"j" * 32).decode()
@@ -639,19 +639,21 @@ async def test_set_encryption_key_unresolvable_config_keeps_key(
         resolve.assert_not_awaited()
 
 
-async def test_set_encryption_key_validator_timeout_is_typed_and_keeps_key(
+@pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
+async def test_set_encryption_key_validator_outage_is_typed_and_keeps_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
+    exc: Exception,
 ) -> None:
-    """A validator timeout refuses cleanly instead of escaping as a 500."""
+    """A validator outage refuses cleanly instead of escaping as a 500."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, API_KEY_YAML)
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError())
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=exc)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
-    assert "validated in time" in result["reason"]
+    assert "validator was unavailable" in result["reason"]
     assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 

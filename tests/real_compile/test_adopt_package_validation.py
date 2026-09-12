@@ -9,11 +9,16 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+from esphome.const import __version__ as esphome_version
+
+from esphome_device_builder.controllers.devices.importable import _INHERIT_ERROR_MARK
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     _packages_confined_warning,
     packages_block_span,
 )
 from esphome_device_builder.helpers.device_yaml import generate_adoption_yaml
+from esphome_device_builder.helpers.version_compat import version_at_least
 
 
 def _validate_via_vscode(tmp_path: Path, content: str) -> dict:
@@ -75,3 +80,34 @@ def test_unresolvable_package_errors_root_inside_the_packages_span(tmp_path: Pat
     )
     assert warning is not None
     assert "Fix the packages entry" in warning
+
+
+_BARE_OTA_PACKAGE_YAML = """\
+esphome:
+  name: ${name}
+esp8266:
+  board: esp_wroom_02
+api:
+  reboot_timeout: 0s
+ota:
+  - platform: esphome
+    encryption:
+wifi:
+  ssid: testnet
+  password: longenough1
+"""
+
+
+def test_bare_ota_encryption_error_carries_the_inherit_mark(tmp_path: Path) -> None:
+    """Esphome's error for a bare ``ota: encryption:`` without an api key names the inherit."""
+    if not version_at_least(esphome_version, "2026.10.0"):
+        pytest.skip("installed esphome predates OTA key inheritance")
+    content = (
+        "substitutions:\n  name: kitchen\n\npackages:\n  v: !include package.yaml\n\n"
+        "esphome:\n  name: ${name}\n"
+    )
+    (tmp_path / "package.yaml").write_text(_BARE_OTA_PACKAGE_YAML, encoding="utf-8")
+    result = _validate_via_vscode(tmp_path, content)
+
+    messages = [str(e.get("message", "")) for e in result["validation_errors"]]
+    assert any(_INHERIT_ERROR_MARK in m for m in messages), messages
