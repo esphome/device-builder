@@ -152,7 +152,10 @@ async def _apply_to_device(
             configuration, new_content, action="update encryption key"
         )
     except VALIDATOR_UNAVAILABLE_ERRORS:
-        reason = f"the rewritten configuration could not be validated in time; {_KEPT_FOR_LATER}"
+        reason = (
+            "the rewritten configuration could not be validated (the validator was "
+            f"unavailable); {_KEPT_FOR_LATER}"
+        )
         return KeyHandoffResult.NOT_WRITABLE, reason
     await controller._persist_yaml_mutation(
         configuration, new_content, message=f"Update API encryption key in {configuration}"

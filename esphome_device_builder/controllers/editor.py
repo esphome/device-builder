@@ -60,7 +60,12 @@ class ValidatorUnavailableError(RuntimeError):
     """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
 
 
-VALIDATOR_UNAVAILABLE_ERRORS = (TimeoutError, ValidatorUnavailableError, BrokenPipeError)
+VALIDATOR_UNAVAILABLE_ERRORS = (
+    TimeoutError,
+    ValidatorUnavailableError,
+    BrokenPipeError,
+    ConnectionResetError,
+)
 
 
 @dataclass

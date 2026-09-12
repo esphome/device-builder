@@ -57,6 +57,7 @@ _OWN_OTA_KEY_WARNING = (
     "The package gives the OTA platform its own encryption key, so no API "
     "encryption key was generated; edit the device to use one key for both."
 )
+_INHERIT_ERROR_MARK = "encryption key to inherit"
 
 
 async def import_device(
@@ -309,12 +310,15 @@ async def _finalize_adoption_key(
             controller._pending_keys.pop_if(name, fresh["key"])
         return warning, key_warning
     if encryption and not full_config_import:
-        return await _mint_key_unless_package_encrypts(controller, path, content, warning, cleanup)
+        return await _mint_key_unless_package_encrypts(
+            controller, name, path, content, warning, cleanup
+        )
     return warning, None
 
 
 async def _mint_key_unless_package_encrypts(
     controller: DevicesController,
+    name: str,
     path: Path,
     content: str,
     warning: str | None,
@@ -334,7 +338,7 @@ async def _mint_key_unless_package_encrypts(
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return warning, _OWN_OTA_KEY_WARNING
     if not resolved:
-        return await _mint_key_if_keyed_validates(controller, path, content, warning, cleanup)
+        return await _mint_key_if_keyed_validates(controller, name, path, content, warning, cleanup)
     keyed, refusal = _splice_fresh_key(content, path.name)
     if keyed is None:
         return warning, refusal
@@ -342,30 +346,34 @@ async def _mint_key_unless_package_encrypts(
         warning, refusal = await _revalidate_keyed(controller, path, keyed, warning)
         if refusal is not None:
             return warning, refusal
-    await _write_or_cleanup(path, keyed, cleanup)
+    await _write_keyed(controller, name, path, keyed, cleanup)
     return warning, None
 
 
 async def _mint_key_if_keyed_validates(
     controller: DevicesController,
+    name: str,
     path: Path,
     content: str,
     warning: str | None,
     cleanup: Callable[[], None],
 ) -> tuple[str | None, str | None]:
     """Mint for an unresolvable package only when the key is what the package was missing."""
-    if warning is None:
+    if warning is None or _INHERIT_ERROR_MARK not in warning:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
-        return None, _UNRESOLVED_WARNING
+        return warning, _UNRESOLVED_WARNING
     keyed, refusal = _splice_fresh_key(content, path.name)
     if keyed is None:
         return warning, refusal
-    if await _revalidate_keyed(controller, path, keyed, warning) != (None, None):
+    revalidated, refusal = await _revalidate_keyed(controller, path, keyed, warning)
+    if refusal is not None or revalidated is not None:
         _LOGGER.warning(
-            "Could not resolve %s; a key did not repair it, adopted without one", path.name
+            "Could not resolve %s; a key did not repair it (%s), adopted without one",
+            path.name,
+            refusal or revalidated,
         )
-        return warning, _UNRESOLVED_WARNING
-    await _write_or_cleanup(path, keyed, cleanup)
+        return warning, refusal or _UNRESOLVED_WARNING
+    await _write_keyed(controller, name, path, keyed, cleanup)
     return None, None
 
 
@@ -412,6 +420,22 @@ def _splice_fresh_key(content: str, config_name: str) -> tuple[str | None, str |
             f"A generated API encryption key could not be spliced in{reason}; adopted without one."
         )
     return keyed, None
+
+
+async def _write_keyed(
+    controller: DevicesController,
+    name: str,
+    path: Path,
+    keyed: str,
+    cleanup: Callable[[], None],
+) -> None:
+    """Write the minted *keyed* YAML, or the key Home Assistant pushed while it was checked."""
+    pushed = controller._pending_keys.get(name)
+    if pushed is not None:
+        keyed = upsert_api_encryption_key(keyed, pushed["key"])
+    await _write_or_cleanup(path, keyed, cleanup)
+    if pushed is not None:
+        controller._pending_keys.pop_if(name, pushed["key"])
 
 
 async def _write_or_cleanup(path: Path, content: str, cleanup: Callable[[], None]) -> None:

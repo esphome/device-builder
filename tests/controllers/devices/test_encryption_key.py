@@ -12,6 +12,7 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
+from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
@@ -639,19 +640,29 @@ async def test_set_encryption_key_unresolvable_config_keeps_key(
         resolve.assert_not_awaited()
 
 
-async def test_set_encryption_key_validator_timeout_is_typed_and_keeps_key(
+@pytest.mark.parametrize(
+    "exc",
+    [
+        pytest.param(TimeoutError(), id="timeout"),
+        pytest.param(ValidatorUnavailableError("down"), id="unavailable"),
+        pytest.param(BrokenPipeError(), id="broken_pipe"),
+        pytest.param(ConnectionResetError(), id="connection_reset"),
+    ],
+)
+async def test_set_encryption_key_validator_outage_is_typed_and_keeps_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
+    exc: Exception,
 ) -> None:
-    """A validator timeout refuses cleanly instead of escaping as a 500."""
+    """A validator outage refuses cleanly instead of escaping as a 500."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, API_KEY_YAML)
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError())
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=exc)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
-    assert "validated in time" in result["reason"]
+    assert "validator was unavailable" in result["reason"]
     assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 

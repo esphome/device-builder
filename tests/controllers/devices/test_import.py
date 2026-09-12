@@ -610,10 +610,6 @@ async def test_import_device_unresolvable_package_mints_when_keyed_yaml_validate
         pytest.param(Mock(side_effect=ValidatorUnavailableError("down")), id="unavailable"),
         pytest.param(Mock(side_effect=BrokenPipeError()), id="broken_pipe"),
         pytest.param(
-            lambda content: {"yaml_errors": [], "validation_errors": [{"message": "boom"}]},
-            id="unconfined_error",
-        ),
-        pytest.param(
             lambda content: {
                 "yaml_errors": [],
                 "validation_errors": [_package_entry_error(content, "gl-s10.yaml missing")],
@@ -662,6 +658,98 @@ async def test_import_device_deferred_bare_ota_package_mints_off_the_loader_merg
     assert 'api:\n  encryption:\n    key: "' in content
     assert "warning" not in result
     assert validate.await_count == 2
+
+
+async def test_import_device_unresolvable_package_hard_failure_surfaces_the_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A keyed YAML esphome refuses outright reports esphome's error, not the resolve."""
+    result, content, _ = await _adopt_kitchen_with_encryption(
+        tmp_path,
+        monkeypatch,
+        make_controller,
+        resolve=AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid")),
+        keyed=lambda content: {"yaml_errors": [], "validation_errors": [{"message": "boom"}]},
+    )
+
+    assert "api:" not in content
+    assert "boom" in result["warning"]
+    assert "Adopted without a key" in result["warning"]
+    assert "could not be resolved" not in result["warning"]
+
+
+async def test_import_device_unresolvable_package_mints_only_for_the_inherit_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A package error that is not the missing api key never mints, even if it clears when keyed."""
+    resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if "key:" in content:
+            return {"yaml_errors": [], "validation_errors": []}
+        return {
+            "yaml_errors": [],
+            "validation_errors": [_package_entry_error(content, "y.yaml does not exist")],
+        }
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "could not be resolved" in result["warning"]
+    assert ctrl._db.editor.validate_yaml.await_count == 1
+
+
+@pytest.mark.parametrize("resolve_outcome", ["resolved", "unresolved"])
+async def test_import_device_key_pushed_during_the_keyed_check_wins_the_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    resolve_outcome: str,
+) -> None:
+    """A key Home Assistant pushes while the keyed YAML is checked replaces the minted one."""
+    resolve = (
+        AsyncMock(return_value=_BARE_OTA_PACKAGE)
+        if resolve_outcome == "resolved"
+        else AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
+    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    def _push(content: str) -> dict[str, Any]:
+        ctrl._pending_keys.set("kitchen", PENDING_KEY)
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validator_warning_until_keyed(_push))
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'    key: "{PENDING_KEY}"\n' in content
+    assert content.count("key:") == 1
+    assert ctrl._pending_keys.get("kitchen") is None
+    assert "warning" not in result
 
 
 async def test_import_device_unresolvable_package_splice_refusal_warns(
