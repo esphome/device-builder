@@ -375,10 +375,6 @@ async def test_import_device_cancelled_during_the_key_step_rolls_back(
             encryption="true",
         )
 
-    for _ in range(100):
-        if not (tmp_path / "kitchen.yaml").exists():
-            break
-        await asyncio.sleep(0.01)
     assert not (tmp_path / "kitchen.yaml").exists()
 
 
@@ -1021,6 +1017,7 @@ async def test_import_device_pushed_key_the_splice_refuses_keeps_the_minted_one(
     assert 'api:\n  encryption:\n    key: "' in adoption.content
     assert PENDING_KEY not in adoption.content
     assert adoption.ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+    assert "stays stored" in adoption.result["warning"]
 
 
 async def test_import_device_does_not_resurrect_a_pending_key_the_handoff_consumed(

@@ -319,8 +319,8 @@ async def _land_adoption_key(
             ctx, warning=warning, pending=pending, encryption=encryption
         )
     except asyncio.CancelledError:
-        # The command task is going away; the executor finishes the unlink on its own.
-        asyncio.get_running_loop().run_in_executor(None, _roll_back, cleanup)
+        # Shielded so the rollback completes before a fast retry recreates the file.
+        await asyncio.shield(run_in_executor(_roll_back, cleanup))
         raise
     except Exception:
         await run_in_executor(_roll_back, cleanup)
@@ -357,40 +357,41 @@ async def _finalize_adoption_key(
         outcome = await _mint_key_unless_package_encrypts(ctx, warning)
     else:
         return _KeyOutcome(warning, None)
-    await _land_key(ctx, outcome)
-    return outcome
+    refusal = await _land_key(ctx, outcome)
+    return outcome._replace(key_warning=outcome.key_warning or refusal)
 
 
-async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> None:
-    """Write the keyed YAML, a key pushed meanwhile winning, and consume the pending key in it."""
-    to_write, consume = outcome.to_write, outcome.consume
+async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> str | None:
+    """Write the keyed YAML, a key pushed meanwhile winning; returns a refused swap's warning."""
+    to_write, consume, refusal = outcome.to_write, outcome.consume, None
     if to_write is not None:
-        to_write, consume = _prefer_pushed_key(ctx, to_write, consume)
+        to_write, consume, refusal = _prefer_pushed_key(ctx, to_write, consume)
     if to_write is not None:
         await run_in_executor(write_user_yaml, ctx.path, to_write)
     if consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, consume)
+    return refusal
 
 
 def _prefer_pushed_key(
     ctx: _AdoptionKeyContext, keyed: str, consume: str | None
-) -> tuple[str | None, str | None]:
-    """Swap a key pushed meanwhile into *keyed*; no write once the handoff consumed *consume*."""
+) -> tuple[str | None, str | None, str | None]:
+    """Swap a key pushed meanwhile into *keyed*; ``(to_write, consume, refusal)``."""
     pushed = ctx.controller._pending_keys.get(ctx.name)
     if pushed is None and consume is not None:
         _LOGGER.info(
             "Pending key for %s landed through the handoff; adoption write skipped", ctx.name
         )
-        return None, None
+        return None, None, None
     if pushed is None or pushed["key"] == consume:
-        return keyed, consume
-    splice = _splice_pending_key(keyed, pushed["key"], insert_api=True)
+        return keyed, consume, None
+    splice = _splice_pending_key(keyed, pushed["key"], insert_api=not ctx.full_config_import)
     if splice.keyed is None:
         _LOGGER.warning(
             "Pushed key not applied to %s (%s); written key kept", ctx.path.name, splice.refusal
         )
-        return keyed, consume
-    return splice.keyed, pushed["key"]
+        return keyed, consume, f"{splice.refusal} The key Home Assistant pushed stays stored."
+    return splice.keyed, pushed["key"], None
 
 
 async def _mint_key_unless_package_encrypts(
