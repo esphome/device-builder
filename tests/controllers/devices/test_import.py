@@ -627,9 +627,7 @@ async def test_import_device_bare_ota_package_mints_and_drops_the_stale_warning(
     adoption.subprocess.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    "exc", [*VALIDATOR_OUTAGES, pytest.param(RuntimeError("session gone"), id="runtime_error")]
-)
+@pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
 async def test_import_device_keyed_recheck_outage_keeps_key_and_warning(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -648,6 +646,27 @@ async def test_import_device_keyed_recheck_outage_keeps_key_and_warning(
     assert 'api:\n  encryption:\n    key: "' in adoption.content
     assert _INHERIT_ERROR in adoption.result["warning"]
     assert "could not be resolved" not in adoption.result["warning"]
+
+
+@pytest.mark.parametrize("loaded", _LOADER_MERGES)
+async def test_import_device_keyed_recheck_unexpected_error_ships_keyless(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    loaded: dict[str, Any],
+) -> None:
+    """A re-check that fails for an unexpected reason never writes an unverified key."""
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path,
+        monkeypatch,
+        make_controller,
+        loaded=loaded,
+        keyed=Mock(side_effect=RuntimeError("session gone")),
+    )
+
+    assert "api:" not in adoption.content
+    assert _INHERIT_ERROR in adoption.result["warning"]
+    assert "could not be re-checked" in adoption.result["warning"]
 
 
 @pytest.mark.parametrize("loaded", _LOADER_MERGES)

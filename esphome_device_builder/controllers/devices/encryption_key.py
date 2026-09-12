@@ -151,7 +151,12 @@ async def _apply_to_device(
         await controller._validate_rewritten_yaml_or_raise(
             configuration, new_content, action="update encryption key"
         )
-    except VALIDATOR_UNAVAILABLE_ERRORS:
+    except VALIDATOR_UNAVAILABLE_ERRORS as err:
+        _LOGGER.warning(
+            "Validator unavailable (%r) while updating the key in %s; kept for later",
+            err,
+            configuration,
+        )
         reason = (
             "the rewritten configuration could not be validated (the validator was "
             f"unavailable); {_KEPT_FOR_LATER}"

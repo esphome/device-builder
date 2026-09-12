@@ -387,8 +387,8 @@ async def _revalidate_keyed(
         _LOGGER.warning("Could not re-check %s with its key (%r); warning kept", path.name, err)
         return warning, None
     except Exception:
-        _LOGGER.exception("Re-check of %s with its key failed; warning kept", path.name)
-        return warning, None
+        _LOGGER.exception("Re-check of %s with its key failed; adopted without one", path.name)
+        return warning, "The keyed configuration could not be re-checked; adopted without a key."
 
 
 def _splice_fresh_key(content: str, config_name: str) -> tuple[str | None, str | None]:
