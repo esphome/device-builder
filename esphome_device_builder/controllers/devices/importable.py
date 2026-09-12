@@ -325,7 +325,7 @@ async def _land_adoption_key(
             try:
                 # Shielded so a cancelled task still finishes the unlink before a retry.
                 await asyncio.shield(run_in_executor(_roll_back, cleanup))
-            except BaseException:
+            except Exception:
                 _LOGGER.exception("Rolling the adoption back did not complete")
     return outcome
 
