@@ -3180,6 +3180,25 @@ def test_load_device_without_previous_defaults_active_source_to_unknown(
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_seeds_project_and_network_from_sidecar(tmp_path: Path) -> None:
+    """Persisted descriptive keys are back on the device before the first mDNS sweep."""
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    device = load_device_from_storage(
+        yaml_path,
+        project_name="apollo.plt-1",
+        project_version="2026.09.06.0",
+        network="ethernet",
+    )
+
+    assert device.runtime_state.project_name == "apollo.plt-1"
+    assert device.runtime_state.project_version == "2026.09.06.0"
+    assert device.runtime_state.network == "ethernet"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
 def test_load_device_carries_runtime_state_from_previous(tmp_path: Path) -> None:
     """The whole monitor-observed ``runtime_state`` survives a rebuild."""
     yaml_path = tmp_path / "kitchen.yaml"
@@ -3193,6 +3212,9 @@ def test_load_device_carries_runtime_state_from_previous(tmp_path: Path) -> None
         ip_addresses=["192.168.1.42"],
         deployed_version="2025.1.0",
         deployed_config_hash="deadbeef",
+        project_name="apollo.plt-1",
+        project_version="2026.09.06.0",
+        network="ethernet",
         queued_update=True,
         api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
         deployed_identity_live=True,
@@ -3787,6 +3809,9 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "ip_addresses": [],
         "deployed_version": "",
         "deployed_config_hash": "",
+        "project_name": "",
+        "project_version": "",
+        "network": "",
         "queued_update": False,
         "api_encryption_active": None,
         "deployed_identity_live": False,

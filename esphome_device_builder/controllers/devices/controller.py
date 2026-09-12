@@ -225,6 +225,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_config_hash_change=self._on_config_hash_change,
             on_api_encryption_change=self._on_api_encryption_change,
             on_mac_address_change=self._on_mac_address_change,
+            on_project_name_change=self._on_project_name_change,
+            on_project_version_change=self._on_project_version_change,
+            on_network_change=self._on_network_change,
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
             is_ignored=self.state.ignored_devices.__contains__,
@@ -1250,6 +1253,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
         state_callbacks.on_config_hash_change(self, name, config_hash)
+
+    def _on_project_name_change(self, name: str, project_name: str) -> None:
+        state_callbacks.on_project_name_change(self, name, project_name)
+
+    def _on_project_version_change(self, name: str, project_version: str) -> None:
+        state_callbacks.on_project_version_change(self, name, project_version)
+
+    def _on_network_change(self, name: str, network: str) -> None:
+        state_callbacks.on_network_change(self, name, network)
 
     def _on_importable_added(self, device: AdoptableDevice) -> None:
         importable.on_importable_added(self, device)

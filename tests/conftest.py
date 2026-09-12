@@ -1089,6 +1089,18 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_config_hash_change", name, config_hash))
         self._flip(name, "deployed_config_hash", config_hash)
 
+    def on_project_name_change(self, name: str, project_name: str) -> None:
+        self.calls.append(("on_project_name_change", name, project_name))
+        self._flip(name, "project_name", project_name)
+
+    def on_project_version_change(self, name: str, project_version: str) -> None:
+        self.calls.append(("on_project_version_change", name, project_version))
+        self._flip(name, "project_version", project_version)
+
+    def on_network_change(self, name: str, network: str) -> None:
+        self.calls.append(("on_network_change", name, network))
+        self._flip(name, "network", network)
+
     def on_api_encryption_change(self, name: str, encryption: str) -> None:
         self.calls.append(("on_api_encryption_change", name, encryption))
         self._flip(name, "api_encryption_active", encryption)
@@ -1136,6 +1148,9 @@ def make_state_monitor_with_callbacks(
         on_config_hash_change=callbacks.on_config_hash_change,
         on_api_encryption_change=callbacks.on_api_encryption_change,
         on_mac_address_change=callbacks.on_mac_address_change,
+        on_project_name_change=callbacks.on_project_name_change,
+        on_project_version_change=callbacks.on_project_version_change,
+        on_network_change=callbacks.on_network_change,
         on_persisted_ip_invalidated=callbacks.on_persisted_ip_invalidated,
         on_resolved_addresses_cleared=callbacks.on_resolved_addresses_cleared,
         on_deployed_identity_live_change=callbacks.on_deployed_identity_live_change,
