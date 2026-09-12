@@ -322,8 +322,11 @@ async def _land_adoption_key(
         succeeded = True
     finally:
         if not succeeded:
-            # Shielded so a cancelled task still finishes the unlink before a retry.
-            await asyncio.shield(run_in_executor(_roll_back, cleanup))
+            try:
+                # Shielded so a cancelled task still finishes the unlink before a retry.
+                await asyncio.shield(run_in_executor(_roll_back, cleanup))
+            except BaseException:
+                _LOGGER.exception("Rolling the adoption back did not complete")
     return outcome
 
 
@@ -364,25 +367,38 @@ async def _finalize_adoption_key(
 async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> str | None:
     """Write the keyed YAML, a key pushed meanwhile winning; returns a refused swap's warning."""
     to_write, consume, refusal = outcome.to_write, outcome.consume, None
+    if (
+        to_write is not None
+        and consume is not None
+        and not ctx.controller._pending_keys.get(ctx.name)
+    ):
+        # The entry went while the key was checked: the handoff wrote this file, or a
+        # duplicate-name sibling consumed it. Only a key already on disk says which.
+        if await _key_on_disk(ctx):
+            _LOGGER.warning(
+                "Pending key for %s landed through the handoff; write skipped", ctx.name
+            )
+            return None
+        consume = None
     if to_write is not None:
         to_write, consume, refusal = _prefer_pushed_key(ctx, to_write, consume)
-    if to_write is not None:
         await run_in_executor(write_user_yaml, ctx.path, to_write)
     if consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, consume)
     return refusal
 
 
+async def _key_on_disk(ctx: _AdoptionKeyContext) -> bool:
+    """Whether the adoption YAML on disk already carries an api key."""
+    on_disk = await run_in_executor(ctx.path.read_text, "utf-8")
+    return read_yaml_scalar(on_disk, API_ENCRYPTION_KEY_PATH) is not None
+
+
 def _prefer_pushed_key(
     ctx: _AdoptionKeyContext, keyed: str, consume: str | None
-) -> tuple[str | None, str | None, str | None]:
+) -> tuple[str, str | None, str | None]:
     """Swap a key pushed meanwhile into *keyed*; ``(to_write, consume, refusal)``."""
     pushed = ctx.controller._pending_keys.get(ctx.name)
-    if pushed is None and consume is not None:
-        _LOGGER.info(
-            "Pending key for %s landed through the handoff; adoption write skipped", ctx.name
-        )
-        return None, None, None
     if pushed is None or pushed["key"] == consume:
         return keyed, consume, None
     splice = _splice_pending_key(keyed, pushed["key"], insert_api=not ctx.full_config_import)

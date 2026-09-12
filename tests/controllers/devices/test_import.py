@@ -363,17 +363,26 @@ async def test_import_device_cancelled_during_the_key_step_rolls_back(
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
-    monkeypatch.setattr(
-        importable, "_finalize_adoption_key", AsyncMock(side_effect=asyncio.CancelledError())
-    )
+    entered = asyncio.Event()
 
-    with pytest.raises(asyncio.CancelledError):
-        await ctrl.import_device(
+    async def _hang(*args: Any, **kwargs: Any) -> Any:
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(importable, "_finalize_adoption_key", _hang)
+    task = asyncio.create_task(
+        ctrl.import_device(
             name="kitchen",
             project_name="x",
             package_import_url="github://x/y.yaml@main",
             encryption="true",
         )
+    )
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
     assert not (tmp_path / "kitchen.yaml").exists()
 
@@ -1098,6 +1107,39 @@ async def test_import_device_pending_key_consumed_during_the_re_check_is_not_rew
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert f'key: "{OTHER_KEY}"' in content
     assert PENDING_KEY not in content
+    assert "warning" not in result
+
+
+async def test_import_device_pending_key_consumed_by_a_sibling_is_still_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A pending entry another device consumed does not stop this adoption writing its key."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("esphome:\n  name: kitchen\n\napi:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if "key:" in content:
+            ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert f'key: "{PENDING_KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert "warning" not in result
 
 
