@@ -580,22 +580,22 @@ async def _adopt_kitchen_with_encryption(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
     *,
-    loaded: dict[str, Any] | None = None,
-    keyed: Callable[[str], dict[str, Any]] | None = None,
+    loaded: dict[str, Any] | None,
+    keyed: Callable[[DevicesController, str], dict[str, Any]] | None = None,
     unkeyed_error: str = _INHERIT_ERROR,
 ) -> _Adoption:
     """Adopt ``kitchen`` with encryption on; *loaded* stubs the loader merge, the CLI is down."""
-    if loaded is not None:
-        monkeypatch.setattr(
-            "esphome_device_builder.controllers.devices.resolve.load_device_yaml",
-            lambda path: loaded,
-        )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.resolve.load_device_yaml", lambda path: loaded
+    )
     subprocess = AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
-        side_effect=_validator_warning_until_keyed(keyed, unkeyed_error=unkeyed_error)
+        side_effect=_validator_warning_until_keyed(
+            (lambda content: keyed(ctrl, content)) if keyed else None, unkeyed_error=unkeyed_error
+        )
     )
     result = await ctrl.import_device(
         name="kitchen",
@@ -648,6 +648,43 @@ async def test_import_device_keyed_recheck_outage_keeps_key_and_warning(
     assert "could not be resolved" not in adoption.result["warning"]
 
 
+async def test_import_device_resolved_package_keeps_key_under_an_unrelated_package_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A resolved package with a fault the key can't repair still mints; the keyed warning shows."""
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path,
+        monkeypatch,
+        make_controller,
+        loaded=_BARE_OTA_PACKAGE,
+        keyed=lambda ctrl, content: {
+            "yaml_errors": [],
+            "validation_errors": [_package_entry_error(content, "gl-s10.yaml missing")],
+        },
+    )
+
+    assert 'api:\n  encryption:\n    key: "' in adoption.content
+    assert "gl-s10.yaml missing" in adoption.result["warning"]
+    assert _INHERIT_ERROR not in adoption.result["warning"]
+
+
+async def test_import_device_unparsable_adoption_never_mints_tentatively(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Without a loader merge to read the guards off, the inherit error alone never mints."""
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path, monkeypatch, make_controller, loaded=None
+    )
+
+    assert "api:" not in adoption.content
+    assert "could not be resolved" in adoption.result["warning"]
+    assert adoption.ctrl._db.editor.validate_yaml.await_count == 1
+
+
 @pytest.mark.parametrize("loaded", _LOADER_MERGES)
 async def test_import_device_keyed_recheck_unexpected_error_ships_keyless(
     tmp_path: Path,
@@ -682,7 +719,7 @@ async def test_import_device_keyed_recheck_hard_failure_surfaces_the_diagnostic(
         monkeypatch,
         make_controller,
         loaded=loaded,
-        keyed=lambda content: {"yaml_errors": [], "validation_errors": [{"message": "boom"}]},
+        keyed=lambda ctrl, content: {"yaml_errors": [], "validation_errors": [{"message": "boom"}]},
     )
 
     assert "api:" not in adoption.content
@@ -694,9 +731,9 @@ async def test_import_device_keyed_recheck_hard_failure_surfaces_the_diagnostic(
 @pytest.mark.parametrize(
     "keyed",
     [
-        *(pytest.param(Mock(side_effect=p.values[0]), id=p.id) for p in VALIDATOR_OUTAGES),
+        pytest.param(Mock(side_effect=TimeoutError()), id="outage"),
         pytest.param(
-            lambda content: {
+            lambda ctrl, content: {
                 "yaml_errors": [],
                 "validation_errors": [_package_entry_error(content, "gl-s10.yaml missing")],
             },
@@ -708,7 +745,7 @@ async def test_import_device_unresolvable_package_keyless_when_keyed_check_canno
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    keyed: Callable[[str], dict[str, Any]],
+    keyed: Callable[[DevicesController, str], dict[str, Any]],
 ) -> None:
     """A tentative key lands only on a clean verdict; anything else keeps the file keyless."""
     adoption = await _adopt_kitchen_with_encryption(
@@ -781,33 +818,19 @@ async def test_import_device_key_pushed_during_the_keyed_check_wins_the_write(
     loaded: dict[str, Any],
 ) -> None:
     """A key Home Assistant pushes while the keyed YAML is checked replaces the minted one."""
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.resolve.load_device_yaml", lambda path: loaded
-    )
-    monkeypatch.setattr(
-        ESPHOME_CONFIG_STUB_TARGET, AsyncMock(side_effect=EsphomeConfigUnavailableError("x"))
-    )
-    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
-    _seed_import_state(ctrl)
 
-    def _push(content: str) -> dict[str, Any]:
+    def _push(ctrl: DevicesController, content: str) -> dict[str, Any]:
         ctrl._pending_keys.set("kitchen", PENDING_KEY)
         return {"yaml_errors": [], "validation_errors": []}
 
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validator_warning_until_keyed(_push))
-
-    result = await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x/y.yaml@main",
-        encryption="true",
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path, monkeypatch, make_controller, loaded=loaded, keyed=_push
     )
 
-    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert f'    key: "{PENDING_KEY}"\n' in content
-    assert content.count("key:") == 1
-    assert ctrl._pending_keys.get("kitchen") is None
-    assert "warning" not in result
+    assert f'    key: "{PENDING_KEY}"\n' in adoption.content
+    assert adoption.content.count("key:") == 1
+    assert adoption.ctrl._pending_keys.get("kitchen") is None
+    assert "warning" not in adoption.result
 
 
 async def test_import_device_pending_key_skips_package_resolve(

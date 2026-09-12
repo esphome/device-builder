@@ -47,8 +47,9 @@ async def resolve_config(
         loaded = None
     if not resolution_incomplete(loaded):
         return loaded, True
-    config = await resolve_config_subprocess(controller, path) if spawn else None
-    return (config, True) if config is not None else (loaded, False)
+    if spawn and (config := await resolve_config_subprocess(controller, path)) is not None:
+        return config, True
+    return loaded, False
 
 
 async def load_config(

@@ -177,27 +177,24 @@ async def validate_rewritten_yaml_or_raise(
             result = await editor.validate_yaml(
                 configuration=configuration, content=content, timeout=timeout
             )
-        except TimeoutError:
+        except VALIDATOR_UNAVAILABLE_ERRORS as err:
             if not tolerate_unavailable:
                 raise
-            # Expected on adopt: the cold ``github://`` fetch outran the budget.
-            _LOGGER.info(
-                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
-                configuration,
-                action,
-            )
-            succeeded = True
-            return None
-        except VALIDATOR_UNAVAILABLE_ERRORS:
-            if not tolerate_unavailable:
-                raise
-            # Subprocess down (a generic RuntimeError still propagates); WARNING
-            # since an always-down validator is operationally significant.
-            _LOGGER.warning(
-                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
-                action,
-                configuration,
-            )
+            if isinstance(err, TimeoutError):
+                # Expected on adopt: the cold ``github://`` fetch outran the budget.
+                _LOGGER.info(
+                    "Validation of %s for %s timed out; keeping file, deferring to compile/install",
+                    configuration,
+                    action,
+                )
+            else:
+                # Subprocess down (a generic RuntimeError still propagates); WARNING
+                # since an always-down validator is operationally significant.
+                _LOGGER.warning(
+                    "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
+                    action,
+                    configuration,
+                )
             succeeded = True
             return None
         errors = [

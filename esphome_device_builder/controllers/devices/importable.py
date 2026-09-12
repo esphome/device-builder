@@ -50,7 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _UNRESOLVED_WARNING = (
     "The package could not be resolved during adoption, so no API "
-    "encryption key was generated; edit and install the device to "
+    "encryption key was added; edit and install the device to "
     "add one, or let Home Assistant provision it."
 )
 _OWN_OTA_KEY_WARNING = (
@@ -340,8 +340,7 @@ async def _mint_key_unless_package_encrypts(
 ) -> _KeyOutcome:
     """Bake a fresh API key unless the resolved package already enables encryption."""
     # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
-    # and getting a key beats dialog latency. A warned YAML skips the spawn: esphome
-    # config runs the same validation and would only repeat the verdict.
+    # and getting a key beats dialog latency.
     config, resolved = await resolve_config(controller, path, spawn=warning is None)
     api_block = config.get("api") if config else None
     # Presence check, not get_api_encryption_block: a bare ``encryption:``
@@ -352,7 +351,7 @@ async def _mint_key_unless_package_encrypts(
     # A whole ``encryption:`` the loader left as a bare string is read the same way.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return _KeyOutcome(warning, _OWN_OTA_KEY_WARNING)
-    if not resolved and _INHERIT_ERROR_MARK not in (warning or ""):
+    if not resolved and (config is None or _INHERIT_ERROR_MARK not in (warning or "")):
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
         return _KeyOutcome(warning, _UNRESOLVED_WARNING)
     return await _mint_key(
@@ -401,11 +400,16 @@ async def _revalidate_keyed(
             action="import",
             timeout=IMPORT_VALIDATE_TIMEOUT,
             packages_span=packages_block_span(keyed),
+            failure_tail=". Adopted without a key.",
         )
     except CommandError as err:
-        return _KeyedRecheck(warning, f"{err.message} Adopted without a key.")
+        return _KeyedRecheck(warning, err.message)
     except VALIDATOR_UNAVAILABLE_ERRORS as err:
-        _LOGGER.warning("Could not re-check %s with its key (%r); warning kept", path.name, err)
+        _LOGGER.warning(
+            "Validator unavailable during the key re-check of %s (%r); warning kept",
+            path.name,
+            err,
+        )
         return _KeyedRecheck(warning, None)
     except Exception:
         _LOGGER.exception("Re-check of %s with its key failed; adopted without one", path.name)
@@ -443,7 +447,7 @@ async def _write_keyed(
 ) -> None:
     """Write the minted *keyed* YAML, or the key Home Assistant pushed while it was checked."""
     pushed = controller._pending_keys.get(name)
-    spliced = _splice_pending_key(keyed, pushed["key"])[0] if pushed else None
+    spliced = _splice_pending_key(keyed, pushed["key"]).keyed if pushed else None
     await _write_or_cleanup(path, spliced or keyed, cleanup)
     if pushed and spliced:
         controller._pending_keys.pop_if(name, pushed["key"])
@@ -480,9 +484,10 @@ async def _splice_pending_key_or_cleanup(
     )
     if api_key_settled(content, key):
         return None
-    spliced, refusal = _splice_pending_key(content, key)
-    if spliced is None:
-        return refusal + not_applied_tail
+    splice = _splice_pending_key(content, key)
+    if splice.keyed is None:
+        return f"{splice.refusal}{not_applied_tail}"
+    spliced = splice.keyed
     # An OTA block the line walker can't read may still hold a key the splice
     # can't reconcile; esphome decides before anything is written.
     try:
@@ -492,34 +497,37 @@ async def _splice_pending_key_or_cleanup(
             action="import",
             tolerate_unavailable=True,
             timeout=IMPORT_VALIDATE_TIMEOUT,
+            failure_tail=f".{not_applied_tail}",
         )
     except CommandError as err:
-        return f"{err.message}{not_applied_tail}"
+        return err.message
     await _write_or_cleanup(path, spliced, cleanup)
     return None
 
 
-def _splice_pending_key(content: str, key: str) -> tuple[str | None, str]:
-    """Splice *key* into *content*; ``(None, reason)`` when the shape refuses it."""
+def _splice_pending_key(content: str, key: str) -> _SplicedKey:
+    """Splice *key* into *content*; a refusal when the shape defeats it."""
     if read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH) is None and not component_block_present(
         content, "api"
     ):
-        return None, (
+        return _SplicedKey(
+            None,
             "The imported config does not declare an api: block, so there "
-            "is nowhere to put the Home Assistant provisioned key."
+            "is nowhere to put the Home Assistant provisioned key.",
         )
     try:
         spliced = upsert_api_encryption_key(content, key)
     except YamlUpsertNotSupportedError as exc:
-        return None, str(exc)
+        return _SplicedKey(None, str(exc))
     if spliced == content:
-        return None, (
+        return _SplicedKey(
+            None,
             "The imported config supplies its own API encryption key via !secret, !include, or a "
-            "substitution."
+            "substitution.",
         )
     if not api_key_settled(spliced, key):
-        return None, "The imported config's shape defeated the key splice."
-    return spliced, ""
+        return _SplicedKey(None, "The imported config's shape defeated the key splice.")
+    return _SplicedKey(spliced, None)
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

@@ -9,15 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import pytest
 
 from esphome_device_builder.controllers.devices import mutations_yaml
-from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
+from .conftest import VALIDATOR_OUTAGES
 
-@pytest.mark.parametrize(
-    "exc",
-    [TimeoutError(), ValidatorUnavailableError("subprocess died"), BrokenPipeError()],
-)
+
+@pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
 async def test_strict_path_propagates_validator_failure_and_cleans_up(exc: Exception) -> None:
     """Default (strict) callers re-raise a validator timeout / subprocess error and roll back."""
     editor = MagicMock()
@@ -36,10 +34,7 @@ async def test_strict_path_propagates_validator_failure_and_cleans_up(exc: Excep
     cleanup.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    "exc",
-    [TimeoutError(), ValidatorUnavailableError("subprocess died"), BrokenPipeError()],
-)
+@pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
 async def test_tolerate_path_keeps_file_on_validator_failure(exc: Exception) -> None:
     """``tolerate_unavailable`` swallows the failure: no raise, no cleanup."""
     editor = MagicMock()

@@ -79,7 +79,7 @@ async def test_resolve_config_falls_back_to_the_subprocess(
         pytest.param("invalid", id="invalid"),
     ],
 )
-async def test_resolve_config_collapses_every_subprocess_failure_to_none(
+async def test_resolve_config_flags_every_subprocess_failure_unresolved(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,

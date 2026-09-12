@@ -33,7 +33,7 @@ from esphome_device_builder.controllers.devices._shared_sidecar import SharedSid
 from esphome_device_builder.controllers.devices._state import DevicesState, RegenState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.controllers.devices.import_upload import UploadTokens
-from esphome_device_builder.controllers.editor import ValidatorUnavailableError
+from esphome_device_builder.controllers.editor import VALIDATOR_UNAVAILABLE_ERRORS
 from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
@@ -43,13 +43,7 @@ from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wire_secrets_writer
 
 ESPHOME_CONFIG_STUB_TARGET = "esphome_device_builder.controllers.devices.resolve.run_esphome_config"
-# One outage per member of ``VALIDATOR_UNAVAILABLE_ERRORS``.
-VALIDATOR_OUTAGES = [
-    pytest.param(TimeoutError("subprocess wedged"), id="timeout"),
-    pytest.param(ValidatorUnavailableError("closed stdout"), id="unavailable"),
-    pytest.param(BrokenPipeError(), id="broken_pipe"),
-    pytest.param(ConnectionResetError(), id="connection_reset"),
-]
+VALIDATOR_OUTAGES = [pytest.param(exc(), id=exc.__name__) for exc in VALIDATOR_UNAVAILABLE_ERRORS]
 
 
 class _RecordingAddressCache:
@@ -814,3 +808,13 @@ def wifi_ap_block(ssid: str) -> str:
         f"    ssid: {ssid}\n"
         '    password: "abc123def456"\n'
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_remote_package_clones(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse the git clone a remote ``packages:`` entry would trigger."""
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("remote package clones are disabled in tests")
+
+    monkeypatch.setattr("esphome.git.clone_or_update", _refuse)

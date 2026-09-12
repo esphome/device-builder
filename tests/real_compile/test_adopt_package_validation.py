@@ -96,15 +96,10 @@ wifi:
 """
 
 
-def _esphome_inherits_the_ota_key() -> bool:
-    """Whether the installed esphome resolves a bare ``ota: encryption:`` off the api key."""
-    ota = pytest.importorskip("esphome.components.esphome.ota")
-    return hasattr(ota, "_resolve_encryption_key")
-
-
 def test_bare_ota_encryption_error_carries_the_inherit_mark(tmp_path: Path) -> None:
     """Esphome's error for a bare ``ota: encryption:`` without an api key names the inherit."""
-    if not _esphome_inherits_the_ota_key():
+    ota = pytest.importorskip("esphome.components.esphome.ota")
+    if not hasattr(ota, "_resolve_encryption_key"):
         pytest.skip("installed esphome predates OTA key inheritance")
     content = (
         "substitutions:\n  name: kitchen\n\npackages:\n  v: !include package.yaml\n\n"
