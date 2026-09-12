@@ -194,7 +194,6 @@ async def import_device(
         encryption=encryption,
         cleanup=_cleanup,
     )
-    warning, key_warning = outcome.validation_warning, outcome.key_warning
 
     await controller._commit_history(configuration, f"Import {configuration}")
 
@@ -208,7 +207,7 @@ async def import_device(
 
     _drop_importable_row_and_probe(controller, name)
     result = {"configuration": configuration}
-    if warnings := [w for w in (warning, key_warning) if w]:
+    if warnings := [w for w in (outcome.validation_warning, outcome.key_warning) if w]:
         result["warning"] = "\n".join(warnings)
     return result
 
