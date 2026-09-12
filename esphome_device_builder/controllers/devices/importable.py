@@ -314,17 +314,17 @@ async def _land_adoption_key(
     cleanup: Callable[[], None],
 ) -> _KeyOutcome:
     """Run the key step; a failure past validation rolls the adoption back so a retry works."""
+    succeeded = False
     try:
-        return await _finalize_adoption_key(
+        outcome = await _finalize_adoption_key(
             ctx, warning=warning, pending=pending, encryption=encryption
         )
-    except asyncio.CancelledError:
-        # Shielded so the rollback completes before a fast retry recreates the file.
-        await asyncio.shield(run_in_executor(_roll_back, cleanup))
-        raise
-    except Exception:
-        await run_in_executor(_roll_back, cleanup)
-        raise
+        succeeded = True
+    finally:
+        if not succeeded:
+            # Shielded so a cancelled task still finishes the unlink before a retry.
+            await asyncio.shield(run_in_executor(_roll_back, cleanup))
+    return outcome
 
 
 def _roll_back(cleanup: Callable[[], None]) -> None:
