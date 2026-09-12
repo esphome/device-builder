@@ -14,7 +14,7 @@ from esphome.storage_json import ignored_devices_storage_path
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.atomic_io import atomic_write, atomic_write_exclusive
 from ...helpers.device_yaml import (
     generate_adoption_yaml,
     get_ota_encryption_key,
@@ -280,8 +280,8 @@ def load_ignored_devices(controller: DevicesController) -> None:
 
 def save_ignored_devices(controller: DevicesController) -> None:
     """Persist ``controller.state.ignored_devices`` to the on-disk JSON file."""
-    storage_path = ignored_devices_storage_path()
-    storage_path.write_bytes(
+    atomic_write(
+        ignored_devices_storage_path(),
         dumps_indent({"ignored_devices": sorted(controller.state.ignored_devices)}),
     )
 
