@@ -430,7 +430,11 @@ class EditorController:
                 if result is None:
                     if isinstance(err, ValidatorUnavailableError):
                         raise
-                    raise _as_unavailable(err) from err
+                    if isinstance(err, TimeoutError):
+                        raise ValidatorTimeoutError("validation round-trip timed out") from err
+                    raise ValidatorUnavailableError(
+                        f"esphome vscode subprocess failed: {err!r}"
+                    ) from err
                 _LOGGER.warning(
                     "Re-validation of %s failed (%r); returning the pre-write result",
                     configuration,
@@ -440,8 +444,7 @@ class EditorController:
             finally:
                 # Any failure (timeout, subprocess loss, a bug, cancellation)
                 # can leave the stateful stdin/stdout protocol mid-message;
-                # kill it so the next call respawns clean. A first-attempt
-                # failure propagates as ValidatorUnavailableError.
+                # kill it so the next call respawns clean.
                 if not ok:
                     await self._terminate_subprocess(session)
             if retry_left and remaining > _MIN_RERUN_BUDGET:
@@ -503,10 +506,3 @@ class EditorController:
                     "validation_errors": msg.get("validation_errors", []),
                 }
             # Anything else (stray "version", future events) — ignore and keep reading.
-
-
-def _as_unavailable(err: Exception) -> ValidatorUnavailableError:
-    """Normalise a transport failure to the one error callers catch."""
-    if isinstance(err, TimeoutError):
-        return ValidatorTimeoutError("validation round-trip timed out")
-    return ValidatorUnavailableError(f"esphome vscode subprocess failed: {err!r}")

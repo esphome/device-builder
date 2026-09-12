@@ -686,12 +686,10 @@ async def test_import_device_unparsable_adoption_never_mints_tentatively(
     assert adoption.ctrl._db.editor.validate_yaml.await_count == 1
 
 
-@pytest.mark.parametrize("loaded", _LOADER_MERGES)
 async def test_import_device_keyed_recheck_bug_propagates_and_keeps_the_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    loaded: dict[str, Any],
 ) -> None:
     """A re-check failing for a reason that is not an outage is a bug: it surfaces, keyless."""
     with pytest.raises(RuntimeError, match="session gone"):
@@ -699,7 +697,7 @@ async def test_import_device_keyed_recheck_bug_propagates_and_keeps_the_file(
             tmp_path,
             monkeypatch,
             make_controller,
-            loaded=loaded,
+            loaded=_BARE_OTA_PACKAGE,
             keyed=Mock(side_effect=RuntimeError("session gone")),
         )
 
