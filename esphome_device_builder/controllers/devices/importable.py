@@ -36,7 +36,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
-from ..editor import IMPORT_VALIDATE_TIMEOUT, VALIDATOR_UNAVAILABLE_ERRORS
+from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
 from .mutations_yaml import packages_block_span
 from .resolve import resolve_config
 
@@ -404,18 +404,13 @@ async def _revalidate_keyed(
         )
     except CommandError as err:
         return _KeyedRecheck(warning, err.message)
-    except VALIDATOR_UNAVAILABLE_ERRORS as err:
+    except ValidatorUnavailableError as err:
         _LOGGER.warning(
             "Validator unavailable during the key re-check of %s (%r); warning kept",
             path.name,
             err,
         )
         return _KeyedRecheck(warning, None)
-    except Exception:
-        _LOGGER.exception("Re-check of %s with its key failed; adopted without one", path.name)
-        return _KeyedRecheck(
-            warning, "The keyed configuration could not be re-checked; adopted without a key."
-        )
     return _KeyedRecheck(verdict, None)
 
 

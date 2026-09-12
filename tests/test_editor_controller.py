@@ -43,6 +43,7 @@ from esphome_device_builder.controllers.editor import (
     _IDLE_SUBPROCESS_TIMEOUT,
     _VALIDATE_TIMEOUT,
     EditorController,
+    ValidatorTimeoutError,
     ValidatorUnavailableError,
     _EditorSession,
 )
@@ -768,9 +769,25 @@ async def test_validate_yaml_terminates_session_on_timeout(
     terminated = AsyncMock()
     controller._terminate_subprocess = terminated  # type: ignore[method-assign]
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(ValidatorTimeoutError):
         await controller.validate_yaml(configuration="kitchen.yaml", content="")
 
+    terminated.assert_awaited_once()
+
+
+async def test_validate_yaml_wraps_a_spawn_failure_as_unavailable(tmp_path: Path) -> None:
+    """An ``OSError`` while spawning the subprocess reaches callers as unavailable."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock(  # type: ignore[method-assign]
+        side_effect=FileNotFoundError("esphome")
+    )
+    terminated = AsyncMock()
+    controller._terminate_subprocess = terminated  # type: ignore[method-assign]
+
+    with pytest.raises(ValidatorUnavailableError, match="subprocess failed") as excinfo:
+        await controller.validate_yaml(configuration="kitchen.yaml", content="")
+
+    assert isinstance(excinfo.value.__cause__, FileNotFoundError)
     terminated.assert_awaited_once()
 
 

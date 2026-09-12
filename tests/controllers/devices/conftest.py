@@ -33,7 +33,10 @@ from esphome_device_builder.controllers.devices._shared_sidecar import SharedSid
 from esphome_device_builder.controllers.devices._state import DevicesState, RegenState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.controllers.devices.import_upload import UploadTokens
-from esphome_device_builder.controllers.editor import VALIDATOR_UNAVAILABLE_ERRORS
+from esphome_device_builder.controllers.editor import (
+    ValidatorTimeoutError,
+    ValidatorUnavailableError,
+)
 from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
@@ -43,7 +46,10 @@ from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wire_secrets_writer
 
 ESPHOME_CONFIG_STUB_TARGET = "esphome_device_builder.controllers.devices.resolve.run_esphome_config"
-VALIDATOR_OUTAGES = [pytest.param(exc(), id=exc.__name__) for exc in VALIDATOR_UNAVAILABLE_ERRORS]
+VALIDATOR_OUTAGES = [
+    pytest.param(ValidatorTimeoutError("round-trip timed out"), id="timeout"),
+    pytest.param(ValidatorUnavailableError("closed stdout"), id="unavailable"),
+]
 
 
 class _RecordingAddressCache:

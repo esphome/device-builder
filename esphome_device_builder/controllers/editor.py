@@ -60,12 +60,8 @@ class ValidatorUnavailableError(RuntimeError):
     """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
 
 
-VALIDATOR_UNAVAILABLE_ERRORS = (
-    TimeoutError,
-    ValidatorUnavailableError,
-    BrokenPipeError,
-    ConnectionResetError,
-)
+class ValidatorTimeoutError(ValidatorUnavailableError):
+    """The validation round-trip outran its budget."""
 
 
 @dataclass
@@ -432,7 +428,9 @@ class EditorController:
                 # A failed re-run must not turn the first attempt's
                 # verdict into an error; return it uncached instead.
                 if result is None:
-                    raise
+                    if isinstance(err, ValidatorUnavailableError):
+                        raise
+                    raise _as_unavailable(err) from err
                 _LOGGER.warning(
                     "Re-validation of %s failed (%r); returning the pre-write result",
                     configuration,
@@ -443,7 +441,7 @@ class EditorController:
                 # Any failure (timeout, subprocess loss, a bug, cancellation)
                 # can leave the stateful stdin/stdout protocol mid-message;
                 # kill it so the next call respawns clean. A first-attempt
-                # exception (typed for callers) propagates unchanged.
+                # failure propagates as ValidatorUnavailableError.
                 if not ok:
                     await self._terminate_subprocess(session)
             if retry_left and remaining > _MIN_RERUN_BUDGET:
@@ -505,3 +503,10 @@ class EditorController:
                     "validation_errors": msg.get("validation_errors", []),
                 }
             # Anything else (stray "version", future events) — ignore and keep reading.
+
+
+def _as_unavailable(err: Exception) -> ValidatorUnavailableError:
+    """Normalise a transport failure to the one error callers catch."""
+    if isinstance(err, TimeoutError):
+        return ValidatorTimeoutError("validation round-trip timed out")
+    return ValidatorUnavailableError(f"esphome vscode subprocess failed: {err!r}")

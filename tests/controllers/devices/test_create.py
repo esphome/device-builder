@@ -38,6 +38,7 @@ from esphome_device_builder.controllers.devices.helpers import (
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     yaml_content_for_create,
 )
+from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import _safe_yaml_scalar
 from esphome_device_builder.models import (
@@ -904,7 +905,7 @@ async def test_create_device_package_board_writes_package_yaml(
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     ctrl._db.boards.get_board = AsyncMock(return_value=_package_board())
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError)
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=ValidatorTimeoutError("slow"))
 
     await ctrl.create_device(name="proxy", board_id="olimex-esp32-poe-iso-bluetooth-proxy")
 
