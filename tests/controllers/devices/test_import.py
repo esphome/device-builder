@@ -10,6 +10,7 @@ exists the write raises ``FileExistsError``, re-surfaced as a
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import Callable
 from pathlib import Path
@@ -319,6 +320,164 @@ async def test_import_device_uses_pending_ha_key(
     assert ctrl._pending_keys.get("kitchen") is None
 
 
+async def test_import_device_baked_pending_key_survives_the_entry_being_consumed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A key baked at generate time still counts as landed when its store entry went meanwhile."""
+    resolve = AsyncMock()
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'    key: "{PENDING_KEY}"\n' in content
+    assert content.count("key:") == 1
+    assert "warning" not in result
+    resolve.assert_not_awaited()
+
+
+async def test_import_device_cancelled_during_the_key_step_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A command task cancelled mid key step leaves no half-adopted YAML behind."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    entered = asyncio.Event()
+
+    async def _hang(*args: Any, **kwargs: Any) -> Any:
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(importable, "_finalize_adoption_key", _hang)
+    task = asyncio.create_task(
+        ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+    )
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_import_device_rollback_failure_keeps_the_original_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unlink that fails during the rollback is logged, not surfaced over the real error."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    monkeypatch.setattr(
+        importable, "_finalize_adoption_key", AsyncMock(side_effect=RuntimeError("real bug"))
+    )
+    monkeypatch.setattr(Path, "unlink", Mock(side_effect=PermissionError("read only")))
+
+    with pytest.raises(RuntimeError, match="real bug"):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+    assert "Rolling the adoption back failed" in caplog.text
+
+
+def _rollback_dispatch_failing_with(exc: BaseException) -> Any:
+    """Build an executor dispatch that fails only when the adoption rollback is dispatched."""
+    real = importable.run_in_executor
+
+    async def _dispatch(func: Any, *args: Any) -> Any:
+        if func is importable._roll_back:
+            raise exc
+        return await real(func, *args)
+
+    return _dispatch
+
+
+async def test_import_device_rollback_dispatch_failure_keeps_the_original_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An ordinary error while awaiting the rollback is logged; the real error still surfaces."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    monkeypatch.setattr(
+        importable, "_finalize_adoption_key", AsyncMock(side_effect=RuntimeError("real bug"))
+    )
+    monkeypatch.setattr(
+        importable, "run_in_executor", _rollback_dispatch_failing_with(RuntimeError("no pool"))
+    )
+
+    with pytest.raises(RuntimeError, match="real bug"):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+    assert "did not complete" in caplog.text
+
+
+async def test_import_device_cancellation_during_the_rollback_propagates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A cancel that lands while the rollback runs is not swallowed into the original error."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    monkeypatch.setattr(
+        importable, "_finalize_adoption_key", AsyncMock(side_effect=RuntimeError("real bug"))
+    )
+    monkeypatch.setattr(
+        importable, "run_in_executor", _rollback_dispatch_failing_with(asyncio.CancelledError())
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+
 async def test_import_device_full_config_splices_pending_ha_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -552,7 +711,7 @@ _LOADER_MERGES = [
 def _validator_warning_until_keyed(
     keyed: Callable[[str], dict[str, Any]] | None = None,
     *,
-    unkeyed_error: str = _INHERIT_ERROR,
+    unkeyed_error: str | None = _INHERIT_ERROR,
 ) -> Callable[..., Any]:
     """Build a validator stub: the unkeyed adoption fails in the package, *keyed* decides after."""
 
@@ -561,6 +720,8 @@ def _validator_warning_until_keyed(
     ) -> dict[str, Any]:
         if "key:" in content:
             return keyed(content) if keyed else {"yaml_errors": [], "validation_errors": []}
+        if unkeyed_error is None:
+            return {"yaml_errors": [], "validation_errors": []}
         return {
             "yaml_errors": [],
             "validation_errors": [_package_entry_error(content, unkeyed_error)],
@@ -831,6 +992,222 @@ async def test_import_device_key_pushed_during_the_keyed_check_wins_the_write(
     assert "warning" not in adoption.result
 
 
+async def test_import_device_pending_key_lands_through_a_re_check_outage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An outage on the pushed key's re-check still writes and consumes it."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("esphome:\n  name: kitchen\n\napi:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        side_effect=_validator_warning_until_keyed(
+            Mock(side_effect=ValidatorTimeoutError("slow")), unkeyed_error=None
+        )
+    )
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert f'key: "{PENDING_KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "warning" not in result
+    assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_second_push_keeps_the_package_exemption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A push replacing a baked key is re-checked with the adoption's own package exemption."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    real_get = ctrl._pending_keys.get
+    peeks = 0
+
+    def _push_during_validate(name: str) -> dict[str, str] | None:
+        nonlocal peeks
+        peeks += 1
+        if peeks == 2:
+            ctrl._pending_keys.set("kitchen", OTHER_KEY)
+        return real_get(name)
+
+    monkeypatch.setattr(ctrl._pending_keys, "get", _push_during_validate)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        return {
+            "yaml_errors": [],
+            "validation_errors": [_package_entry_error(content, "gl-s10.yaml missing")],
+        }
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'key: "{OTHER_KEY}"' in content
+    assert "gl-s10.yaml missing" in result["warning"]
+    assert "not applied" not in result["warning"]
+    assert real_get("kitchen") is None
+
+
+async def test_import_device_pushed_key_the_splice_refuses_keeps_the_minted_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A pushed key the line walker can't place leaves the minted key and the push in place."""
+    monkeypatch.setattr(
+        importable,
+        "_splice_pending_key",
+        lambda content, key, **kw: importable._SplicedKey(None, "no"),
+    )
+
+    def _push(ctrl: DevicesController, content: str) -> dict[str, Any]:
+        ctrl._pending_keys.set("kitchen", PENDING_KEY)
+        return {"yaml_errors": [], "validation_errors": []}
+
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path, monkeypatch, make_controller, loaded=_BARE_OTA_PACKAGE, keyed=_push
+    )
+
+    assert 'api:\n  encryption:\n    key: "' in adoption.content
+    assert PENDING_KEY not in adoption.content
+    assert adoption.ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+    assert "stays stored" in adoption.result["warning"]
+
+
+async def test_import_device_does_not_resurrect_a_pending_key_the_handoff_consumed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A pending entry consumed during the validate never overwrites the newer key it left."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("esphome:\n  name: kitchen\n\napi:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        # The configured-device handoff ran meanwhile: newer key in the file, entry consumed.
+        await asyncio.to_thread(
+            (tmp_path / "kitchen.yaml").write_text,
+            f'esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: "{OTHER_KEY}"\n',
+            encoding="utf-8",
+        )
+        ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'key: "{OTHER_KEY}"' in content
+    assert PENDING_KEY not in content
+    assert "warning" not in result
+
+
+async def test_import_device_pending_key_consumed_during_the_re_check_is_not_rewritten(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A handoff landing during the pushed key's re-check keeps its newer key in the file."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("esphome:\n  name: kitchen\n\napi:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if "key:" in content:
+            # The configured-device handoff ran during the re-check.
+            await asyncio.to_thread(
+                (tmp_path / "kitchen.yaml").write_text,
+                f'esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: "{OTHER_KEY}"\n',
+                encoding="utf-8",
+            )
+            ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'key: "{OTHER_KEY}"' in content
+    assert PENDING_KEY not in content
+    assert "warning" not in result
+
+
+async def test_import_device_pending_key_consumed_by_a_sibling_is_still_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A pending entry another device consumed does not stop this adoption writing its key."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("esphome:\n  name: kitchen\n\napi:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if "key:" in content:
+            ctrl._pending_keys.pop("kitchen")
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert f'key: "{PENDING_KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "warning" not in result
+
+
 async def test_import_device_pending_key_skips_package_resolve(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -885,7 +1262,7 @@ async def test_import_device_keeps_a_key_pushed_while_the_splice_was_in_flight(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A push that lands mid-splice is newer than the spliced key and must survive the pop."""
+    """A push that lands mid-splice is newer than the spliced key and is the one written."""
     monkeypatch.setattr(
         "esphome.components.dashboard_import.import_config",
         _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\n'),
@@ -893,14 +1270,14 @@ async def test_import_device_keeps_a_key_pushed_while_the_splice_was_in_flight(
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
-    real_splice = importable._splice_pending_key_or_cleanup
+    real_splice = importable._splice_pending_key_validated
 
-    async def splice_then_push(*args: Any, **kwargs: Any) -> str | None:
-        warning = await real_splice(*args, **kwargs)
+    async def splice_then_push(*args: Any, **kwargs: Any) -> Any:
+        outcome = await real_splice(*args, **kwargs)
         ctrl._pending_keys.set("kitchen", OTHER_KEY)
-        return warning
+        return outcome
 
-    monkeypatch.setattr(importable, "_splice_pending_key_or_cleanup", splice_then_push)
+    monkeypatch.setattr(importable, "_splice_pending_key_validated", splice_then_push)
 
     result = await ctrl.import_device(
         name="kitchen",
@@ -909,8 +1286,8 @@ async def test_import_device_keeps_a_key_pushed_while_the_splice_was_in_flight(
     )
 
     assert "warning" not in result
-    assert f'key: "{PENDING_KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert ctrl._pending_keys.get("kitchen") == {"key": OTHER_KEY}
+    assert f'key: "{OTHER_KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert ctrl._pending_keys.get("kitchen") is None
 
 
 async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_key(
@@ -1249,13 +1626,12 @@ async def test_import_device_push_during_validate_window_never_mints(
         encryption="true",
     )
 
-    # No competing mint: the late key wins the finalize re-peek. The
-    # generated YAML has no api: block to splice into, so the key stays
-    # stored and the dialog warns.
+    # No competing mint: the late key wins the finalize re-peek and is
+    # spliced into the generated YAML, which gains its api: block.
     resolve.assert_not_awaited()
-    assert "key:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert "does not declare an api: block" in result["warning"]
-    assert real_get("kitchen") == {"key": PENDING_KEY}
+    assert f'    key: "{PENDING_KEY}"\n' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "warning" not in result
+    assert real_get("kitchen") is None
 
 
 async def test_import_device_validation_failure_keeps_pending_key(
