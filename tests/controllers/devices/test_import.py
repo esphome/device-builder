@@ -413,6 +413,71 @@ async def test_import_device_rollback_failure_keeps_the_original_error(
     assert "Rolling the adoption back failed" in caplog.text
 
 
+def _rollback_dispatch_failing_with(exc: BaseException) -> Any:
+    """Build an executor dispatch that fails only when the adoption rollback is dispatched."""
+    real = importable.run_in_executor
+
+    async def _dispatch(func: Any, *args: Any) -> Any:
+        if func is importable._roll_back:
+            raise exc
+        return await real(func, *args)
+
+    return _dispatch
+
+
+async def test_import_device_rollback_dispatch_failure_keeps_the_original_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An ordinary error while awaiting the rollback is logged; the real error still surfaces."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    monkeypatch.setattr(
+        importable, "_finalize_adoption_key", AsyncMock(side_effect=RuntimeError("real bug"))
+    )
+    monkeypatch.setattr(
+        importable, "run_in_executor", _rollback_dispatch_failing_with(RuntimeError("no pool"))
+    )
+
+    with pytest.raises(RuntimeError, match="real bug"):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+    assert "did not complete" in caplog.text
+
+
+async def test_import_device_cancellation_during_the_rollback_propagates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A cancel that lands while the rollback runs is not swallowed into the original error."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    monkeypatch.setattr(
+        importable, "_finalize_adoption_key", AsyncMock(side_effect=RuntimeError("real bug"))
+    )
+    monkeypatch.setattr(
+        importable, "run_in_executor", _rollback_dispatch_failing_with(asyncio.CancelledError())
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+
 async def test_import_device_full_config_splices_pending_ha_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
