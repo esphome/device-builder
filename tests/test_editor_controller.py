@@ -34,13 +34,14 @@ import time
 import unittest.mock
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers import editor as editor_module
 from esphome_device_builder.controllers.editor import (
     _IDLE_SUBPROCESS_TIMEOUT,
+    _STDOUT_LINE_LIMIT,
     _VALIDATE_TIMEOUT,
     EditorController,
     ValidatorTimeoutError,
@@ -450,10 +451,10 @@ async def test_ensure_subprocess_no_op_when_proc_already_running(
     assert session.proc is proc
 
 
-async def test_ensure_subprocess_raises_the_stdout_line_limit(
+async def test_ensure_subprocess_spawns_with_the_stdout_line_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The validator is spawned with a line limit large enough for a big result."""
+    """The validator is spawned with the module's line limit."""
     controller = _make_controller(tmp_path)
     session = _EditorSession(configuration="kitchen.yaml")
     proc, _reader, _ = _make_fake_proc([dumps({"type": "version", "version": "1.0"}) + b"\n"])
@@ -469,20 +470,21 @@ async def test_ensure_subprocess_raises_the_stdout_line_limit(
 
     await controller._ensure_subprocess(session, "")
 
-    assert spawn_kwargs["limit"] == 4 * 1024 * 1024
+    assert spawn_kwargs["limit"] == _STDOUT_LINE_LIMIT
 
 
-async def test_validate_yaml_lets_a_fingerprint_bug_surface(tmp_path: Path) -> None:
+async def test_validate_yaml_lets_a_fingerprint_bug_surface(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A failure computing the source fingerprint is a bug, not a validator outage."""
     controller = _make_controller(tmp_path)
     controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
-    with (
-        patch(
-            "esphome_device_builder.controllers.editor.extract_component_source_fingerprint",
-            side_effect=ValueError("bad fingerprint"),
-        ),
-        pytest.raises(ValueError, match="bad fingerprint"),
-    ):
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.extract_component_source_fingerprint",
+        MagicMock(side_effect=ValueError("bad fingerprint")),
+    )
+
+    with pytest.raises(ValueError, match="bad fingerprint"):
         await controller.validate_yaml(configuration="kitchen.yaml", content="")
 
 
@@ -811,19 +813,17 @@ async def test_validate_yaml_terminates_session_on_timeout(
     terminated.assert_awaited_once()
 
 
-async def test_validate_yaml_wraps_an_oversized_line_as_unavailable(tmp_path: Path) -> None:
+async def test_validate_locked_reports_an_oversized_line_as_unavailable(tmp_path: Path) -> None:
     """A result line past the stream limit reaches callers as unavailable, not ``ValueError``."""
     controller = _make_controller(tmp_path)
+    session = _EditorSession(configuration="kitchen.yaml")
+    proc, _reader, _ = _make_fake_proc([])
+    proc.stdout = asyncio.StreamReader(limit=16)
+    proc.stdout.feed_data(b"x" * 64)
+    session.proc = proc
 
-    async def _overrun(*_args: Any, **_kwargs: Any) -> dict:
-        raise ValueError("Separator is not found, and chunk exceed the limit")
-
-    controller._validate_locked = _overrun  # type: ignore[method-assign]
-    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
-    controller._terminate_subprocess = AsyncMock()  # type: ignore[method-assign]
-
-    with pytest.raises(ValidatorUnavailableError, match="subprocess failed"):
-        await controller.validate_yaml(configuration="kitchen.yaml", content="")
+    with pytest.raises(ValidatorUnavailableError, match="stream limit"):
+        await controller._validate_locked(session, "kitchen.yaml", "")
 
 
 async def test_validate_yaml_wraps_a_spawn_failure_as_unavailable(tmp_path: Path) -> None:

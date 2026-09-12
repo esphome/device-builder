@@ -55,8 +55,7 @@ _MIN_RERUN_BUDGET = 1.0
 # digest, so the next validate respawns the subprocess.
 _STALE_SOURCES = "stale"
 
-# One validation result is a single JSON line carrying every error; the
-# asyncio default of 64 KiB is too small for a large config with many errors.
+# A validation result is one JSON line; this bounds the largest line readline accepts.
 _STDOUT_LINE_LIMIT = 4 * 1024 * 1024
 
 
@@ -428,7 +427,7 @@ class EditorController:
                         content_hash=content_hash, result=attempt, at=time.monotonic()
                     )
                     break
-            except (TimeoutError, ValidatorUnavailableError, OSError, ValueError) as err:
+            except (TimeoutError, ValidatorUnavailableError, OSError) as err:
                 # A failed re-run must not turn the first attempt's
                 # verdict into an error; return it uncached instead.
                 if result is None:
@@ -482,7 +481,12 @@ class EditorController:
         await proc.stdin.drain()
 
         while True:
-            line = await proc.stdout.readline()
+            try:
+                line = await proc.stdout.readline()
+            except ValueError as err:
+                raise ValidatorUnavailableError(
+                    "esphome vscode result line exceeded the stream limit"
+                ) from err
             if not line:
                 raise ValidatorUnavailableError("esphome vscode subprocess closed stdout")
             try:
