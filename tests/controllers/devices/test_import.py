@@ -13,13 +13,12 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController, importable
-from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
@@ -27,6 +26,7 @@ from esphome_device_builder.models import AdoptableDevice, ErrorCode, EventType
 
 from .conftest import (
     ESPHOME_CONFIG_STUB_TARGET,
+    VALIDATOR_OUTAGES,
     CaptureDevicesEventsFactory,
     MakeControllerFactory,
     RecordingStateMonitor,
@@ -417,6 +417,7 @@ async def test_import_device_mints_key_when_package_lacks_encryption(
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     resolve.assert_awaited_once()
     assert 'api:\n  encryption:\n    key: "' in content
+    assert ctrl._db.editor.validate_yaml.await_count == 1
 
 
 @pytest.mark.parametrize(
@@ -532,12 +533,25 @@ async def test_import_device_unresolvable_package_ships_keyless_with_warning(
 
 
 _INHERIT_ERROR = (
-    "'ota' encryption has no key and there is no 'api' encryption key to inherit; set one of them"
+    "'ota' encryption has no key and there is no 'api' "
+    f"{importable._INHERIT_ERROR_MARK}; set one of them"
 )
+_BARE_OTA_PACKAGE: dict[str, Any] = {
+    "esphome": {"name": "kitchen"},
+    "api": {"reboot_timeout": "0s"},
+    "ota": [{"platform": "esphome", "encryption": None}],
+}
+_DEFERRED_BARE_OTA_PACKAGE: dict[str, Any] = {**_BARE_OTA_PACKAGE, "time": "${time_block}"}
+_LOADER_MERGES = [
+    pytest.param(_BARE_OTA_PACKAGE, id="resolved"),
+    pytest.param(_DEFERRED_BARE_OTA_PACKAGE, id="unresolved"),
+]
 
 
 def _validator_warning_until_keyed(
     keyed: Callable[[str], dict[str, Any]] | None = None,
+    *,
+    unkeyed_error: str = _INHERIT_ERROR,
 ) -> Callable[..., Any]:
     """Build a validator stub: the unkeyed adoption fails in the package, *keyed* decides after."""
 
@@ -548,17 +562,17 @@ def _validator_warning_until_keyed(
             return keyed(content) if keyed else {"yaml_errors": [], "validation_errors": []}
         return {
             "yaml_errors": [],
-            "validation_errors": [_package_entry_error(content, _INHERIT_ERROR)],
+            "validation_errors": [_package_entry_error(content, unkeyed_error)],
         }
 
     return _validate
 
 
-_BARE_OTA_PACKAGE: dict[str, Any] = {
-    "esphome": {"name": "kitchen"},
-    "api": {"reboot_timeout": "0s"},
-    "ota": [{"platform": "esphome", "encryption": None}],
-}
+class _Adoption(NamedTuple):
+    result: dict[str, Any]
+    content: str
+    ctrl: DevicesController
+    subprocess: AsyncMock
 
 
 async def _adopt_kitchen_with_encryption(
@@ -566,49 +580,102 @@ async def _adopt_kitchen_with_encryption(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
     *,
-    resolve: AsyncMock,
+    loaded: dict[str, Any] | None = None,
     keyed: Callable[[str], dict[str, Any]] | None = None,
-) -> tuple[dict[str, Any], str, AsyncMock]:
-    """Adopt ``kitchen`` with encryption on; returns (result, YAML on disk, validator mock)."""
-    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    unkeyed_error: str = _INHERIT_ERROR,
+) -> _Adoption:
+    """Adopt ``kitchen`` with encryption on; *loaded* stubs the loader merge, the CLI is down."""
+    if loaded is not None:
+        monkeypatch.setattr(
+            "esphome_device_builder.controllers.devices.resolve.load_device_yaml",
+            lambda path: loaded,
+        )
+    subprocess = AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
-    validate = AsyncMock(side_effect=_validator_warning_until_keyed(keyed))
-    ctrl._db.editor.validate_yaml = validate
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        side_effect=_validator_warning_until_keyed(keyed, unkeyed_error=unkeyed_error)
+    )
     result = await ctrl.import_device(
         name="kitchen",
         project_name="x",
         package_import_url="github://x/y.yaml@main",
         encryption="true",
     )
-    return result, (tmp_path / "kitchen.yaml").read_text(encoding="utf-8"), validate
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    return _Adoption(result, content, ctrl, subprocess)
 
 
-async def test_import_device_unresolvable_package_mints_when_keyed_yaml_validates(
+@pytest.mark.parametrize("loaded", _LOADER_MERGES)
+async def test_import_device_bare_ota_package_mints_and_drops_the_stale_warning(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    loaded: dict[str, Any],
 ) -> None:
-    """A package that fails only for want of the api key gets one once the keyed YAML validates."""
-    result, content, validate = await _adopt_kitchen_with_encryption(
+    """A package that fails only for want of the api key gets one, and the warning goes."""
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path, monkeypatch, make_controller, loaded=loaded
+    )
+
+    assert 'api:\n  encryption:\n    key: "' in adoption.content
+    assert "warning" not in adoption.result
+    validate = adoption.ctrl._db.editor.validate_yaml
+    assert validate.await_count == 2
+    assert "key:" in validate.await_args.kwargs["content"]
+    adoption.subprocess.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "exc", [*VALIDATOR_OUTAGES, pytest.param(RuntimeError("session gone"), id="runtime_error")]
+)
+async def test_import_device_keyed_recheck_outage_keeps_key_and_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    exc: Exception,
+) -> None:
+    """A resolved package still mints when the re-check can't run; the warning stays."""
+    adoption = await _adopt_kitchen_with_encryption(
         tmp_path,
         monkeypatch,
         make_controller,
-        resolve=AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid")),
+        loaded=_BARE_OTA_PACKAGE,
+        keyed=Mock(side_effect=exc),
     )
 
-    assert 'api:\n  encryption:\n    key: "' in content
-    assert "warning" not in result
-    assert validate.await_count == 2
-    assert "key:" in validate.await_args.kwargs["content"]
+    assert 'api:\n  encryption:\n    key: "' in adoption.content
+    assert _INHERIT_ERROR in adoption.result["warning"]
+    assert "could not be resolved" not in adoption.result["warning"]
+
+
+@pytest.mark.parametrize("loaded", _LOADER_MERGES)
+async def test_import_device_keyed_recheck_hard_failure_surfaces_the_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    loaded: dict[str, Any],
+) -> None:
+    """A keyed YAML esphome refuses outright keeps the unkeyed file and reports esphome's error."""
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path,
+        monkeypatch,
+        make_controller,
+        loaded=loaded,
+        keyed=lambda content: {"yaml_errors": [], "validation_errors": [{"message": "boom"}]},
+    )
+
+    assert "api:" not in adoption.content
+    assert "boom" in adoption.result["warning"]
+    assert "Adopted without a key" in adoption.result["warning"]
+    assert "could not be resolved" not in adoption.result["warning"]
 
 
 @pytest.mark.parametrize(
     "keyed",
     [
-        pytest.param(Mock(side_effect=TimeoutError()), id="timeout"),
-        pytest.param(Mock(side_effect=ValidatorUnavailableError("down")), id="unavailable"),
-        pytest.param(Mock(side_effect=BrokenPipeError()), id="broken_pipe"),
+        *(pytest.param(Mock(side_effect=p.values[0]), id=p.id) for p in VALIDATOR_OUTAGES),
         pytest.param(
             lambda content: {
                 "yaml_errors": [],
@@ -618,66 +685,20 @@ async def test_import_device_unresolvable_package_mints_when_keyed_yaml_validate
         ),
     ],
 )
-async def test_import_device_unresolvable_package_keyless_when_keyed_validate_cannot_pass(
+async def test_import_device_unresolvable_package_keyless_when_keyed_check_cannot_pass(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
     keyed: Callable[[str], dict[str, Any]],
 ) -> None:
     """A tentative key lands only on a clean verdict; anything else keeps the file keyless."""
-    result, content, _ = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid")),
-        keyed=keyed,
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path, monkeypatch, make_controller, loaded=_DEFERRED_BARE_OTA_PACKAGE, keyed=keyed
     )
 
-    assert "api:" not in content
-    assert "didn't validate" in result["warning"]
-    assert "could not be resolved" in result["warning"]
-
-
-async def test_import_device_deferred_bare_ota_package_mints_off_the_loader_merge(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A merge esphome config can't finish still clears the guard, and the keyed YAML mints."""
-    merged = {**_BARE_OTA_PACKAGE, "time": "${time_block}"}
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.resolve.load_device_yaml", lambda path: merged
-    )
-    result, content, validate = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid")),
-    )
-
-    assert 'api:\n  encryption:\n    key: "' in content
-    assert "warning" not in result
-    assert validate.await_count == 2
-
-
-async def test_import_device_unresolvable_package_hard_failure_surfaces_the_diagnostic(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A keyed YAML esphome refuses outright reports esphome's error, not the resolve."""
-    result, content, _ = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid")),
-        keyed=lambda content: {"yaml_errors": [], "validation_errors": [{"message": "boom"}]},
-    )
-
-    assert "api:" not in content
-    assert "boom" in result["warning"]
-    assert "Adopted without a key" in result["warning"]
-    assert "could not be resolved" not in result["warning"]
+    assert "api:" not in adoption.content
+    assert "didn't validate" in adoption.result["warning"]
+    assert "could not be resolved" in adoption.result["warning"]
 
 
 async def test_import_device_unresolvable_package_mints_only_for_the_inherit_error(
@@ -686,49 +707,67 @@ async def test_import_device_unresolvable_package_mints_only_for_the_inherit_err
     make_controller: MakeControllerFactory,
 ) -> None:
     """A package error that is not the missing api key never mints, even if it clears when keyed."""
-    resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
-    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
-    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
-    _seed_import_state(ctrl)
-
-    async def _validate(
-        *, configuration: str, content: str, timeout: float | None = None
-    ) -> dict[str, Any]:
-        if "key:" in content:
-            return {"yaml_errors": [], "validation_errors": []}
-        return {
-            "yaml_errors": [],
-            "validation_errors": [_package_entry_error(content, "y.yaml does not exist")],
-        }
-
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
-
-    result = await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x/y.yaml@main",
-        encryption="true",
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path,
+        monkeypatch,
+        make_controller,
+        loaded=_DEFERRED_BARE_OTA_PACKAGE,
+        unkeyed_error="y.yaml does not exist",
     )
 
-    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert "could not be resolved" in result["warning"]
-    assert ctrl._db.editor.validate_yaml.await_count == 1
+    assert "api:" not in adoption.content
+    assert "could not be resolved" in adoption.result["warning"]
+    assert adoption.ctrl._db.editor.validate_yaml.await_count == 1
 
 
-@pytest.mark.parametrize("resolve_outcome", ["resolved", "unresolved"])
+@pytest.mark.parametrize(
+    ("package", "expected"),
+    [
+        pytest.param({"api": {"encryption": None}}, None, id="package_api_encryption"),
+        pytest.param(
+            {"ota": [{"platform": "esphome", "encryption": {"key": "OTAKEY"}}]},
+            "gives the OTA platform its own encryption key",
+            id="package_ota_key",
+        ),
+    ],
+)
+async def test_import_device_unresolvable_package_guards_on_the_loader_merge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    package: dict[str, Any],
+    expected: str | None,
+) -> None:
+    """The package-encryption guard reads the loader's merge when neither route resolves."""
+    adoption = await _adopt_kitchen_with_encryption(
+        tmp_path,
+        monkeypatch,
+        make_controller,
+        loaded={"packages": {"v": "github://x/y.yaml@main"}, "esphome": {}, **package},
+    )
+
+    assert "key:" not in adoption.content
+    assert adoption.ctrl._db.editor.validate_yaml.await_count == 1
+    assert "could not be resolved" not in adoption.result["warning"]
+    assert _INHERIT_ERROR in adoption.result["warning"]
+    if expected is not None:
+        assert expected in adoption.result["warning"]
+
+
+@pytest.mark.parametrize("loaded", _LOADER_MERGES)
 async def test_import_device_key_pushed_during_the_keyed_check_wins_the_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    resolve_outcome: str,
+    loaded: dict[str, Any],
 ) -> None:
     """A key Home Assistant pushes while the keyed YAML is checked replaces the minted one."""
-    resolve = (
-        AsyncMock(return_value=_BARE_OTA_PACKAGE)
-        if resolve_outcome == "resolved"
-        else AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.resolve.load_device_yaml", lambda path: loaded
     )
-    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    monkeypatch.setattr(
+        ESPHOME_CONFIG_STUB_TARGET, AsyncMock(side_effect=EsphomeConfigUnavailableError("x"))
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
 
@@ -750,165 +789,6 @@ async def test_import_device_key_pushed_during_the_keyed_check_wins_the_write(
     assert content.count("key:") == 1
     assert ctrl._pending_keys.get("kitchen") is None
     assert "warning" not in result
-
-
-async def test_import_device_unresolvable_package_splice_refusal_warns(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A tentative mint the line walker refuses reports the refusal, not the resolve."""
-
-    def _refuse(content: str, key: str) -> str:
-        raise YamlUpsertNotSupportedError("flow-style api block")
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.upsert_api_encryption_key", _refuse
-    )
-    result, content, _ = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid")),
-    )
-
-    assert "api:" not in content
-    assert "could not be spliced in (flow-style api block)" in result["warning"]
-    assert "could not be resolved" not in result["warning"]
-
-
-@pytest.mark.parametrize(
-    ("loaded", "expected"),
-    [
-        pytest.param({"api": {"encryption": None}}, None, id="package_api_encryption"),
-        pytest.param(
-            {"ota": [{"platform": "esphome", "encryption": {"key": "OTAKEY"}}]},
-            "gives the OTA platform its own encryption key",
-            id="package_ota_key",
-        ),
-    ],
-)
-async def test_import_device_unresolvable_package_guards_on_the_loader_merge(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-    loaded: dict[str, Any],
-    expected: str | None,
-) -> None:
-    """The package-encryption guard reads the loader's merge when neither route resolves."""
-    merged = {"packages": {"v": "github://x/y.yaml@main"}, "esphome": {"name": "kitchen"}, **loaded}
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.resolve.load_device_yaml", lambda path: merged
-    )
-    result, content, validate = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid")),
-    )
-
-    assert "key:" not in content
-    assert validate.await_count == 1
-    assert "could not be resolved" not in result["warning"]
-    assert _INHERIT_ERROR in result["warning"]
-    if expected is not None:
-        assert expected in result["warning"]
-
-
-async def test_import_device_keyed_revalidate_unexpected_error_keeps_import(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """An unexpected validator error during the re-check keeps the key and finishes the import."""
-    result, content, _ = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(return_value={"esphome": {"name": "kitchen"}}),
-        keyed=Mock(side_effect=RuntimeError("session gone")),
-    )
-
-    assert 'api:\n  encryption:\n    key: "' in content
-    assert _INHERIT_ERROR in result["warning"]
-
-
-async def test_import_device_stale_package_warning_replaced_after_mint(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A package warning the minted key repairs is dropped from the reply."""
-    result, content, _ = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(return_value=_BARE_OTA_PACKAGE),
-    )
-
-    assert 'api:\n  encryption:\n    key: "' in content
-    assert "warning" not in result
-
-
-async def test_import_device_package_warning_kept_when_keyed_revalidate_unavailable(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A resolved package still mints when the re-check can't run; the warning stays."""
-    result, content, _ = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(return_value={"esphome": {"name": "kitchen"}}),
-        keyed=Mock(side_effect=TimeoutError()),
-    )
-
-    assert 'api:\n  encryption:\n    key: "' in content
-    assert _INHERIT_ERROR in result["warning"]
-    assert "could not be resolved" not in result["warning"]
-
-
-async def test_import_device_keyed_revalidate_hard_failure_ships_keyless(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A keyed YAML that fails outside the package keeps the unkeyed file and warns."""
-    result, content, _ = await _adopt_kitchen_with_encryption(
-        tmp_path,
-        monkeypatch,
-        make_controller,
-        resolve=AsyncMock(return_value={"esphome": {"name": "kitchen"}}),
-        keyed=lambda content: {"yaml_errors": [], "validation_errors": [{"message": "boom"}]},
-    )
-
-    assert "api:" not in content
-    assert _INHERIT_ERROR in result["warning"]
-    assert "boom" in result["warning"]
-    assert "Adopted without a key" in result["warning"]
-
-
-async def test_import_device_mint_skips_revalidate_when_unkeyed_was_clean(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A clean unkeyed validate is not repeated for the keyed YAML."""
-    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
-    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
-    _seed_import_state(ctrl)
-
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x/y.yaml@main",
-        encryption="true",
-    )
-
-    assert 'api:\n  encryption:\n    key: "' in (tmp_path / "kitchen.yaml").read_text("utf-8")
-    assert ctrl._db.editor.validate_yaml.await_count == 1
 
 
 async def test_import_device_pending_key_skips_package_resolve(
@@ -1785,14 +1665,7 @@ async def test_import_device_preserves_original_error_when_cleanup_fails(
     assert "required key not provided: a platform" in excinfo.value.message
 
 
-@pytest.mark.parametrize(
-    "exc",
-    [
-        TimeoutError("subprocess wedged"),
-        ValidatorUnavailableError("closed stdout"),
-        BrokenPipeError(),
-    ],
-)
+@pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
 async def test_import_device_keeps_yaml_when_validator_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

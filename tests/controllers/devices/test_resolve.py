@@ -11,7 +11,6 @@ import pytest
 from esphome_device_builder.controllers.devices import resolve as resolve_module
 from esphome_device_builder.controllers.devices.resolve import (
     resolve_config,
-    resolve_config_or_loaded,
     resolve_config_subprocess,
 )
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
@@ -41,9 +40,9 @@ async def test_resolve_config_in_process_result_skips_the_subprocess(
     ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
 
-    config = await resolve_config(ctrl, tmp_path / "kitchen.yaml")
+    config, resolved = await resolve_config(ctrl, tmp_path / "kitchen.yaml")
 
-    assert config is not None and "api" in config and "packages" not in config
+    assert resolved and config is not None and "api" in config and "packages" not in config
     subprocess.assert_not_awaited()
 
 
@@ -68,7 +67,7 @@ async def test_resolve_config_falls_back_to_the_subprocess(
     (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
     (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
 
-    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") == RESOLVED
+    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") == (RESOLVED, True)
     subprocess.assert_awaited_once()
 
 
@@ -95,7 +94,10 @@ async def test_resolve_config_collapses_every_subprocess_failure_to_none(
     ctrl = make_controller(tmp_path, esphome_cmd=[] if mode == "no_cli" else ["esphome"])
     (tmp_path / "kitchen.yaml").write_text(UNMERGEABLE_PACKAGE_YAML, encoding="utf-8")
 
-    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") is None
+    config, resolved = await resolve_config(ctrl, tmp_path / "kitchen.yaml")
+
+    assert resolved is False
+    assert config is not None and "packages" in config
     assert subprocess.await_count == (0 if mode == "no_cli" else 1)
 
 
@@ -108,7 +110,7 @@ async def test_resolve_config_accepts_a_path_the_caller_already_holds(
     path = tmp_path / "kitchen.yaml"
     path.write_text(PLAIN_YAML, encoding="utf-8")
 
-    assert await resolve_config(ctrl, path) == {"esphome": {"name": "kitchen"}, "api": None}
+    assert await resolve_config(ctrl, path) == ({"esphome": {"name": "kitchen"}, "api": None}, True)
 
 
 async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
@@ -130,7 +132,7 @@ async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
     ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(PLAIN_YAML, encoding="utf-8")
 
-    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") == RESOLVED
+    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") == (RESOLVED, True)
     subprocess.assert_awaited_once()
     assert "exceeded 0.05s; falling back to esphome config" in caplog.text
 
@@ -150,19 +152,19 @@ async def test_resolve_config_subprocess_skips_the_executor_for_a_path(
     subprocess.assert_awaited_once()
 
 
-async def test_resolve_config_or_loaded_hands_back_the_loader_merge(
+async def test_resolve_config_spawn_false_skips_the_subprocess(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """When neither route resolves, the caller gets the in-process merge flagged unresolved."""
-    subprocess = AsyncMock(side_effect=EsphomeConfigUnavailableError("invalid"))
+    """``spawn=False`` hands back the loader's merge, flagged unresolved, without a spawn."""
+    subprocess = AsyncMock(return_value=RESOLVED)
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     ctrl = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(UNMERGEABLE_PACKAGE_YAML, encoding="utf-8")
 
-    config, resolved = await resolve_config_or_loaded(ctrl, tmp_path / "kitchen.yaml")
+    config, resolved = await resolve_config(ctrl, tmp_path / "kitchen.yaml", spawn=False)
 
     assert resolved is False
     assert config is not None and "packages" in config
-    assert await resolve_config(ctrl, tmp_path / "kitchen.yaml") is None
+    subprocess.assert_not_awaited()

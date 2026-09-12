@@ -19,7 +19,7 @@ from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
-from ..editor import ValidatorUnavailableError
+from ..editor import VALIDATOR_UNAVAILABLE_ERRORS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -188,7 +188,7 @@ async def validate_rewritten_yaml_or_raise(
             )
             succeeded = True
             return None
-        except (ValidatorUnavailableError, BrokenPipeError):
+        except VALIDATOR_UNAVAILABLE_ERRORS:
             if not tolerate_unavailable:
                 raise
             # Subprocess down (a generic RuntimeError still propagates); WARNING

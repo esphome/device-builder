@@ -23,16 +23,14 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def resolve_config(controller: DevicesController, path: Path) -> dict[Any, Any] | None:
-    """Load in process, then ``esphome config`` if work was deferred; ``None`` if neither works."""
-    config, resolved = await resolve_config_or_loaded(controller, path)
-    return config if resolved else None
-
-
-async def resolve_config_or_loaded(
-    controller: DevicesController, path: Path
+async def resolve_config(
+    controller: DevicesController, path: Path, *, spawn: bool = True
 ) -> tuple[dict[Any, Any] | None, bool]:
-    """Resolve as ``resolve_config``; when neither route works, the loader's merge and ``False``."""
+    """
+    Load in process, then ``esphome config`` if work was deferred; ``(config, resolved)``.
+
+    Unresolved hands back the loader's own merge; ``spawn=False`` skips the subprocess leg.
+    """
     try:
         # Same ceiling as the subprocess: a never-cloned package makes the loader
         # fetch it, and git carries no timeout of its own. A timeout frees the
@@ -49,7 +47,7 @@ async def resolve_config_or_loaded(
         loaded = None
     if not resolution_incomplete(loaded):
         return loaded, True
-    config = await resolve_config_subprocess(controller, path)
+    config = await resolve_config_subprocess(controller, path) if spawn else None
     return (config, True) if config is not None else (loaded, False)
 
 

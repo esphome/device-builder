@@ -12,14 +12,13 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
-from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
 
-from .conftest import ESPHOME_CONFIG_STUB_TARGET, MakeControllerFactory
+from .conftest import ESPHOME_CONFIG_STUB_TARGET, VALIDATOR_OUTAGES, MakeControllerFactory
 
 KEY = base64.b64encode(b"k" * 32).decode()
 OTHER_KEY = base64.b64encode(b"j" * 32).decode()
@@ -640,15 +639,7 @@ async def test_set_encryption_key_unresolvable_config_keeps_key(
         resolve.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    "exc",
-    [
-        pytest.param(TimeoutError(), id="timeout"),
-        pytest.param(ValidatorUnavailableError("down"), id="unavailable"),
-        pytest.param(BrokenPipeError(), id="broken_pipe"),
-        pytest.param(ConnectionResetError(), id="connection_reset"),
-    ],
-)
+@pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
 async def test_set_encryption_key_validator_outage_is_typed_and_keeps_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

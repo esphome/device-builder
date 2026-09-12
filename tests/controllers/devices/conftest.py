@@ -33,6 +33,7 @@ from esphome_device_builder.controllers.devices._shared_sidecar import SharedSid
 from esphome_device_builder.controllers.devices._state import DevicesState, RegenState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.controllers.devices.import_upload import UploadTokens
+from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
@@ -42,6 +43,13 @@ from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wire_secrets_writer
 
 ESPHOME_CONFIG_STUB_TARGET = "esphome_device_builder.controllers.devices.resolve.run_esphome_config"
+# One outage per member of ``VALIDATOR_UNAVAILABLE_ERRORS``.
+VALIDATOR_OUTAGES = [
+    pytest.param(TimeoutError("subprocess wedged"), id="timeout"),
+    pytest.param(ValidatorUnavailableError("closed stdout"), id="unavailable"),
+    pytest.param(BrokenPipeError(), id="broken_pipe"),
+    pytest.param(ConnectionResetError(), id="connection_reset"),
+]
 
 
 class _RecordingAddressCache:
