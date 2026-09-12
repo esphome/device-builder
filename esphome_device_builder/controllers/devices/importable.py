@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from esphome import const
 from esphome.storage_json import ignored_devices_storage_path
@@ -58,6 +58,27 @@ _OWN_OTA_KEY_WARNING = (
     "encryption key was generated; edit the device to use one key for both."
 )
 _INHERIT_ERROR_MARK = "encryption key to inherit"
+
+
+class _KeyOutcome(NamedTuple):
+    """What the key step leaves the adoption with."""
+
+    validation_warning: str | None
+    key_warning: str | None
+
+
+class _KeyedRecheck(NamedTuple):
+    """Verdict of re-validating a keyed YAML: the new warning, or why the key was refused."""
+
+    warning: str | None
+    refusal: str | None
+
+
+class _SplicedKey(NamedTuple):
+    """A freshly keyed YAML, or why the shape refused the splice."""
+
+    keyed: str | None
+    refusal: str | None
 
 
 async def import_device(
@@ -285,8 +306,8 @@ async def _finalize_adoption_key(
     encryption: str | None,
     full_config_import: bool,
     cleanup: Callable[[], None],
-) -> tuple[str | None, str | None]:
-    """Land the right API key after validation; returns ``(validation_warning, key_warning)``."""
+) -> _KeyOutcome:
+    """Land the right API key after validation; owns the pending-key consumption."""
     # Re-peek: a push can land during the validate window, after the
     # generate-time peek; minting over it would bake a competing key.
     fresh = controller._pending_keys.get(name) or pending
@@ -301,12 +322,12 @@ async def _finalize_adoption_key(
         # key that was spliced; leave it for the next handoff.
         if key_warning is None:
             controller._pending_keys.pop_if(name, fresh["key"])
-        return warning, key_warning
+        return _KeyOutcome(warning, key_warning)
     if encryption and not full_config_import:
         return await _mint_key_unless_package_encrypts(
             controller, name, path, content, warning, cleanup
         )
-    return warning, None
+    return _KeyOutcome(warning, None)
 
 
 async def _mint_key_unless_package_encrypts(
@@ -316,7 +337,7 @@ async def _mint_key_unless_package_encrypts(
     content: str,
     warning: str | None,
     cleanup: Callable[[], None],
-) -> tuple[str | None, str | None]:
+) -> _KeyOutcome:
     """Bake a fresh API key unless the resolved package already enables encryption."""
     # Bounded only by resolve_config's per-leg ceiling: adoption is user-triggered,
     # and getting a key beats dialog latency. A warned YAML skips the spawn: esphome
@@ -326,14 +347,14 @@ async def _mint_key_unless_package_encrypts(
     # Presence check, not get_api_encryption_block: a bare ``encryption:``
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
-        return warning, None
+        return _KeyOutcome(warning, None)
     # A package's own OTA key would have to match a baked api key; leave both out.
     # A whole ``encryption:`` the loader left as a bare string is read the same way.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
-        return warning, _OWN_OTA_KEY_WARNING
+        return _KeyOutcome(warning, _OWN_OTA_KEY_WARNING)
     if not resolved and _INHERIT_ERROR_MARK not in (warning or ""):
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
-        return warning, _UNRESOLVED_WARNING
+        return _KeyOutcome(warning, _UNRESOLVED_WARNING)
     return await _mint_key(
         controller, name, path, content, warning, resolved=resolved, cleanup=cleanup
     )
@@ -348,50 +369,53 @@ async def _mint_key(
     *,
     resolved: bool,
     cleanup: Callable[[], None],
-) -> tuple[str | None, str | None]:
+) -> _KeyOutcome:
     """Splice a fresh key, re-check when the unkeyed YAML warned, write; strict when unresolved."""
-    keyed, refusal = _splice_fresh_key(content, path.name)
-    if keyed is None:
-        return warning, refusal
+    spliced = _splice_fresh_key(content, path.name)
+    if spliced.keyed is None:
+        return _KeyOutcome(warning, spliced.refusal)
     if warning is not None:
-        revalidated, refusal = await _revalidate_keyed(controller, path, keyed, warning)
-        if refusal is not None:
-            return warning, refusal
-        if not resolved and revalidated is not None:
+        recheck = await _revalidate_keyed(controller, path, spliced.keyed, warning)
+        if recheck.refusal is not None:
+            return _KeyOutcome(warning, recheck.refusal)
+        if not resolved and recheck.warning is not None:
             _LOGGER.warning(
                 "Could not resolve %s; a key did not repair it (%s), adopted without one",
                 path.name,
-                revalidated,
+                recheck.warning,
             )
-            return warning, _UNRESOLVED_WARNING
-        warning = revalidated
-    await _write_keyed(controller, name, path, keyed, cleanup)
-    return warning, None
+            return _KeyOutcome(warning, _UNRESOLVED_WARNING)
+        warning = recheck.warning
+    await _write_keyed(controller, name, path, spliced.keyed, cleanup)
+    return _KeyOutcome(warning, None)
 
 
 async def _revalidate_keyed(
     controller: DevicesController, path: Path, keyed: str, warning: str
-) -> tuple[str | None, str | None]:
-    """Re-check a keyed YAML whose unkeyed form warned; ``(validation_warning, refusal)``."""
+) -> _KeyedRecheck:
+    """Re-check a keyed YAML whose unkeyed form warned."""
     try:
-        return await controller._validate_rewritten_yaml_or_raise(
+        verdict = await controller._validate_rewritten_yaml_or_raise(
             path.name,
             keyed,
             action="import",
             timeout=IMPORT_VALIDATE_TIMEOUT,
             packages_span=packages_block_span(keyed),
-        ), None
+        )
     except CommandError as err:
-        return warning, f"{err.message} Adopted without a key."
+        return _KeyedRecheck(warning, f"{err.message} Adopted without a key.")
     except VALIDATOR_UNAVAILABLE_ERRORS as err:
         _LOGGER.warning("Could not re-check %s with its key (%r); warning kept", path.name, err)
-        return warning, None
+        return _KeyedRecheck(warning, None)
     except Exception:
         _LOGGER.exception("Re-check of %s with its key failed; adopted without one", path.name)
-        return warning, "The keyed configuration could not be re-checked; adopted without a key."
+        return _KeyedRecheck(
+            warning, "The keyed configuration could not be re-checked; adopted without a key."
+        )
+    return _KeyedRecheck(verdict, None)
 
 
-def _splice_fresh_key(content: str, config_name: str) -> tuple[str | None, str | None]:
+def _splice_fresh_key(content: str, config_name: str) -> _SplicedKey:
     """Splice a freshly minted key into *content*; ``(None, warning)`` when the shape refuses it."""
     new_key = generate_api_encryption_key()
     reason = ""
@@ -403,10 +427,11 @@ def _splice_fresh_key(content: str, config_name: str) -> tuple[str | None, str |
         _LOGGER.warning(
             "Could not splice a key into %s%s; adopted without one", config_name, reason
         )
-        return None, (
-            f"A generated API encryption key could not be spliced in{reason}; adopted without one."
+        return _SplicedKey(
+            None,
+            f"A generated API encryption key could not be spliced in{reason}; adopted without one.",
         )
-    return keyed, None
+    return _SplicedKey(keyed, None)
 
 
 async def _write_keyed(
