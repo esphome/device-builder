@@ -88,6 +88,14 @@ class _KeyedRecheck(NamedTuple):
     refusal: str | None
 
 
+class _KeySwap(NamedTuple):
+    """The YAML to write after a pushed key had its say, the entry to consume, and a refusal."""
+
+    to_write: str
+    consume: str | None
+    refusal: str | None
+
+
 class _SplicedKey(NamedTuple):
     """A freshly keyed YAML, or why the shape refused the splice."""
 
@@ -381,7 +389,8 @@ async def _land_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> str | Non
             return None
         consume = None
     if to_write is not None:
-        to_write, consume, refusal = _prefer_pushed_key(ctx, to_write, consume)
+        swap = _prefer_pushed_key(ctx, to_write, consume)
+        to_write, consume, refusal = swap.to_write, swap.consume, swap.refusal
         await run_in_executor(write_user_yaml, ctx.path, to_write)
     if consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, consume)
@@ -394,20 +403,20 @@ async def _key_on_disk(ctx: _AdoptionKeyContext) -> bool:
     return read_yaml_scalar(on_disk, API_ENCRYPTION_KEY_PATH) is not None
 
 
-def _prefer_pushed_key(
-    ctx: _AdoptionKeyContext, keyed: str, consume: str | None
-) -> tuple[str, str | None, str | None]:
-    """Swap a key pushed meanwhile into *keyed*; ``(to_write, consume, refusal)``."""
+def _prefer_pushed_key(ctx: _AdoptionKeyContext, keyed: str, consume: str | None) -> _KeySwap:
+    """Swap a key pushed meanwhile into *keyed*; a refused splice keeps *keyed* and says so."""
     pushed = ctx.controller._pending_keys.get(ctx.name)
     if pushed is None or pushed["key"] == consume:
-        return keyed, consume, None
+        return _KeySwap(keyed, consume, None)
     splice = _splice_pending_key(keyed, pushed["key"], insert_api=not ctx.full_config_import)
     if splice.keyed is None:
         _LOGGER.warning(
             "Pushed key not applied to %s (%s); written key kept", ctx.path.name, splice.refusal
         )
-        return keyed, consume, f"{splice.refusal} The key Home Assistant pushed stays stored."
-    return splice.keyed, pushed["key"], None
+        return _KeySwap(
+            keyed, consume, f"{splice.refusal} The key Home Assistant pushed stays stored."
+        )
+    return _KeySwap(splice.keyed, pushed["key"], None)
 
 
 async def _mint_key_unless_package_encrypts(
