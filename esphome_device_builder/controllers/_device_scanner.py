@@ -57,6 +57,15 @@ class DeviceFileMetadata(NamedTuple):
     # drawer's "update available" badge renders immediately on cold
     # load instead of waiting for the first mDNS sweep.
     deployed_version: str = ""
+    # Last-known mDNS-broadcast ``project_name`` / ``project_version``
+    # / ``network``. Persisted so the device table can sort and filter
+    # a whole fleet on cold load, and so the values stay visible for
+    # devices that are currently offline — an mDNS-only field would
+    # leave those rows permanently blank and silently drop them out of
+    # a project filter.
+    project_name: str = ""
+    project_version: str = ""
+    network: str = ""
     queued_update: bool = False
     # Last-known mDNS api_encryption value. Truthy cipher string
     # means encryption confirmed; ``""`` means TXT seen but key
@@ -487,6 +496,9 @@ class DeviceScanner(WakeWorker[str]):
                     metadata.labels,
                     deployed_config_hash=metadata.deployed_config_hash,
                     deployed_version=metadata.deployed_version,
+                    project_name=metadata.project_name,
+                    project_version=metadata.project_version,
+                    network=metadata.network,
                     queued_update=metadata.queued_update,
                     api_encryption_active=metadata.api_encryption_active,
                     previous=self._index.by_path.get(path),

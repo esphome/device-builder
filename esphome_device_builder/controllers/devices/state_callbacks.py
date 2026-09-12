@@ -211,6 +211,27 @@ def on_api_encryption_change(controller: DevicesController, name: str, encryptio
         controller._fire_device_updated(device)
 
 
+def on_project_name_change(controller: DevicesController, name: str, project_name: str) -> None:
+    """Apply the running firmware's ``project_name`` observed via mDNS."""
+    _apply_logged_observation(
+        controller, name, "project_name", project_name, log_label="project_name"
+    )
+
+
+def on_project_version_change(
+    controller: DevicesController, name: str, project_version: str
+) -> None:
+    """Apply the running firmware's ``project_version`` observed via mDNS."""
+    _apply_logged_observation(
+        controller, name, "project_version", project_version, log_label="project_version"
+    )
+
+
+def on_network_change(controller: DevicesController, name: str, network: str) -> None:
+    """Apply the link (``wifi`` / ``ethernet``) the device announced over."""
+    _apply_logged_observation(controller, name, "network", network, log_label="network")
+
+
 def on_config_hash_change(controller: DevicesController, name: str, config_hash: str) -> None:
     """Apply a running-firmware config hash observed via mDNS."""
 

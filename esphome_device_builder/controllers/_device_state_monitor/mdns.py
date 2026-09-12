@@ -82,6 +82,28 @@ _IDENTITY_TXT_APPLIERS: tuple[tuple[str, Callable[[DeviceStateMonitor, str, str]
     ("mac", lambda monitor, name, value: monitor.apply_mac_address(name, value)),
 )
 
+# Descriptive TXT key → ``(runtime_state field, callback selector)``.
+# Deliberately *not* part of ``_IDENTITY_TXT_APPLIERS``: these keys say
+# what firmware a device runs and how it is attached, never whether the
+# deployed identity is fresh. Folding them into the identity trio would
+# let a ``project_name``-only TXT stamp ``deployed_identity_live``,
+# which the verify-resolve loop reads as "identity vouched for" and
+# would then stop re-resolving on. Applied on both the
+# ``_esphomelib._tcp`` and ``_http._tcp`` paths — ESPHome publishes the
+# same descriptive set on whichever service the device has.
+#
+# A table of (key, field, selector) rather than three ``apply_*``
+# methods on the monitor: every entry is the same differ-gate-then-
+# forward, and the monitor's public surface is at its ``PLR0904``
+# ceiling.
+_DESCRIPTIVE_TXT_APPLIERS: tuple[
+    tuple[str, str, Callable[[DeviceStateMonitor], Callable[[str, str], None] | None]], ...
+] = (
+    ("project_name", "project_name", lambda monitor: monitor._on_project_name_change),
+    ("project_version", "project_version", lambda monitor: monitor._on_project_version_change),
+    ("network", "network", lambda monitor: monitor._on_network_change),
+)
+
 
 def _has_identity_keys(props: Mapping[str, str | None]) -> bool:
     """Whether *props* carries any identity TXT key with a value."""
@@ -562,9 +584,10 @@ class MdnsSource:
         self._apply_txt_properties(device_name, info.decoded_properties)
 
     def _apply_txt_properties(self, device_name: str, props: Mapping[str, str | None]) -> None:
-        """Apply version / config_hash / mac / api_encryption from decoded TXT properties."""
+        """Apply identity, descriptive, and api_encryption keys from decoded TXT properties."""
         monitor = self._monitor
         self._apply_identity_txt(device_name, props)
+        self._apply_descriptive_txt(device_name, props)
         # api_encryption tri-state semantics on this announce:
         #
         # * Key present with truthy value: encryption confirmed
@@ -593,6 +616,15 @@ class MdnsSource:
         for key, apply in _IDENTITY_TXT_APPLIERS:
             if value := props.get(key):
                 apply(monitor, device_name, value)
+
+    def _apply_descriptive_txt(self, device_name: str, props: Mapping[str, str | None]) -> None:
+        """Apply the project_name / project_version / network TXT keys, tolerating absence."""
+        monitor = self._monitor
+        for key, field, select_forward in _DESCRIPTIVE_TXT_APPLIERS:
+            if value := props.get(key):
+                monitor._apply_descriptive_observation(
+                    device_name, field, value, select_forward(monitor)
+                )
 
     def _on_http_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -647,6 +679,7 @@ class MdnsSource:
     def _apply_http_identity_props(self, device_name: str, props: Mapping[str, str | None]) -> None:
         """Apply ``_http._tcp`` identity keys and stamp freshness when any are present."""
         self._apply_identity_txt(device_name, props)
+        self._apply_descriptive_txt(device_name, props)
         if _has_identity_keys(props):
             self._monitor.apply_deployed_identity_live(device_name, live=True)
 
