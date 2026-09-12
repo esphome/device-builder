@@ -775,6 +775,21 @@ async def test_validate_yaml_terminates_session_on_timeout(
     terminated.assert_awaited_once()
 
 
+async def test_validate_yaml_wraps_an_oversized_line_as_unavailable(tmp_path: Path) -> None:
+    """A result line past the stream limit reaches callers as unavailable, not ``ValueError``."""
+    controller = _make_controller(tmp_path)
+
+    async def _overrun(*_args: Any, **_kwargs: Any) -> dict:
+        raise ValueError("Separator is not found, and chunk exceed the limit")
+
+    controller._validate_locked = _overrun  # type: ignore[method-assign]
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    controller._terminate_subprocess = AsyncMock()  # type: ignore[method-assign]
+
+    with pytest.raises(ValidatorUnavailableError, match="subprocess failed"):
+        await controller.validate_yaml(configuration="kitchen.yaml", content="")
+
+
 async def test_validate_yaml_wraps_a_spawn_failure_as_unavailable(tmp_path: Path) -> None:
     """An ``OSError`` while spawning the subprocess reaches callers as unavailable."""
     controller = _make_controller(tmp_path)

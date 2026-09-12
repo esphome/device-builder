@@ -686,12 +686,12 @@ async def test_import_device_unparsable_adoption_never_mints_tentatively(
     assert adoption.ctrl._db.editor.validate_yaml.await_count == 1
 
 
-async def test_import_device_keyed_recheck_bug_propagates_and_keeps_the_file(
+async def test_import_device_keyed_recheck_bug_rolls_the_adoption_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A re-check failing for a reason that is not an outage is a bug: it surfaces, keyless."""
+    """A re-check failing for a reason that is not an outage is a bug: it surfaces, nothing kept."""
     with pytest.raises(RuntimeError, match="session gone"):
         await _adopt_kitchen_with_encryption(
             tmp_path,
@@ -701,8 +701,7 @@ async def test_import_device_keyed_recheck_bug_propagates_and_keeps_the_file(
             keyed=Mock(side_effect=RuntimeError("session gone")),
         )
 
-    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert "api:" not in content
+    assert not (tmp_path / "kitchen.yaml").exists()
 
 
 @pytest.mark.parametrize("loaded", _LOADER_MERGES)

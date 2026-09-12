@@ -424,7 +424,7 @@ class EditorController:
                         content_hash=content_hash, result=attempt, at=time.monotonic()
                     )
                     break
-            except (TimeoutError, ValidatorUnavailableError, OSError) as err:
+            except (TimeoutError, ValidatorUnavailableError, OSError, ValueError) as err:
                 # A failed re-run must not turn the first attempt's
                 # verdict into an error; return it uncached instead.
                 if result is None:
