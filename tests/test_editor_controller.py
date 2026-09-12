@@ -34,7 +34,7 @@ import time
 import unittest.mock
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -448,6 +448,42 @@ async def test_ensure_subprocess_no_op_when_proc_already_running(
 
     assert spawned is False
     assert session.proc is proc
+
+
+async def test_ensure_subprocess_raises_the_stdout_line_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The validator is spawned with a line limit large enough for a big result."""
+    controller = _make_controller(tmp_path)
+    session = _EditorSession(configuration="kitchen.yaml")
+    proc, _reader, _ = _make_fake_proc([dumps({"type": "version", "version": "1.0"}) + b"\n"])
+    spawn_kwargs: dict[str, Any] = {}
+
+    async def _fake_spawn(*_args: Any, **kwargs: Any) -> Any:
+        spawn_kwargs.update(kwargs)
+        return proc
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec", _fake_spawn
+    )
+
+    await controller._ensure_subprocess(session, "")
+
+    assert spawn_kwargs["limit"] == 4 * 1024 * 1024
+
+
+async def test_validate_yaml_lets_a_fingerprint_bug_surface(tmp_path: Path) -> None:
+    """A failure computing the source fingerprint is a bug, not a validator outage."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    with (
+        patch(
+            "esphome_device_builder.controllers.editor.extract_component_source_fingerprint",
+            side_effect=ValueError("bad fingerprint"),
+        ),
+        pytest.raises(ValueError, match="bad fingerprint"),
+    ):
+        await controller.validate_yaml(configuration="kitchen.yaml", content="")
 
 
 async def test_ensure_subprocess_spawns_and_drains_version_line(

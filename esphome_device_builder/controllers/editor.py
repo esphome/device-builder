@@ -55,6 +55,10 @@ _MIN_RERUN_BUDGET = 1.0
 # digest, so the next validate respawns the subprocess.
 _STALE_SOURCES = "stale"
 
+# One validation result is a single JSON line carrying every error; the
+# asyncio default of 64 KiB is too small for a large config with many errors.
+_STDOUT_LINE_LIMIT = 4 * 1024 * 1024
+
 
 class ValidatorUnavailableError(RuntimeError):
     """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
@@ -191,6 +195,7 @@ class EditorController:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            limit=_STDOUT_LINE_LIMIT,
         )
 
         # Drain the initial {"type": "version", ...} line so the next read
@@ -402,15 +407,14 @@ class EditorController:
         """
         remaining = timeout
         result: dict[str, Any] | None = None
+        source_fingerprint = extract_component_source_fingerprint(content)
         for retry_left in (True, False):
             ok = False
             epoch = session.invalidation_epoch
             try:
                 # Warm the subprocess outside the budget so a cold start
                 # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
-                await self._ensure_subprocess(
-                    session, extract_component_source_fingerprint(content)
-                )
+                await self._ensure_subprocess(session, source_fingerprint)
                 round_trip_started = time.monotonic()
                 attempt = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
