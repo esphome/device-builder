@@ -319,8 +319,13 @@ async def _finalize_adoption_key(
 ) -> _KeyOutcome:
     """Land the right API key after validation; owns the write and the pending-key consumption."""
     # Re-peek: a push can land during the validate window, after the
-    # generate-time peek; minting over it would bake a competing key.
-    fresh = ctx.controller._pending_keys.get(ctx.name) or pending
+    # generate-time peek; minting over it would bake a competing key. The
+    # generate-time value counts only while it is baked into the content: an
+    # entry the configured-device handoff consumed meanwhile put a newer key
+    # in the file, which must not be overwritten.
+    fresh = ctx.controller._pending_keys.get(ctx.name)
+    if fresh is None and pending is not None and api_key_settled(ctx.content, pending["key"]):
+        fresh = pending
     if fresh:
         outcome = await _splice_pending_key_validated(ctx, fresh["key"], warning)
     elif encryption and not ctx.full_config_import:
