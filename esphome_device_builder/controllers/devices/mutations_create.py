@@ -23,7 +23,7 @@ from .helpers import (
     slugify_hostname,
     write_new_file_exclusive,
 )
-from .mutations_yaml import packages_block_span
+from .mutations_yaml import PackageWarning, packages_block_span
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -124,7 +124,7 @@ async def create_device(  # noqa: C901, PLR0912
         name, friendly, board, file_content, ssid, psk
     )
 
-    warning: str | None = None
+    warning: PackageWarning | None = None
     # Validate generated YAML before write so a regression in
     # generate_device_yaml / generate_minimal_stub_yaml surfaces
     # as INTERNAL_ERROR rather than landing an unflashable YAML
@@ -197,7 +197,7 @@ async def create_device(  # noqa: C901, PLR0912
         board_id=board_id,
         clear_metadata=not overwriting,
     )
-    return WizardResponse(configuration=filename, warning=warning)
+    return WizardResponse(configuration=filename, warning=warning.text if warning else None)
 
 
 def save_device_storage(filename: str, storage: StorageJSON) -> None:

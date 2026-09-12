@@ -79,7 +79,7 @@ def test_unresolvable_package_errors_root_inside_the_packages_span(tmp_path: Pat
         result, span, tmp_path / ".esphome" / "packages", "adopt.yaml", "import"
     )
     assert warning is not None
-    assert "Fix the packages entry" in warning
+    assert "Fix the packages entry" in warning.text
 
 
 _BARE_OTA_PACKAGE_YAML = """\
@@ -110,4 +110,4 @@ def test_bare_ota_encryption_error_carries_the_inherit_mark(tmp_path: Path) -> N
     result = _validate_via_vscode(tmp_path, content)
 
     messages = [str(e.get("message", "")) for e in result["validation_errors"]]
-    assert any(_INHERIT_ERROR_MARK in m for m in messages), messages
+    assert messages and all(_INHERIT_ERROR_MARK in m for m in messages), messages

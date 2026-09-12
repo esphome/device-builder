@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController, importable
+from esphome_device_builder.controllers.devices.mutations_yaml import PackageWarning
 from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
@@ -1208,6 +1209,87 @@ async def test_import_device_pending_key_consumed_by_a_sibling_is_still_written(
     assert "warning" not in result
 
 
+async def test_import_device_mints_when_every_one_of_many_complaints_is_the_inherit_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Four inherit errors (one per OTA entry) still read as a package only missing the key."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.resolve.load_device_yaml",
+        lambda path: _DEFERRED_BARE_OTA_PACKAGE,
+    )
+    monkeypatch.setattr(
+        ESPHOME_CONFIG_STUB_TARGET, AsyncMock(side_effect=EsphomeConfigUnavailableError("x"))
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if "key:" in content:
+            return {"yaml_errors": [], "validation_errors": []}
+        return {
+            "yaml_errors": [],
+            "validation_errors": [_package_entry_error(content, _INHERIT_ERROR) for _ in range(4)],
+        }
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert 'api:\n  encryption:\n    key: "' in (tmp_path / "kitchen.yaml").read_text("utf-8")
+    assert "warning" not in result
+    assert ctrl._db.editor.validate_yaml.await_count == 2
+
+
+async def test_import_device_unresolvable_package_with_a_second_complaint_never_mints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """The inherit error beside any other package error is not a package only missing the key."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.resolve.load_device_yaml",
+        lambda path: _DEFERRED_BARE_OTA_PACKAGE,
+    )
+    monkeypatch.setattr(
+        ESPHOME_CONFIG_STUB_TARGET, AsyncMock(side_effect=EsphomeConfigUnavailableError("x"))
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        return {
+            "yaml_errors": [],
+            "validation_errors": [
+                _package_entry_error(content, _INHERIT_ERROR),
+                _package_entry_error(content, "gl-s10.yaml missing"),
+            ],
+        }
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "could not be resolved" in result["warning"]
+    assert ctrl._db.editor.validate_yaml.await_count == 1
+
+
 async def test_import_device_pending_key_skips_package_resolve(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1416,7 +1498,7 @@ async def test_import_device_joins_validation_and_key_warnings(
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
     ctrl._validate_rewritten_yaml_or_raise = AsyncMock(  # type: ignore[method-assign]
-        return_value="Validator unavailable; import kept."
+        return_value=PackageWarning("Validator unavailable; import kept.", ())
     )
 
     result = await ctrl.import_device(
