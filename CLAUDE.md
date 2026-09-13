@@ -865,7 +865,7 @@ against legacy behaviour before assuming the simpler version suffices.
   components changed schema (deprecated `esphome.platform` /
   `esphome.board`, renamed fields like `wifi.use_address`); refusing the
   write strands the user. Validate *our* outputs (`generate_device_yaml`,
-  `generate_minimal_stub_yaml`, `dashboard_import.import_config`, clone's
+  `generate_minimal_stub_yaml`, the `?full_config` adoption, clone's
   leaf rewrites) but pass user-supplied content through unchanged —
   except keys esphome has deprecated or renamed: when an editor write
   already touches a block spelled with a legacy key the catalog marks

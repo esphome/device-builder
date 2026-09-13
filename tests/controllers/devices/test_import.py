@@ -1,12 +1,4 @@
-"""Tests for the ``devices/import`` command path.
-
-The normal adoption writes :func:`generate_adoption_yaml`'s shape
-directly; only a ``?full_config`` import URL still delegates to
-esphome's ``dashboard_import.import_config`` (it downloads and
-rewrites the whole upstream YAML). When the target YAML already
-exists the write raises ``FileExistsError``, re-surfaced as a
-``CommandError`` so the dashboard can show a useful message.
-"""
+"""Tests for the ``devices/import`` command path."""
 
 from __future__ import annotations
 
@@ -21,6 +13,7 @@ import pytest
 
 from esphome_device_builder.controllers.config.metadata import get_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController, importable
+from esphome_device_builder.controllers.devices.import_full_config import parse_full_config
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     _INHERIT_ERROR_MARK,
     PackageWarning,
@@ -53,32 +46,9 @@ def _seed_import_state(controller: DevicesController) -> None:
     controller.state.import_result = {}
 
 
-def _import_config_stub(
-    captured: dict[str, Any] | None = None,
-) -> Callable[..., None]:
-    """Stub for ``import_config``, reached only via ``?full_config`` URLs.
-
-    The real ``import_config`` writes a YAML to ``args[0]``; the
-    post-write validation step reads it back, so the stub writes a
-    minimal parseable YAML there and optionally records the call
-    args into *captured*.
-    """
-
-    def _stub(*args: Any, **_kw: Any) -> None:
-        if captured is not None:
-            captured.setdefault("args", args)
-        args[0].write_text(f"esphome:\n  name: {args[1]}\n", encoding="utf-8")
-
-    return _stub
-
-
-def _full_config_stub(api_tail: str) -> Callable[..., None]:
-    """Stub ``import_config`` writing an esphome header plus *api_tail*."""
-
-    def _stub(*args: Any, **_kw: Any) -> None:
-        args[0].write_text(f"esphome:\n  name: {args[1]}\n{api_tail}", encoding="utf-8")
-
-    return _stub
+def _full_config_stub(api_tail: str = "") -> AsyncMock:
+    """Stub ``fetch_full_config`` returning an esphome header plus *api_tail*."""
+    return AsyncMock(return_value=parse_full_config(f"esphome:\n  name: kitchen\n{api_tail}"))
 
 
 async def _import_kitchen(ctrl: DevicesController, **overrides: Any) -> dict[str, Any]:
@@ -111,20 +81,6 @@ def _deny_unlink_of(monkeypatch: pytest.MonkeyPatch, filename: str) -> None:
 
 def _boom(path: Path, content: str) -> None:
     raise OSError("disk full")
-
-
-def test_import_config_resolves_at_import_time() -> None:
-    """Regression guard for the upstream import path.
-
-    ``import_config`` lives at ``esphome.components.dashboard_import``;
-    if upstream moves it we want CI to fail loudly here, not at a
-    user's first adoption attempt. The dashboard lazy-loads the
-    module through ``async_import_module``, so this test imports
-    it synchronously to verify the contract.
-    """
-    from esphome.components import dashboard_import  # noqa: PLC0415
-
-    assert callable(dashboard_import.import_config)
 
 
 async def test_import_device_writes_adoption_yaml_and_returns_path(
@@ -303,31 +259,52 @@ async def test_import_device_without_encryption_omits_api(
     assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
 
 
-async def test_import_device_full_config_url_delegates_to_dashboard_import(
+async def test_import_device_full_config_url_fetches_and_writes_the_upstream_yaml(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A ``?full_config`` import URL still routes through esphome's ``import_config``.
-
-    That variant downloads and rewrites the whole upstream YAML —
-    machinery :func:`generate_adoption_yaml` deliberately doesn't
-    reimplement.
-    """
-    captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
-    )
+    """A self-contained ``?full_config`` YAML is written untouched."""
+    upstream = "substitutions:\n  id: '1'\n  name: audio-${id}\nlogger:\n  level: WARN\n"
+    fetch = AsyncMock(return_value=parse_full_config(upstream))
+    monkeypatch.setattr(importable, "fetch_full_config", fetch)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
     await ctrl.import_device(
-        name="kitchen",
+        name="audio-33abec",
         project_name="x",
         package_import_url="github://x/y.yaml@main?full_config",
     )
 
-    assert captured["args"][4] == "github://x/y.yaml@main?full_config"
+    fetch.assert_awaited_once_with("github://x/y.yaml@main?full_config")
+    assert (tmp_path / "audio-33abec.yaml").read_text(encoding="utf-8") == upstream
+
+
+async def test_import_device_full_config_fetch_failure_writes_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A fetch that fails surfaces its typed error and leaves no file behind."""
+    monkeypatch.setattr(
+        importable,
+        "fetch_full_config",
+        AsyncMock(side_effect=CommandError(ErrorCode.UNAVAILABLE, "Could not fetch")),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main?full_config",
+        )
+
+    assert excinfo.value.code == ErrorCode.UNAVAILABLE
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == []
 
 
 OTHER_KEY = base64.b64encode(b"o" * 32).decode()
@@ -462,7 +439,8 @@ async def test_import_device_full_config_splices_pending_ha_key(
 ) -> None:
     """A ``?full_config`` import replaces the upstream literal key with HA's."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\n'),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -488,7 +466,8 @@ async def test_import_device_full_config_repairs_stale_ota_key_next_to_matching_
 ) -> None:
     """An api key already equal to HA's still gets a stale explicit ota key dropped."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub(
             f'api:\n  encryption:\n    key: "{PENDING_KEY}"\n'
             'ota:\n  - platform: esphome\n    encryption:\n      key: "OLDKEY=="\n'
@@ -516,7 +495,7 @@ async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
     make_controller: MakeControllerFactory,
 ) -> None:
     """No upstream ``api:`` block → YAML stays verbatim, key stays stored, user warned."""
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
+    monkeypatch.setattr(importable, "fetch_full_config", _full_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
@@ -964,7 +943,8 @@ async def test_import_device_pending_key_lands_through_a_re_check_outage(
 ) -> None:
     """An outage on the pushed key's re-check still writes and consumes it."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub("esphome:\n  name: kitchen\n\napi:\n"),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1426,7 +1406,8 @@ async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
 ) -> None:
     """An upstream ``!secret`` key IS competing; warn and keep the pending key."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1452,7 +1433,8 @@ async def test_import_device_keeps_a_key_pushed_while_the_splice_was_in_flight(
 ) -> None:
     """A push that lands mid-splice is newer than the spliced key and is the one written."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\n'),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1485,7 +1467,8 @@ async def test_import_device_full_config_keeps_an_own_ota_key_and_the_pending_ke
 ) -> None:
     """A runtime api key next to the OTA platform's own key refuses the splice; both kept."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub(
             "api:\n  encryption:\nota:\n  - platform: esphome\n"
             "    encryption:\n      key: OWNKEY==\n"
@@ -1515,10 +1498,9 @@ async def test_import_device_full_config_splice_that_fails_validation_keeps_both
 ) -> None:
     """A spliced import esphome rejects keeps the verbatim file and the pending key."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
-        _full_config_stub(
-            'api:\n  encryption:\n    key: "OLDKEY=="\nota: !include common/ota.yaml\n'
-        ),
+        importable,
+        "fetch_full_config",
+        _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\nota: !secret ota_block\n'),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -1547,7 +1529,8 @@ async def test_import_device_full_config_inserts_key_under_bare_encryption(
 ) -> None:
     """A keyless upstream ``encryption:`` gets the pending key inserted, not dropped."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub("api:\n  encryption:\n"),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1573,7 +1556,8 @@ async def test_import_device_full_config_flow_style_encryption_warns_and_keeps_p
 ) -> None:
     """A flow-style upstream ``encryption:`` can't be edited; warn and keep the key."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub("api:\n  encryption: {key: OLDKEY==}\n"),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1597,7 +1581,8 @@ async def test_import_device_joins_validation_and_key_warnings(
 ) -> None:
     """A validation warning must not swallow the key-not-applied warning."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1626,7 +1611,8 @@ async def test_import_device_full_config_equal_key_is_noop(
 ) -> None:
     """Upstream already carries the pending key verbatim → no rewrite, entry consumed."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub(f'api:\n  encryption:\n    key: "{PENDING_KEY}"\n'),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1649,14 +1635,11 @@ async def test_import_device_full_config_splice_write_failure_rolls_back(
     make_controller: MakeControllerFactory,
 ) -> None:
     """A failed splice write cleans up the half-imported YAML."""
-
-    def _stub(*args: Any, **_kw: Any) -> None:
-        args[0].write_text(
-            f'esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: "OLDKEY=="\n',
-            encoding="utf-8",
-        )
-
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    monkeypatch.setattr(
+        importable,
+        "fetch_full_config",
+        _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\n'),
+    )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.controller.write_user_yaml", _boom
     )
@@ -1750,7 +1733,8 @@ async def test_import_device_full_config_splice_round_trip_failure_keeps_pending
 ) -> None:
     """A splice whose result doesn't read back warns and keeps the pending key."""
     monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config",
+        importable,
+        "fetch_full_config",
         _full_config_stub("api:\n  encryption:\n"),
     )
     monkeypatch.setattr(
@@ -1863,18 +1847,7 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Imported YAML failing schema validation is deleted + raises.
-
-    ``import_config`` produces a wizard-style YAML by construction,
-    but a regression upstream — or a project YAML whose
-    ``packages:`` reference doesn't resolve cleanly — would
-    otherwise leave an unflashable file on disk that every
-    downstream operation refuses. After ``import_config`` returns
-    we read the file back, validate, and on failure delete it
-    and surface the editor errors so the user can fix the source
-    project (or pick a different one) and retry without a
-    leftover ``FileExistsError`` blocking them.
-    """
+    """Imported YAML failing schema validation is deleted and the editor errors surface."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
@@ -2075,14 +2048,15 @@ async def test_import_device_full_config_never_gets_the_package_exemption(
     make_controller: MakeControllerFactory,
 ) -> None:
     """A ``?full_config`` import refuses even for packages-rooted errors."""
-
-    def _write_with_packages(*args: Any, **_kw: Any) -> None:
-        args[0].write_text(
-            "packages:\n  base: github://acme/base.yaml\nesphome:\n  name: x\n",
-            encoding="utf-8",
-        )
-
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _write_with_packages)
+    monkeypatch.setattr(
+        importable,
+        "fetch_full_config",
+        AsyncMock(
+            return_value=parse_full_config(
+                "packages:\n  base: github://acme/base.yaml\nesphome:\n  name: x\n"
+            )
+        ),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
@@ -2112,6 +2086,81 @@ async def test_import_device_full_config_never_gets_the_package_exemption(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert not (tmp_path / "kitchen.yaml").exists()
+
+
+_INCLUDING_UPSTREAM = parse_full_config(
+    "packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"
+)
+
+
+async def _adopt_full_config(ctrl: DevicesController) -> dict[str, Any]:
+    return await ctrl.import_device(
+        name="audio-33abec",
+        project_name="acme.speaker",
+        package_import_url="github://acme/full.yaml@main?full_config",
+    )
+
+
+async def test_import_device_full_config_with_local_includes_imports_the_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A full config that ``!include``s local files lands as a package, with a warning."""
+    monkeypatch.setattr(
+        importable, "fetch_full_config", AsyncMock(return_value=_INCLUDING_UPSTREAM)
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={"yaml_errors": [], "validation_errors": []}
+    )
+
+    result = await _adopt_full_config(ctrl)
+
+    assert result["configuration"] == "audio-33abec.yaml"
+    assert "boards/rev2_4.yaml" in result["warning"]
+    assert "imported as a package" in result["warning"]
+    content = (tmp_path / "audio-33abec.yaml").read_text(encoding="utf-8")
+    assert 'acme.speaker: "github://acme/full.yaml@main"\n' in content
+    assert "full_config" not in content
+    assert "!include" not in content
+    assert ctrl._db.editor.validate_yaml.await_count == 1
+
+
+async def test_import_device_full_config_package_that_fails_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A package form that doesn't validate either leaves nothing behind."""
+    monkeypatch.setattr(
+        importable, "fetch_full_config", AsyncMock(return_value=_INCLUDING_UPSTREAM)
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={"yaml_errors": [], "validation_errors": [{"message": "unknown board"}]}
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await _adopt_full_config(ctrl)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "audio-33abec.yaml").exists()
+
+
+async def test_import_device_keeps_a_package_url_query_verbatim(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+
+    await _import_kitchen(ctrl, package_import_url="github://x/y.yaml@main?ref", encryption=None)
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert '"github://x/y.yaml@main?ref"' in content
 
 
 async def test_import_device_refuses_when_an_error_has_no_range(
@@ -2166,40 +2215,6 @@ async def test_import_device_validation_message_collapses_the_period(
 
     assert "repository. The import was rolled back" in excinfo.value.message
     assert ".." not in excinfo.value.message
-
-
-async def test_import_device_rolls_back_on_unicode_decode_error_from_read(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """Non-UTF-8 bytes in the freshly-written YAML still trigger rollback.
-
-    ``Path.read_text(encoding='utf-8')`` raises ``UnicodeDecodeError``
-    (which is *not* an ``OSError``) when ``import_config`` somehow
-    landed bytes that aren't valid UTF-8. Without an explicit
-    catch, the rollback would skip and the half-imported file
-    would block every retry with ``FileExistsError``.
-    """
-
-    def write_garbage(*args: Any, **_kw: Any) -> None:
-        # Write a byte that isn't a valid UTF-8 leading byte so
-        # ``read_text(encoding='utf-8')`` chokes on it.
-        args[0].write_bytes(b"\xff garbage")
-
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", write_garbage)
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-
-    with pytest.raises(UnicodeDecodeError):
-        await ctrl.import_device(
-            name="kitchen",
-            project_name="x",
-            package_import_url="github://x/y.yaml@main?full_config",
-        )
-
-    assert not (tmp_path / "kitchen.yaml").exists()
-    assert ctrl._scanner.calls == []
 
 
 async def test_import_device_names_the_stranded_file_when_the_rollback_fails(

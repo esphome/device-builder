@@ -1,10 +1,10 @@
 """Lock in the heavy esphome subpackages that must stay cold at idle.
 
-These upstream modules are heavy and now load only when the corresponding
-feature is exercised:
+These upstream modules are heavy and must stay out of the dashboard process
+at idle:
 
-- ``esphome.components.dashboard_import`` (~14 MB) — only used by
-  the device-adoption WS command.
+- ``esphome.components.dashboard_import`` (~14 MB) — not imported by
+  the dashboard process; guarded so a re-import surfaces here.
 - ``esphome.bundle`` (~1 MB) — only used by the peer-link receiver
   when an offload submission lands.
 - ``esphome.components.esp32`` / ``esphome.espidf`` — the esp32 package
