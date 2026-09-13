@@ -1156,6 +1156,74 @@ async def test_import_device_rejects_a_second_adopt_while_the_first_is_in_flight
     assert "kitchen" not in ctrl.state.adopting
 
 
+async def test_import_device_double_click_lands_one_adoption_and_refuses_the_other(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Two adopts of one name fired together land exactly one; the other is refused, not raced."""
+    monkeypatch.setattr(
+        ESPHOME_CONFIG_STUB_TARGET, AsyncMock(return_value={"esphome": {"name": "kitchen"}})
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    outcomes = await asyncio.gather(
+        _import_kitchen(ctrl), _import_kitchen(ctrl), return_exceptions=True
+    )
+
+    landed = [o for o in outcomes if isinstance(o, dict)]
+    refused = [o for o in outcomes if isinstance(o, CommandError)]
+    assert [o["configuration"] for o in landed] == ["kitchen.yaml"]
+    assert [o.code for o in refused] == [ErrorCode.INVALID_ARGS]
+    assert "being adopted" in refused[0].message
+    assert 'api:\n  encryption:\n    key: "' in (tmp_path / "kitchen.yaml").read_text("utf-8")
+    assert "kitchen" not in ctrl.state.adopting
+    assert len(ctrl._scanner.calls) == 1
+
+
+async def test_import_device_refused_duplicate_leaves_the_first_adoption_intact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A refused duplicate touches nothing: the first adoption lands its pending key as usual."""
+    monkeypatch.setattr(
+        ESPHOME_CONFIG_STUB_TARGET, AsyncMock(return_value={"esphome": {"name": "kitchen"}})
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        entered.set()
+        await release.wait()
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+    first = asyncio.create_task(_import_kitchen(ctrl))
+    await entered.wait()
+
+    with pytest.raises(CommandError, match="being adopted"):
+        await _import_kitchen(ctrl)
+
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+    assert ctrl._scanner.calls == []
+    release.set()
+    result = await first
+
+    assert result == {"configuration": "kitchen.yaml"}
+    assert f'key: "{PENDING_KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert ctrl._pending_keys.get("kitchen") is None
+    assert "kitchen" not in ctrl.state.adopting
+    assert len(ctrl._scanner.calls) == 1
+    with pytest.raises(CommandError, match="already exists"):
+        await _import_kitchen(ctrl)
+
+
 async def test_import_device_same_key_re_pushed_with_a_mac_is_not_a_newer_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
