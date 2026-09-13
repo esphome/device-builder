@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import logging
@@ -11,7 +10,7 @@ import secrets
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -58,7 +57,7 @@ def hash_password(password: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class Session:
     """A persisted authentication session."""
 
@@ -78,30 +77,22 @@ def _encode(sessions: dict[str, Session]) -> bytes:
 
 def _decode(raw: bytes) -> dict[str, Session]:
     obj = loads_mapping_or_warn(raw, label="sessions store")
+    if obj is None:
+        return {}
     sessions: dict[str, Session] = {}
     now = time.time()
-    for entry in (obj.get("sessions") if obj is not None else None) or []:
-        if not isinstance(entry, dict):
-            continue
+    for entry in obj.get("sessions") or []:
         try:
             session = Session(**entry)
-            if session.is_expired(now):
-                continue
         except (TypeError, ValueError):
-            # Skip entries with unexpected fields or non-numeric timestamps
-            # so a corrupt row can't take down the whole store.
             continue
-        sessions[session.token] = session
+        if not session.is_expired(now):
+            sessions[session.token] = session
     return sessions
 
 
 class SessionStore:
-    """
-    RAM-canonical session tokens; writes go through a debounced ``Store``.
-
-    Tokens auto-expire after ``ttl_seconds`` of inactivity — the
-    expiry is a sliding window refreshed on each ``validate`` call.
-    """
+    """RAM-canonical session tokens with a sliding TTL; writes go through a ``Store``."""
 
     def __init__(
         self,
@@ -116,7 +107,6 @@ class SessionStore:
         # so ``validate`` can debounce re-persists when the sliding window
         # only nudges the expiry forward by a small amount.
         self._persisted_expires: dict[str, float] = {}
-        self._lock = asyncio.Lock()
         self._store: Store[dict[str, Session]] = Store(
             config_dir / _SESSIONS_FILENAME,
             encoder=_encode,
@@ -137,59 +127,58 @@ class SessionStore:
             self._persisted_expires = {t: s.expires_at for t, s in loaded.items()}
 
     async def create(self) -> Session:
-        """Mint a new session and return it."""
-        async with self._lock:
-            now = time.time()
-            session = Session(
-                token=secrets.token_urlsafe(_TOKEN_BYTES),
-                created_at=now,
-                last_used_at=now,
-                expires_at=now + self._ttl,
-            )
-            self._sessions[session.token] = session
-            self._persisted_expires[session.token] = session.expires_at
-            self._schedule_save()
-            return session
+        """Mint a new session, on disk before it is returned."""
+        now = time.time()
+        session = Session(
+            token=secrets.token_urlsafe(_TOKEN_BYTES),
+            created_at=now,
+            last_used_at=now,
+            expires_at=now + self._ttl,
+        )
+        self._sessions[session.token] = session
+        self._persisted_expires[session.token] = session.expires_at
+        await self._save_now()
+        return session
 
     async def validate(self, token: str) -> Session | None:
         """
         Look up *token*, refresh its expiry on success, return the session.
 
-        Returns ``None`` if the token is unknown or has expired.
+        Returns ``None`` if the token is unknown or has expired. The refreshed
+        expiry is persisted at most hourly per token, deferred off the reply.
         """
         if not token:
             return None
-        async with self._lock:
-            session = self._sessions.get(token)
-            if session is None:
-                return None
-            now = time.time()
-            if session.is_expired(now):
-                del self._sessions[token]
-                self._persisted_expires.pop(token, None)
-                self._schedule_save()
-                return None
-            session.last_used_at = now
-            session.expires_at = now + self._ttl
-            persisted = self._persisted_expires.get(token, 0.0)
-            if session.expires_at - persisted >= _PERSIST_DEBOUNCE_SECONDS:
-                self._persisted_expires[token] = session.expires_at
-                self._schedule_save()
-            return session
+        session = self._sessions.get(token)
+        if session is None:
+            return None
+        now = time.time()
+        if session.is_expired(now):
+            del self._sessions[token]
+            self._persisted_expires.pop(token, None)
+            self._schedule_save()
+            return None
+        session = replace(session, last_used_at=now, expires_at=now + self._ttl)
+        self._sessions[token] = session
+        if (
+            session.expires_at - self._persisted_expires.get(token, 0.0)
+            >= _PERSIST_DEBOUNCE_SECONDS
+        ):
+            self._persisted_expires[token] = session.expires_at
+            self._schedule_save()
+        return session
 
     async def revoke(self, token: str) -> None:
-        """Drop *token* from the store; no-op if unknown."""
-        async with self._lock:
-            if self._sessions.pop(token, None) is not None:
-                self._persisted_expires.pop(token, None)
-                self._schedule_save()
+        """Drop *token* from the store, on disk before returning; no-op if unknown."""
+        if self._sessions.pop(token, None) is not None:
+            self._persisted_expires.pop(token, None)
+            await self._save_now()
 
     async def revoke_all(self) -> None:
-        """Drop every active session, forcing all clients to re-authenticate."""
-        async with self._lock:
-            self._sessions.clear()
-            self._persisted_expires.clear()
-            self._schedule_save()
+        """Drop every active session, on disk before returning."""
+        self._sessions.clear()
+        self._persisted_expires.clear()
+        await self._save_now()
 
     @property
     def active_count(self) -> int:
@@ -199,8 +188,12 @@ class SessionStore:
     def _schedule_save(self) -> None:
         self._store.async_delay_save(self._snapshot)
 
+    async def _save_now(self) -> None:
+        self._schedule_save()
+        await self._store.async_save_now()
+
     def _snapshot(self) -> dict[str, Session]:
-        return {token: Session(**asdict(session)) for token, session in self._sessions.items()}
+        return dict(self._sessions)
 
 
 # ---------------------------------------------------------------------------

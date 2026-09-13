@@ -13,6 +13,7 @@ import asyncio
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -89,7 +90,7 @@ async def test_session_store_validate_drops_expired(tmp_path: Path) -> None:
 
     # Even at ttl=0, monotonic float comparisons may briefly tie; force
     # the session expiry to the past.
-    store._sessions[session.token].expires_at = time.time() - 1
+    store._sessions[session.token] = replace(session, expires_at=time.time() - 1)
 
     assert await store.validate(session.token) is None
     assert store.active_count == 0

@@ -480,7 +480,7 @@ class DeviceBuilder:
         self._serving_event = asyncio.Event()
 
         # Initialize controllers
-        self.auth = AuthController(self)
+        self.auth = await AuthController.create(self)
         self.boards = BoardCatalog()
         self.boards.load()
         self.components = ComponentCatalog(self)
@@ -498,7 +498,7 @@ class DeviceBuilder:
         self.version_history = VersionHistoryController(self)
         # Seed the RAM-canonical preferences (and migrate them out of the shared
         # sidecar on first run) before onboarding reads or mutates them.
-        await asyncio.gather(self.config.async_load(), self.auth.start())
+        await self.config.async_load()
         # Default pre-existing installs to the YAML experience before
         # any onboarding command can be served.
         await self.onboarding.migrate_preexisting_install()

@@ -38,9 +38,12 @@ class AuthController:
         )
         self.rate_limiter = RateLimiter()
 
-    async def start(self) -> None:
-        """Load the persisted sessions."""
-        await self.session_store.async_load()
+    @classmethod
+    async def create(cls, device_builder: DeviceBuilder) -> AuthController:
+        """Build the controller with its persisted sessions loaded."""
+        controller = cls(device_builder)
+        await controller.session_store.async_load()
+        return controller
 
     async def stop(self) -> None:
         """Flush a pending sessions write."""
