@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import AdoptableDevice, EventType
@@ -110,18 +112,15 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
 
 async def test_toggle_ignore_does_not_fire_when_state_unchanged(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """Re-asserting an already-set flag doesn't fire a duplicate event.
-
-    Without the ``existing.ignored != ignore`` guard, every
-    repeat call would re-publish the same ``IMPORTABLE_DEVICE_ADDED``
-    payload — a debugging nightmare for anyone watching the bus
-    and a wasted round-trip for every connected frontend.
-    """
+    """Re-asserting an already-set flag fires no event and schedules no save."""
     controller = make_controller(tmp_path)
     fired, _ignored_path = _seed_for_toggle(controller, tmp_path, capture_devices_events)
+    saves: list[None] = []
+    monkeypatch.setattr(controller, "_schedule_ignored_devices_save", lambda: saves.append(None))
     controller.state.import_result["kitchen-1a2b3c"] = AdoptableDevice(
         name="kitchen-1a2b3c",
         friendly_name="Kitchen",
@@ -136,7 +135,6 @@ async def test_toggle_ignore_does_not_fire_when_state_unchanged(
     # Re-asserting the same value.
     await controller.toggle_ignore(name="kitchen-1a2b3c", ignore=True)
 
-    # Cache untouched.
     assert controller.state.import_result["kitchen-1a2b3c"].ignored is True
-    # No event fired — the state didn't change.
     assert fired == []
+    assert saves == []

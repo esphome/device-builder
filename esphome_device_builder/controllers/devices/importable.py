@@ -195,11 +195,13 @@ async def import_device(
 
 async def toggle_ignore(controller: DevicesController, *, name: str, ignore: bool) -> None:
     """Mark a discovered device as ignored / visible in the import list."""
-    if ignore:
-        controller.state.ignored_devices.add(name)
-    else:
-        controller.state.ignored_devices.discard(name)
-    controller._schedule_ignored_devices_save()
+    ignored = controller.state.ignored_devices
+    if (name in ignored) is not ignore:
+        if ignore:
+            ignored.add(name)
+        else:
+            ignored.discard(name)
+        controller._schedule_ignored_devices_save()
     # Mirror the new flag onto the cached AdoptableDevice and
     # re-publish ADDED so subscribed frontends update the badge
     # without waiting for a full re-discovery cycle.

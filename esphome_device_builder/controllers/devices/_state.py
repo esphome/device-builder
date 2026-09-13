@@ -106,6 +106,8 @@ class DevicesState:
     # WebSocket layer and ``devices/ignore`` can address entries
     # without juggling full mDNS service-instance names.
     import_result: dict[str, AdoptableDevice] = field(default_factory=dict)
+    # Mutated in place, never reassigned: the state monitor captures
+    # ``__contains__`` and the store snapshots it at construction time.
     ignored_devices: set[str] = field(default_factory=set)
     adopting: set[str] = field(default_factory=set)
 
