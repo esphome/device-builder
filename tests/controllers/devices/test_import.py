@@ -1126,6 +1126,70 @@ async def test_import_device_holds_the_name_so_a_push_mid_adoption_is_stored_the
     assert "warning" not in result
 
 
+async def test_import_device_rejects_a_second_adopt_while_the_first_is_in_flight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A duplicate adopt of a name mid-adoption is refused and leaves the first claim held."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    entered = asyncio.Event()
+
+    async def _hang(*args: Any, **kwargs: Any) -> Any:
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(importable, "_finalize_adoption_key", _hang)
+    first = asyncio.create_task(_import_kitchen(ctrl))
+    await entered.wait()
+
+    with pytest.raises(CommandError) as excinfo:
+        await _import_kitchen(ctrl)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "being adopted" in excinfo.value.message
+    assert "kitchen" in ctrl.state.adopting
+    assert (tmp_path / "kitchen.yaml").exists()
+    first.cancel()
+    await asyncio.gather(first, return_exceptions=True)
+    assert "kitchen" not in ctrl.state.adopting
+
+
+async def test_import_device_same_key_re_pushed_with_a_mac_is_not_a_newer_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Re-pushing the pending key with a MAC mid-adoption changes nothing and warns of nothing."""
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    handoff: dict[str, Any] = {}
+
+    async def _validate(
+        *, configuration: str, content: str, timeout: float | None = None
+    ) -> dict[str, Any]:
+        if not handoff:
+            handoff.update(
+                await ctrl.set_encryption_key(
+                    name="kitchen", key=PENDING_KEY, mac="AA:BB:CC:DD:EE:FF"
+                )
+            )
+        return {"yaml_errors": [], "validation_errors": []}
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    result = await _import_kitchen(ctrl)
+
+    assert handoff["result"] == "stored"
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert content.count(f'key: "{PENDING_KEY}"') == 1
+    assert ctrl._pending_keys.get("kitchen") is None
+    assert "warning" not in result
+
+
 async def test_import_device_releases_the_name_claim_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

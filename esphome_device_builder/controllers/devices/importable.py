@@ -285,7 +285,9 @@ def save_ignored_devices(controller: DevicesController) -> None:
 
 @asynccontextmanager
 async def _name_claimed(controller: DevicesController, name: str) -> AsyncIterator[None]:
-    """Hold *name* against the key handoff for the block, its rollback included."""
+    """Hold *name* against the key handoff and a second adopt for the block, rollback included."""
+    if name in controller.state.adopting:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"Configuration {name}.yaml is being adopted")
     controller.state.adopting.add(name)
     try:
         yield
@@ -321,7 +323,7 @@ async def _try_discard(path: Path) -> bool:
     try:
         await asyncio.shield(run_in_executor(_discard, path))
     except Exception:
-        _LOGGER.exception("Rolling the adoption back did not complete")
+        _LOGGER.exception("Rolling the adoption back did not complete; %s may remain", path.name)
         return False
     return True
 
@@ -336,9 +338,9 @@ async def _finalize_adoption_key(
 ) -> _KeyOutcome:
     """Land the right API key after validation; owns the write and the pending-key consumption."""
     # Re-peek: a push can land during the validate window, after the generate-time peek.
-    fresh = ctx.controller._pending_keys.get(ctx.name)
+    fresh = _pending_key(ctx)
     if fresh is not None:
-        outcome = await _splice_pending_key_validated(ctx, fresh["key"], warning)
+        outcome = await _splice_pending_key_validated(ctx, fresh, warning)
     elif encryption and ctx.insert_api:
         outcome = await _mint_key_unless_package_encrypts(ctx, warning)
     else:
@@ -347,22 +349,28 @@ async def _finalize_adoption_key(
 
 
 async def _write_keyed(
-    ctx: _AdoptionKeyContext, outcome: _KeyOutcome, *, handled: dict[str, str] | None
+    ctx: _AdoptionKeyContext, outcome: _KeyOutcome, *, handled: str | None
 ) -> _KeyOutcome:
     """Write the keyed YAML, a key pushed since *handled* winning, and consume the pending key."""
-    pushed = ctx.controller._pending_keys.get(ctx.name)
+    pushed = _pending_key(ctx)
     if pushed is not None and pushed != handled:
-        outcome = _prefer_pushed_key(ctx, outcome, pushed["key"])
+        outcome = _prefer_pushed_key(ctx, outcome, pushed)
     if outcome.to_write is not None:
         await ctx.controller._write_yaml_atomic_async(ctx.path, outcome.to_write)
     if outcome.consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, outcome.consume)
-    if ctx.controller._pending_keys.get(ctx.name) in (None, pushed):
+    if _pending_key(ctx) in (None, pushed):
         return outcome
     _LOGGER.warning("A key pushed for %s while its config was being written stays stored", ctx.name)
     return outcome._replace(
         key_warning=" ".join(filter(None, (outcome.key_warning, _LATE_PUSH_WARNING)))
     )
+
+
+def _pending_key(ctx: _AdoptionKeyContext) -> str | None:
+    """Return the key Home Assistant has pending for this adoption, if any."""
+    entry = ctx.controller._pending_keys.get(ctx.name)
+    return None if entry is None else entry["key"]
 
 
 def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome, key: str) -> _KeyOutcome:
