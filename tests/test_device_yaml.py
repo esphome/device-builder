@@ -57,6 +57,7 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     resolve_esp32_variant,
     yaml_has_name_add_mac_suffix,
 )
+from esphome_device_builder.helpers.yaml import generate_api_encryption_key
 from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
@@ -3367,6 +3368,7 @@ def test_generate_adoption_yaml_matches_dashboard_import(
             "esphome.bluetooth-proxy",
             url,
             network_provided=network != "wifi",
+            api_encryption_key=generate_api_encryption_key(),
         )
     )
     reference_path = tmp_path / "proxy-1.yaml"
@@ -3387,19 +3389,23 @@ def test_generate_adoption_yaml_matches_dashboard_import(
 
 
 def test_generate_adoption_yaml_variants() -> None:
-    """Inline credentials quote through; missing secrets and api opt-out drop blocks."""
+    """Inline credentials quote through; no secrets drops the block; a given key is spliced in."""
     inline = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw"
+        "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw", api_encryption_key=None
     )
     assert 'ssid: "Net #1"' in inline
+    assert "api:" not in inline
     no_creds = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", wifi_secrets_available=False
+        "p",
+        "P",
+        "k",
+        "github://x/y.yaml@main",
+        wifi_secrets_available=False,
+        api_encryption_key=None,
     )
     assert "wifi" not in no_creds
-    no_api = generate_adoption_yaml("p", "P", "k", "github://x/y.yaml@main", api_encryption=False)
-    assert "api:" not in no_api
     supplied = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", api_encryption=False, api_encryption_key="K=="
+        "p", "P", "k", "github://x/y.yaml@main", api_encryption_key="K=="
     )
     assert '    key: "K=="' in supplied
 

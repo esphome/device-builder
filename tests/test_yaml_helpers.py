@@ -1080,9 +1080,63 @@ def test_upsert_api_encryption_key_inserts_into_empty_api_block() -> None:
     assert 'api:\n  encryption:\n    key: "NEW=="\n\nwifi:' in out
 
 
-def test_upsert_api_encryption_key_prepends_block_when_api_missing() -> None:
-    """No ``api:`` block at all → a full block lands above the existing content."""
-    yaml = "substitutions:\n  name: x\n\npackages:\n  a: github://x/y.yaml\n"
+def test_upsert_api_encryption_key_prepends_block_when_no_anchor_block() -> None:
+    """With none of the anchor blocks present, a full block lands above the existing content."""
+    yaml = "wifi:\n  ssid: x\n\nlogger:\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out.startswith('api:\n  encryption:\n    key: "NEW=="\n\n')
+    assert out.endswith(yaml)
+
+
+def test_upsert_api_encryption_key_inserts_block_below_esphome() -> None:
+    """With no ``api:`` block, the new one lands right below the ``esphome:`` block."""
+    yaml = "substitutions:\n  name: x\n\nesphome:\n  name: ${name}\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        "substitutions:\n  name: x\n\nesphome:\n  name: ${name}\n\n"
+        'api:\n  encryption:\n    key: "NEW=="\n\nwifi:\n  ssid: x\n'
+    )
+
+
+def test_upsert_api_encryption_key_inserts_block_after_a_trailing_esphome() -> None:
+    """An ``esphome:`` block that ends the file gets the api block appended below it."""
+    out = upsert_api_encryption_key("esphome:\n  name: x\n", "NEW==")
+    assert out == 'esphome:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n'
+
+
+def test_upsert_api_encryption_key_keeps_a_section_comment_with_the_next_block() -> None:
+    """A column-0 comment above the next block stays with that block; api lands above it."""
+    yaml = "esphome:\n  name: x\n\n# ---- networking ----\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        'esphome:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n\n'
+        "# ---- networking ----\n\nwifi:\n  ssid: x\n"
+    )
+
+
+def test_upsert_api_encryption_key_falls_back_to_the_packages_block() -> None:
+    """With ``esphome:`` living in the package, the block follows ``packages:`` instead."""
+    yaml = "substitutions:\n  name: x\n\npackages:\n  a: github://x/y.yaml\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        "substitutions:\n  name: x\n\npackages:\n  a: github://x/y.yaml\n\n"
+        'api:\n  encryption:\n    key: "NEW=="\n\nwifi:\n  ssid: x\n'
+    )
+
+
+def test_upsert_api_encryption_key_falls_back_to_the_substitutions_block() -> None:
+    """An unreadable ``packages:`` and no ``esphome:`` leave ``substitutions:`` as the anchor."""
+    yaml = "substitutions:\n  name: x\n\npackages: !include pkgs.yaml\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        'substitutions:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n\n'
+        "packages: !include pkgs.yaml\n\nwifi:\n  ssid: x\n"
+    )
+
+
+def test_upsert_api_encryption_key_prepends_when_esphome_is_an_inline_value() -> None:
+    """An ``esphome:`` header the walker cannot read falls back to prepending the block."""
+    yaml = "esphome: !include base.yaml\n\nwifi:\n  ssid: x\n"
     out = upsert_api_encryption_key(yaml, "NEW==")
     assert out.startswith('api:\n  encryption:\n    key: "NEW=="\n\n')
     assert out.endswith(yaml)

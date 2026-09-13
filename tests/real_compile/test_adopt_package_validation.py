@@ -69,7 +69,7 @@ def test_unresolvable_package_errors_root_inside_the_packages_span(tmp_path: Pat
         "gl-inet.gl-s10",
         "github://esphome/non-existent-repo-2424/gl-s10.yaml@main",
         network_provided=True,
-        api_encryption=False,
+        api_encryption_key=None,
     )
     result = _validate_via_vscode(tmp_path, content)
 

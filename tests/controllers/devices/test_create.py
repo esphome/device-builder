@@ -916,6 +916,8 @@ async def test_create_device_package_board_writes_package_yaml(
     assert "wifi:" not in content
     # Tolerant validation: the timed-out upstream fetch kept the file.
     ctrl._db.editor.validate_yaml.assert_awaited_once()
+    assert 'api:\n  encryption:\n    key: "' in content
+    assert content.index("esphome:") < content.index("api:")
 
 
 async def test_create_device_package_board_keeps_yaml_on_package_failure(
