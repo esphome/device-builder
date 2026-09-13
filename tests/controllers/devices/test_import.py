@@ -29,13 +29,12 @@ from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
-from esphome_device_builder.models import AdoptableDevice, ErrorCode, EventType
+from esphome_device_builder.models import AdoptableDevice, ErrorCode
 from tests.conftest import make_device
 
 from .conftest import (
     ESPHOME_CONFIG_STUB_TARGET,
     VALIDATOR_OUTAGES,
-    CaptureDevicesEventsFactory,
     MakeControllerFactory,
     RecordingStateMonitor,
 )
@@ -2360,103 +2359,3 @@ async def test_import_device_leaves_probing_to_the_scan(
 
     assert ctrl._state_monitor.calls == []
     assert ctrl._scanner.calls == [("scan", False)]
-
-
-async def test_import_device_drops_matching_import_result_entry(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-    capture_devices_events: CaptureDevicesEventsFactory,
-) -> None:
-    """The discovery banner entry disappears the moment adoption finishes."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
-    discovered = AdoptableDevice(
-        name="apollo-plt-1-983300",
-        friendly_name="Apollo PLT-1",
-        package_import_url="github://apollo/plt-1.yaml",
-        project_name="apollo.plt-1",
-        project_version="26.3.2.1",
-        network="wifi",
-        ignored=False,
-    )
-    ctrl.state.import_result["apollo-plt-1-983300"] = discovered
-
-    await ctrl.import_device(
-        name="apollo-plt-1-983300",
-        project_name="apollo.plt-1",
-        package_import_url="github://apollo/plt-1.yaml",
-    )
-
-    assert "apollo-plt-1-983300" not in ctrl.state.import_result
-    # Removal is broadcast so subscribed frontends drop the card.
-    # Pin both count and payload so a future double-fire / regression
-    # surfaces here — exactly one event should land on the bus.
-    assert [(e.event_type, e.data) for e in captured] == [
-        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-983300"})
-    ]
-
-
-def _seed_two_apollo_plt1_rows(ctrl: DevicesController) -> None:
-    """Seed two discovered units of the same product (shared ``package_import_url``)."""
-    for suffix in ("aabbcc", "ddeeff"):
-        ctrl.state.import_result[f"apollo-plt-1-{suffix}"] = AdoptableDevice(
-            name=f"apollo-plt-1-{suffix}",
-            friendly_name="Apollo PLT-1",
-            package_import_url="github://apollo/plt-1.yaml",
-            project_name="apollo.plt-1",
-            project_version="26.3.2.1",
-            network="wifi",
-            ignored=False,
-        )
-
-
-async def test_import_device_keeps_same_url_siblings_discovered(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    capture_devices_events: CaptureDevicesEventsFactory,
-) -> None:
-    """Adopting one unit of a product batch keeps its siblings in the discovered list."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-    _seed_two_apollo_plt1_rows(ctrl)
-    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
-
-    await ctrl.import_device(
-        name="apollo-plt-1-ddeeff",
-        project_name="apollo.plt-1",
-        package_import_url="github://apollo/plt-1.yaml",
-    )
-
-    assert "apollo-plt-1-ddeeff" not in ctrl.state.import_result
-    assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
-    assert [(e.event_type, e.data) for e in captured] == [
-        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-ddeeff"})
-    ]
-
-
-async def test_import_device_undiscovered_name_retires_nothing(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    capture_devices_events: CaptureDevicesEventsFactory,
-) -> None:
-    """Importing a name with no discovered row never retires or probes a URL match."""
-    ctrl = make_controller(tmp_path)
-    _seed_import_state(ctrl)
-    _seed_two_apollo_plt1_rows(ctrl)
-    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
-    ctrl._state_monitor = RecordingStateMonitor(
-        cached_addresses={"apollo-plt-1-aabbcc.local": ["192.168.1.77"]}
-    )
-
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="apollo.plt-1",
-        package_import_url="github://apollo/plt-1.yaml",
-    )
-
-    assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
-    assert "apollo-plt-1-ddeeff" in ctrl.state.import_result
-    assert captured == []
-    assert ctrl._state_monitor.calls == []

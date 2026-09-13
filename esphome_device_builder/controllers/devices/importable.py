@@ -185,10 +185,6 @@ async def import_device(
     except Exception:
         _LOGGER.exception("Scan after import failed; will pick up on next poll")
 
-    # The scan's ADDED handler probes the device and drops its importable
-    # row; this covers only a failed scan (idempotent, and the retire is
-    # per name so sibling units of the same product stay discovered).
-    controller._on_importable_removed(name)
     result = {"configuration": configuration}
     validation = outcome.validation_warning
     if warnings := [w for w in (validation.text if validation else None, outcome.key_warning) if w]:

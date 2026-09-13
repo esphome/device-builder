@@ -743,7 +743,8 @@ against legacy behaviour before assuming the simpler version suffices.
     drawer re-resolves share via `apply_resolved_addresses`. The
     importable adopt path (`devices/importable.py`) seeds no state —
     the scan's ADDED handler probes the adopted name
-    (`probe_reachability`), claiming mdns off the cache hit; the
+    (`probe_reachability`) and retires its discovered row, claiming
+    mdns off the cache hit; the
     frontend always adopts under the factory broadcast name (an
     edited name goes through the post-adopt rename flow), so the
     probe never needs a cross-name lookup. There is
