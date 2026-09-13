@@ -37,6 +37,7 @@ from .conftest import (
     VALIDATOR_OUTAGES,
     CaptureDevicesEventsFactory,
     MakeControllerFactory,
+    MakeDbFactory,
     RecordingStateMonitor,
 )
 
@@ -2377,6 +2378,24 @@ async def test_import_device_retires_its_row_even_when_the_scan_fails(
     assert list(ctrl.state.import_result) == ["apollo-plt-1-aabbcc"]
     assert [e.data for e in captured] == [{"name": "apollo-plt-1-ddeeff"}]
     assert ctrl._state_monitor.calls == []
+
+
+async def test_import_device_probe_rides_the_real_scan(
+    tmp_path: Path, make_db: MakeDbFactory
+) -> None:
+    """A real scan over the freshly written YAML emits ADDED, which probes the adopted name."""
+    db = make_db(tmp_path)
+    db.settings.rel_path = lambda configuration: tmp_path / configuration
+    db.editor.validate_yaml = AsyncMock(return_value={"yaml_errors": [], "validation_errors": []})
+    db.version_history = None
+    ctrl = DevicesController(db)
+    ctrl._state_monitor = RecordingStateMonitor()  # type: ignore[assignment]
+
+    await ctrl.import_device(name="kitchen", project_name="x", package_import_url="github://x")
+
+    probes = [c for c in ctrl._state_monitor.calls if c[0].startswith("probe_")]
+    assert probes == [("probe_device", "kitchen"), ("probe_device_ping", "kitchen")]
+    assert ctrl.get_by_configuration("kitchen.yaml") is not None
 
 
 async def test_import_device_leaves_probing_to_the_scan(
