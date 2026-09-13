@@ -180,6 +180,18 @@ async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
                         "expires_at": 0,
                     },
                     {
+                        "token": "string-expiry",
+                        "created_at": 0,
+                        "last_used_at": 0,
+                        "expires_at": "soon",
+                    },
+                    {
+                        "token": ["unhashable"],
+                        "created_at": 0,
+                        "last_used_at": 0,
+                        "expires_at": time.time() + 60,
+                    },
+                    {
                         "token": "good",
                         "created_at": time.time(),
                         "last_used_at": time.time(),
@@ -194,6 +206,8 @@ async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
     assert await store.validate("good") is not None
     assert await store.validate("missing-fields") is None
     assert await store.validate("wrong-types") is None
+    assert await store.validate("string-expiry") is None
+    assert store.active_count == 1
 
 
 async def test_session_store_load_handles_top_level_garbage(tmp_path: Path) -> None:
@@ -508,14 +522,16 @@ def _make_controller(tmp_path: Path) -> tuple[AuthController, Any]:
 async def test_auth_controller_stop_flushes_a_deferred_refresh(tmp_path: Path) -> None:
     """A refreshed expiry deferred off the reply lands at stop and loads into a fresh controller."""
     _, stub_db = _make_controller(tmp_path)
-    ctrl = await AuthController.create(stub_db)
+    ctrl = AuthController(stub_db)
+    await ctrl.async_load()
     session = await ctrl.session_store.create()
     ctrl.session_store._persisted_expires[session.token] = session.expires_at - 7200
     refreshed = await ctrl.session_store.validate(session.token)
     assert refreshed is not None
     await ctrl.stop()
 
-    reloaded = await AuthController.create(stub_db)
+    reloaded = AuthController(stub_db)
+    await reloaded.async_load()
     fetched = await reloaded.session_store.validate(session.token)
     assert fetched is not None
     assert fetched.expires_at >= refreshed.expires_at

@@ -480,11 +480,8 @@ class DeviceBuilder:
         self._serving_event = asyncio.Event()
 
         # Initialize controllers
-        self.auth = await AuthController.create(self)
-        self.boards = BoardCatalog()
-        self.boards.load()
-        self.components = ComponentCatalog(self)
-        self.components.load()
+        self.auth = AuthController(self)
+        self._load_catalogs()
         self.config = ConfigController(self)
         self.desktop = DesktopController(self)
         self.devices = DevicesController(self)
@@ -499,6 +496,7 @@ class DeviceBuilder:
         # Seed the RAM-canonical preferences (and migrate them out of the shared
         # sidecar on first run) before onboarding reads or mutates them.
         await self.config.async_load()
+        await self.auth.async_load()
         # Default pre-existing installs to the YAML experience before
         # any onboarding command can be served.
         await self.onboarding.migrate_preexisting_install()
@@ -588,6 +586,15 @@ class DeviceBuilder:
     def notify_serving(self) -> None:
         """Unblock work gated on the listening socket being bound (mDNS advertise)."""
         self._serving_event.set()
+
+    def _load_catalogs(self) -> None:
+        """Load the board and component catalogs."""
+        boards = BoardCatalog()
+        boards.load()
+        self.boards = boards
+        components = ComponentCatalog(self)
+        components.load()
+        self.components = components
 
     async def stop(self) -> None:
         """Shut down the application: free network sockets first, then flush local state."""

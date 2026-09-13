@@ -77,7 +77,7 @@ def _encode(sessions: dict[str, Session]) -> bytes:
 
 def _decode(raw: bytes) -> dict[str, Session]:
     obj = loads_mapping_or_warn(raw, label="sessions store")
-    entries = [] if obj is None else obj.get("sessions") or []
+    entries = [] if obj is None else obj.get("sessions", [])
     if not isinstance(entries, list):
         _LOGGER.warning("sessions store: non-list sessions field, starting empty")
         return {}
@@ -86,10 +86,10 @@ def _decode(raw: bytes) -> dict[str, Session]:
     for entry in entries:
         try:
             session = Session(**entry)
+            if not session.is_expired(now):
+                sessions[session.token] = session
         except (TypeError, ValueError):
             continue
-        if not session.is_expired(now):
-            sessions[session.token] = session
     return sessions
 
 
@@ -129,7 +129,7 @@ class SessionStore:
             self._persisted_expires = {t: s.expires_at for t, s in loaded.items()}
 
     async def create(self) -> Session:
-        """Mint a new session, on disk before it is returned."""
+        """Mint a new session; its write is attempted before it is returned, a failure logged."""
         now = time.time()
         session = Session(
             token=secrets.token_urlsafe(_TOKEN_BYTES),
@@ -171,13 +171,13 @@ class SessionStore:
         return session
 
     async def revoke(self, token: str) -> None:
-        """Drop *token* from the store, on disk before returning; no-op if unknown."""
+        """Drop *token*; its write is attempted before returning, a failure logged."""
         if self._sessions.pop(token, None) is not None:
             self._persisted_expires.pop(token, None)
             await self._save_now()
 
     async def revoke_all(self) -> None:
-        """Drop every active session, on disk before returning."""
+        """Drop every active session; the write is attempted before returning."""
         self._sessions.clear()
         self._persisted_expires.clear()
         await self._save_now()
