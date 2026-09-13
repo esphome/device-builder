@@ -190,11 +190,7 @@ async def validate_rewritten_yaml_or_raise(
             raise
         if isinstance(err, ValidatorTimeoutError):
             # Expected on adopt: the cold ``github://`` fetch outran the budget.
-            _LOGGER.info(
-                "Validation of %s for %s timed out; deferring to compile/install",
-                configuration,
-                action,
-            )
+            _LOGGER.info("Validation of %s for %s timed out", configuration, action)
         else:
             # Subprocess down (a generic RuntimeError still propagates); WARNING
             # since an always-down validator is operationally significant.
