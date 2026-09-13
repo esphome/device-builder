@@ -124,8 +124,6 @@ async def import_device(
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     full_config_import = "full_config" in package_import_url.partition("?")[2]
     async with _name_claimed(controller, name):
-        # Peek, don't pop; a failed import must keep the key for retry.
-        pending = controller._pending_keys.get(name)
         content: str | None = None
         try:
             if full_config_import:
@@ -152,7 +150,6 @@ async def import_device(
                     package_import_url,
                     network_provided=network != const.CONF_WIFI,
                     api_encryption=False,
-                    api_encryption_key=pending["key"] if pending else None,
                 )
                 await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
         except FileExistsError as exc:
@@ -337,7 +334,7 @@ async def _finalize_adoption_key(
     ctx: _AdoptionKeyContext, *, warning: PackageWarning | None, encryption: str | None
 ) -> _KeyOutcome:
     """Land the right API key after validation; owns the write and the pending-key consumption."""
-    # Re-peek: a push can land during the validate window, after the generate-time peek.
+    # Peek, don't pop: a failed adoption keeps the key for the retry.
     fresh = _pending_key(ctx)
     if fresh is not None:
         outcome = await _splice_pending_key_validated(ctx, fresh, warning)

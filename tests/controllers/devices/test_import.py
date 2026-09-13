@@ -349,7 +349,7 @@ async def test_import_device_uses_pending_ha_key(
     )
 
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    # The pending key forces the api block even without the mDNS encryption flag.
+    # The pending key lands even without the mDNS encryption flag.
     assert f'    key: "{PENDING_KEY}"\n' in content
     assert ctrl._pending_keys.get("kitchen") is None
 
@@ -990,7 +990,7 @@ async def test_import_device_second_push_keeps_the_package_exemption(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A push replacing a baked key is re-checked with the adoption's own package exemption."""
+    """A push replacing the pending key is re-checked with the adoption's own package exemption."""
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
@@ -1092,7 +1092,7 @@ async def test_import_device_unresolvable_package_with_a_second_complaint_never_
 
 
 @pytest.mark.parametrize(
-    "baked", [pytest.param(True, id="baked"), pytest.param(False, id="minted")]
+    "pending", [pytest.param(True, id="pending"), pytest.param(False, id="minted")]
 )
 @pytest.mark.parametrize(
     "listed", [pytest.param(False, id="unlisted"), pytest.param(True, id="listed")]
@@ -1101,7 +1101,7 @@ async def test_import_device_holds_the_name_so_a_push_mid_adoption_is_stored_the
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    baked: bool,
+    pending: bool,
     listed: bool,
 ) -> None:
     """A handoff during the key step stores its key instead of writing; the adoption lands it."""
@@ -1110,7 +1110,7 @@ async def test_import_device_holds_the_name_so_a_push_mid_adoption_is_stored_the
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
-    if baked:
+    if pending:
         ctrl._pending_keys.set("kitchen", PENDING_KEY)
     if listed:
         ctrl._scanner._devices_by_name["kitchen"] = [make_device("kitchen")]
@@ -1404,7 +1404,7 @@ async def test_import_device_pending_key_skips_package_resolve(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A pending HA key is baked directly; no resolve subprocess runs."""
+    """A pending HA key lands without a resolve subprocess."""
     resolve = AsyncMock()
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
@@ -1768,37 +1768,6 @@ async def test_import_device_full_config_splice_round_trip_failure_keeps_pending
     assert "defeated the key splice" in result["warning"]
     assert PENDING_KEY not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
-
-
-async def test_import_device_push_during_validate_window_never_mints(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A key pushed after the generate-time peek still blocks a competing mint."""
-    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
-    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
-    _seed_import_state(ctrl)
-    real_get = ctrl._pending_keys.get
-    peeks: list[str] = []
-
-    def _late_get(name: str) -> dict[str, str] | None:
-        peeks.append(name)
-        if len(peeks) == 2:  # the generate-time peek missed the in-flight push
-            ctrl._pending_keys.set("kitchen", PENDING_KEY)
-        return real_get(name)
-
-    monkeypatch.setattr(ctrl._pending_keys, "get", _late_get)
-
-    result = await _import_kitchen(ctrl)
-
-    # No competing mint: the late key wins the finalize re-peek and is
-    # spliced into the generated YAML, which gains its api: block.
-    resolve.assert_not_awaited()
-    assert f'    key: "{PENDING_KEY}"\n' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert "warning" not in result
-    assert real_get("kitchen") is None
 
 
 async def test_import_device_validation_failure_keeps_pending_key(

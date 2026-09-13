@@ -846,7 +846,7 @@ Baked into the ESPHome container. Legacy dashboard deprecated.
 |---|---|---|
 | unchecked | none | No `api:` block; encryption is never enabled behind the user's back |
 | checked | none | Fresh key minted, unless the package itself ships `encryption:` (the running device may hold an NVS-provisioned key a competing baked key would break); an unresolvable package mints only in the narrow case above. A mint skipped for a package's own OTA key or an unresolvable package warns in the adopt dialog |
-| unchecked | present | Key applied anyway (`api_encryption_key` forces the `api:` block) |
-| checked | present | Pending key applied verbatim; no fresh mint, no package resolve |
+| unchecked | present | Key spliced in and esphome-checked anyway; the `api:` block is added for it |
+| checked | present | Pending key spliced in and esphome-checked; no fresh mint, no package resolve |
 
 The same never-mint-a-competing-key rule drives the push path: a missing `api:` block is only refused after resolving the config confirms the API genuinely isn't there (packages provide `api:` invisibly, and the push itself proves the device's API is up). The wizard's package-board create is the deliberate exception — it mints unconditionally because its target is a fresh serial-flash device with no NVS key to break. Pinned by the checkbox x pending matrix in `tests/controllers/devices/test_import.py` and the splice suite in `test_encryption_key.py`.
