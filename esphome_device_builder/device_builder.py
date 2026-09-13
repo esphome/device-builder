@@ -481,10 +481,7 @@ class DeviceBuilder:
 
         # Initialize controllers
         self.auth = AuthController(self)
-        self.boards = BoardCatalog()
-        self.boards.load()
-        self.components = ComponentCatalog(self)
-        self.components.load()
+        self._load_catalogs()
         self.config = ConfigController(self)
         self.desktop = DesktopController(self)
         self.devices = DevicesController(self)
@@ -499,6 +496,7 @@ class DeviceBuilder:
         # Seed the RAM-canonical preferences (and migrate them out of the shared
         # sidecar on first run) before onboarding reads or mutates them.
         await self.config.async_load()
+        await self.auth.async_load()
         # Default pre-existing installs to the YAML experience before
         # any onboarding command can be served.
         await self.onboarding.migrate_preexisting_install()
@@ -589,6 +587,15 @@ class DeviceBuilder:
         """Unblock work gated on the listening socket being bound (mDNS advertise)."""
         self._serving_event.set()
 
+    def _load_catalogs(self) -> None:
+        """Load the board and component catalogs."""
+        boards = BoardCatalog()
+        boards.load()
+        self.boards = boards
+        components = ComponentCatalog(self)
+        components.load()
+        self.components = components
+
     async def stop(self) -> None:
         """Shut down the application: free network sockets first, then flush local state."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
@@ -664,6 +671,8 @@ class DeviceBuilder:
             await self.version_history.stop()
         if self.config is not None:
             await self.config.stop()
+        if self.auth is not None:
+            await self.auth.stop()
         # Cleanly drain the pool once nothing else can hand it work.
         # Two paths because the pool is created eagerly in ``__init__``
         # — calling ``stop()`` on an instance that never ran

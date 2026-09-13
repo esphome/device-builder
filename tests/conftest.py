@@ -80,15 +80,6 @@ if TYPE_CHECKING:
 # this list short — anything genuinely on a hot path should be
 # refactored, not allowlisted.
 _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
-    # SessionStore reads the persisted JSON sessions file once at
-    # AuthController construction time. Bounded by the dashboard's
-    # own startup, not request volume.
-    ("helpers/auth.py", "_load"),
-    # Sync sibling of ``_persist_async``. Production callers always
-    # wrap it via ``asyncio.to_thread`` (so blockbuster wouldn't see
-    # it from a worker thread anyway); tests call it directly to seed
-    # state without a round-trip through the executor.
-    ("helpers/auth.py", "_persist"),
     # ``_register_frontend`` stat-checks ``index.html`` and ``assets/``
     # at app construction so a broken frontend wheel surfaces a clear
     # RuntimeError instead of mysterious 404s. Runs once at startup.
