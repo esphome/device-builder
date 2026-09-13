@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NamedTuple, NoReturn
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
     board_provides_network,
@@ -22,7 +21,7 @@ from ...models import ErrorCode
 from ..editor import ValidatorTimeoutError, ValidatorUnavailableError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Iterable
 
     from ...models import BoardCatalogEntry
     from ..components import ComponentCatalog
@@ -142,7 +141,6 @@ async def validate_rewritten_yaml_or_raise(
     *,
     action: str,
     on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
-    on_error_cleanup: Callable[[], None] | None = None,
     tolerate_unavailable: bool = False,
     timeout: float | None = None,
     packages_span: tuple[int, int] | None = None,
@@ -156,12 +154,10 @@ async def validate_rewritten_yaml_or_raise(
     No-op when *editor* is None. *on_failure* selects the
     ``ErrorCode`` raised: ``INVALID_ARGS`` for user-fixable
     input, ``INTERNAL_ERROR`` for broken YAML from our own
-    generators. *on_error_cleanup* runs in a finally on any
-    non-success path so callers that wrote the YAML before
-    validating can roll back.
+    generators.
 
     *tolerate_unavailable* treats validator unavailability (timeout /
-    subprocess failure) as success: file kept, no cleanup; genuine
+    subprocess failure) as success; genuine
     YAML/schema errors still raise. *timeout* overrides the validator's
     round-trip budget.
 
@@ -178,74 +174,59 @@ async def validate_rewritten_yaml_or_raise(
     """
     if editor is None:
         return None
-    succeeded = False
     try:
-        try:
-            result = await editor.validate_yaml(
-                configuration=configuration, content=content, timeout=timeout
+        result = await editor.validate_yaml(
+            configuration=configuration, content=content, timeout=timeout
+        )
+    except ValidatorUnavailableError as err:
+        if not tolerate_unavailable:
+            raise
+        if isinstance(err, ValidatorTimeoutError):
+            # Expected on adopt: the cold ``github://`` fetch outran the budget.
+            _LOGGER.info(
+                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
+                configuration,
+                action,
             )
-        except ValidatorUnavailableError as err:
-            if not tolerate_unavailable:
-                raise
-            if isinstance(err, ValidatorTimeoutError):
-                # Expected on adopt: the cold ``github://`` fetch outran the budget.
-                _LOGGER.info(
-                    "Validation of %s for %s timed out; keeping file, deferring to compile/install",
-                    configuration,
-                    action,
-                )
-            else:
-                # Subprocess down (a generic RuntimeError still propagates); WARNING
-                # since an always-down validator is operationally significant.
-                _LOGGER.warning(
-                    "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
-                    action,
-                    configuration,
-                )
-            succeeded = True
-            return None
-        errors = [
-            *(err.get("message", "") for err in result.get("yaml_errors", [])),
-            *(_describe_validation_error(err) for err in result.get("validation_errors", [])),
-        ]
-        errors = [msg for msg in errors if msg]
-        if not errors:
-            succeeded = True
-            return None
-        warning = _packages_confined_warning(
-            result, packages_span, packages_root, configuration, action
-        )
-        if warning is not None:
-            succeeded = True
-            return warning
-        _raise_validation_failure(
-            errors,
-            action=action,
-            on_failure=on_failure,
-            failure_tail=failure_tail,
-            secrets_path=secrets_path,
-        )
-    finally:
-        if not succeeded and on_error_cleanup is not None:
-            # Swallow + log cleanup failures so a permission /
-            # FS error during rollback doesn't replace the
-            # original validation diagnostic the caller is
-            # about to see.
-            try:
-                await run_in_executor(on_error_cleanup)
-            except Exception:
-                _LOGGER.exception("on_error_cleanup raised; original error preserved")
+        else:
+            # Subprocess down (a generic RuntimeError still propagates); WARNING
+            # since an always-down validator is operationally significant.
+            _LOGGER.warning(
+                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
+                action,
+                configuration,
+            )
+        return None
+    errors = [
+        *(err.get("message", "") for err in result.get("yaml_errors", [])),
+        *(_describe_validation_error(err) for err in result.get("validation_errors", [])),
+    ]
+    errors = [msg for msg in errors if msg]
+    if not errors:
+        return None
+    warning = _packages_confined_warning(
+        result, packages_span, packages_root, configuration, action
+    )
+    if warning is not None:
+        return warning
+    raise _validation_failure(
+        errors,
+        action=action,
+        on_failure=on_failure,
+        failure_tail=failure_tail,
+        secrets_path=secrets_path,
+    )
 
 
-def _raise_validation_failure(
+def _validation_failure(
     errors: list[str],
     *,
     action: str,
     on_failure: ErrorCode,
     failure_tail: str | None,
     secrets_path: Path | None,
-) -> NoReturn:
-    """Raise the refusal ``CommandError`` for a failed validation."""
+) -> CommandError:
+    """Build the refusal ``CommandError`` for a failed validation."""
     if (problem := _secrets_file_problem(errors, secrets_path)) is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         if on_failure is ErrorCode.INTERNAL_ERROR:
@@ -253,7 +234,7 @@ def _raise_validation_failure(
             _LOGGER.warning(
                 "Refusing %s: errors sit in the user's secrets.yaml, not the generator", action
             )
-        raise CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
+        return CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
             ". Please report this with a redacted snippet of just the "
@@ -263,7 +244,7 @@ def _raise_validation_failure(
         )
     else:
         message_tail = failure_tail or ". Fix the errors in the editor and try again."
-    raise CommandError(
+    return CommandError(
         on_failure,
         f"Can't {action} — config doesn't validate: " + _summarise(errors) + message_tail,
     )

@@ -98,7 +98,9 @@ async def set_encryption_key(
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
-    """Match by name, disambiguating duplicate-name buckets (and misses) by MAC."""
+    """Match by name, disambiguating duplicates (and misses) by MAC; none while adopting."""
+    if name in controller.state.adopting:
+        return []
     devices = controller._scanner.get_by_name(name)
     if mac and len(devices) > 1:
         by_mac = [d for d in devices if d.mac_address == mac]
