@@ -12,7 +12,9 @@ import pytest
 from esphome_device_builder.controllers.devices import import_full_config
 from esphome_device_builder.controllers.devices.import_full_config import (
     fetch_full_config,
+    local_includes,
     materialize_full_config,
+    package_fallback_warning,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
@@ -265,3 +267,29 @@ async def test_unusable_bodies_are_refused(monkeypatch: pytest.MonkeyPatch, body
         await fetch_full_config("github://x/y/z.yaml@main?full_config")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_local_includes_walks_nested_tags_in_order() -> None:
+    upstream = (
+        "packages:\n  board: !include boards/rev2_4.yaml\n"
+        "  rftx: !include boards/common/rftx_outputs.yaml\n"
+        "esphome:\n  name: x\n"
+        "script:\n  - id: a\n    then: !include_dir_list scripts/\n"
+        "wifi:\n  ssid: !secret wifi_ssid\n"
+    )
+
+    assert local_includes(upstream) == [
+        "boards/rev2_4.yaml",
+        "boards/common/rftx_outputs.yaml",
+        "scripts/",
+    ]
+    assert local_includes("esphome:\n  name: x\n") == []
+
+
+def test_package_fallback_warning_lists_three_then_counts() -> None:
+    assert package_fallback_warning(["a.yaml", "b.yaml"]) == (
+        "This configuration includes local files (a.yaml, b.yaml) that a full-config "
+        "import doesn't fetch, so it was imported as a package referencing the vendor's "
+        "repository instead."
+    )
+    assert "(a, b, c and 2 more)" in package_fallback_warning(["a", "b", "c", "d", "e"])

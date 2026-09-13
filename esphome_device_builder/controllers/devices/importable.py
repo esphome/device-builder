@@ -26,6 +26,7 @@ from ...helpers.yaml import (
     generate_api_encryption_key,
     read_yaml_scalar,
     upsert_api_encryption_key,
+    write_user_yaml,
 )
 from ...models import (
     AdoptableDevice,
@@ -35,7 +36,13 @@ from ...models import (
     ImportableDeviceRemovedData,
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT
-from .import_full_config import fetch_full_config, materialize_full_config
+from . import mutations_yaml
+from .import_full_config import (
+    fetch_full_config,
+    local_includes,
+    materialize_full_config,
+    package_fallback_warning,
+)
 from .mutations_yaml import PackageWarning, packages_block_span
 from .resolve import resolve_config
 
@@ -121,21 +128,26 @@ async def import_device(
     adoptable = controller.state.import_result.get(name)
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     full_config_import = "full_config" in package_import_url.partition("?")[2]
+    fallback_warning: str | None = None
     async with _name_claimed(controller, name):
         # Peek, don't pop; a failed import must keep the key for retry.
         pending = controller._pending_keys.get(name)
+
+        def package_yaml() -> str:
+            return generate_adoption_yaml(
+                name,
+                friendly_name,
+                project_name,
+                package_import_url.partition("?")[0],
+                network_provided=network != const.CONF_WIFI,
+                api_encryption_key=pending["key"] if pending else None,
+            )
+
         if full_config_import:
             upstream = await fetch_full_config(package_import_url)
             content = materialize_full_config(upstream, name, friendly_name)
         else:
-            content = generate_adoption_yaml(
-                name,
-                friendly_name,
-                project_name,
-                package_import_url,
-                network_provided=network != const.CONF_WIFI,
-                api_encryption_key=pending["key"] if pending else None,
-            )
+            content = package_yaml()
         try:
             await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
         except FileExistsError as exc:
@@ -144,19 +156,21 @@ async def import_device(
 
         async with _rolled_back_on_failure(path):
             ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
-            # Adopt tolerates a validator timeout on a short budget: the config's
-            # ``github://`` fetch can outlast a full validate.
-            verdict = await controller._validate_rewritten_yaml_or_raise(
-                configuration,
-                content,
-                action="import",
-                tolerate_unavailable=True,
-                timeout=IMPORT_VALIDATE_TIMEOUT,
-                packages_span=ctx.packages_span(content),
-                failure_tail=". The import was rolled back; nothing was written.",
+            try:
+                verdict = await _validate_adoption(controller, configuration, ctx)
+            except CommandError:
+                if not (full_config_import and (includes := local_includes(content))):
+                    raise
+                # The single-file copy can never satisfy its ``!include``s;
+                # the package form resolves them inside the vendor's repository.
+                content = package_yaml()
+                await run_in_executor(write_user_yaml, path, content)
+                ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import=False)
+                verdict = await _validate_adoption(controller, configuration, ctx)
+                fallback_warning = package_fallback_warning(includes)
+            outcome = await _finalize_adoption_key(
+                ctx, warning=verdict.warning, encryption=encryption
             )
-            warning = verdict.warning
-            outcome = await _finalize_adoption_key(ctx, warning=warning, encryption=encryption)
 
     await controller._register_new_device(configuration, f"Import {configuration}")
 
@@ -165,7 +179,8 @@ async def import_device(
     controller._on_importable_removed(name)
     result = {"configuration": configuration}
     validation = outcome.validation_warning
-    if warnings := [w for w in (validation.text if validation else None, outcome.key_warning) if w]:
+    texts = (fallback_warning, validation.text if validation else None, outcome.key_warning)
+    if warnings := [w for w in texts if w]:
         result["warning"] = "\n".join(warnings)
     return result
 
@@ -220,6 +235,22 @@ async def _name_claimed(controller: DevicesController, name: str) -> AsyncIterat
         yield
     finally:
         controller.state.adopting.discard(name)
+
+
+async def _validate_adoption(
+    controller: DevicesController, configuration: str, ctx: _AdoptionKeyContext
+) -> mutations_yaml.ValidationVerdict:
+    # Adopt tolerates a validator timeout on a short budget: the config's
+    # ``github://`` fetch can outlast a full validate.
+    return await controller._validate_rewritten_yaml_or_raise(
+        configuration,
+        ctx.content,
+        action="import",
+        tolerate_unavailable=True,
+        timeout=IMPORT_VALIDATE_TIMEOUT,
+        packages_span=ctx.packages_span(ctx.content),
+        failure_tail=". The import was rolled back; nothing was written.",
+    )
 
 
 @asynccontextmanager

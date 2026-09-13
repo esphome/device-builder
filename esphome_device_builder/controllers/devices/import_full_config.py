@@ -28,6 +28,8 @@ _FETCH_TIMEOUT = aiohttp.ClientTimeout(total=30)
 _MAX_ATTEMPTS = 3
 _MAX_CONFIG_BYTES = 1 << 20
 _READ_CHUNK = 64 * 1024
+_INCLUDE_TAG_PREFIX = "!include"
+_LISTED_INCLUDES = 3
 _PIN_REMEDY = (
     "The upstream config adds a MAC suffix, so its name must be pinned to this device "
     "before it can be adopted; create the device by hand from the upstream YAML with "
@@ -95,6 +97,35 @@ async def _fetch_once(url: str) -> str:
     except (aiohttp.ClientError, TimeoutError) as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, f"Could not fetch {url}: {exc}") from exc
     return _decode_yaml_text(body, url)
+
+
+def local_includes(contents: str) -> list[str]:
+    """Return the ``!include``-tagged paths in *contents*, in document order."""
+    found: list[str] = []
+    pending = [yaml.compose(contents)]
+    while pending:
+        node = pending.pop()
+        if node is None:
+            continue
+        if node.tag.startswith(_INCLUDE_TAG_PREFIX) and isinstance(node, yaml.ScalarNode):
+            found.append(node.value)
+        if isinstance(node, yaml.SequenceNode):
+            pending.extend(reversed(node.value))
+        elif isinstance(node, yaml.MappingNode):
+            pending.extend(v for _k, v in reversed(node.value))
+    return found
+
+
+def package_fallback_warning(includes: list[str]) -> str:
+    """Explain that the single-file copy gave way to the package import."""
+    listed = ", ".join(includes[:_LISTED_INCLUDES])
+    if len(includes) > _LISTED_INCLUDES:
+        listed += f" and {len(includes) - _LISTED_INCLUDES} more"
+    return (
+        f"This configuration includes local files ({listed}) that a full-config import "
+        "doesn't fetch, so it was imported as a package referencing the vendor's "
+        "repository instead."
+    )
 
 
 def _code_for_status(status: int) -> ErrorCode:
