@@ -9,17 +9,15 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NamedTuple
 
 from esphome import const
-from esphome.storage_json import ignored_devices_storage_path
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.atomic_io import atomic_write_exclusive, atomic_write_preserving_mode
+from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
     generate_adoption_yaml,
     get_ota_encryption_key,
     ota_encryption_block_unresolved,
 )
-from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
@@ -197,11 +195,13 @@ async def import_device(
 
 async def toggle_ignore(controller: DevicesController, *, name: str, ignore: bool) -> None:
     """Mark a discovered device as ignored / visible in the import list."""
-    if ignore:
-        controller.state.ignored_devices.add(name)
-    else:
-        controller.state.ignored_devices.discard(name)
-    await run_in_executor(controller._save_ignored_devices)
+    ignored = controller.state.ignored_devices
+    if (name in ignored) is not ignore:
+        if ignore:
+            ignored.add(name)
+        else:
+            ignored.discard(name)
+        controller._schedule_ignored_devices_save()
     # Mirror the new flag onto the cached AdoptableDevice and
     # re-publish ADDED so subscribed frontends update the badge
     # without waiting for a full re-discovery cycle.
@@ -231,56 +231,6 @@ def get_importable_devices(controller: DevicesController) -> list[AdoptableDevic
     """Snapshot of importable devices, filtered against the configured-name set."""
     configured_names = {d.name for d in controller._scanner.devices}
     return [d for d in controller.state.import_result.values() if d.name not in configured_names]
-
-
-def load_ignored_devices(controller: DevicesController) -> None:
-    """Populate ``controller.state.ignored_devices`` from the on-disk JSON file."""
-    storage_path = ignored_devices_storage_path()
-    try:
-        raw = storage_path.read_bytes()
-    except FileNotFoundError:
-        return
-    try:
-        data = loads(raw)
-    except JSONDecodeError:
-        # A corrupt file shouldn't tank controller bootstrap;
-        # start with an empty ignored set and let the next
-        # toggle_ignore call rewrite it cleanly.
-        _LOGGER.warning(
-            "Ignored-devices file at %s is corrupt; starting with an empty set",
-            storage_path,
-        )
-        return
-    if not isinstance(data, dict):
-        _LOGGER.warning(
-            "Ignored-devices file at %s isn't a JSON object; starting with an empty set",
-            storage_path,
-        )
-        return
-    # Mutate the set in place rather than replacing it. The
-    # ``DeviceStateMonitor`` captures
-    # ``state.ignored_devices.__contains__`` at controller
-    # ``__init__`` time, before this loader runs in
-    # ``start()``; replacing the set here would leave the
-    # monitor checking a stale empty set forever.
-    controller.state.ignored_devices.clear()
-    ignored = data.get("ignored_devices", [])
-    if not isinstance(ignored, list):
-        _LOGGER.warning(
-            "Ignored-devices file at %s has a non-list ``ignored_devices`` "
-            "field; resetting to an empty set",
-            storage_path,
-        )
-        return
-    controller.state.ignored_devices.update(name for name in ignored if isinstance(name, str))
-
-
-def save_ignored_devices(controller: DevicesController) -> None:
-    """Persist ``controller.state.ignored_devices`` to the on-disk JSON file."""
-    atomic_write_preserving_mode(
-        ignored_devices_storage_path(),
-        dumps_indent({"ignored_devices": sorted(controller.state.ignored_devices)}),
-    )
 
 
 @asynccontextmanager

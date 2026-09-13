@@ -34,6 +34,19 @@ def loads(data: bytes | bytearray | memoryview | str) -> Any:
     return orjson.loads(data)
 
 
+def loads_mapping_or_warn(raw: bytes, *, label: str) -> dict[str, Any] | None:
+    """Parse *raw* as a JSON object; corrupt or non-object input warns as *label*, yields None."""
+    try:
+        obj = loads(raw)
+    except JSONDecodeError:
+        _LOGGER.warning("%s: corrupt JSON, starting empty", label)
+        return None
+    if not isinstance(obj, dict):
+        _LOGGER.warning("%s: non-mapping JSON, starting empty", label)
+        return None
+    return obj
+
+
 def dumps(obj: Any) -> bytes:
     """Serialise *obj* to a compact JSON ``bytes`` blob."""
     return orjson.dumps(obj)

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from esphome.core import CORE
+from esphome.storage_json import ignored_devices_storage_path
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import SECRETS_FILENAME, is_secrets_file
@@ -79,6 +80,8 @@ from . import (
     troubleshoot,
     validate,
 )
+from ._ignored_devices_store import SAVE_DELAY as _IGNORED_DEVICES_SAVE_DELAY
+from ._ignored_devices_store import ignored_devices_store
 from ._metadata_store import DeviceMetadataStore
 from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
@@ -147,6 +150,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._pending_keys = PendingKeysStore(
             data_dir=Path(CORE.data_dir),
             shutdown_register=self._shutdown_callbacks.append,
+        )
+        self._ignored_devices_store = ignored_devices_store(
+            ignored_devices_storage_path(), shutdown_register=self._shutdown_callbacks.append
         )
         # Resolved here because ``CORE.data_dir`` stats the config dir;
         # the validate path reads it from the loop thread.
@@ -286,7 +292,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             group.create_task(self._metadata_store.async_load())
             group.create_task(self._pending_keys.async_load())
             group.create_task(self.migrate_board_id_user_set())
-            group.create_task(run_in_executor(self._load_ignored_devices))
+            group.create_task(self._load_ignored_devices())
         # Shallow seed; the refine task spawned below deep-reloads each
         # device off the startup critical path.
         await self._scanner.scan(shallow=True)
@@ -1180,6 +1186,17 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Read *path* as UTF-8 text off the executor."""
         return await run_in_executor(path.read_text, "utf-8")
 
+    async def _load_ignored_devices(self) -> None:
+        """Seed ``state.ignored_devices`` from disk, in place."""
+        if (names := await self._ignored_devices_store.async_load()) is not None:
+            self.state.ignored_devices.clear()
+            self.state.ignored_devices.update(names)
+
+    def _schedule_ignored_devices_save(self) -> None:
+        self._ignored_devices_store.async_delay_save(
+            lambda: set(self.state.ignored_devices), delay=_IGNORED_DEVICES_SAVE_DELAY
+        )
+
     def _on_scan_change(
         self, kind: ScanChange, device: Device, previous: Device | None = None
     ) -> None:
@@ -1292,12 +1309,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             build_size_dir_mtime=result.signal.dir_mtime,
             build_size_info_mtime=result.signal.info_mtime,
         )
-
-    def _load_ignored_devices(self) -> None:
-        importable.load_ignored_devices(self)
-
-    def _save_ignored_devices(self) -> None:
-        importable.save_ignored_devices(self)
 
     async def _archive_single(self, configuration: str) -> None:
         await archive.archive_single(self, configuration)
