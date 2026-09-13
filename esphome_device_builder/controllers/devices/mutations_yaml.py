@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ..editor import EditorController
 
 _LOGGER = logging.getLogger(__name__)
+_INHERIT_ERROR_MARK = "encryption key to inherit"
 
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
@@ -128,10 +129,17 @@ async def yaml_content_for_create(
 
 
 class PackageWarning(NamedTuple):
-    """A validation that failed only inside the packages block: the user text and each message."""
+    """A package-confined failure: the user text, and whether a missing api key is all it says."""
 
     text: str
-    messages: tuple[str, ...]
+    only_missing_api_key: bool
+
+
+class ValidationVerdict(NamedTuple):
+    """The validate outcome: clean, a package-confined warning, or a tolerated outage."""
+
+    warning: PackageWarning | None = None
+    unavailable: bool = False
 
 
 async def validate_rewritten_yaml_or_raise(
@@ -147,7 +155,7 @@ async def validate_rewritten_yaml_or_raise(
     packages_root: Path | None = None,
     failure_tail: str | None = None,
     secrets_path: Path | None = None,
-) -> PackageWarning | None:
+) -> ValidationVerdict:
     """
     Schema-validate *content* via the editor; raise if invalid.
 
@@ -156,24 +164,23 @@ async def validate_rewritten_yaml_or_raise(
     input, ``INTERNAL_ERROR`` for broken YAML from our own
     generators.
 
-    *tolerate_unavailable* treats validator unavailability (timeout /
-    subprocess failure) as success; genuine
-    YAML/schema errors still raise. *timeout* overrides the validator's
-    round-trip budget.
+    *tolerate_unavailable* reports validator unavailability (timeout /
+    subprocess failure) on the verdict instead of raising;
+    genuine YAML/schema errors still raise. *timeout* overrides the
+    validator's round-trip budget.
 
     *packages_span* (0-indexed line span of the ``packages:`` block):
-    when every validation error roots inside it, the file is kept and a
-    ``PackageWarning`` is returned instead of raising. Returns ``None``
-    when *content* validates clean. *packages_root* is the package-cache
-    dir the containment check compares against; the caller resolves it
-    off-loop (``CORE.data_dir`` stats the disk).
+    when every validation error roots inside it, the file is kept and the
+    verdict carries a ``PackageWarning`` instead of raising. *packages_root*
+    is the package-cache dir the containment check compares against; the
+    caller resolves it off-loop (``CORE.data_dir`` stats the disk).
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
     sentence. An error marked inside *secrets_path* (the config dir's
     ``secrets.yaml``) refuses as ``INVALID_ARGS`` naming that file.
     """
     if editor is None:
-        return None
+        return ValidationVerdict()
     try:
         result = await editor.validate_yaml(
             configuration=configuration, content=content, timeout=timeout
@@ -183,32 +190,26 @@ async def validate_rewritten_yaml_or_raise(
             raise
         if isinstance(err, ValidatorTimeoutError):
             # Expected on adopt: the cold ``github://`` fetch outran the budget.
-            _LOGGER.info(
-                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
-                configuration,
-                action,
-            )
+            _LOGGER.info("Validation of %s for %s timed out", configuration, action)
         else:
             # Subprocess down (a generic RuntimeError still propagates); WARNING
             # since an always-down validator is operationally significant.
             _LOGGER.warning(
-                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
-                action,
-                configuration,
+                "Validator subprocess unavailable during %s of %s (%r)", action, configuration, err
             )
-        return None
+        return ValidationVerdict(unavailable=True)
     errors = [
         *(err.get("message", "") for err in result.get("yaml_errors", [])),
         *(_describe_validation_error(err) for err in result.get("validation_errors", [])),
     ]
     errors = [msg for msg in errors if msg]
     if not errors:
-        return None
+        return ValidationVerdict()
     warning = _packages_confined_warning(
         result, packages_span, packages_root, configuration, action
     )
     if warning is not None:
-        return warning
+        return ValidationVerdict(warning=warning)
     raise _validation_failure(
         errors,
         action=action,
@@ -287,13 +288,13 @@ def _packages_confined_warning(
         configuration,
         action,
     )
-    messages = tuple(str(entry.get("message", "")) for entry in entries)
+    messages = [str(entry.get("message", "")) for entry in entries]
     verb = "Created" if action == "create" else "Imported"
     return PackageWarning(
         f"{verb}, but the remote package didn't validate: {_summarise(messages)}. "
         "Fix the packages entry in the editor; install will surface "
         "the same error until it resolves.",
-        messages,
+        only_missing_api_key=all(_INHERIT_ERROR_MARK in m for m in messages),
     )
 
 

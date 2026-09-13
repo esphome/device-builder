@@ -32,17 +32,19 @@ async def test_strict_path_propagates_validator_failure(exc: Exception) -> None:
 
 @pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
 async def test_tolerate_path_keeps_file_on_validator_failure(exc: Exception) -> None:
-    """``tolerate_unavailable`` swallows the failure: no raise."""
+    """``tolerate_unavailable`` hands the outage back as the verdict instead of raising."""
     editor = MagicMock()
     editor.validate_yaml = AsyncMock(side_effect=exc)
 
-    await mutations_yaml.validate_rewritten_yaml_or_raise(
+    verdict = await mutations_yaml.validate_rewritten_yaml_or_raise(
         editor,
         "kitchen.yaml",
         "esphome:\n",
         action="import",
         tolerate_unavailable=True,
     )
+
+    assert verdict == mutations_yaml.ValidationVerdict(unavailable=True)
 
 
 async def test_tolerate_path_still_propagates_generic_runtime_error() -> None:
@@ -158,12 +160,23 @@ async def test_secrets_reclassification_logs_only_a_would_be_generator_bug(
     assert ("not the generator" in caplog.text) is logged
 
 
-def test_packages_confined_warning_carries_every_message(tmp_path: Path) -> None:
-    """The warning keeps all confined messages even though the text summarises three."""
+_INHERIT_ERROR = f"no 'api' {mutations_yaml._INHERIT_ERROR_MARK}; set one of them"
+
+
+@pytest.mark.parametrize(
+    ("messages", "only_missing_api_key"),
+    [
+        pytest.param([f"complaint {n}" for n in range(3)] + [_INHERIT_ERROR], False, id="mixed"),
+        pytest.param([_INHERIT_ERROR] * 4, True, id="all"),
+    ],
+)
+def test_packages_confined_warning_classifies_every_message(
+    tmp_path: Path, messages: list[str], only_missing_api_key: bool
+) -> None:
+    """The inherit verdict reads every confined message, not just the three the text shows."""
     content = "packages:\n  v: github://x/y.yaml@main\n\nesphome:\n  name: kitchen\n"
     span = mutations_yaml.packages_block_span(content)
     assert span is not None
-    messages = [f"complaint {n}" for n in range(3)] + ["no 'api' encryption key to inherit"]
     entries = [
         {"message": m, "range": {"document": "<file>", "start_line": span[0]}} for m in messages
     ]
@@ -173,6 +186,5 @@ def test_packages_confined_warning_carries_every_message(tmp_path: Path) -> None
     )
 
     assert warning is not None
-    assert list(warning.messages) == messages
+    assert warning.only_missing_api_key is only_missing_api_key
     assert "(+1 more)" in warning.text
-    assert "inherit" not in warning.text

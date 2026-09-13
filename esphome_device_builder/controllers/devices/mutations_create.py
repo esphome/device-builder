@@ -151,7 +151,7 @@ async def create_device(  # noqa: C901, PLR0912
         # ``packages:`` block keeps the config with a warning instead of
         # blaming the generator. Genuine schema errors still mean our
         # generator broke.
-        warning = await controller._validate_rewritten_yaml_or_raise(
+        verdict = await controller._validate_rewritten_yaml_or_raise(
             filename,
             yaml_content,
             action="create",
@@ -160,6 +160,7 @@ async def create_device(  # noqa: C901, PLR0912
             timeout=IMPORT_VALIDATE_TIMEOUT,
             packages_span=packages_block_span(yaml_content),
         )
+        warning = verdict.warning
     else:
         await controller._validate_rewritten_yaml_or_raise(
             filename,

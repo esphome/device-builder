@@ -37,7 +37,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
-from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
+from ..editor import IMPORT_VALIDATE_TIMEOUT
 from .mutations_yaml import PackageWarning, packages_block_span
 from .resolve import resolve_config
 
@@ -58,7 +58,6 @@ _OWN_OTA_KEY_WARNING = (
     "The package gives the OTA platform its own encryption key, so no API "
     "encryption key was generated; edit the device to use one key for both."
 )
-_INHERIT_ERROR_MARK = "encryption key to inherit"
 _STAYS_STORED = (
     "was not applied and stays stored; installing this config may cut Home Assistant off "
     "until it re-provisions."
@@ -166,7 +165,7 @@ async def import_device(
             ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
             # Adopt tolerates a validator timeout on a short budget: the config's
             # ``github://`` fetch can outlast a full validate.
-            warning = await controller._validate_rewritten_yaml_or_raise(
+            verdict = await controller._validate_rewritten_yaml_or_raise(
                 configuration,
                 content,
                 action="import",
@@ -175,6 +174,7 @@ async def import_device(
                 packages_span=ctx.packages_span(content),
                 failure_tail=". The import was rolled back; nothing was written.",
             )
+            warning = verdict.warning
             outcome = await _finalize_adoption_key(ctx, warning=warning, encryption=encryption)
 
     await controller._commit_history(configuration, f"Import {configuration}")
@@ -402,7 +402,8 @@ async def _mint_key_unless_package_encrypts(
     # A package's own OTA key would have to match a baked api key; leave both out.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return _KeyOutcome(warning, _OWN_OTA_KEY_WARNING)
-    if not resolved and (config is None or not _only_missing_inherited_key(warning)):
+    tentative = config is not None and warning is not None and warning.only_missing_api_key
+    if not resolved and not tentative:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", ctx.path.name)
         return _KeyOutcome(warning, _UNRESOLVED_WARNING)
     return await _mint_key(ctx, warning, resolved=resolved)
@@ -469,25 +470,14 @@ async def _revalidate_keyed(
             ctx.path.name,
             keyed,
             action="import",
+            tolerate_unavailable=True,
             timeout=IMPORT_VALIDATE_TIMEOUT,
             packages_span=ctx.packages_span(keyed),
             failure_tail=failure_tail,
         )
     except CommandError as err:
         return _KeyOutcome(warning, err.message)
-    except ValidatorUnavailableError as err:
-        _LOGGER.warning(
-            "Validator unavailable during the key re-check of %s (%r); warning kept",
-            ctx.path.name,
-            err,
-        )
-        return _KeyOutcome(warning, None)
-    return _KeyOutcome(verdict, None)
-
-
-def _only_missing_inherited_key(warning: PackageWarning | None) -> bool:
-    """Whether every package complaint is the api key a bare ``ota: encryption:`` inherits."""
-    return warning is not None and all(_INHERIT_ERROR_MARK in m for m in warning.messages)
+    return _KeyOutcome(warning if verdict.unavailable else verdict.warning, None)
 
 
 def _splice_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:

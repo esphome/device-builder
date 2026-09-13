@@ -20,7 +20,11 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController, importable
-from esphome_device_builder.controllers.devices.mutations_yaml import PackageWarning
+from esphome_device_builder.controllers.devices.mutations_yaml import (
+    _INHERIT_ERROR_MARK,
+    PackageWarning,
+    ValidationVerdict,
+)
 from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
@@ -639,8 +643,7 @@ async def test_import_device_unresolvable_package_ships_keyless_with_warning(
 
 
 _INHERIT_ERROR = (
-    "'ota' encryption has no key and there is no 'api' "
-    f"{importable._INHERIT_ERROR_MARK}; set one of them"
+    f"'ota' encryption has no key and there is no 'api' {_INHERIT_ERROR_MARK}; set one of them"
 )
 _BARE_OTA_PACKAGE: dict[str, Any] = {
     "esphome": {"name": "kitchen"},
@@ -1599,7 +1602,9 @@ async def test_import_device_joins_validation_and_key_warnings(
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
     ctrl._validate_rewritten_yaml_or_raise = AsyncMock(  # type: ignore[method-assign]
-        return_value=PackageWarning("Validator unavailable; import kept.", ())
+        return_value=ValidationVerdict(
+            PackageWarning("Imported, but the remote package didn't validate.", False)
+        )
     )
 
     result = await ctrl.import_device(
@@ -1608,7 +1613,7 @@ async def test_import_device_joins_validation_and_key_warnings(
         package_import_url="github://x/y.yaml@main?full_config",
     )
 
-    assert "Validator unavailable" in result["warning"]
+    assert "remote package didn't validate" in result["warning"]
     assert "supplies its own API encryption key" in result["warning"]
 
 
