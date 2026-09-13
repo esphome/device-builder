@@ -147,3 +147,17 @@ def trim_trailing_blanks(lines: list[str], block_start: int, insert_at: int) -> 
     while insert_at > block_start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
     return insert_at
+
+
+def top_level_block_bounds(lines: list[str], key: str) -> tuple[int, int] | None:
+    """
+    Locate the column-0 ``<key>:`` block; return ``(header, end)`` or ``None``.
+
+    *end* is the first line of the next top-level block (or ``len(lines)``),
+    rewound past trailing blank lines so an insert lands right after the
+    last content line.
+    """
+    start = find_block_header(lines, key)
+    if start is None:
+        return None
+    return start, trim_trailing_blanks(lines, start, block_end_index(lines, start))

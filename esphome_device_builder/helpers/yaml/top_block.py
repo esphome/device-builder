@@ -10,7 +10,7 @@ from .scalar import (
     _safe_yaml_scalar,
     read_yaml_scalar,
 )
-from .scan import normalize_trailing_newline, trim_trailing_blanks
+from .scan import normalize_trailing_newline, top_level_block_bounds, trim_trailing_blanks
 from .substitution import rewrite_name_or_substitution
 
 
@@ -76,18 +76,13 @@ def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] 
 
 def _insert_top_block_after(lines: list[str], block_key: str, block: str, nl: str) -> str:
     """Insert *block* below the column-0 *block_key* block, or prepend when it is absent."""
-    try:
-        located = _locate_top_block(lines, block_key)
-    except YamlUpsertNotSupportedError:
-        located = None
-    if located is None:
+    bounds = top_level_block_bounds(lines, block_key)
+    if bounds is None:
         return _prepend_top_block(lines, block, nl)
-    head = "".join(lines[: located[1]])
-    rest = "".join(lines[located[1] :])
-    if not head.endswith(nl * 2):
-        head += nl
+    head = "".join(lines[: bounds[1]])
+    rest = "".join(lines[bounds[1] :])
     sep = "" if not rest or rest.startswith(("\n", "\r")) else nl
-    return f"{head}{block}{sep}{rest}"
+    return f"{head}{nl}{block}{sep}{rest}"
 
 
 def _find_prepend_anchor(lines: list[str]) -> int:
