@@ -13,7 +13,7 @@ from esphome.storage_json import ignored_devices_storage_path
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.atomic_io import atomic_write, atomic_write_exclusive
+from ...helpers.atomic_io import atomic_write_exclusive, atomic_write_preserving_mode
 from ...helpers.device_yaml import (
     generate_adoption_yaml,
     get_ota_encryption_key,
@@ -59,14 +59,13 @@ _OWN_OTA_KEY_WARNING = (
     "encryption key was generated; edit the device to use one key for both."
 )
 _INHERIT_ERROR_MARK = "encryption key to inherit"
-_NOT_APPLIED_TAIL = (
-    " The key Home Assistant provisioned was not applied and stays "
-    "stored; installing this config may cut Home Assistant off "
+_STAYS_STORED = (
+    "was not applied and stays stored; installing this config may cut Home Assistant off "
     "until it re-provisions."
 )
+_NOT_APPLIED_TAIL = f" The key Home Assistant provisioned {_STAYS_STORED}"
 _LATE_PUSH_WARNING = (
-    "A key Home Assistant pushed while the config was being written was not applied and "
-    "stays stored; installing this config may cut Home Assistant off until it re-provisions."
+    f"A key Home Assistant pushed while the config was being written {_STAYS_STORED}"
 )
 
 
@@ -208,11 +207,7 @@ async def toggle_ignore(controller: DevicesController, *, name: str, ignore: boo
     # without waiting for a full re-discovery cycle.
     existing = controller.state.import_result.get(name)
     if existing is not None and existing.ignored != ignore:
-        updated = replace(existing, ignored=ignore)
-        controller.state.import_result[name] = updated
-        controller._db.bus.fire(
-            EventType.IMPORTABLE_DEVICE_ADDED, ImportableDeviceAddedData(device=updated)
-        )
+        on_importable_added(controller, replace(existing, ignored=ignore))
 
 
 def on_importable_added(controller: DevicesController, device: AdoptableDevice) -> None:
@@ -282,7 +277,7 @@ def load_ignored_devices(controller: DevicesController) -> None:
 
 def save_ignored_devices(controller: DevicesController) -> None:
     """Persist ``controller.state.ignored_devices`` to the on-disk JSON file."""
-    atomic_write(
+    atomic_write_preserving_mode(
         ignored_devices_storage_path(),
         dumps_indent({"ignored_devices": sorted(controller.state.ignored_devices)}),
     )
@@ -373,14 +368,12 @@ async def _write_keyed(
 def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome, key: str) -> _KeyOutcome:
     """Splice the pushed *key* into the YAML about to land; a refusal leaves it stored."""
     base = ctx.content if outcome.to_write is None else outcome.to_write
-    splice = _splice_pending_key(base, key, insert_api=ctx.insert_api)
+    splice = _splice_key(base, key, insert_api=ctx.insert_api)
     if splice.keyed is None:
         _LOGGER.warning(
             "Pushed key not applied to %s (%s); written key kept", ctx.path.name, splice.refusal
         )
-        return outcome._replace(
-            key_warning=f"{splice.refusal} The key Home Assistant pushed stays stored."
-        )
+        return outcome._replace(key_warning=f"{splice.refusal}{_NOT_APPLIED_TAIL}")
     return outcome._replace(to_write=splice.keyed, consume=key)
 
 
@@ -407,9 +400,7 @@ async def _mint_key(
     ctx: _AdoptionKeyContext, warning: PackageWarning | None, *, resolved: bool
 ) -> _KeyOutcome:
     """Splice a fresh key and re-check when the unkeyed YAML warned; strict when unresolved."""
-    splice = _splice_pending_key(
-        ctx.content, generate_api_encryption_key(), insert_api=ctx.insert_api
-    )
+    splice = _splice_key(ctx.content, generate_api_encryption_key(), insert_api=ctx.insert_api)
     if splice.keyed is None:
         _LOGGER.warning(
             "Could not splice a key into %s (%s); adopted without one",
@@ -444,7 +435,7 @@ async def _splice_pending_key_validated(
     """Splice the HA-provisioned *key* and let esphome check it; a refusal keeps the key pending."""
     if api_key_settled(ctx.content, key):
         return _KeyOutcome(warning, None, consume=key)
-    splice = _splice_pending_key(ctx.content, key, insert_api=ctx.insert_api)
+    splice = _splice_key(ctx.content, key, insert_api=ctx.insert_api)
     if splice.keyed is None:
         return _KeyOutcome(warning, f"{splice.refusal}{_NOT_APPLIED_TAIL}")
     # An OTA block the line walker can't read may still hold a key the splice
@@ -487,7 +478,7 @@ def _only_missing_inherited_key(warning: PackageWarning | None) -> bool:
     return warning is not None and all(_INHERIT_ERROR_MARK in m for m in warning.messages)
 
 
-def _splice_pending_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:
+def _splice_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:
     """Splice *key* into *content*; a missing ``api:`` block is added only with *insert_api*."""
     if (
         not insert_api

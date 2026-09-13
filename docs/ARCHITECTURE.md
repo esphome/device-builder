@@ -845,7 +845,7 @@ Baked into the ESPHome container. Legacy dashboard deprecated.
 | Checkbox | Pending HA key | Adoption result |
 |---|---|---|
 | unchecked | none | No `api:` block; encryption is never enabled behind the user's back |
-| checked | none | Fresh key minted, unless the package itself ships `encryption:` (the running device may hold an NVS-provisioned key a competing baked key would break); a package neither route resolves mints only when the unkeyed adoption's package warning names the missing api key to inherit and the keyed YAML validates clean. A mint skipped for a package's own OTA key or an unresolvable package warns in the adopt dialog |
+| checked | none | Fresh key minted, unless the package itself ships `encryption:` (the running device may hold an NVS-provisioned key a competing baked key would break); an unresolvable package mints only in the narrow case above. A mint skipped for a package's own OTA key or an unresolvable package warns in the adopt dialog |
 | unchecked | present | Key applied anyway (`api_encryption_key` forces the `api:` block) |
 | checked | present | Pending key applied verbatim; no fresh mint, no package resolve |
 
