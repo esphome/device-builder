@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NamedTuple
@@ -65,6 +64,10 @@ _NOT_APPLIED_TAIL = (
     "stored; installing this config may cut Home Assistant off "
     "until it re-provisions."
 )
+_LATE_PUSH_WARNING = (
+    "A key Home Assistant pushed while the config was being written was not applied and "
+    "stays stored; installing this config may cut Home Assistant off until it re-provisions."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,57 +125,58 @@ async def import_device(
     adoptable = controller.state.import_result.get(name)
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     full_config_import = "full_config" in package_import_url.partition("?")[2]
-    # Peek, don't pop; a failed import must keep the key for retry.
-    pending = controller._pending_keys.get(name)
-    content: str | None = None
-    try:
-        if full_config_import:
-            # A ``?full_config`` import downloads and rewrites the whole
-            # upstream YAML; keep delegating those to esphome's
-            # implementation. ``esphome.components.dashboard_import`` pulls
-            # in ~14 MB of upstream code, loaded lazily off the loop.
-            dashboard_import = await async_import_module("esphome.components.dashboard_import")
-            await run_in_executor(
-                dashboard_import.import_config,
-                path,
-                name,
-                friendly_name,
-                project_name,
-                package_import_url,
-                network,
-                encryption,
-            )
-        else:
-            content = generate_adoption_yaml(
-                name,
-                friendly_name,
-                project_name,
-                package_import_url,
-                network_provided=network != const.CONF_WIFI,
-                api_encryption=False,
-                api_encryption_key=pending["key"] if pending else None,
-            )
-            await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
-    except FileExistsError as exc:
-        msg = f"Configuration {configuration} already exists"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
+    async with _name_claimed(controller, name):
+        # Peek, don't pop; a failed import must keep the key for retry.
+        pending = controller._pending_keys.get(name)
+        content: str | None = None
+        try:
+            if full_config_import:
+                # A ``?full_config`` import downloads and rewrites the whole
+                # upstream YAML; keep delegating those to esphome's
+                # implementation. ``esphome.components.dashboard_import`` pulls
+                # in ~14 MB of upstream code, loaded lazily off the loop.
+                dashboard_import = await async_import_module("esphome.components.dashboard_import")
+                await run_in_executor(
+                    dashboard_import.import_config,
+                    path,
+                    name,
+                    friendly_name,
+                    project_name,
+                    package_import_url,
+                    network,
+                    encryption,
+                )
+            else:
+                content = generate_adoption_yaml(
+                    name,
+                    friendly_name,
+                    project_name,
+                    package_import_url,
+                    network_provided=network != const.CONF_WIFI,
+                    api_encryption=False,
+                    api_encryption_key=pending["key"] if pending else None,
+                )
+                await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
+        except FileExistsError as exc:
+            msg = f"Configuration {configuration} already exists"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
-    async with _adoption_in_flight(controller, name, path):
-        if content is None:
-            content = await controller._read_yaml_async(path)
-        ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
-        # Adopt tolerates a validator timeout on a short budget: the config's
-        # ``github://`` fetch can outlast a full validate.
-        warning = await controller._validate_rewritten_yaml_or_raise(
-            configuration,
-            content,
-            action="import",
-            tolerate_unavailable=True,
-            timeout=IMPORT_VALIDATE_TIMEOUT,
-            packages_span=ctx.packages_span(content),
-            failure_tail=". The import was rolled back; nothing was written.",
-        )
-        outcome = await _finalize_adoption_key(ctx, warning=warning, encryption=encryption)
+        async with _rolled_back_on_failure(path):
+            if content is None:
+                content = await controller._read_yaml_async(path)
+            ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
+            # Adopt tolerates a validator timeout on a short budget: the config's
+            # ``github://`` fetch can outlast a full validate.
+            warning = await controller._validate_rewritten_yaml_or_raise(
+                configuration,
+                content,
+                action="import",
+                tolerate_unavailable=True,
+                timeout=IMPORT_VALIDATE_TIMEOUT,
+                packages_span=ctx.packages_span(content),
+                failure_tail=". The import was rolled back; nothing was written.",
+            )
+            outcome = await _finalize_adoption_key(ctx, warning=warning, encryption=encryption)
 
     await controller._commit_history(configuration, f"Import {configuration}")
 
@@ -285,19 +289,30 @@ def save_ignored_devices(controller: DevicesController) -> None:
 
 
 @asynccontextmanager
-async def _adoption_in_flight(
-    controller: DevicesController, name: str, path: Path
-) -> AsyncIterator[None]:
-    """Hold *name* against the key handoff; a failure inside discards *path*."""
+async def _name_claimed(controller: DevicesController, name: str) -> AsyncIterator[None]:
+    """Hold *name* against the key handoff for the block, its rollback included."""
     controller.state.adopting.add(name)
     try:
         yield
     finally:
         controller.state.adopting.discard(name)
-        failure = sys.exception()
-        if failure is not None and not await _discarded(path) and isinstance(failure, Exception):
+
+
+@asynccontextmanager
+async def _rolled_back_on_failure(path: Path) -> AsyncIterator[None]:
+    """Discard *path* when the block fails; a file that stays behind is named in the error."""
+    failure: BaseException | None = None
+    try:
+        yield
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        if failure is not None and not await _try_discard(path) and isinstance(failure, Exception):
             _LOGGER.error(
-                "Adoption of %s failed and its YAML could not be removed", name, exc_info=failure
+                "Adoption of %s failed and its YAML could not be removed",
+                path.stem,
+                exc_info=failure,
             )
             raise CommandError(
                 ErrorCode.INTERNAL_ERROR,
@@ -306,7 +321,7 @@ async def _adoption_in_flight(
             ) from failure
 
 
-async def _discarded(path: Path) -> bool:
+async def _try_discard(path: Path) -> bool:
     """Remove *path* off the loop, shielded; ``False`` when the file may still be there."""
     try:
         await asyncio.shield(run_in_executor(_discard, path))
@@ -333,25 +348,32 @@ async def _finalize_adoption_key(
         outcome = await _mint_key_unless_package_encrypts(ctx, warning)
     else:
         outcome = _KeyOutcome(warning, None)
-    return await _write_keyed(ctx, outcome)
+    return await _write_keyed(ctx, outcome, handled=fresh)
 
 
-async def _write_keyed(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> _KeyOutcome:
-    """Write the keyed YAML, a key pushed meanwhile winning, and consume the pending key in it."""
-    outcome = _prefer_pushed_key(ctx, outcome)
+async def _write_keyed(
+    ctx: _AdoptionKeyContext, outcome: _KeyOutcome, *, handled: dict[str, str] | None
+) -> _KeyOutcome:
+    """Write the keyed YAML, a key pushed since *handled* winning, and consume the pending key."""
+    pushed = ctx.controller._pending_keys.get(ctx.name)
+    if pushed is not None and pushed != handled:
+        outcome = _prefer_pushed_key(ctx, outcome, pushed["key"])
     if outcome.to_write is not None:
         await ctx.controller._write_yaml_atomic_async(ctx.path, outcome.to_write)
     if outcome.consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, outcome.consume)
-    return outcome
-
-
-def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> _KeyOutcome:
-    """Swap a key pushed meanwhile into the YAML to write; a refused splice keeps it and says so."""
-    pushed = ctx.controller._pending_keys.get(ctx.name)
-    if outcome.to_write is None or pushed is None or pushed["key"] == outcome.consume:
+    if ctx.controller._pending_keys.get(ctx.name) in (None, pushed):
         return outcome
-    splice = _splice_pending_key(outcome.to_write, pushed["key"], insert_api=ctx.insert_api)
+    _LOGGER.warning("A key pushed for %s while its config was being written stays stored", ctx.name)
+    return outcome._replace(
+        key_warning=" ".join(filter(None, (outcome.key_warning, _LATE_PUSH_WARNING)))
+    )
+
+
+def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome, key: str) -> _KeyOutcome:
+    """Splice the pushed *key* into the YAML about to land; a refusal leaves it stored."""
+    base = ctx.content if outcome.to_write is None else outcome.to_write
+    splice = _splice_pending_key(base, key, insert_api=ctx.insert_api)
     if splice.keyed is None:
         _LOGGER.warning(
             "Pushed key not applied to %s (%s); written key kept", ctx.path.name, splice.refusal
@@ -359,7 +381,7 @@ def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> _KeyOu
         return outcome._replace(
             key_warning=f"{splice.refusal} The key Home Assistant pushed stays stored."
         )
-    return outcome._replace(to_write=splice.keyed, consume=pushed["key"])
+    return outcome._replace(to_write=splice.keyed, consume=key)
 
 
 async def _mint_key_unless_package_encrypts(

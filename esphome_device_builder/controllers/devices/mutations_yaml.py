@@ -157,7 +157,7 @@ async def validate_rewritten_yaml_or_raise(
     generators.
 
     *tolerate_unavailable* treats validator unavailability (timeout /
-    subprocess failure) as success: file kept, no cleanup; genuine
+    subprocess failure) as success; genuine
     YAML/schema errors still raise. *timeout* overrides the validator's
     round-trip budget.
 
