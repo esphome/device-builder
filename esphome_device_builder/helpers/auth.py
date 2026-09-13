@@ -14,12 +14,16 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 
 from ..constants import HA_SUPERVISOR_IP
-from .atomic_io import atomic_write
-from .json import JSONDecodeError, dumps, loads
+from .json import dumps, loads_mapping_or_warn
+from .storage import Store
+
+if TYPE_CHECKING:
+    from .storage import ShutdownRegister
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,18 +72,44 @@ class Session:
         return (now if now is not None else time.time()) >= self.expires_at
 
 
+def _encode(sessions: dict[str, Session]) -> bytes:
+    return dumps({"sessions": [asdict(s) for s in sessions.values()]})
+
+
+def _decode(raw: bytes) -> dict[str, Session]:
+    obj = loads_mapping_or_warn(raw, label="sessions store")
+    sessions: dict[str, Session] = {}
+    now = time.time()
+    for entry in (obj.get("sessions") if obj is not None else None) or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            session = Session(**entry)
+            if session.is_expired(now):
+                continue
+        except (TypeError, ValueError):
+            # Skip entries with unexpected fields or non-numeric timestamps
+            # so a corrupt row can't take down the whole store.
+            continue
+        sessions[session.token] = session
+    return sessions
+
+
 class SessionStore:
     """
-    Persistent store of opaque session tokens.
+    RAM-canonical session tokens; writes go through a debounced ``Store``.
 
     Tokens auto-expire after ``ttl_seconds`` of inactivity — the
     expiry is a sliding window refreshed on each ``validate`` call.
-    Persisted to a JSON file in the config directory so sessions
-    survive server restarts.
     """
 
-    def __init__(self, config_dir: Path, ttl_seconds: int = _TOKEN_TTL_SECONDS) -> None:
-        self._path = config_dir / _SESSIONS_FILENAME
+    def __init__(
+        self,
+        config_dir: Path,
+        *,
+        shutdown_register: ShutdownRegister,
+        ttl_seconds: int = _TOKEN_TTL_SECONDS,
+    ) -> None:
         self._ttl = ttl_seconds
         self._sessions: dict[str, Session] = {}
         # Tracks the ``expires_at`` that was last written to disk per token,
@@ -87,7 +117,24 @@ class SessionStore:
         # only nudges the expiry forward by a small amount.
         self._persisted_expires: dict[str, float] = {}
         self._lock = asyncio.Lock()
-        self._load()
+        self._store: Store[dict[str, Session]] = Store(
+            config_dir / _SESSIONS_FILENAME,
+            encoder=_encode,
+            decoder=_decode,
+            shutdown_register=shutdown_register,
+            name="sessions",
+        )
+
+    async def async_load(self) -> None:
+        """Seed RAM from disk; an unreadable file warns and starts fresh."""
+        try:
+            loaded = await self._store.async_load()
+        except OSError as err:
+            _LOGGER.warning("Could not read sessions file (%s); starting fresh", err)
+            return
+        if loaded is not None:
+            self._sessions = loaded
+            self._persisted_expires = {t: s.expires_at for t, s in loaded.items()}
 
     async def create(self) -> Session:
         """Mint a new session and return it."""
@@ -101,7 +148,7 @@ class SessionStore:
             )
             self._sessions[session.token] = session
             self._persisted_expires[session.token] = session.expires_at
-            await self._persist_async()
+            self._schedule_save()
             return session
 
     async def validate(self, token: str) -> Session | None:
@@ -120,14 +167,14 @@ class SessionStore:
             if session.is_expired(now):
                 del self._sessions[token]
                 self._persisted_expires.pop(token, None)
-                await self._persist_async()
+                self._schedule_save()
                 return None
             session.last_used_at = now
             session.expires_at = now + self._ttl
             persisted = self._persisted_expires.get(token, 0.0)
             if session.expires_at - persisted >= _PERSIST_DEBOUNCE_SECONDS:
                 self._persisted_expires[token] = session.expires_at
-                await self._persist_async()
+                self._schedule_save()
             return session
 
     async def revoke(self, token: str) -> None:
@@ -135,56 +182,25 @@ class SessionStore:
         async with self._lock:
             if self._sessions.pop(token, None) is not None:
                 self._persisted_expires.pop(token, None)
-                await self._persist_async()
+                self._schedule_save()
 
     async def revoke_all(self) -> None:
         """Drop every active session, forcing all clients to re-authenticate."""
         async with self._lock:
             self._sessions.clear()
             self._persisted_expires.clear()
-            await self._persist_async()
+            self._schedule_save()
 
     @property
     def active_count(self) -> int:
         """Number of currently valid sessions in the store."""
         return len(self._sessions)
 
-    async def _persist_async(self) -> None:
-        await asyncio.to_thread(self._persist)
+    def _schedule_save(self) -> None:
+        self._store.async_delay_save(self._snapshot)
 
-    def _load(self) -> None:
-        try:
-            raw = self._path.read_bytes()
-        except FileNotFoundError:
-            return
-        except OSError as err:
-            _LOGGER.warning("Could not read sessions file (%s); starting fresh", err)
-            return
-        try:
-            data = loads(raw)
-        except JSONDecodeError:
-            _LOGGER.warning("Sessions file is corrupt; starting fresh: %s", self._path)
-            return
-        if not isinstance(data, dict):
-            return
-        now = time.time()
-        for entry in data.get("sessions") or []:
-            if not isinstance(entry, dict):
-                continue
-            try:
-                session = Session(**entry)
-                if session.is_expired(now):
-                    continue
-            except (TypeError, ValueError):
-                # Skip entries with unexpected fields or non-numeric timestamps
-                # so a corrupt row can't take down the whole store.
-                continue
-            self._sessions[session.token] = session
-            self._persisted_expires[session.token] = session.expires_at
-
-    def _persist(self) -> None:
-        data = {"sessions": [asdict(s) for s in self._sessions.values()]}
-        atomic_write(self._path, dumps(data), mode=0o600)
+    def _snapshot(self) -> dict[str, Session]:
+        return {token: Session(**asdict(session)) for token, session in self._sessions.items()}
 
 
 # ---------------------------------------------------------------------------

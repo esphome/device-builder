@@ -498,7 +498,7 @@ class DeviceBuilder:
         self.version_history = VersionHistoryController(self)
         # Seed the RAM-canonical preferences (and migrate them out of the shared
         # sidecar on first run) before onboarding reads or mutates them.
-        await self.config.async_load()
+        await self._load_persisted_state()
         # Default pre-existing installs to the YAML experience before
         # any onboarding command can be served.
         await self.onboarding.migrate_preexisting_install()
@@ -589,6 +589,11 @@ class DeviceBuilder:
         """Unblock work gated on the listening socket being bound (mDNS advertise)."""
         self._serving_event.set()
 
+    async def _load_persisted_state(self) -> None:
+        """Load the settings sidecar and the session tokens before any command is served."""
+        await self.config.async_load()
+        await self.auth.start()
+
     async def stop(self) -> None:
         """Shut down the application: free network sockets first, then flush local state."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
@@ -664,6 +669,8 @@ class DeviceBuilder:
             await self.version_history.stop()
         if self.config is not None:
             await self.config.stop()
+        if self.auth is not None:
+            await self.auth.stop()
         # Cleanly drain the pool once nothing else can hand it work.
         # Two paths because the pool is created eagerly in ``__init__``
         # — calling ``stop()`` on an instance that never ran

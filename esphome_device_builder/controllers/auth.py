@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import api_command
 from ..helpers.auth import RateLimiter, SessionStore
+from ..helpers.storage import ShutdownCallback, drain_shutdown_callbacks
 from ..models import ErrorCode
 
 if TYPE_CHECKING:
@@ -30,8 +31,20 @@ class AuthController:
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
-        self.session_store = SessionStore(device_builder.settings.config_dir)
+        self._shutdown_callbacks: list[ShutdownCallback] = []
+        self.session_store = SessionStore(
+            device_builder.settings.config_dir,
+            shutdown_register=self._shutdown_callbacks.append,
+        )
         self.rate_limiter = RateLimiter()
+
+    async def start(self) -> None:
+        """Load the persisted sessions."""
+        await self.session_store.async_load()
+
+    async def stop(self) -> None:
+        """Flush a pending sessions write."""
+        await drain_shutdown_callbacks(self._shutdown_callbacks)
 
     @api_command("auth/login")
     async def login(
