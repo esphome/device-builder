@@ -2146,6 +2146,63 @@ async def test_import_device_full_config_with_local_includes_falls_back_to_the_p
     assert ctrl._db.editor.validate_yaml.await_count == 2
 
 
+async def test_import_device_full_config_with_present_includes_keeps_the_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A validation failure unrelated to the includes is not papered over by the fallback."""
+    (tmp_path / "boards").mkdir()
+    (tmp_path / "boards" / "rev2_4.yaml").write_text("esphome:\n  name: x\n", encoding="utf-8")
+    monkeypatch.setattr(
+        importable,
+        "fetch_full_config",
+        AsyncMock(return_value="packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(return_value=_INCLUDE_ERROR)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_device(
+            name="audio-33abec",
+            project_name="acme.speaker",
+            package_import_url="github://acme/full.yaml@main?full_config",
+        )
+
+    assert "Error reading file boards/rev2_4.yaml" in excinfo.value.message
+    assert ctrl._db.editor.validate_yaml.await_count == 1
+    assert not (tmp_path / "audio-33abec.yaml").exists()
+
+
+async def test_import_device_full_config_fallback_write_failure_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A disk error while writing the package form leaves nothing behind."""
+    monkeypatch.setattr(
+        importable,
+        "fetch_full_config",
+        AsyncMock(return_value="packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"),
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller.write_user_yaml", _boom
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(return_value=_INCLUDE_ERROR)
+
+    with pytest.raises(OSError, match="disk full"):
+        await ctrl.import_device(
+            name="audio-33abec",
+            project_name="acme.speaker",
+            package_import_url="github://acme/full.yaml@main?full_config",
+        )
+
+    assert not (tmp_path / "audio-33abec.yaml").exists()
+
+
 async def test_import_device_full_config_fallback_that_fails_rolls_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

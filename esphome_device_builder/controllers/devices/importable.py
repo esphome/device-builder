@@ -26,7 +26,6 @@ from ...helpers.yaml import (
     generate_api_encryption_key,
     read_yaml_scalar,
     upsert_api_encryption_key,
-    write_user_yaml,
 )
 from ...models import (
     AdoptableDevice,
@@ -158,13 +157,19 @@ async def import_device(
             ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
             try:
                 verdict = await _validate_adoption(controller, configuration, ctx)
-            except CommandError:
-                if not (full_config_import and (includes := local_includes(content))):
+            except CommandError as exc:
+                includes = _missing_includes(controller, content) if full_config_import else []
+                if not includes:
                     raise
                 # The single-file copy can never satisfy its ``!include``s;
                 # the package form resolves them inside the vendor's repository.
+                _LOGGER.info(
+                    "Full-config copy of %s failed validation, retrying as a package: %s",
+                    configuration,
+                    exc.message,
+                )
                 content = package_yaml()
-                await run_in_executor(write_user_yaml, path, content)
+                await controller._write_yaml_atomic_async(path, content)
                 ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import=False)
                 verdict = await _validate_adoption(controller, configuration, ctx)
                 fallback_warning = package_fallback_warning(includes)
@@ -235,6 +240,12 @@ async def _name_claimed(controller: DevicesController, name: str) -> AsyncIterat
         yield
     finally:
         controller.state.adopting.discard(name)
+
+
+def _missing_includes(controller: DevicesController, content: str) -> list[str]:
+    """Return the ``!include`` paths in *content* that the config dir does not hold."""
+    config_dir = controller._db.settings.config_dir
+    return [i for i in local_includes(content) if not (config_dir / i).exists()]
 
 
 async def _validate_adoption(

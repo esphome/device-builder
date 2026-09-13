@@ -273,6 +273,8 @@ def test_local_includes_walks_nested_tags_in_order() -> None:
     upstream = (
         "packages:\n  board: !include boards/rev2_4.yaml\n"
         "  rftx: !include boards/common/rftx_outputs.yaml\n"
+        "  cfg: !include\n    file: configs/home_assistant.yaml\n    vars:\n      id: 1\n"
+        "  odd: !include\n    vars:\n      id: 1\n"
         "esphome:\n  name: x\n"
         "script:\n  - id: a\n    then: !include_dir_list scripts/\n"
         "wifi:\n  ssid: !secret wifi_ssid\n"
@@ -281,9 +283,21 @@ def test_local_includes_walks_nested_tags_in_order() -> None:
     assert local_includes(upstream) == [
         "boards/rev2_4.yaml",
         "boards/common/rftx_outputs.yaml",
+        "configs/home_assistant.yaml",
+        "!include",
         "scripts/",
     ]
     assert local_includes("esphome:\n  name: x\n") == []
+
+
+def test_undecidable_suffix_value_is_refused() -> None:
+    upstream = "esphome:\n  name: neato\n  name_add_mac_suffix: ${add_suffix}\n"
+
+    with pytest.raises(CommandError) as excinfo:
+        materialize_full_config(upstream, "neato-33abec", None)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "${add_suffix}" in excinfo.value.message
 
 
 def test_package_fallback_warning_lists_three_then_counts() -> None:
