@@ -1,4 +1,4 @@
-"""Pin the component-alias skip, dependency respell, and alias-free shipped catalog."""
+"""Pin the component-alias section skip and the catalog alias fold."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 import esphome_device_builder
 
@@ -42,7 +44,6 @@ def test_component_aliases_mirror_the_installed_loader() -> None:
     loader = sync_components._get_esphome_loader()
     expected = {legacy: meta.canonical for legacy, meta in loader.get_alias_metadata().items()}
     assert sync_components._component_aliases() == expected
-    assert expected["rp2040"] == "rp2"
 
 
 def test_build_entries_skips_an_alias_section(tmp_path: Path) -> None:
@@ -60,18 +61,19 @@ def test_build_automations_skips_alias_sections(tmp_path: Path) -> None:
     assert catalog["triggers"][0]["applies_to"] == ["improv_ble"]
 
 
-def test_respell_alias_dependencies() -> None:
-    entries = [
-        {"id": "rp2040_ble", "dependencies": ["logger", "rp2040"]},
-        {"id": "output.rp2040_pwm", "dependencies": ["rp2040", "rp2"]},
-        {"id": "binary_sensor.gpio", "dependencies": ["esp32_improv"]},
-        {"id": "sensor.dht", "dependencies": ["esp32"]},
-        {"id": "wifi", "dependencies": None},
+_ALIASES = {"esp32_improv": "improv_ble", "rp2040": "rp2"}
+
+
+def _catalog(*deps: list[str] | None) -> list[dict]:
+    return [{"id": "improv_ble"}, {"id": "rp2"}] + [
+        {"id": f"leaf{i}", "dependencies": d} for i, d in enumerate(deps)
     ]
-    sync_components._respell_alias_dependencies(
-        entries, {"esp32_improv": "improv_ble", "rp2040": "rp2"}
-    )
-    assert [e["dependencies"] for e in entries] == [
+
+
+def test_fold_respells_alias_dependencies() -> None:
+    entries = _catalog(["logger", "rp2040"], ["rp2040", "rp2"], ["esp32_improv"], ["esp32"], None)
+    sync_components._fold_component_aliases(entries, _ALIASES, check_canonicals=True)
+    assert [e.get("dependencies") for e in entries[2:]] == [
         ["logger", "rp2"],
         ["rp2"],
         ["improv_ble"],
@@ -80,18 +82,22 @@ def test_respell_alias_dependencies() -> None:
     ]
 
 
-def test_shipped_catalog_carries_no_installed_esphome_alias() -> None:
-    aliases = set(sync_components._component_aliases())
-    assert aliases
-    index = json.loads((_DEFINITIONS / "components.index.json").read_text())
-    for entry in index["components"]:
-        assert entry["id"] not in aliases
-        assert not aliases & set(entry.get("dependencies") or [])
-    automations = json.loads((_DEFINITIONS / "automations.index.json").read_text())
-    for entries in automations.values():
-        if isinstance(entries, list):
-            for entry in entries:
-                assert entry["id"].split(".", 1)[0] not in aliases
+def test_fold_fails_on_an_untagged_alias_entry() -> None:
+    entries = [*_catalog(), {"id": "esp32_improv"}]
+    with pytest.raises(SystemExit, match="esp32_improv"):
+        sync_components._fold_component_aliases(entries, _ALIASES, check_canonicals=True)
+
+
+def test_fold_fails_on_a_missing_canonical() -> None:
+    entries = [{"id": "rp2"}]
+    with pytest.raises(SystemExit, match="improv_ble"):
+        sync_components._fold_component_aliases(entries, _ALIASES, check_canonicals=True)
+
+
+def test_fold_skips_the_canonical_check_on_a_limited_run() -> None:
+    entries = [{"id": "rp2"}]
+    sync_components._fold_component_aliases(entries, _ALIASES, check_canonicals=False)
+    assert entries == [{"id": "rp2"}]
 
 
 def test_shipped_rp2_body_is_the_real_schema() -> None:

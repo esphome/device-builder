@@ -1318,7 +1318,7 @@ def build_catalog(
             out.append(entry)
 
     # Before every later pass so they all see final ids.
-    _respell_alias_dependencies(out, _component_aliases())
+    _fold_component_aliases(out, _component_aliases(), check_canonicals=not limit)
 
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
@@ -1413,8 +1413,20 @@ def _component_aliases() -> dict[str, str]:
     return {legacy: meta.canonical for legacy, meta in loader.get_alias_metadata().items()}
 
 
-def _respell_alias_dependencies(entries: list[dict], aliases: dict[str, str]) -> None:
-    """Respell alias-spelled ``dependencies`` to the canonical component id."""
+def _fold_component_aliases(
+    entries: list[dict], aliases: dict[str, str], *, check_canonicals: bool
+) -> None:
+    """
+    Respell alias-spelled ``dependencies`` to the canonical component id.
+
+    Fails the sync when an alias id reached *entries* (the bundle dropped its
+    ``alias_of`` tag) or, with *check_canonicals*, an alias's canonical is missing.
+    """
+    ids = {entry["id"] for entry in entries}
+    if leaked := sorted(ids & aliases.keys()):
+        raise SystemExit(f"schema bundle ships component ALIASES without alias_of: {leaked}")
+    if check_canonicals and (orphaned := sorted(set(aliases.values()) - ids)):
+        raise SystemExit(f"component ALIAS canonicals missing from the catalog: {orphaned}")
     for entry in entries:
         deps = entry.get("dependencies")
         if deps and any(dep in aliases for dep in deps):

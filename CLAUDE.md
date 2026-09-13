@@ -419,6 +419,10 @@ against legacy behaviour before assuming the simpler version suffices.
   rules, failing when the top-level respell can't express an alias (a
   platform domain, or a provider whose name appears as `- platform:`
   values); acknowledge bespoke handling in `_HANDLED_ALIASES`. The
+  catalog reads the same map: schema sections tagged `alias_of` never
+  become component or automation entries, alias-spelled `dependencies`
+  respell to the canonical id, and the sync fails when an alias id
+  leaks into the catalog or its canonical is missing. The
   led-strip `rgb_order`/`is_rgbw`/`is_wrgb`→`channel_colors`
   consolidation (esphome/esphome#18474) is the hybrid shape: the value
   fold is coded once in `helpers/migrations.py`
