@@ -61,7 +61,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from .async_ import run_in_executor
-from .atomic_io import atomic_write, atomic_write_preserving_mode
+from .atomic_io import atomic_write
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class Store[T]:
         decoder: Callable[[bytes], T],
         shutdown_register: ShutdownRegister,
         name: str | None = None,
-        mode: int | None = 0o600,
+        mode: int = 0o600,
     ) -> None:
         """
         Bind the store to *path* + caller-supplied codec hooks.
@@ -111,8 +111,7 @@ class Store[T]:
         error log lines; defaults to *path*. *mode* is the
         POSIX mode applied to the file + staging tempfile
         (``0o600`` — owner-only — by default since the dominant
-        consumers hold cryptographic state); ``None`` keeps an
-        existing file's mode and creates a new one at ``0o644``.
+        consumers hold cryptographic state).
         """
         self._path = path
         self._encoder = encoder
@@ -224,10 +223,7 @@ class Store[T]:
         """Encode + atomic-write inside a single executor hop."""
         payload = self._encoder(value)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        if self._mode is None:
-            atomic_write_preserving_mode(self._path, payload)
-        else:
-            atomic_write(self._path, payload, mode=self._mode)
+        atomic_write(self._path, payload, mode=self._mode)
 
     async def async_save_now(self) -> None:
         """Cancel any pending delay + flush whatever's queued.

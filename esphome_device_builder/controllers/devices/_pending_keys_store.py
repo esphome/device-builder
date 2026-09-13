@@ -6,7 +6,7 @@ import base64
 import logging
 from typing import TYPE_CHECKING
 
-from ...helpers.json import JSONDecodeError, dumps_indent, loads
+from ...helpers.json import dumps_indent, loads_mapping_or_warn
 from ...helpers.storage import Store
 
 if TYPE_CHECKING:
@@ -25,13 +25,8 @@ def _encode(data: dict[str, dict[str, str]]) -> bytes:
 
 
 def _decode(raw: bytes) -> dict[str, dict[str, str]]:
-    try:
-        obj = loads(raw)
-    except JSONDecodeError:
-        _LOGGER.warning("pending keys store: corrupt JSON, starting empty")
-        return {}
-    if not isinstance(obj, dict):
-        _LOGGER.warning("pending keys store: non-mapping JSON, starting empty")
+    obj = loads_mapping_or_warn(raw, label="pending keys store")
+    if obj is None:
         return {}
     decoded = {k: v for k, v in obj.items() if isinstance(k, str) and _valid_entry(v)}
     if dropped := len(obj) - len(decoded):

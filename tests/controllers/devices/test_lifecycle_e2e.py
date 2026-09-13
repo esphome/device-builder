@@ -159,8 +159,6 @@ async def test_start_runs_full_initialisation_chain(
         "esphome_device_builder.controllers.devices.controller.find_esphome_cmd",
         lambda: ["python", "-m", "esphome"],
     )
-    # Seed an ignored-devices file so the store's load has something
-    # real to process — otherwise it's silently a no-op.
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.controller.ignored_devices_storage_path",
         lambda: tmp_path / "ignored-devices.json",
@@ -207,7 +205,7 @@ async def test_start_pre_scan_loads_complete_before_scan(
     monkeypatch.setattr(controller._metadata_store, "async_load", _async_recorder("metadata"))
     monkeypatch.setattr(controller._pending_keys, "async_load", _async_recorder("pending_keys"))
     monkeypatch.setattr(controller, "migrate_board_id_user_set", _async_recorder("migrate"))
-    monkeypatch.setattr(controller._ignored_devices, "async_load", _async_recorder("ignored"))
+    monkeypatch.setattr(controller, "_load_ignored_devices", _async_recorder("ignored"))
     monkeypatch.setattr(controller._scanner, "scan", _async_recorder("scan"))
     with (
         patch.multiple(controller._state_monitor, start=AsyncMock(), stop=AsyncMock()),

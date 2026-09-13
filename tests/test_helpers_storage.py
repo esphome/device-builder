@@ -496,26 +496,3 @@ async def test_load_propagates_decoder_errors(tmp_path: Path) -> None:
 async def test_path_property_exposes_store_path(store_path: Path, store: Store[bytes]) -> None:
     """The ``path`` property surfaces the store's on-disk location."""
     assert store.path == store_path
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
-async def test_mode_none_keeps_an_existing_files_mode(
-    recorder: _Recorder, store_path: Path
-) -> None:
-    """``mode=None`` leaves an operator-set mode alone and creates a new file world-readable."""
-    store = Store[bytes](
-        store_path,
-        encoder=_identity_encoder,
-        decoder=_identity_decoder,
-        shutdown_register=recorder.shutdown_callbacks.append,
-        mode=None,
-    )
-    store.async_delay_save(lambda: b"new")
-    await store.async_save_now()
-    assert stat.S_IMODE(store_path.stat().st_mode) == 0o644
-
-    store_path.chmod(0o600)
-    store.async_delay_save(lambda: b"again")
-    await store.async_save_now()
-    assert stat.S_IMODE(store_path.stat().st_mode) == 0o600
-    assert store_path.read_bytes() == b"again"

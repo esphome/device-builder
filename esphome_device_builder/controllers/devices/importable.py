@@ -199,7 +199,7 @@ async def toggle_ignore(controller: DevicesController, *, name: str, ignore: boo
         controller.state.ignored_devices.add(name)
     else:
         controller.state.ignored_devices.discard(name)
-    controller._ignored_devices.save()
+    controller._schedule_ignored_devices_save()
     # Mirror the new flag onto the cached AdoptableDevice and
     # re-publish ADDED so subscribed frontends update the badge
     # without waiting for a full re-discovery cycle.

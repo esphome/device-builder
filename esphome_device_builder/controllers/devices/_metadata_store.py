@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ...helpers.async_ import run_in_executor
-from ...helpers.json import JSONDecodeError, dumps_indent, loads
+from ...helpers.json import dumps_indent, loads_mapping_or_warn
 from ...helpers.metadata_sidecar import _load_metadata, metadata_transaction
 from ...helpers.storage import ShutdownRegister, Store
 
@@ -49,12 +49,8 @@ def _encode(data: dict[str, dict[str, Any]]) -> bytes:
 
 
 def _decode(raw: bytes) -> dict[str, dict[str, Any]]:
-    try:
-        obj = loads(raw)
-    except JSONDecodeError:
-        _LOGGER.warning("device metadata store: corrupt JSON, starting empty")
-        return {}
-    if not isinstance(obj, dict):
+    obj = loads_mapping_or_warn(raw, label="device metadata store")
+    if obj is None:
         return {}
     # Drop fields the store no longer owns so renamed / retired keys
     # don't linger on disk past the next debounced save.

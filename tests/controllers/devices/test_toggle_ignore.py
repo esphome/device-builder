@@ -1,24 +1,4 @@
-"""End-to-end coverage for ``DevicesController.toggle_ignore``.
-
-The handler manages the ``ignored_devices`` set (used by the
-import-list filter), schedules a debounced save through the
-ignored-devices store, and — when an
-``AdoptableDevice`` is currently cached for that name — mirrors
-the new flag onto the cache + re-publishes ``IMPORTABLE_DEVICE_ADDED``
-so subscribed frontends update the badge without waiting for the
-next discovery cycle.
-
-Four contracts pinned:
-
-1. ``ignore=True`` adds the name to the set; ``ignore=False`` removes it.
-2. The scheduled save lands the legacy file shape on disk once flushed.
-3. A cached ``AdoptableDevice`` gets its ``ignored`` flag mirrored,
-   and an ``IMPORTABLE_DEVICE_ADDED`` event fires with the updated
-   model so the frontend re-renders the badge.
-4. The event-fire branch is gated on a meaningful state change —
-   re-asserting the same ``ignored`` value doesn't fire a duplicate
-   event.
-"""
+"""End-to-end coverage for ``DevicesController.toggle_ignore``."""
 
 from __future__ import annotations
 
@@ -37,20 +17,11 @@ def _seed_for_toggle(
     tmp_path: Path,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> tuple[list[Event], Path]:
-    """Wire ``import_result`` + the events capture for the toggle path.
-
-    Returns ``(events, ignored_path)`` so the test can assert
-    against fired events and the on-disk state of the ignored
-    list; the factory's store writes under ``tmp_path``.
-
-    The events list is the live capture from
-    ``capture_devices_events`` — only ``IMPORTABLE_DEVICE_ADDED``
-    is subscribed since that's the toggle path's only broadcast.
-    """
+    """Wire ``import_result`` + the events capture; returns ``(events, ignored_path)``."""
     fired = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_ADDED)
     controller.state.import_result = {}
     controller.state.ignored_devices.clear()
-    return fired, tmp_path / "ignored-devices.json"
+    return fired, controller._ignored_devices_store.path
 
 
 async def test_toggle_ignore_true_adds_to_set_and_persists(
@@ -65,7 +36,7 @@ async def test_toggle_ignore_true_adds_to_set_and_persists(
     await controller.toggle_ignore(name="kitchen-1a2b3c")
 
     assert "kitchen-1a2b3c" in controller.state.ignored_devices
-    await controller._ignored_devices.async_save_now()
+    await controller._ignored_devices_store.async_save_now()
     assert ignored_path.exists()
     payload = json.loads(ignored_path.read_text("utf-8"))
     assert payload == {"ignored_devices": ["kitchen-1a2b3c"]}
@@ -90,7 +61,7 @@ async def test_toggle_ignore_false_removes_and_persists(
     await controller.toggle_ignore(name="kitchen-1a2b3c", ignore=False)
 
     assert "kitchen-1a2b3c" not in controller.state.ignored_devices
-    await controller._ignored_devices.async_save_now()
+    await controller._ignored_devices_store.async_save_now()
     payload = json.loads(ignored_path.read_text("utf-8"))
     assert payload == {"ignored_devices": []}
 
