@@ -1318,7 +1318,7 @@ def build_catalog(
             out.append(entry)
 
     # Before every later pass so they all see final ids.
-    _fold_component_aliases(out, _collect_schema_aliases(schema_dir))
+    _respell_alias_dependencies(out, _component_aliases())
 
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
@@ -1405,31 +1405,16 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
             entry["multi_conf"] = True
 
 
-def _is_alias_section(section: dict) -> bool:
-    """Report whether a schema top-level section is a component-ALIAS copy of another."""
-    return bool(section.get("alias_of"))
+def _component_aliases() -> dict[str, str]:
+    """Map each esphome component ALIAS to its canonical component id."""
+    loader = _get_esphome_loader()
+    if loader is None:
+        return {}
+    return {legacy: meta.canonical for legacy, meta in loader.get_alias_metadata().items()}
 
 
-def _collect_schema_aliases(schema_dir: Path) -> dict[str, str]:
-    """Map every ``alias_of``-tagged schema top key to its canonical component id."""
-    aliases: dict[str, str] = {}
-    for path in iter_schema_files(schema_dir):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            _LOGGER.exception("Failed to read %s", path.name)
-            continue
-        for top_key, section in raw.items():
-            if isinstance(section, dict) and _is_alias_section(section):
-                aliases[top_key] = str(section["alias_of"])
-    return aliases
-
-
-def _fold_component_aliases(entries: list[dict], aliases: dict[str, str]) -> None:
-    """Drop alias-keyed entries and respell alias-spelled ``dependencies`` to canonical."""
-    if not aliases:
-        return
-    entries[:] = [entry for entry in entries if entry["id"] not in aliases]
+def _respell_alias_dependencies(entries: list[dict], aliases: dict[str, str]) -> None:
+    """Respell alias-spelled ``dependencies`` to the canonical component id."""
     for entry in entries:
         deps = entry.get("dependencies")
         if deps and any(dep in aliases for dep in deps):
@@ -2957,7 +2942,7 @@ def build_entries_from_file(
     for top_key, section in raw.items():
         if top_key in _HIDDEN_TOP_LEVEL:
             continue
-        if not isinstance(section, dict) or _is_alias_section(section):
+        if not isinstance(section, dict) or section.get("alias_of"):
             continue
         entry = build_component_entry(top_key, section, index, schema_dir, image_map)
         if entry is not None:
@@ -4247,7 +4232,7 @@ def _emit_platform_capabilities_index() -> None:
     import esphome
     from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
     from esphome.components.esp32.const import KEY_VARIANT, VARIANTS
-    from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
+    from esphome.components.rp2.boards import BOARDS as RP2_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
 
     # Static-per-platform download types. For esp32 / esp8266 / rp2040
@@ -4296,7 +4281,7 @@ def _emit_platform_capabilities_index() -> None:
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
         "rp2040_no_wifi_boards": sorted(
-            board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
+            board for board, info in RP2_BOARDS.items() if not info.get("wifi", False)
         ),
         "download_types": download_types,
     }
@@ -9896,7 +9881,7 @@ def build_automations(  # noqa: C901
             _LOGGER.exception("Failed to read %s", path.name)
             continue
         for top_key, section in raw.items():
-            if not isinstance(section, dict) or _is_alias_section(section):
+            if not isinstance(section, dict) or section.get("alias_of"):
                 continue
             # ``top_key`` is the schema's raw ``<stem>.<base>`` form
             # (e.g. ``template.switch``). ``wire_prefix`` flips it to
