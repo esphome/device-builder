@@ -1,12 +1,4 @@
-"""Tests for the ``devices/import`` command path.
-
-The normal adoption writes :func:`generate_adoption_yaml`'s shape
-directly; a ``?full_config`` import URL fetches the upstream YAML
-and writes it, pinned to the device when it adds a MAC suffix. When
-the target YAML already exists the write raises ``FileExistsError``,
-re-surfaced as a ``CommandError`` so the dashboard can show a useful
-message.
-"""
+"""Tests for the ``devices/import`` command path."""
 
 from __future__ import annotations
 
@@ -271,12 +263,8 @@ async def test_import_device_full_config_url_fetches_and_writes_the_upstream_yam
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A ``?full_config`` import writes the fetched YAML untouched when ``esphome:`` is packaged."""
-    upstream = (
-        "substitutions:\n  id: '1'\n  name: audio-${id}\n"
-        "packages:\n  board: !include boards/rev2_4.yaml\n"
-        "logger:\n  level: WARN\n"
-    )
+    """A self-contained ``?full_config`` YAML is written untouched."""
+    upstream = "substitutions:\n  id: '1'\n  name: audio-${id}\nlogger:\n  level: WARN\n"
     fetch = AsyncMock(return_value=upstream)
     monkeypatch.setattr(importable, "fetch_full_config", fetch)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1511,9 +1499,7 @@ async def test_import_device_full_config_splice_that_fails_validation_keeps_both
     monkeypatch.setattr(
         importable,
         "fetch_full_config",
-        _full_config_stub(
-            'api:\n  encryption:\n    key: "OLDKEY=="\nota: !include common/ota.yaml\n'
-        ),
+        _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\nota: !secret ota_block\n'),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -2097,44 +2083,33 @@ async def test_import_device_full_config_never_gets_the_package_exemption(
     assert not (tmp_path / "kitchen.yaml").exists()
 
 
-_INCLUDE_ERROR = {
-    "yaml_errors": [],
-    "validation_errors": [
-        {
-            "message": "Error reading file boards/rev2_4.yaml",
-            "range": {
-                "document": "<file>",
-                "start_line": 1,
-                "start_col": 2,
-                "end_line": 2,
-                "end_col": 0,
-            },
-        },
-    ],
-}
-_CLEAN = {"yaml_errors": [], "validation_errors": []}
+_INCLUDING_UPSTREAM = "packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"
 
 
-async def test_import_device_full_config_with_local_includes_falls_back_to_the_package(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A full config that ``!include``s local files is imported as a package, with a warning."""
-    monkeypatch.setattr(
-        importable,
-        "fetch_full_config",
-        AsyncMock(return_value="packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"),
-    )
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=[_INCLUDE_ERROR, _CLEAN])
-
-    result = await ctrl.import_device(
+async def _adopt_full_config(ctrl: DevicesController) -> dict[str, Any]:
+    return await ctrl.import_device(
         name="audio-33abec",
         project_name="acme.speaker",
         package_import_url="github://acme/full.yaml@main?full_config",
     )
+
+
+async def test_import_device_full_config_with_local_includes_imports_the_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A full config that ``!include``s local files lands as a package, with a warning."""
+    monkeypatch.setattr(
+        importable, "fetch_full_config", AsyncMock(return_value=_INCLUDING_UPSTREAM)
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={"yaml_errors": [], "validation_errors": []}
+    )
+
+    result = await _adopt_full_config(ctrl)
 
     assert result["configuration"] == "audio-33abec.yaml"
     assert "boards/rev2_4.yaml" in result["warning"]
@@ -2143,87 +2118,26 @@ async def test_import_device_full_config_with_local_includes_falls_back_to_the_p
     assert 'acme.speaker: "github://acme/full.yaml@main"\n' in content
     assert "full_config" not in content
     assert "!include" not in content
-    assert ctrl._db.editor.validate_yaml.await_count == 2
-
-
-async def test_import_device_full_config_with_present_includes_keeps_the_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A validation failure unrelated to the includes is not papered over by the fallback."""
-    (tmp_path / "boards").mkdir()
-    (tmp_path / "boards" / "rev2_4.yaml").write_text("esphome:\n  name: x\n", encoding="utf-8")
-    monkeypatch.setattr(
-        importable,
-        "fetch_full_config",
-        AsyncMock(return_value="packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"),
-    )
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-    ctrl._db.editor.validate_yaml = AsyncMock(return_value=_INCLUDE_ERROR)
-
-    with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_device(
-            name="audio-33abec",
-            project_name="acme.speaker",
-            package_import_url="github://acme/full.yaml@main?full_config",
-        )
-
-    assert "Error reading file boards/rev2_4.yaml" in excinfo.value.message
     assert ctrl._db.editor.validate_yaml.await_count == 1
-    assert not (tmp_path / "audio-33abec.yaml").exists()
 
 
-async def test_import_device_full_config_fallback_write_failure_rolls_back(
+async def test_import_device_full_config_package_that_fails_rolls_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A disk error while writing the package form leaves nothing behind."""
+    """A package form that doesn't validate either leaves nothing behind."""
     monkeypatch.setattr(
-        importable,
-        "fetch_full_config",
-        AsyncMock(return_value="packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"),
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller.write_user_yaml", _boom
+        importable, "fetch_full_config", AsyncMock(return_value=_INCLUDING_UPSTREAM)
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
-    ctrl._db.editor.validate_yaml = AsyncMock(return_value=_INCLUDE_ERROR)
-
-    with pytest.raises(OSError, match="disk full"):
-        await ctrl.import_device(
-            name="audio-33abec",
-            project_name="acme.speaker",
-            package_import_url="github://acme/full.yaml@main?full_config",
-        )
-
-    assert not (tmp_path / "audio-33abec.yaml").exists()
-
-
-async def test_import_device_full_config_fallback_that_fails_rolls_back(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A package fallback that doesn't validate either leaves nothing behind."""
-    monkeypatch.setattr(
-        importable,
-        "fetch_full_config",
-        AsyncMock(return_value="packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"),
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={"yaml_errors": [], "validation_errors": [{"message": "unknown board"}]}
     )
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=[_INCLUDE_ERROR, _INCLUDE_ERROR])
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_device(
-            name="audio-33abec",
-            project_name="acme.speaker",
-            package_import_url="github://acme/full.yaml@main?full_config",
-        )
+        await _adopt_full_config(ctrl)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert not (tmp_path / "audio-33abec.yaml").exists()

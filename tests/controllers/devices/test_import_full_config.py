@@ -96,6 +96,16 @@ def test_quoted_suffix_value_is_honoured() -> None:
     assert out == "esphome:\n  name: neato-33abec\n  name_add_mac_suffix: false\n"
 
 
+def test_undecidable_suffix_value_is_refused() -> None:
+    upstream = "esphome:\n  name: neato\n  name_add_mac_suffix: ${add_suffix}\n"
+
+    with pytest.raises(CommandError) as excinfo:
+        materialize_full_config(upstream, "neato-33abec", None)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "${add_suffix}" in excinfo.value.message
+
+
 def test_friendly_name_upsert_refusal_is_typed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         import_full_config,
@@ -121,7 +131,15 @@ def test_friendly_name_upsert_refusal_is_typed(monkeypatch: pytest.MonkeyPatch) 
     ],
 )
 def test_other_shapes_are_returned_verbatim(upstream: str) -> None:
-    assert materialize_full_config(upstream, "neato-33abec", "Speaker") == upstream
+    assert materialize_full_config(upstream, "neato-33abec", None) == upstream
+
+
+def test_friendly_name_lands_without_a_suffix_rewrite() -> None:
+    upstream = "esphome:\n  name: neato\n\nlogger:\n"
+
+    out = materialize_full_config(upstream, "neato-33abec", "Speaker 33abec")
+
+    assert out == "esphome:\n  name: neato\n  friendly_name: Speaker 33abec\n\nlogger:\n"
 
 
 @pytest.mark.parametrize(
@@ -274,7 +292,6 @@ def test_local_includes_walks_nested_tags_in_order() -> None:
         "packages:\n  board: !include boards/rev2_4.yaml\n"
         "  rftx: !include boards/common/rftx_outputs.yaml\n"
         "  cfg: !include\n    file: configs/home_assistant.yaml\n    vars:\n      id: 1\n"
-        "  odd: !include\n    vars:\n      id: 1\n"
         "esphome:\n  name: x\n"
         "script:\n  - id: a\n    then: !include_dir_list scripts/\n"
         "wifi:\n  ssid: !secret wifi_ssid\n"
@@ -284,26 +301,15 @@ def test_local_includes_walks_nested_tags_in_order() -> None:
         "boards/rev2_4.yaml",
         "boards/common/rftx_outputs.yaml",
         "configs/home_assistant.yaml",
-        "!include",
         "scripts/",
     ]
     assert local_includes("esphome:\n  name: x\n") == []
 
 
-def test_undecidable_suffix_value_is_refused() -> None:
-    upstream = "esphome:\n  name: neato\n  name_add_mac_suffix: ${add_suffix}\n"
-
-    with pytest.raises(CommandError) as excinfo:
-        materialize_full_config(upstream, "neato-33abec", None)
-
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "${add_suffix}" in excinfo.value.message
-
-
 def test_package_fallback_warning_lists_three_then_counts() -> None:
     assert package_fallback_warning(["a.yaml", "b.yaml"]) == (
-        "This configuration includes local files (a.yaml, b.yaml) that a full-config "
+        "This configuration includes local files (a.yaml; b.yaml) that a full-config "
         "import doesn't fetch, so it was imported as a package referencing the vendor's "
         "repository instead."
     )
-    assert "(a, b, c and 2 more)" in package_fallback_warning(["a", "b", "c", "d", "e"])
+    assert "(a; b; c (+2 more))" in package_fallback_warning(["a", "b", "c", "d", "e"])

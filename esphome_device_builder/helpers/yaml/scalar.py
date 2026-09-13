@@ -282,7 +282,7 @@ FALSY_BOOL_STRINGS = frozenset({"false", "no", "off", "disable"})
 
 def parse_config_boolean(value: str) -> bool | None:
     """Decode *value* per esphome's ``cv.boolean``; ``None`` when it isn't one."""
-    lowered = value.strip().lower()
+    lowered = _strip_yaml_quotes(value).lower()
     if lowered in TRUTHY_BOOL_STRINGS:
         return True
     if lowered in FALSY_BOOL_STRINGS:

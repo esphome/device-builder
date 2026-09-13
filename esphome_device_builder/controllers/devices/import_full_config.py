@@ -7,6 +7,7 @@ import logging
 
 import aiohttp
 import yaml
+from esphome.const import CONF_FILE
 
 from ...helpers.api import CommandError
 from ...helpers.lazy_module import async_import_module
@@ -14,7 +15,6 @@ from ...helpers.yaml import (
     ESPHOME_NAME_ADD_MAC_SUFFIX_PATH,
     FastestSafeLoader,
     YamlUpsertNotSupportedError,
-    _strip_yaml_quotes,
     parse_config_boolean,
     read_yaml_scalar,
     rewrite_rename_content,
@@ -22,6 +22,7 @@ from ...helpers.yaml import (
     upsert_yaml_leaf_under_top_block,
 )
 from ...models import ErrorCode
+from .mutations_yaml import summarise
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +32,6 @@ _MAX_CONFIG_BYTES = 1 << 20
 _READ_CHUNK = 64 * 1024
 _TRANSIENT_CODES = frozenset({ErrorCode.UNAVAILABLE, ErrorCode.RATE_LIMITED})
 _INCLUDE_TAG_PREFIX = "!include"
-_LISTED_INCLUDES = 3
 _PIN_REMEDY = (
     "The upstream config adds a MAC suffix, so its name must be pinned to this device "
     "before it can be adopted; create the device by hand from the upstream YAML with "
@@ -48,11 +48,13 @@ async def fetch_full_config(package_import_url: str) -> str:
         raise CommandError(
             ErrorCode.INVALID_ARGS, f"Unsupported import URL {package_import_url}: {exc}"
         ) from exc
-    for attempt in range(1, _MAX_ATTEMPTS):
+    attempt = 0
+    while True:
+        attempt += 1
         try:
             return await _fetch_once(url)
         except CommandError as exc:
-            if exc.code not in _TRANSIENT_CODES:
+            if exc.code not in _TRANSIENT_CODES or attempt == _MAX_ATTEMPTS:
                 raise
             delay = 2**attempt
             _LOGGER.warning(
@@ -64,25 +66,23 @@ async def fetch_full_config(package_import_url: str) -> str:
                 _MAX_ATTEMPTS,
             )
             await asyncio.sleep(delay)
-    return await _fetch_once(url)
 
 
 def materialize_full_config(contents: str, name: str, friendly_name: str | None) -> str:
-    """Pin *contents* to the adopted device when its ``esphome:`` adds a MAC suffix."""
+    """Pin *contents* to the adopted device: its MAC-suffixed name and the chosen friendly name."""
+    text = contents
     suffix = read_yaml_scalar(contents, ESPHOME_NAME_ADD_MAC_SUFFIX_PATH)
-    if suffix is None:
-        return contents
-    enabled = parse_config_boolean(_strip_yaml_quotes(suffix))
-    if enabled is None:
-        raise CommandError(
-            ErrorCode.INVALID_ARGS,
-            f"Can't tell whether the upstream config adds a MAC suffix "
-            f"(esphome.name_add_mac_suffix is {suffix}). {_PIN_REMEDY}",
-        )
-    if not enabled:
-        return contents
-    text = rewrite_yaml_scalar(contents, ESPHOME_NAME_ADD_MAC_SUFFIX_PATH, lambda _raw: "false")
-    text = rewrite_rename_content(text, name, remedy=_PIN_REMEDY)
+    if suffix is not None:
+        enabled = parse_config_boolean(suffix)
+        if enabled is None:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"Can't tell whether the upstream config adds a MAC suffix "
+                f"(esphome.name_add_mac_suffix is {suffix}). {_PIN_REMEDY}",
+            )
+        if enabled:
+            text = rewrite_yaml_scalar(text, ESPHOME_NAME_ADD_MAC_SUFFIX_PATH, lambda _raw: "false")
+            text = rewrite_rename_content(text, name, remedy=_PIN_REMEDY)
     if friendly_name:
         try:
             text = upsert_yaml_leaf_under_top_block(text, "esphome", "friendly_name", friendly_name)
@@ -102,8 +102,8 @@ def local_includes(contents: str) -> list[str]:
         if node.tag.startswith(_INCLUDE_TAG_PREFIX):
             if isinstance(node, yaml.ScalarNode):
                 found.append(node.value)
-            elif isinstance(node, yaml.MappingNode):
-                found.append(_include_file(node) or node.tag)
+            elif isinstance(node, yaml.MappingNode) and (file := _include_file(node)):
+                found.append(file)
         if isinstance(node, yaml.SequenceNode):
             pending.extend(reversed(node.value))
         elif isinstance(node, yaml.MappingNode):
@@ -113,12 +113,9 @@ def local_includes(contents: str) -> list[str]:
 
 def package_fallback_warning(includes: list[str]) -> str:
     """Explain that the single-file copy gave way to the package import."""
-    listed = ", ".join(includes[:_LISTED_INCLUDES])
-    if len(includes) > _LISTED_INCLUDES:
-        listed += f" and {len(includes) - _LISTED_INCLUDES} more"
     return (
-        f"This configuration includes local files ({listed}) that a full-config import "
-        "doesn't fetch, so it was imported as a package referencing the vendor's "
+        f"This configuration includes local files ({summarise(includes)}) that a full-config "
+        "import doesn't fetch, so it was imported as a package referencing the vendor's "
         "repository instead."
     )
 
@@ -177,7 +174,7 @@ def _include_file(node: yaml.MappingNode) -> str | None:
     for key, value in node.value:
         if (
             isinstance(key, yaml.ScalarNode)
-            and key.value == "file"
+            and key.value == CONF_FILE
             and isinstance(value, yaml.ScalarNode)
         ):
             return str(value.value)

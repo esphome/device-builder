@@ -35,7 +35,6 @@ from ...models import (
     ImportableDeviceRemovedData,
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT
-from . import mutations_yaml
 from .import_full_config import (
     fetch_full_config,
     local_includes,
@@ -126,27 +125,30 @@ async def import_device(
     # Wi-Fi.
     adoptable = controller.state.import_result.get(name)
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
-    full_config_import = "full_config" in package_import_url.partition("?")[2]
+    package_url, _, query = package_import_url.partition("?")
+    full_config_import = "full_config" in query
     fallback_warning: str | None = None
     async with _name_claimed(controller, name):
         # Peek, don't pop; a failed import must keep the key for retry.
         pending = controller._pending_keys.get(name)
-
-        def package_yaml() -> str:
-            return generate_adoption_yaml(
+        if full_config_import:
+            upstream = await fetch_full_config(package_import_url)
+            if includes := local_includes(upstream):
+                # A single-file copy can never satisfy its ``!include``s; the
+                # package form resolves them inside the vendor's repository.
+                fallback_warning = package_fallback_warning(includes)
+                full_config_import = False
+            else:
+                content = materialize_full_config(upstream, name, friendly_name)
+        if not full_config_import:
+            content = generate_adoption_yaml(
                 name,
                 friendly_name,
                 project_name,
-                package_import_url.partition("?")[0],
+                package_url,
                 network_provided=network != const.CONF_WIFI,
                 api_encryption_key=pending["key"] if pending else None,
             )
-
-        if full_config_import:
-            upstream = await fetch_full_config(package_import_url)
-            content = materialize_full_config(upstream, name, friendly_name)
-        else:
-            content = package_yaml()
         try:
             await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
         except FileExistsError as exc:
@@ -155,24 +157,17 @@ async def import_device(
 
         async with _rolled_back_on_failure(path):
             ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
-            try:
-                verdict = await _validate_adoption(controller, configuration, ctx)
-            except CommandError as exc:
-                includes = _missing_includes(controller, content) if full_config_import else []
-                if not includes:
-                    raise
-                # The single-file copy can never satisfy its ``!include``s;
-                # the package form resolves them inside the vendor's repository.
-                _LOGGER.info(
-                    "Full-config copy of %s failed validation, retrying as a package: %s",
-                    configuration,
-                    exc.message,
-                )
-                content = package_yaml()
-                await controller._write_yaml_atomic_async(path, content)
-                ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import=False)
-                verdict = await _validate_adoption(controller, configuration, ctx)
-                fallback_warning = package_fallback_warning(includes)
+            # Adopt tolerates a validator timeout on a short budget: the config's
+            # ``github://`` fetch can outlast a full validate.
+            verdict = await controller._validate_rewritten_yaml_or_raise(
+                configuration,
+                content,
+                action="import",
+                tolerate_unavailable=True,
+                timeout=IMPORT_VALIDATE_TIMEOUT,
+                packages_span=ctx.packages_span(content),
+                failure_tail=". The import was rolled back; nothing was written.",
+            )
             outcome = await _finalize_adoption_key(
                 ctx, warning=verdict.warning, encryption=encryption
             )
@@ -240,28 +235,6 @@ async def _name_claimed(controller: DevicesController, name: str) -> AsyncIterat
         yield
     finally:
         controller.state.adopting.discard(name)
-
-
-def _missing_includes(controller: DevicesController, content: str) -> list[str]:
-    """Return the ``!include`` paths in *content* that the config dir does not hold."""
-    config_dir = controller._db.settings.config_dir
-    return [i for i in local_includes(content) if not (config_dir / i).exists()]
-
-
-async def _validate_adoption(
-    controller: DevicesController, configuration: str, ctx: _AdoptionKeyContext
-) -> mutations_yaml.ValidationVerdict:
-    # Adopt tolerates a validator timeout on a short budget: the config's
-    # ``github://`` fetch can outlast a full validate.
-    return await controller._validate_rewritten_yaml_or_raise(
-        configuration,
-        ctx.content,
-        action="import",
-        tolerate_unavailable=True,
-        timeout=IMPORT_VALIDATE_TIMEOUT,
-        packages_span=ctx.packages_span(ctx.content),
-        failure_tail=". The import was rolled back; nothing was written.",
-    )
 
 
 @asynccontextmanager

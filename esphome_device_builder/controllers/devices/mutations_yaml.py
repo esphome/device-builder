@@ -249,7 +249,7 @@ def _validation_failure(
         message_tail = failure_tail or ". Fix the errors in the editor and try again."
     return CommandError(
         on_failure,
-        f"Can't {action} — config doesn't validate: " + _summarise(errors) + message_tail,
+        f"Can't {action} — config doesn't validate: " + summarise(errors) + message_tail,
     )
 
 
@@ -293,14 +293,14 @@ def _packages_confined_warning(
     messages = [str(entry.get("message", "")) for entry in entries]
     verb = "Created" if action == "create" else "Imported"
     return PackageWarning(
-        f"{verb}, but the remote package didn't validate: {_summarise(messages)}. "
+        f"{verb}, but the remote package didn't validate: {summarise(messages)}. "
         "Fix the packages entry in the editor; install will surface "
         "the same error until it resolves.",
         only_missing_api_key=all(_INHERIT_ERROR_MARK in m for m in messages),
     )
 
 
-def _summarise(errors: Iterable[str]) -> str:
+def summarise(errors: Iterable[str]) -> str:
     """Join up to three non-empty messages with a ``(+N more)`` count, period-trimmed."""
     errors = [msg for msg in errors if msg]
     shown = errors[:3]
@@ -320,7 +320,7 @@ def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str |
         return None
     if len(errors) == 1 and all(Path(p) == secrets_path for p in marked_paths(errors[0])):
         return secrets_problem(errors[0])
-    return f"doesn't parse: {_summarise([trim_marks(msg) for msg in errors])}"
+    return f"doesn't parse: {summarise([trim_marks(msg) for msg in errors])}"
 
 
 def _entry_confined_to_packages(
