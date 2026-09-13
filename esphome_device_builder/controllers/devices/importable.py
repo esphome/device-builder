@@ -185,6 +185,9 @@ async def import_device(
     except Exception:
         _LOGGER.exception("Scan after import failed; will pick up on next poll")
 
+    # The scan's ADDED handler retires the row and probes; a failed
+    # scan would otherwise leave the adopt banner up until the next poll.
+    controller._on_importable_removed(name)
     result = {"configuration": configuration}
     validation = outcome.validation_warning
     if warnings := [w for w in (validation.text if validation else None, outcome.key_warning) if w]:

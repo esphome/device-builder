@@ -29,12 +29,13 @@ from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
-from esphome_device_builder.models import AdoptableDevice, ErrorCode
+from esphome_device_builder.models import AdoptableDevice, ErrorCode, EventType
 from tests.conftest import make_device
 
 from .conftest import (
     ESPHOME_CONFIG_STUB_TARGET,
     VALIDATOR_OUTAGES,
+    CaptureDevicesEventsFactory,
     MakeControllerFactory,
     RecordingStateMonitor,
 )
@@ -2344,6 +2345,38 @@ async def test_import_device_returns_even_when_post_scan_fails(
     )
 
     assert result == {"configuration": "kitchen.yaml"}
+
+
+async def test_import_device_retires_its_row_even_when_the_scan_fails(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A failed post-write scan still drops the adopted name's row, and only that row."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    for suffix in ("aabbcc", "ddeeff"):
+        ctrl.state.import_result[f"apollo-plt-1-{suffix}"] = AdoptableDevice(
+            name=f"apollo-plt-1-{suffix}",
+            friendly_name="Apollo PLT-1",
+            package_import_url="github://apollo/plt-1.yaml",
+            project_name="apollo.plt-1",
+            project_version="26.3.2.1",
+            network="wifi",
+            ignored=False,
+        )
+    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
+    ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("scan broke"))
+
+    await ctrl.import_device(
+        name="apollo-plt-1-ddeeff",
+        project_name="apollo.plt-1",
+        package_import_url="github://apollo/plt-1.yaml",
+    )
+
+    assert list(ctrl.state.import_result) == ["apollo-plt-1-aabbcc"]
+    assert [e.data for e in captured] == [{"name": "apollo-plt-1-ddeeff"}]
+    assert ctrl._state_monitor.calls == []
 
 
 async def test_import_device_leaves_probing_to_the_scan(
