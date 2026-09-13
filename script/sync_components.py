@@ -328,9 +328,6 @@ _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
         (RP2_CANONICAL_PLATFORM, "board"),
-        # the deprecated rp2040 alias of the rp2 component; extraction runs
-        # before ``_fold_rp2_component_alias`` re-keys it onto the canonical id.
-        (RP2_ALIAS_PLATFORM, "board"),
     }
 )
 
@@ -1321,7 +1318,7 @@ def build_catalog(
             out.append(entry)
 
     # Before every later pass so they all see final ids.
-    _fold_rp2_component_alias(out)
+    _fold_component_aliases(out, _collect_schema_aliases(schema_dir))
 
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
@@ -1408,28 +1405,35 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
             entry["multi_conf"] = True
 
 
-def _fold_rp2_component_alias(entries: list[dict]) -> None:
-    """
-    Collapse the deprecated ``rp2040`` alias entry onto the canonical ``rp2`` id.
+def _is_alias_section(section: dict) -> bool:
+    """Report whether a schema top-level section is a component-ALIAS copy of another."""
+    return bool(section.get("alias_of"))
 
-    Upstream ships the real (docs-repaired) schema under ``rp2``, so that
-    body always wins; the sparse alias entry is dropped, contributing
-    only identity fields ``rp2`` lacks. ``dependencies`` fold so blocks
-    spelled with either key satisfy them — see ``normalize_platform``.
-    """
-    by_id = {entry["id"]: entry for entry in entries}
-    if (legacy := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
-        if (rich := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
-            for key in ("name", "image_url", "category"):
-                if not rich.get(key) and legacy.get(key):
-                    rich[key] = legacy[key]
-            entries.remove(legacy)
-        else:
-            legacy["id"] = RP2_CANONICAL_PLATFORM
+
+def _collect_schema_aliases(schema_dir: Path) -> dict[str, str]:
+    """Map every ``alias_of``-tagged schema top key to its canonical component id."""
+    aliases: dict[str, str] = {}
+    for path in iter_schema_files(schema_dir):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            _LOGGER.exception("Failed to read %s", path.name)
+            continue
+        for top_key, section in raw.items():
+            if isinstance(section, dict) and _is_alias_section(section):
+                aliases[top_key] = str(section["alias_of"])
+    return aliases
+
+
+def _fold_component_aliases(entries: list[dict], aliases: dict[str, str]) -> None:
+    """Drop alias-keyed entries and respell alias-spelled ``dependencies`` to canonical."""
+    if not aliases:
+        return
+    entries[:] = [entry for entry in entries if entry["id"] not in aliases]
     for entry in entries:
         deps = entry.get("dependencies")
-        if deps and RP2_ALIAS_PLATFORM in deps:
-            entry["dependencies"] = list(dict.fromkeys(normalize_platform(dep) for dep in deps))
+        if deps and any(dep in aliases for dep in deps):
+            entry["dependencies"] = list(dict.fromkeys(aliases.get(dep, dep) for dep in deps))
 
 
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
@@ -2953,7 +2957,7 @@ def build_entries_from_file(
     for top_key, section in raw.items():
         if top_key in _HIDDEN_TOP_LEVEL:
             continue
-        if not isinstance(section, dict):
+        if not isinstance(section, dict) or _is_alias_section(section):
             continue
         entry = build_component_entry(top_key, section, index, schema_dir, image_map)
         if entry is not None:
@@ -5162,9 +5166,6 @@ _CATEGORY_OVERRIDES: dict[str, str] = {
     "esp32": "core",
     "esp8266": "core",
     RP2_CANONICAL_PLATFORM: "core",
-    # the deprecated rp2040 alias; extraction categorizes before
-    # ``_fold_rp2_component_alias`` re-keys the entry onto the canonical id.
-    RP2_ALIAS_PLATFORM: "core",
     "bk72xx": "core",
     "rtl87xx": "core",
     "ln882x": "core",
@@ -9895,7 +9896,7 @@ def build_automations(  # noqa: C901
             _LOGGER.exception("Failed to read %s", path.name)
             continue
         for top_key, section in raw.items():
-            if not isinstance(section, dict):
+            if not isinstance(section, dict) or _is_alias_section(section):
                 continue
             # ``top_key`` is the schema's raw ``<stem>.<base>`` form
             # (e.g. ``template.switch``). ``wire_prefix`` flips it to
