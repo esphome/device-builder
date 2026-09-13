@@ -1164,13 +1164,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """
         Make a freshly written config visible: reset metadata, commit, scan.
 
-        Shared tail of ``create_device`` and ``import_bundle``. For a new
-        device, clearing metadata first stops an archived board_id from
-        mis-binding to a fresh device reusing the same filename. An
-        *overwrite* of an existing device passes ``clear_metadata=False``
-        so its labels / comment / board_id survive. *board_id* is persisted
-        only when explicitly chosen. The scan fires ``_on_scan_change``
-        (ADDED), which probes the device, so callers must not double-probe.
+        ``clear_metadata=False`` keeps an overwritten device's labels / comment /
+        board_id; *board_id* is persisted as user-chosen. The scan's ADDED handler
+        probes the device (callers must not double-probe); a scan I/O failure is logged.
         """
         if clear_metadata:
             await self._delete_device_metadata(configuration)
@@ -1179,7 +1175,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 configuration, board_id=board_id, board_id_user_set=True
             )
         await self._commit_history(configuration, commit_message)
-        await self._scanner.scan()
+        try:
+            await self._scanner.scan()
+        except OSError:
+            _LOGGER.exception("Scan after writing %s failed", configuration)
 
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:

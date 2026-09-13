@@ -661,6 +661,28 @@ async def test_clone_device_carries_source_board_id_into_metadata(
     assert meta["board_id_user_set"] is True
 
 
+async def test_clone_device_clears_stale_metadata_under_the_target_name(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Metadata left under the target filename is cleared before the carried board id lands."""
+    config_dir = tmp_path
+    await asyncio.to_thread(
+        set_device_metadata, config_dir, "kitchen.yaml", board_id="esp32dev", board_id_user_set=True
+    )
+    await asyncio.to_thread(
+        set_device_metadata, config_dir, "bedroom-bulb.yaml", board_id="old", labels=["stale"]
+    )
+    (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ctrl._db.settings.config_dir = config_dir
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    meta = await asyncio.to_thread(get_device_metadata, config_dir, "bedroom-bulb.yaml")
+    assert meta == {"board_id": "esp32dev", "board_id_user_set": True}
+
+
 async def test_clone_device_drops_auto_derived_source_board_id(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

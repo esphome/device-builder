@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from esphome_device_builder.controllers._device_scanner import (
     DeviceFileMetadata,
     DeviceScanner,
@@ -238,6 +240,59 @@ async def test_scan_skips_yamls_that_fail_to_stat(tmp_path: Path) -> None:
     assert [d.name for d in scanner.devices] == ["good"]
     assert good in scanner.by_path
     assert broken not in scanner.by_path
+
+
+async def test_scan_survives_a_failing_change_handler(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A handler that raises for one path is logged; the other paths still index and notify."""
+    events: list[str] = []
+
+    def _on_change(kind: ScanChange, device: Device, _previous: Device | None) -> None:
+        if device.name == "bad":
+            raise RuntimeError("handler bug")
+        events.append(f"{kind.name}:{device.name}")
+
+    scanner = DeviceScanner(
+        config_dir=tmp_path, make_metadata_resolver=lambda: _stub_metadata, on_change=_on_change
+    )
+    _write_yaml(tmp_path, "bad")
+    _write_yaml(tmp_path, "good")
+
+    await scanner.scan()
+
+    assert events == ["ADDED:good"]
+    assert sorted(d.name for d in scanner.devices) == ["bad", "good"]
+    assert "Scan change handler failed for bad.yaml" in caplog.text
+
+
+async def test_reload_survives_a_failing_change_handler(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A handler that raises on RELOADED is logged; the reload still reports success."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    friendly = "first"
+
+    def _on_change(kind: ScanChange, _device: Device, _previous: Device | None) -> None:
+        if kind is ScanChange.RELOADED:
+            raise RuntimeError("handler bug")
+
+    scanner = DeviceScanner(
+        config_dir=cfg, make_metadata_resolver=lambda: _stub_metadata, on_change=_on_change
+    )
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=friendly, configuration=path.name
+        ),
+    ):
+        await scanner.scan()
+        friendly = "second"
+        assert await scanner.reload("kitchen.yaml") is True
+
+    assert "Scan change handler failed for kitchen.yaml" in caplog.text
 
 
 # ---------------------------------------------------------------------------

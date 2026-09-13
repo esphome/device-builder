@@ -400,7 +400,7 @@ class DeviceScanner(WakeWorker[str]):
             # Dataclass eq spans every field the wire serializes (and
             # more), so an equal rebuild is a guaranteed no-op frame.
             if device != previous:
-                self._on_change(ScanChange.RELOADED, device, previous)
+                self._notify(ScanChange.RELOADED, device, previous)
             return True
 
     # ------------------------------------------------------------------
@@ -445,12 +445,12 @@ class DeviceScanner(WakeWorker[str]):
                 kind = ScanChange.ADDED if path in added_paths else ScanChange.UPDATED
                 previous = self._index.by_path.get(path)
                 self._index.set(path, device, path_to_cache_key[path])
-                self._on_change(kind, device, previous)
+                self._notify(kind, device, previous)
 
         for path in removed_paths:
             removed_device = self._index.pop(path)
             if removed_device is not None:
-                self._on_change(ScanChange.REMOVED, removed_device, None)
+                self._notify(ScanChange.REMOVED, removed_device, None)
 
         # Re-key the index in lexicographic-path order so the
         # ``devices`` read returns a stable order across restarts —
@@ -458,6 +458,13 @@ class DeviceScanner(WakeWorker[str]):
         # ended up in hash-randomised order.
         if added_paths or removed_paths:
             self._index.rebuild_in_path_order(path_to_cache_key.keys())
+
+    def _notify(self, kind: ScanChange, device: Device, previous: Device | None) -> None:
+        """Deliver one change; a failing handler is logged so the rest of the scan lands."""
+        try:
+            self._on_change(kind, device, previous)
+        except Exception:
+            _LOGGER.exception("Scan change handler failed for %s (%s)", device.configuration, kind)
 
     def _build_cache_keys(self) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
