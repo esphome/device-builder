@@ -175,15 +175,7 @@ async def import_device(
             warning = verdict.warning
             outcome = await _finalize_adoption_key(ctx, warning=warning, encryption=encryption)
 
-    await controller._commit_history(configuration, f"Import {configuration}")
-
-    # Post-write scan is best-effort; the next periodic scan
-    # will catch the new YAML and failing here would mislead the
-    # user into a retry that trips ``FileExistsError``.
-    try:
-        await controller._scanner.scan()
-    except Exception:
-        _LOGGER.exception("Scan after import failed; will pick up on next poll")
+    await controller._register_new_device(configuration, f"Import {configuration}")
 
     # The scan's ADDED handler retires the row and probes; a failed
     # scan would otherwise leave the adopt banner up until the next poll.
