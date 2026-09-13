@@ -25,6 +25,9 @@ from .scalar import (
 from .scan import key_line_res, normalize_trailing_newline, trim_trailing_blanks
 from .top_block import _insert_top_block_after, _locate_top_block
 
+# esphome's own dump order: the api block follows whichever of these the file has.
+_API_BLOCK_ANCHORS = ("esphome", "packages", "substitutions")
+
 API_ENCRYPTION_KEY_PATH = ("api", "encryption", "key")
 
 
@@ -78,7 +81,7 @@ def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
             f"api:{nl}{ESPHOME_YAML_INDENT}encryption:{nl}"
             f"{ESPHOME_YAML_INDENT * 2}key: {rendered}{nl}"
         )
-        return _insert_top_block_after(lines, "esphome", block, nl)
+        return _insert_top_block_after(lines, _API_BLOCK_ANCHORS, block, nl)
 
     block_start, block_end, indent = located
     enc_idx = _find_encryption_header(lines, block_start, block_end, indent)

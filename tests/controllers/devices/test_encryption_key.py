@@ -98,8 +98,7 @@ async def test_set_encryption_key_inserts_block_for_package_provided_api(
 
     assert result["result"] == "updated"
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert new_yaml.startswith(f'api:\n  encryption:\n    key: "{KEY}"\n')
-    assert yaml_text in new_yaml
+    assert new_yaml == f'{yaml_text}\napi:\n  encryption:\n    key: "{KEY}"\n'
 
 
 async def test_set_encryption_key_refuses_resolved_apiless_configuration(

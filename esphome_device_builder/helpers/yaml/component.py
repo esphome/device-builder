@@ -15,7 +15,7 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
-from .scan import leading_ws, top_level_block_bounds
+from .scan import block_end_index, find_block_header, leading_ws, trim_trailing_blanks
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -42,7 +42,7 @@ def _split_platform_id(component_id: str) -> tuple[str | None, str]:
 def component_block_present(existing: str, component_id: str) -> bool:
     """Whether *existing* has the top-level block the singleton merge no-ops on."""
     lines = existing.splitlines(keepends=True)
-    return top_level_block_bounds(lines, component_id) is not None
+    return _find_top_level_block_bounds(lines, component_id) is not None
 
 
 def merge_component_yaml(
@@ -80,7 +80,7 @@ def merge_component_yaml(
         spliced = _splice_into_multi_conf_block(existing, component.id, block)
         if spliced is not None:
             return spliced
-    elif top_level_block_bounds(existing.splitlines(keepends=True), component.id):
+    elif _find_top_level_block_bounds(existing.splitlines(keepends=True), component.id):
         return existing
     return _append_block(existing, block)
 
@@ -275,6 +275,23 @@ def _append_block(existing: str, block: str) -> str:
     return f"{base}{separator}{block}\n"
 
 
+def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, int] | None:
+    """
+    Locate the ``<key>:`` block in *file_lines*; return ``(header, end)``.
+
+    *end* is the index of the first line that belongs to the next
+    top-level block (or ``len(file_lines)`` at EOF), rewound past any
+    trailing blank lines so an inserted item lands directly after the
+    last content line. Returns ``None`` when no matching header exists.
+    """
+    block_start = find_block_header(file_lines, key)
+    if block_start is None:
+        return None
+
+    block_end = block_end_index(file_lines, block_start)
+    return block_start, trim_trailing_blanks(file_lines, block_start, block_end)
+
+
 def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> str:
     """
     Dash indent of the first list item in a block body.
@@ -303,7 +320,7 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
     if len(block_lines) < 2 or block_lines[0].rstrip() != f"{domain}:":
         return None
     file_lines = existing.splitlines(keepends=True)
-    bounds = top_level_block_bounds(file_lines, domain)
+    bounds = _find_top_level_block_bounds(file_lines, domain)
     if bounds is None:
         return None
     block_start, last_content = bounds
@@ -352,7 +369,7 @@ def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
     single ``- mapping`` item.
     """
     file_lines = existing.splitlines(keepends=True)
-    bounds = top_level_block_bounds(file_lines, comp_id)
+    bounds = _find_top_level_block_bounds(file_lines, comp_id)
     if bounds is None:
         return None
     block_start, last_content = bounds

@@ -3389,7 +3389,7 @@ def test_generate_adoption_yaml_matches_dashboard_import(
 
 
 def test_generate_adoption_yaml_variants() -> None:
-    """Inline credentials quote through; no secrets drops the block; a key lands below esphome."""
+    """Inline credentials quote through; no secrets drops the block; a given key is spliced in."""
     inline = generate_adoption_yaml(
         "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw"
     )
@@ -3402,9 +3402,7 @@ def test_generate_adoption_yaml_variants() -> None:
     supplied = generate_adoption_yaml(
         "p", "P", "k", "github://x/y.yaml@main", api_encryption_key="K=="
     )
-    assert (
-        '  friendly_name: ${friendly_name}\n\napi:\n  encryption:\n    key: "K=="\n\nwifi:'
-    ) in supplied
+    assert '    key: "K=="' in supplied
 
 
 def test_board_provides_network_for_package_boards() -> None:

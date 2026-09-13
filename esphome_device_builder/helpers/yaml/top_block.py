@@ -10,7 +10,7 @@ from .scalar import (
     _safe_yaml_scalar,
     read_yaml_scalar,
 )
-from .scan import normalize_trailing_newline, top_level_block_bounds, trim_trailing_blanks
+from .scan import normalize_trailing_newline, trim_trailing_blanks
 from .substitution import rewrite_name_or_substitution
 
 
@@ -74,15 +74,17 @@ def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] 
     return start, end, indent
 
 
-def _insert_top_block_after(lines: list[str], block_key: str, block: str, nl: str) -> str:
-    """Insert *block* below the column-0 *block_key* block, or prepend when it is absent."""
-    bounds = top_level_block_bounds(lines, block_key)
-    if bounds is None:
-        return _prepend_top_block(lines, block, nl)
-    head = "".join(lines[: bounds[1]])
-    rest = "".join(lines[bounds[1] :])
-    sep = "" if not rest or rest.startswith(("\n", "\r")) else nl
-    return f"{head}{nl}{block}{sep}{rest}"
+def _insert_top_block_after(lines: list[str], anchors: tuple[str, ...], block: str, nl: str) -> str:
+    """Insert *block* below the first column-0 block found among *anchors*, else prepend it."""
+    for block_key in anchors:
+        try:
+            located = _locate_top_block(lines, block_key)
+        except YamlUpsertNotSupportedError:
+            continue
+        if located is not None:
+            at = trim_trailing_blanks(lines, located[0], located[1])
+            return _insert_top_block_at(lines, at, nl + block, nl)
+    return _prepend_top_block(lines, block, nl)
 
 
 def _find_prepend_anchor(lines: list[str]) -> int:
@@ -98,11 +100,14 @@ def _find_prepend_anchor(lines: list[str]) -> int:
 
 def _prepend_top_block(lines: list[str], block: str, nl: str) -> str:
     """Prepend *block* (newline-terminated) below any leading directives / ``---`` markers."""
-    anchor = _find_prepend_anchor(lines)
-    prefix = "".join(lines[:anchor])
-    rest = "".join(lines[anchor:])
+    return _insert_top_block_at(lines, _find_prepend_anchor(lines), block, nl)
+
+
+def _insert_top_block_at(lines: list[str], at: int, block: str, nl: str) -> str:
+    """Splice *block* in before line *at*, keeping one blank line before what follows."""
+    rest = "".join(lines[at:])
     sep = "" if not rest or rest.startswith(("\n", "\r")) else nl
-    return f"{prefix}{block}{sep}{rest}"
+    return f"{''.join(lines[:at])}{block}{sep}{rest}"
 
 
 def upsert_yaml_leaf_under_top_block(
