@@ -74,6 +74,22 @@ def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] 
     return start, end, indent
 
 
+def _insert_top_block_after(lines: list[str], block_key: str, block: str, nl: str) -> str:
+    """Insert *block* below the column-0 *block_key* block, or prepend when it is absent."""
+    try:
+        located = _locate_top_block(lines, block_key)
+    except YamlUpsertNotSupportedError:
+        located = None
+    if located is None:
+        return _prepend_top_block(lines, block, nl)
+    head = "".join(lines[: located[1]])
+    rest = "".join(lines[located[1] :])
+    if not head.endswith(nl * 2):
+        head += nl
+    sep = "" if not rest or rest.startswith(("\n", "\r")) else nl
+    return f"{head}{block}{sep}{rest}"
+
+
 def _find_prepend_anchor(lines: list[str]) -> int:
     """Return the line index past leading YAML directives / ``---`` markers."""
     anchor = 0

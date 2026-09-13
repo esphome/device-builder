@@ -15,6 +15,7 @@ from ...helpers.device_yaml import (
     generate_minimal_stub_yaml,
 )
 from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
+from ...helpers.yaml import generate_api_encryption_key
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
@@ -92,6 +93,7 @@ async def yaml_content_for_create(
                 ssid=ssid,
                 psk=psk,
                 wifi_secrets_available=wifi_secrets_available,
+                api_encryption_key=generate_api_encryption_key(),
             ),
             "package",
         )

@@ -1088,6 +1088,30 @@ def test_upsert_api_encryption_key_prepends_block_when_api_missing() -> None:
     assert out.endswith(yaml)
 
 
+def test_upsert_api_encryption_key_inserts_block_below_esphome() -> None:
+    """With no ``api:`` block, the new one lands right below the ``esphome:`` block."""
+    yaml = "substitutions:\n  name: x\n\nesphome:\n  name: ${name}\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        "substitutions:\n  name: x\n\nesphome:\n  name: ${name}\n\n"
+        'api:\n  encryption:\n    key: "NEW=="\n\nwifi:\n  ssid: x\n'
+    )
+
+
+def test_upsert_api_encryption_key_inserts_block_after_a_trailing_esphome() -> None:
+    """An ``esphome:`` block that ends the file gets the api block appended below it."""
+    out = upsert_api_encryption_key("esphome:\n  name: x\n", "NEW==")
+    assert out == 'esphome:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n'
+
+
+def test_upsert_api_encryption_key_prepends_when_esphome_is_an_inline_value() -> None:
+    """An ``esphome:`` header the walker cannot read falls back to prepending the block."""
+    yaml = "esphome: !include base.yaml\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out.startswith('api:\n  encryption:\n    key: "NEW=="\n\n')
+    assert out.endswith(yaml)
+
+
 def test_upsert_api_encryption_key_anchors_below_doc_marker() -> None:
     """The prepended block lands after ``---`` so the document still parses."""
     yaml = "---\nwifi:\n  ssid: x\n"

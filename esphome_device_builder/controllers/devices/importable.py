@@ -149,7 +149,6 @@ async def import_device(
                     project_name,
                     package_import_url,
                     network_provided=network != const.CONF_WIFI,
-                    api_encryption=False,
                     api_encryption_key=pending["key"] if pending else None,
                 )
                 await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
