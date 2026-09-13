@@ -242,7 +242,6 @@ async def test_scan_skips_yamls_that_fail_to_stat(tmp_path: Path) -> None:
     assert broken not in scanner.by_path
 
 
-# ---------------------------------------------------------------------------
 async def test_scan_survives_a_failing_change_handler(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -267,6 +266,7 @@ async def test_scan_survives_a_failing_change_handler(
     assert "Scan change handler failed for bad.yaml" in caplog.text
 
 
+# ---------------------------------------------------------------------------
 # on_change previous-device argument
 # ---------------------------------------------------------------------------
 

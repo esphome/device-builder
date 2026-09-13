@@ -2328,11 +2328,15 @@ async def test_import_device_clears_metadata_left_under_the_adopted_filename(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Identity an archived device left under the filename does not bind to the adopted one."""
+    """Metadata an archived device left under the filename does not bind to the adopted one."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     await ctrl._persist_device_metadata_async(
-        "kitchen.yaml", board_id="esp32dev", board_id_user_set=True, labels=["old"]
+        "kitchen.yaml",
+        board_id="esp32dev",
+        board_id_user_set=True,
+        labels=["old"],
+        expected_config_hash="stale",
     )
 
     await ctrl.import_device(name="kitchen", project_name="x", package_import_url="github://x")
@@ -2360,7 +2364,7 @@ async def test_import_device_retires_its_row_even_when_the_scan_fails(
             ignored=False,
         )
     captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
-    ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("scan broke"))
+    ctrl._scanner.scan = AsyncMock(side_effect=OSError("scan broke"))
 
     await ctrl.import_device(
         name="apollo-plt-1-ddeeff",

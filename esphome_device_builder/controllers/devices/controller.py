@@ -1166,7 +1166,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
         ``clear_metadata=False`` keeps an overwritten device's labels / comment /
         board_id; *board_id* is persisted as user-chosen. The scan's ADDED handler
-        probes the device (callers must not double-probe); a scan failure is logged.
+        probes the device (callers must not double-probe); a scan I/O failure is logged.
         """
         if clear_metadata:
             await self._delete_device_metadata(configuration)
@@ -1177,7 +1177,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._commit_history(configuration, commit_message)
         try:
             await self._scanner.scan()
-        except Exception:
+        except OSError:
             _LOGGER.exception("Scan after writing %s failed", configuration)
 
     @staticmethod

@@ -400,7 +400,7 @@ class DeviceScanner(WakeWorker[str]):
             # Dataclass eq spans every field the wire serializes (and
             # more), so an equal rebuild is a guaranteed no-op frame.
             if device != previous:
-                self._on_change(ScanChange.RELOADED, device, previous)
+                self._notify(ScanChange.RELOADED, device, previous)
             return True
 
     # ------------------------------------------------------------------

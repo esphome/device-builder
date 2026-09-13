@@ -1518,9 +1518,9 @@ async def test_register_new_device_logs_a_failed_scan(
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A failed post-write scan is logged, not raised: the file is on disk either way."""
+    """A scan I/O failure after the write is logged, not raised: the file is on disk either way."""
     controller = make_controller(tmp_path, with_state_monitor=True)
-    controller._scanner.scan = AsyncMock(side_effect=RuntimeError("scan broke"))
+    controller._scanner.scan = AsyncMock(side_effect=OSError("scan broke"))
 
     await controller._register_new_device("kitchen.yaml", "Create kitchen.yaml")
 
