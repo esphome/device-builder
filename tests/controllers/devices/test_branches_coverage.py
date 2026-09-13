@@ -1527,6 +1527,19 @@ async def test_register_new_device_logs_a_failed_scan(
     assert "Scan after writing kitchen.yaml failed" in caplog.text
 
 
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_register_new_device_propagates_a_scan_bug(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Only I/O is tolerated after the write; a bug in the scan still surfaces."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller._scanner.scan = AsyncMock(side_effect=RuntimeError("scan bug"))
+
+    with pytest.raises(RuntimeError, match="scan bug"):
+        await controller._register_new_device("kitchen.yaml", "Create kitchen.yaml")
+
+
 def test_on_scan_change_added_prunes_stale_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

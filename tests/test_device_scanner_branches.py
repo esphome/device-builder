@@ -266,6 +266,35 @@ async def test_scan_survives_a_failing_change_handler(
     assert "Scan change handler failed for bad.yaml" in caplog.text
 
 
+async def test_reload_survives_a_failing_change_handler(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A handler that raises on RELOADED is logged; the reload still reports success."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    friendly = "first"
+
+    def _on_change(kind: ScanChange, _device: Device, _previous: Device | None) -> None:
+        if kind is ScanChange.RELOADED:
+            raise RuntimeError("handler bug")
+
+    scanner = DeviceScanner(
+        config_dir=cfg, make_metadata_resolver=lambda: _stub_metadata, on_change=_on_change
+    )
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=friendly, configuration=path.name
+        ),
+    ):
+        await scanner.scan()
+        friendly = "second"
+        assert await scanner.reload("kitchen.yaml") is True
+
+    assert "Scan change handler failed for kitchen.yaml" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # on_change previous-device argument
 # ---------------------------------------------------------------------------
