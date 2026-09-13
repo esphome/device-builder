@@ -523,9 +523,8 @@ def _make_controller(tmp_path: Path) -> tuple[AuthController, Any]:
 
 
 async def test_auth_controller_stop_flushes_a_deferred_refresh(tmp_path: Path) -> None:
-    """A refreshed expiry deferred off the reply lands at stop and loads into a fresh controller."""
-    _, stub_db = _make_controller(tmp_path)
-    ctrl = AuthController(stub_db)
+    """A refreshed expiry deferred off the reply is on disk once the controller stops."""
+    ctrl, _ = _make_controller(tmp_path)
     await ctrl.async_load()
     session = await ctrl.session_store.create()
     ctrl.session_store._persisted_expires[session.token] = session.expires_at - 7200
@@ -533,11 +532,9 @@ async def test_auth_controller_stop_flushes_a_deferred_refresh(tmp_path: Path) -
     assert refreshed is not None
     await ctrl.stop()
 
-    reloaded = AuthController(stub_db)
-    await reloaded.async_load()
-    fetched = await reloaded.session_store.validate(session.token)
-    assert fetched is not None
-    assert fetched.expires_at >= refreshed.expires_at
+    persisted = json.loads((tmp_path / ".device-builder-sessions.json").read_bytes())
+    (row,) = persisted["sessions"]
+    assert row["expires_at"] == refreshed.expires_at
 
 
 def _make_client(remote: str = "9.9.9.9") -> MagicMock:
