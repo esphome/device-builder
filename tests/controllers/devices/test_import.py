@@ -2347,51 +2347,19 @@ async def test_import_device_returns_even_when_post_scan_fails(
     assert result == {"configuration": "kitchen.yaml"}
 
 
-async def test_import_device_applies_cached_ip_and_probes(
+async def test_import_device_leaves_probing_to_the_scan(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Adopt applies the cached IP and probes; no fabricated state, the real sources decide."""
+    """Adopt touches no monitor state itself; the scan's ADDED handler probes the device."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
-    ctrl._state_monitor = RecordingStateMonitor(
-        cached_addresses={"kitchen.local": ["192.168.1.42"]}
-    )
+    ctrl._state_monitor = RecordingStateMonitor(cached_addresses={"kitchen.local": ["10.0.0.9"]})
 
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x",
-    )
+    await ctrl.import_device(name="kitchen", project_name="x", package_import_url="github://x")
 
-    assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "kitchen.local"),
-        ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
-        ("probe_device", "kitchen"),
-    ]
-
-
-async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """No cached IP → probes still run, just no apply_ip call."""
-    ctrl = make_controller(tmp_path)
-    _seed_import_state(ctrl)
-    ctrl._state_monitor = RecordingStateMonitor()  # no cached addresses
-
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x",
-    )
-
-    assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen"),
-    ]
+    assert ctrl._state_monitor.calls == []
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 async def test_import_device_drops_matching_import_result_entry(
@@ -2491,7 +2459,4 @@ async def test_import_device_undiscovered_name_retires_nothing(
     assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
     assert "apollo-plt-1-ddeeff" in ctrl.state.import_result
     assert captured == []
-    assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen"),
-    ]
+    assert ctrl._state_monitor.calls == []

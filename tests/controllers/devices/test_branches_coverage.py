@@ -1528,6 +1528,19 @@ def test_on_scan_change_added_prunes_stale_importable_row(
     assert [e.data["name"] for e in captured] == ["kitchen"]
 
 
+def test_on_scan_change_added_probes_the_device_once(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """ADDED nudges one mDNS resolve plus one ICMP wake; adoption relies on this probe."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+
+    controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
+
+    probes = [c for c in controller._state_monitor.calls if c[0].startswith("probe_")]
+    assert probes == [("probe_device", "kitchen"), ("probe_device_ping", "kitchen")]
+
+
 def test_on_scan_change_added_without_importable_row_is_silent(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
