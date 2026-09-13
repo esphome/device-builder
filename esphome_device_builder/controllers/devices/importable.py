@@ -345,16 +345,20 @@ async def _finalize_adoption_key(
         outcome = await _mint_key_unless_package_encrypts(ctx, warning)
     else:
         outcome = _KeyOutcome(warning, None)
-    return await _write_keyed(ctx, outcome, handled=fresh)
+    return await _write_keyed(ctx, outcome, handled=fresh, warning=warning)
 
 
 async def _write_keyed(
-    ctx: _AdoptionKeyContext, outcome: _KeyOutcome, *, handled: str | None
+    ctx: _AdoptionKeyContext,
+    outcome: _KeyOutcome,
+    *,
+    handled: str | None,
+    warning: PackageWarning | None,
 ) -> _KeyOutcome:
-    """Write the keyed YAML, a key pushed since *handled* winning, and consume the pending key."""
+    """Land a key pushed since *handled*, write the keyed YAML and consume the pending key in it."""
     pushed = _pending_key(ctx)
     if pushed is not None and pushed != handled:
-        outcome = _prefer_pushed_key(ctx, outcome, pushed)
+        outcome = await _land_late_push(ctx, outcome, pushed, warning)
     if outcome.to_write is not None:
         await ctx.controller._write_yaml_atomic_async(ctx.path, outcome.to_write)
     if outcome.consume is not None:
@@ -367,22 +371,22 @@ async def _write_keyed(
     )
 
 
+async def _land_late_push(
+    ctx: _AdoptionKeyContext, outcome: _KeyOutcome, key: str, warning: PackageWarning | None
+) -> _KeyOutcome:
+    """Land *key*, pushed after the key step decided, esphome-checked; a refusal keeps *outcome*."""
+    landed = await _splice_pending_key_validated(ctx, key, warning)
+    if landed.key_warning is None:
+        return landed
+    return outcome._replace(
+        key_warning=" ".join(filter(None, (outcome.key_warning, landed.key_warning)))
+    )
+
+
 def _pending_key(ctx: _AdoptionKeyContext) -> str | None:
     """Return the key Home Assistant has pending for this adoption, if any."""
     entry = ctx.controller._pending_keys.get(ctx.name)
     return None if entry is None else entry["key"]
-
-
-def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome, key: str) -> _KeyOutcome:
-    """Splice the pushed *key* into the YAML about to land; a refusal leaves it stored."""
-    base = ctx.content if outcome.to_write is None else outcome.to_write
-    splice = _splice_key(base, key, insert_api=ctx.insert_api)
-    if splice.keyed is None:
-        _LOGGER.warning(
-            "Pushed key not applied to %s (%s); written key kept", ctx.path.name, splice.refusal
-        )
-        return outcome._replace(key_warning=f"{splice.refusal}{_NOT_APPLIED_TAIL}")
-    return outcome._replace(to_write=splice.keyed, consume=key)
 
 
 async def _mint_key_unless_package_encrypts(

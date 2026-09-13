@@ -1224,6 +1224,50 @@ async def test_import_device_refused_duplicate_leaves_the_first_adoption_intact(
         await _import_kitchen(ctrl)
 
 
+@pytest.mark.parametrize(
+    "accepted", [pytest.param(True, id="accepted"), pytest.param(False, id="rejected")]
+)
+async def test_import_device_push_after_the_mint_declined_lands_only_through_the_recheck(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    accepted: bool,
+) -> None:
+    """A key pushed after the mint declined is written only if esphome accepts it, and says so."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    async def _resolve(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        await ctrl.set_encryption_key(name="kitchen", key=OTHER_KEY)
+        return {
+            "esphome": {"name": "kitchen"},
+            "ota": [{"platform": "esphome", "encryption": {"key": "OWNKEY=="}}],
+        }
+
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock(side_effect=_resolve))
+    rejected = {"yaml_errors": [], "validation_errors": [{"message": "[ota] keys must match"}]}
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        side_effect=_validator_warning_until_keyed(
+            lambda content: {"yaml_errors": [], "validation_errors": []} if accepted else rejected,
+            unkeyed_errors=(),
+        )
+    )
+
+    result = await _import_kitchen(ctrl)
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    if accepted:
+        assert f'key: "{OTHER_KEY}"' in content
+        assert ctrl._pending_keys.get("kitchen") is None
+        assert "warning" not in result
+    else:
+        assert "key:" not in content
+        assert ctrl._pending_keys.get("kitchen") == {"key": OTHER_KEY}
+        assert "own encryption key" in result["warning"]
+        assert "keys must match" in result["warning"]
+        assert "not applied" in result["warning"]
+
+
 async def test_import_device_same_key_re_pushed_with_a_mac_is_not_a_newer_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
