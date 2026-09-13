@@ -204,6 +204,19 @@ async def test_session_store_load_handles_top_level_garbage(tmp_path: Path) -> N
     assert store.active_count == 0
 
 
+async def test_session_store_load_handles_non_list_sessions_field(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A ``sessions`` value that is not a list warns and starts empty instead of raising."""
+    (tmp_path / ".device-builder-sessions.json").write_text(json.dumps({"sessions": 1}))
+
+    with caplog.at_level("WARNING"):
+        store = await _loaded_store(tmp_path)
+
+    assert store.active_count == 0
+    assert any("non-list" in rec.message for rec in caplog.records)
+
+
 async def test_session_store_load_handles_corrupt_json(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -490,6 +503,22 @@ def _make_controller(tmp_path: Path) -> tuple[AuthController, Any]:
     stub_db = MagicMock()
     stub_db.settings = settings
     return AuthController(stub_db), stub_db
+
+
+async def test_auth_controller_stop_flushes_a_deferred_refresh(tmp_path: Path) -> None:
+    """A refreshed expiry deferred off the reply lands at stop and loads into a fresh controller."""
+    _, stub_db = _make_controller(tmp_path)
+    ctrl = await AuthController.create(stub_db)
+    session = await ctrl.session_store.create()
+    ctrl.session_store._persisted_expires[session.token] = session.expires_at - 7200
+    refreshed = await ctrl.session_store.validate(session.token)
+    assert refreshed is not None
+    await ctrl.stop()
+
+    reloaded = await AuthController.create(stub_db)
+    fetched = await reloaded.session_store.validate(session.token)
+    assert fetched is not None
+    assert fetched.expires_at >= refreshed.expires_at
 
 
 def _make_client(remote: str = "9.9.9.9") -> MagicMock:

@@ -77,11 +77,13 @@ def _encode(sessions: dict[str, Session]) -> bytes:
 
 def _decode(raw: bytes) -> dict[str, Session]:
     obj = loads_mapping_or_warn(raw, label="sessions store")
-    if obj is None:
+    entries = [] if obj is None else obj.get("sessions") or []
+    if not isinstance(entries, list):
+        _LOGGER.warning("sessions store: non-list sessions field, starting empty")
         return {}
     sessions: dict[str, Session] = {}
     now = time.time()
-    for entry in obj.get("sessions") or []:
+    for entry in entries:
         try:
             session = Session(**entry)
         except (TypeError, ValueError):
