@@ -18,7 +18,6 @@ from ...helpers.device_yaml import (
     get_ota_encryption_key,
     ota_encryption_block_unresolved,
 )
-from ...helpers.lazy_module import async_import_module
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
@@ -36,6 +35,7 @@ from ...models import (
     ImportableDeviceRemovedData,
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT
+from .import_full_config import fetch_full_config, materialize_full_config
 from .mutations_yaml import PackageWarning, packages_block_span
 from .resolve import resolve_config
 
@@ -124,41 +124,25 @@ async def import_device(
     async with _name_claimed(controller, name):
         # Peek, don't pop; a failed import must keep the key for retry.
         pending = controller._pending_keys.get(name)
-        content: str | None = None
+        if full_config_import:
+            upstream = await fetch_full_config(package_import_url)
+            content = materialize_full_config(upstream, name, friendly_name)
+        else:
+            content = generate_adoption_yaml(
+                name,
+                friendly_name,
+                project_name,
+                package_import_url,
+                network_provided=network != const.CONF_WIFI,
+                api_encryption_key=pending["key"] if pending else None,
+            )
         try:
-            if full_config_import:
-                # A ``?full_config`` import downloads and rewrites the whole
-                # upstream YAML; keep delegating those to esphome's
-                # implementation. ``esphome.components.dashboard_import`` pulls
-                # in ~14 MB of upstream code, loaded lazily off the loop.
-                dashboard_import = await async_import_module("esphome.components.dashboard_import")
-                await run_in_executor(
-                    dashboard_import.import_config,
-                    path,
-                    name,
-                    friendly_name,
-                    project_name,
-                    package_import_url,
-                    network,
-                    encryption,
-                )
-            else:
-                content = generate_adoption_yaml(
-                    name,
-                    friendly_name,
-                    project_name,
-                    package_import_url,
-                    network_provided=network != const.CONF_WIFI,
-                    api_encryption_key=pending["key"] if pending else None,
-                )
-                await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
+            await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
         except FileExistsError as exc:
             msg = f"Configuration {configuration} already exists"
             raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
         async with _rolled_back_on_failure(path):
-            if content is None:
-                content = await controller._read_yaml_async(path)
             ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
             # Adopt tolerates a validator timeout on a short budget: the config's
             # ``github://`` fetch can outlast a full validate.
