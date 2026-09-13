@@ -15,6 +15,7 @@ from ...helpers.device_yaml import (
     generate_minimal_stub_yaml,
 )
 from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
+from ...helpers.text import summarise
 from ...helpers.yaml import generate_api_encryption_key
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
@@ -22,8 +23,6 @@ from ...models import ErrorCode
 from ..editor import ValidatorTimeoutError, ValidatorUnavailableError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from ...models import BoardCatalogEntry
     from ..components import ComponentCatalog
     from ..editor import EditorController
@@ -298,16 +297,6 @@ def _packages_confined_warning(
         "the same error until it resolves.",
         only_missing_api_key=all(_INHERIT_ERROR_MARK in m for m in messages),
     )
-
-
-def summarise(errors: Iterable[str]) -> str:
-    """Join up to three non-empty messages with a ``(+N more)`` count, period-trimmed."""
-    errors = [msg for msg in errors if msg]
-    shown = errors[:3]
-    suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
-    # esphome messages often end with their own period; the caller's
-    # tail brings the sentence break.
-    return ("; ".join(shown) + suffix).removesuffix(".")
 
 
 def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str | None:

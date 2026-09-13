@@ -13,6 +13,7 @@ import pytest
 
 from esphome_device_builder.controllers.config.metadata import get_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController, importable
+from esphome_device_builder.controllers.devices.import_full_config import parse_full_config
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     _INHERIT_ERROR_MARK,
     PackageWarning,
@@ -47,7 +48,7 @@ def _seed_import_state(controller: DevicesController) -> None:
 
 def _full_config_stub(api_tail: str = "") -> AsyncMock:
     """Stub ``fetch_full_config`` returning an esphome header plus *api_tail*."""
-    return AsyncMock(return_value=f"esphome:\n  name: kitchen\n{api_tail}")
+    return AsyncMock(return_value=parse_full_config(f"esphome:\n  name: kitchen\n{api_tail}"))
 
 
 async def _import_kitchen(ctrl: DevicesController, **overrides: Any) -> dict[str, Any]:
@@ -265,7 +266,7 @@ async def test_import_device_full_config_url_fetches_and_writes_the_upstream_yam
 ) -> None:
     """A self-contained ``?full_config`` YAML is written untouched."""
     upstream = "substitutions:\n  id: '1'\n  name: audio-${id}\nlogger:\n  level: WARN\n"
-    fetch = AsyncMock(return_value=upstream)
+    fetch = AsyncMock(return_value=parse_full_config(upstream))
     monkeypatch.setattr(importable, "fetch_full_config", fetch)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -2050,7 +2051,11 @@ async def test_import_device_full_config_never_gets_the_package_exemption(
     monkeypatch.setattr(
         importable,
         "fetch_full_config",
-        AsyncMock(return_value="packages:\n  base: github://acme/base.yaml\nesphome:\n  name: x\n"),
+        AsyncMock(
+            return_value=parse_full_config(
+                "packages:\n  base: github://acme/base.yaml\nesphome:\n  name: x\n"
+            )
+        ),
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -2083,7 +2088,9 @@ async def test_import_device_full_config_never_gets_the_package_exemption(
     assert not (tmp_path / "kitchen.yaml").exists()
 
 
-_INCLUDING_UPSTREAM = "packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"
+_INCLUDING_UPSTREAM = parse_full_config(
+    "packages:\n  board: !include boards/rev2_4.yaml\nlogger:\n"
+)
 
 
 async def _adopt_full_config(ctrl: DevicesController) -> dict[str, Any]:
@@ -2141,6 +2148,19 @@ async def test_import_device_full_config_package_that_fails_rolls_back(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert not (tmp_path / "audio-33abec.yaml").exists()
+
+
+async def test_import_device_keeps_a_package_url_query_verbatim(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+
+    await _import_kitchen(ctrl, package_import_url="github://x/y.yaml@main?ref", encryption=None)
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert '"github://x/y.yaml@main?ref"' in content
 
 
 async def test_import_device_refuses_when_an_error_has_no_range(

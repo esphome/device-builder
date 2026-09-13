@@ -13,8 +13,11 @@ from esphome_device_builder.controllers.devices import import_full_config
 from esphome_device_builder.controllers.devices.import_full_config import (
     fetch_full_config,
     local_includes,
-    materialize_full_config,
     package_fallback_warning,
+    parse_full_config,
+)
+from esphome_device_builder.controllers.devices.import_full_config import (
+    materialize_full_config as _materialize,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
@@ -23,6 +26,10 @@ from esphome_device_builder.models import ErrorCode
 
 def _http_error(status: int) -> aiohttp.ClientResponseError:
     return aiohttp.ClientResponseError(Mock(), (), status=status, message="HTTP")
+
+
+def materialize_full_config(text: str, name: str, friendly_name: str | None) -> str:
+    return _materialize(parse_full_config(text), name, friendly_name)
 
 
 _LITERAL = (
@@ -96,14 +103,22 @@ def test_quoted_suffix_value_is_honoured() -> None:
     assert out == "esphome:\n  name: neato-33abec\n  name_add_mac_suffix: false\n"
 
 
-def test_undecidable_suffix_value_is_refused() -> None:
+def test_indirected_suffix_value_still_pins() -> None:
     upstream = "esphome:\n  name: neato\n  name_add_mac_suffix: ${add_suffix}\n"
+
+    out = materialize_full_config(upstream, "neato-33abec", None)
+
+    assert out == "esphome:\n  name: neato-33abec\n  name_add_mac_suffix: false\n"
+
+
+def test_flow_style_esphome_block_is_refused() -> None:
+    upstream = "esphome: {name: neato, name_add_mac_suffix: true}\n"
 
     with pytest.raises(CommandError) as excinfo:
         materialize_full_config(upstream, "neato-33abec", None)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "${add_suffix}" in excinfo.value.message
+    assert "can't rewrite" in excinfo.value.message
 
 
 def test_friendly_name_upsert_refusal_is_typed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,6 +139,7 @@ def test_friendly_name_upsert_refusal_is_typed(monkeypatch: pytest.MonkeyPatch) 
     [
         pytest.param("esphome:\n  name: neato\n", id="no_suffix_key"),
         pytest.param("esphome:\n  name: neato\n  name_add_mac_suffix: false\n", id="suffix_off"),
+        pytest.param("esphome: !include base.yaml\nlogger:\n", id="esphome_block_included"),
         pytest.param(
             "substitutions:\n  name: audio-1\npackages:\n  board: !include boards/rev2_4.yaml\n",
             id="esphome_block_in_package",
@@ -223,9 +239,9 @@ def _serve(
 async def test_fetch_returns_the_raw_file(monkeypatch: pytest.MonkeyPatch) -> None:
     _serve(monkeypatch, body="esphome:\n  name: neato\n  comment: Küche\n".encode())
 
-    assert await fetch_full_config("github://x/y/z.yaml@main?full_config") == (
-        "esphome:\n  name: neato\n  comment: Küche\n"
-    )
+    fetched = await fetch_full_config("github://x/y/z.yaml@main?full_config")
+
+    assert fetched.text == "esphome:\n  name: neato\n  comment: Küche\n"
 
 
 @pytest.mark.parametrize(
@@ -263,9 +279,9 @@ async def test_transient_failure_recovers_on_retry(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(_FakeSession, "get", _flaky_get)
 
-    assert await fetch_full_config("github://x/y/z.yaml@main?full_config") == (
-        "esphome:\n  name: neato\n"
-    )
+    fetched = await fetch_full_config("github://x/y/z.yaml@main?full_config")
+
+    assert fetched.text == "esphome:\n  name: neato\n"
     assert sleep.await_args_list == [call(2), call(4)]
 
 
@@ -298,14 +314,24 @@ def test_local_includes_walks_nested_tags_in_order() -> None:
         "wifi:\n  ssid: !secret wifi_ssid\n"
     )
 
-    assert local_includes(upstream) == [
+    assert local_includes(parse_full_config(upstream)) == [
         "boards/rev2_4.yaml",
         "boards/common/rftx_outputs.yaml",
         "configs/home_assistant.yaml",
         "scripts/",
     ]
-    assert local_includes("esphome:\n  name: x\n") == []
-    assert local_includes("") == []
+    assert local_includes(parse_full_config("esphome:\n  name: x\n")) == []
+    assert local_includes(parse_full_config("{}")) == []
+
+
+def test_local_includes_walks_aliased_nodes_once_and_survives_cycles() -> None:
+    upstream = (
+        "shared: &board !include boards/rev2_4.yaml\n"
+        "packages:\n  a: *board\n  b: *board\n"
+        "loop: &loop [*loop]\n"
+    )
+
+    assert local_includes(parse_full_config(upstream)) == ["boards/rev2_4.yaml"]
 
 
 def test_package_fallback_warning_lists_three_then_counts() -> None:

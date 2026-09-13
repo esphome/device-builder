@@ -125,30 +125,18 @@ async def import_device(
     # Wi-Fi.
     adoptable = controller.state.import_result.get(name)
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
-    package_url, _, query = package_import_url.partition("?")
-    full_config_import = "full_config" in query
-    fallback_warning: str | None = None
     async with _name_claimed(controller, name):
         # Peek, don't pop; a failed import must keep the key for retry.
         pending = controller._pending_keys.get(name)
-        if full_config_import:
-            upstream = await fetch_full_config(package_import_url)
-            if includes := local_includes(upstream):
-                # A single-file copy can never satisfy its ``!include``s; the
-                # package form resolves them inside the vendor's repository.
-                fallback_warning = package_fallback_warning(includes)
-                full_config_import = False
-            else:
-                content = materialize_full_config(upstream, name, friendly_name)
-        if not full_config_import:
-            content = generate_adoption_yaml(
-                name,
-                friendly_name,
-                project_name,
-                package_url,
-                network_provided=network != const.CONF_WIFI,
-                api_encryption_key=pending["key"] if pending else None,
-            )
+        source = await _adoption_source(
+            name,
+            friendly_name,
+            project_name,
+            package_import_url,
+            network_provided=network != const.CONF_WIFI,
+            api_encryption_key=pending["key"] if pending else None,
+        )
+        content = source.content
         try:
             await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
         except FileExistsError as exc:
@@ -156,7 +144,7 @@ async def import_device(
             raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
         async with _rolled_back_on_failure(path):
-            ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
+            ctx = _AdoptionKeyContext(controller, name, path, content, source.verbatim)
             # Adopt tolerates a validator timeout on a short budget: the config's
             # ``github://`` fetch can outlast a full validate.
             verdict = await controller._validate_rewritten_yaml_or_raise(
@@ -179,7 +167,7 @@ async def import_device(
     controller._on_importable_removed(name)
     result = {"configuration": configuration}
     validation = outcome.validation_warning
-    texts = (fallback_warning, validation.text if validation else None, outcome.key_warning)
+    texts = (source.warning, validation.text if validation else None, outcome.key_warning)
     if warnings := [w for w in texts if w]:
         result["warning"] = "\n".join(warnings)
     return result
@@ -235,6 +223,48 @@ async def _name_claimed(controller: DevicesController, name: str) -> AsyncIterat
         yield
     finally:
         controller.state.adopting.discard(name)
+
+
+class _AdoptionSource(NamedTuple):
+    """The YAML to write, whether it is the upstream text verbatim, and any fallback note."""
+
+    content: str
+    verbatim: bool
+    warning: str | None = None
+
+
+async def _adoption_source(
+    name: str,
+    friendly_name: str | None,
+    project_name: str,
+    package_import_url: str,
+    *,
+    network_provided: bool,
+    api_encryption_key: str | None,
+) -> _AdoptionSource:
+    """Resolve the YAML an adoption writes: the pinned upstream copy or the package form."""
+    package_url, _, query = package_import_url.partition("?")
+    warning = None
+    if "full_config" in query:
+        fetched = await fetch_full_config(package_import_url)
+        includes = local_includes(fetched)
+        if not includes:
+            content = materialize_full_config(fetched, name, friendly_name)
+            return _AdoptionSource(content, verbatim=True)
+        # A single-file copy can never satisfy its ``!include``s; the
+        # package form resolves them inside the vendor's repository.
+        warning = package_fallback_warning(includes)
+    else:
+        package_url = package_import_url
+    content = generate_adoption_yaml(
+        name,
+        friendly_name,
+        project_name,
+        package_url,
+        network_provided=network_provided,
+        api_encryption_key=api_encryption_key,
+    )
+    return _AdoptionSource(content, verbatim=False, warning=warning)
 
 
 @asynccontextmanager
