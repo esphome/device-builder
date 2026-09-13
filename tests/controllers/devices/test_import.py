@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from esphome_device_builder.controllers.config.metadata import get_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController, importable
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     _INHERIT_ERROR_MARK,
@@ -2323,29 +2324,21 @@ async def test_import_device_skips_validation_when_editor_unavailable(
     assert (tmp_path / "kitchen.yaml").exists()
 
 
-async def test_import_device_returns_even_when_post_scan_fails(
+async def test_import_device_clears_metadata_left_under_the_adopted_filename(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A scan failure after a successful YAML write must not roll back.
-
-    The YAML is on disk; failing the WS command would leave the user
-    in a state where retrying produces ``FileExistsError`` despite
-    nothing being wrong. Best-effort scan; the periodic poll picks up
-    whatever this attempt missed.
-    """
+    """Identity an archived device left under the filename does not bind to the adopted one."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
-    ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("transient"))
-
-    result = await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x",
+    await ctrl._persist_device_metadata_async(
+        "kitchen.yaml", board_id="esp32dev", board_id_user_set=True, labels=["old"]
     )
 
-    assert result == {"configuration": "kitchen.yaml"}
+    await ctrl.import_device(name="kitchen", project_name="x", package_import_url="github://x")
+
+    assert ctrl._metadata_store.get("kitchen.yaml") == {}
+    assert await asyncio.to_thread(get_device_metadata, tmp_path, "kitchen.yaml") == {}
 
 
 async def test_import_device_retires_its_row_even_when_the_scan_fails(

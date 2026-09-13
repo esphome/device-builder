@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from esphome_device_builder.controllers._device_scanner import (
     DeviceFileMetadata,
     DeviceScanner,
@@ -241,6 +243,30 @@ async def test_scan_skips_yamls_that_fail_to_stat(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+async def test_scan_survives_a_failing_change_handler(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A handler that raises for one path is logged; the other paths still index and notify."""
+    events: list[str] = []
+
+    def _on_change(kind: ScanChange, device: Device, _previous: Device | None) -> None:
+        if device.name == "bad":
+            raise RuntimeError("handler bug")
+        events.append(f"{kind.name}:{device.name}")
+
+    scanner = DeviceScanner(
+        config_dir=tmp_path, make_metadata_resolver=lambda: _stub_metadata, on_change=_on_change
+    )
+    _write_yaml(tmp_path, "bad")
+    _write_yaml(tmp_path, "good")
+
+    await scanner.scan()
+
+    assert events == ["ADDED:good"]
+    assert sorted(d.name for d in scanner.devices) == ["bad", "good"]
+    assert "Scan change handler failed for bad.yaml" in caplog.text
+
+
 # on_change previous-device argument
 # ---------------------------------------------------------------------------
 

@@ -81,23 +81,6 @@ async def test_create_device_translates_file_exists_to_command_error(
     assert ctrl._scanner.calls == []
 
 
-@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-async def test_create_device_returns_even_when_post_scan_fails(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A failed post-write scan is logged; the created config is on disk and the reply lands."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("scan broke"))
-
-    response = await ctrl.create_device(name="kitchen", file_content=VALID_FILE_CONTENT)
-
-    assert response.configuration == "kitchen.yaml"
-    assert (tmp_path / "kitchen.yaml").exists()
-    assert "Scan after writing kitchen.yaml failed" in caplog.text
-
-
 async def test_create_device_rejects_empty_name(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

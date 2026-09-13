@@ -1512,6 +1512,21 @@ def _adoptable(name: str) -> AdoptableDevice:
     )
 
 
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_register_new_device_logs_a_failed_scan(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed post-write scan is logged, not raised: the file is on disk either way."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller._scanner.scan = AsyncMock(side_effect=RuntimeError("scan broke"))
+
+    await controller._register_new_device("kitchen.yaml", "Create kitchen.yaml")
+
+    assert "Scan after writing kitchen.yaml failed" in caplog.text
+
+
 def test_on_scan_change_added_prunes_stale_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
