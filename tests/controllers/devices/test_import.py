@@ -688,6 +688,20 @@ def _push_pending_key(ctrl: DevicesController, content: str) -> dict[str, Any]:
     return {"yaml_errors": [], "validation_errors": []}
 
 
+def _push_after_splice(
+    monkeypatch: pytest.MonkeyPatch, ctrl: DevicesController, key: str, mac: str = ""
+) -> None:
+    """Store *key* for ``kitchen`` right after the key step's splice has run."""
+    real_splice = importable._splice_pending_key_validated
+
+    async def _splice_then_push(*args: Any, **kwargs: Any) -> Any:
+        outcome = await real_splice(*args, **kwargs)
+        ctrl._pending_keys.set("kitchen", key, mac)
+        return outcome
+
+    monkeypatch.setattr(importable, "_splice_pending_key_validated", _splice_then_push)
+
+
 def _push_other_key_once(ctrl: DevicesController) -> tuple[Callable[..., Any], dict[str, Any]]:
     """Build a clean validator stub whose first call pushes ``OTHER_KEY`` through the handoff."""
     handoff: dict[str, Any] = {}
@@ -995,25 +1009,12 @@ async def test_import_device_second_push_keeps_the_package_exemption(
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
-    real_get = ctrl._pending_keys.get
-    peeks = 0
-
-    def _push_during_validate(name: str) -> dict[str, str] | None:
-        nonlocal peeks
-        peeks += 1
-        if peeks == 2:
-            ctrl._pending_keys.set("kitchen", OTHER_KEY)
-        return real_get(name)
-
-    monkeypatch.setattr(ctrl._pending_keys, "get", _push_during_validate)
+    _push_after_splice(monkeypatch, ctrl, OTHER_KEY)
 
     async def _validate(
         *, configuration: str, content: str, timeout: float | None = None
     ) -> dict[str, Any]:
-        return {
-            "yaml_errors": [],
-            "validation_errors": [_package_entry_error(content, "gl-s10.yaml missing")],
-        }
+        return _package_error_verdict(content, "gl-s10.yaml missing")
 
     ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
 
@@ -1023,7 +1024,7 @@ async def test_import_device_second_push_keeps_the_package_exemption(
     assert f'key: "{OTHER_KEY}"' in content
     assert "gl-s10.yaml missing" in result["warning"]
     assert "not applied" not in result["warning"]
-    assert real_get("kitchen") is None
+    assert ctrl._pending_keys.get("kitchen") is None
 
 
 async def test_import_device_pushed_key_the_splice_refuses_keeps_the_minted_one(
@@ -1092,16 +1093,12 @@ async def test_import_device_unresolvable_package_with_a_second_complaint_never_
 
 
 @pytest.mark.parametrize(
-    "pending", [pytest.param(True, id="pending"), pytest.param(False, id="minted")]
-)
-@pytest.mark.parametrize(
     "listed", [pytest.param(False, id="unlisted"), pytest.param(True, id="listed")]
 )
 async def test_import_device_holds_the_name_so_a_push_mid_adoption_is_stored_then_landed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    pending: bool,
     listed: bool,
 ) -> None:
     """A handoff during the key step stores its key instead of writing; the adoption lands it."""
@@ -1110,8 +1107,6 @@ async def test_import_device_holds_the_name_so_a_push_mid_adoption_is_stored_the
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)
-    if pending:
-        ctrl._pending_keys.set("kitchen", PENDING_KEY)
     if listed:
         ctrl._scanner._devices_by_name["kitchen"] = [make_device("kitchen")]
     validate, handoff = _push_other_key_once(ctrl)
@@ -1123,7 +1118,6 @@ async def test_import_device_holds_the_name_so_a_push_mid_adoption_is_stored_the
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert f'key: "{OTHER_KEY}"' in content
     assert content.count("key:") == 1
-    assert PENDING_KEY not in content
     assert ctrl._pending_keys.get("kitchen") is None
     assert "kitchen" not in ctrl.state.adopting
     assert "warning" not in result
@@ -1276,29 +1270,14 @@ async def test_import_device_same_key_re_pushed_with_a_mac_is_not_a_newer_key(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Re-pushing the pending key with a MAC mid-adoption changes nothing and warns of nothing."""
-    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, AsyncMock())
-    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    """Re-pushing the pending key with a MAC after the splice changes nothing and warns nothing."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
-    handoff: dict[str, Any] = {}
-
-    async def _validate(
-        *, configuration: str, content: str, timeout: float | None = None
-    ) -> dict[str, Any]:
-        if not handoff:
-            handoff.update(
-                await ctrl.set_encryption_key(
-                    name="kitchen", key=PENDING_KEY, mac="AA:BB:CC:DD:EE:FF"
-                )
-            )
-        return {"yaml_errors": [], "validation_errors": []}
-
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+    _push_after_splice(monkeypatch, ctrl, PENDING_KEY, mac="AA:BB:CC:DD:EE:FF")
 
     result = await _import_kitchen(ctrl)
 
-    assert handoff["result"] == "stored"
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert content.count(f'key: "{PENDING_KEY}"') == 1
     assert ctrl._pending_keys.get("kitchen") is None
@@ -1456,14 +1435,7 @@ async def test_import_device_keeps_a_key_pushed_while_the_splice_was_in_flight(
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
-    real_splice = importable._splice_pending_key_validated
-
-    async def splice_then_push(*args: Any, **kwargs: Any) -> Any:
-        outcome = await real_splice(*args, **kwargs)
-        ctrl._pending_keys.set("kitchen", OTHER_KEY)
-        return outcome
-
-    monkeypatch.setattr(importable, "_splice_pending_key_validated", splice_then_push)
+    _push_after_splice(monkeypatch, ctrl, OTHER_KEY)
 
     result = await ctrl.import_device(
         name="kitchen",

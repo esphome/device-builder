@@ -42,8 +42,8 @@ def _decode(raw: bytes) -> dict[str, dict[str, str]]:
 def _valid_entry(entry: object) -> bool:
     """Entry shape guard: consumers index ``entry["key"]`` unconditionally.
 
-    The key must be base64 of exactly 32 bytes — consumers interpolate
-    it into generated YAML, so nothing else may enter RAM.
+    The key must be base64 of exactly 32 bytes — consumers splice it
+    into YAML, so nothing else may enter RAM.
     """
     if not (
         isinstance(entry, dict)

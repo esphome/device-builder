@@ -166,13 +166,8 @@ def generate_adoption_yaml(
     """
     Generate the adoption-shape YAML referencing a remote package.
 
-    One shape for both consumers — ``devices/import`` (adopt) and a
-    ``package_import_url`` board create: ``substitutions`` + ``packages:``
-    + ``esphome:`` overrides + a freshly generated API key when
-    *api_encryption*, with a ``wifi:`` block only when the package
-    doesn't provide the network. The name rides through
-    ``substitutions`` because vendor packages may reference ``${name}``
-    internally.
+    Mints an API key when *api_encryption*; adds ``wifi:`` only when the
+    package doesn't provide the network.
     """
     lines: list[str] = ["substitutions:"]
     lines.append(f"  name: {name}")
