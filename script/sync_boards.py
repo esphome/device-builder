@@ -439,7 +439,7 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     same-named twin. A board missing from ``RP2040_BOARD_PINS`` still gets the matrix.
     """
     ids, names = _generation_dedup_keys(boards)
-    module = importlib.import_module("esphome.components.rp2040.boards")
+    module = importlib.import_module("esphome.components.rp2.boards")
     default_max_pin: int = module.DEFAULT_MAX_PIN
     for name, meta in module.BOARDS.items():
         display = _meta_name(meta, name)
@@ -463,7 +463,7 @@ def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
     universal on esp32/esp8266/libretiny, so only rp2040 gets the chip. A backfill
     (not part of generation) so the manifest-only drift test applies it the same way.
     """
-    module = importlib.import_module("esphome.components.rp2040.boards")
+    module = importlib.import_module("esphome.components.rp2.boards")
     for board in boards:
         if board.esphome.platform is Platform.RP2 and BoardTag.WIFI not in board.tags:
             meta = module.BOARDS.get(board.esphome.board)
@@ -480,7 +480,7 @@ def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
     real chip. Covers curated and generated boards alike; a backfill (not part of
     generation) so the manifest-only drift test applies it the same way.
     """
-    module = importlib.import_module("esphome.components.rp2040.boards")
+    module = importlib.import_module("esphome.components.rp2.boards")
     for board in boards:
         if board.esphome.platform is Platform.RP2:
             meta = module.BOARDS.get(board.esphome.board)

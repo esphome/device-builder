@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -40,18 +39,29 @@ def _write_schema_dir(tmp_path: Path) -> Path:
     return schema_dir
 
 
-def test_component_aliases_mirror_the_installed_loader() -> None:
+def test_component_aliases_map_to_loadable_canonicals() -> None:
     loader = sync_components._get_esphome_loader()
-    expected = {legacy: meta.canonical for legacy, meta in loader.get_alias_metadata().items()}
-    assert sync_components._component_aliases() == expected
+    for legacy, canonical in sync_components._component_aliases().items():
+        assert legacy != canonical
+        assert loader.get_component(canonical) is not None
+
+
+def test_component_aliases_empty_without_esphome(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sync_components, "_get_esphome_loader", lambda: None)
+    assert sync_components._component_aliases() == {}
 
 
 def test_build_entries_skips_an_alias_section(tmp_path: Path) -> None:
     schema_dir = _write_schema_dir(tmp_path)
-    entries = sync_components.build_entries_from_file(
-        schema_dir / "esp32_improv.json", MagicMock(), schema_dir, {}
+    index = sync_components.SchemaIndex(metadata={"improv_ble": {}, "esp32_improv": {}})
+    canonical = sync_components.build_entries_from_file(
+        schema_dir / "improv_ble.json", index, schema_dir, {}
     )
-    assert entries == []
+    alias = sync_components.build_entries_from_file(
+        schema_dir / "esp32_improv.json", index, schema_dir, {}
+    )
+    assert [e["id"] for e in canonical] == ["improv_ble"]
+    assert alias == []
 
 
 def test_build_automations_skips_alias_sections(tmp_path: Path) -> None:

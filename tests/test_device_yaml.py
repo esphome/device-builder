@@ -2086,7 +2086,7 @@ def test_generate_yaml_omits_wifi_for_plain_rp2040_pico() -> None:
     """RP2040 ``rpipico`` board → no ``wifi:`` block.
 
     The plain Pico has no CYW43; only the W variants do. The
-    inference reads ``esphome.components.rp2040.boards.BOARDS`` so
+    inference reads ``esphome.components.rp2.boards.BOARDS`` so
     we don't carry a hand-maintained list parallel to upstream.
     """
     board = _make_board(platform=Platform.RP2, pio_board="rpipico")
