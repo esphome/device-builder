@@ -16,6 +16,7 @@ from ...definitions import load_platform_capabilities_index
 from ...models.boards import RP2_PLATFORM_ALIASES, normalize_platform
 from ..chips import normalize_chip_variant
 from ..yaml import (
+    ESPHOME_NAME_ADD_MAC_SUFFIX_PATH,
     TRUTHY_BOOL_STRINGS,
     _split_value_and_comment,
     _strip_yaml_quotes,
@@ -274,7 +275,7 @@ def _truthy_child_re(block: str, key: str) -> re.Pattern[str]:
     )
 
 
-_RAW_NAME_ADD_MAC_SUFFIX_RE = _truthy_child_re("esphome", "name_add_mac_suffix")
+_RAW_NAME_ADD_MAC_SUFFIX_RE = _truthy_child_re(*ESPHOME_NAME_ADD_MAC_SUFFIX_PATH)
 _RAW_MDNS_DISABLED_RE = _truthy_child_re("mdns", "disabled")
 
 

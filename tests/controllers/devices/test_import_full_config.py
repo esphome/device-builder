@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any, Self
 from unittest.mock import Mock
 
@@ -16,6 +17,11 @@ from esphome_device_builder.controllers.devices.import_full_config import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
 from esphome_device_builder.models import ErrorCode
+
+
+def _http_error(status: int) -> aiohttp.ClientResponseError:
+    return aiohttp.ClientResponseError(Mock(), (), status=status, message="HTTP")
+
 
 _LITERAL = (
     "# vendor header\n"
@@ -140,9 +146,9 @@ async def test_fetch_refuses_unusable_urls(url: str) -> None:
 
 
 class _FakeSession:
-    """``aiohttp.ClientSession`` stand-in whose ``get`` yields *response* or raises *exc*."""
+    """``aiohttp.ClientSession`` stand-in whose ``get`` yields *body* or raises *exc*."""
 
-    response: Any = None
+    body: bytes = b""
     exc: Exception | None = None
 
     def __init__(self, **_kw: Any) -> None:
@@ -154,21 +160,33 @@ class _FakeSession:
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
-    def get(self, _url: str, **_kw: Any) -> _FakeSession:
+    def get(self, _url: str, **_kw: Any) -> Self:
         if self.exc is not None:
             raise self.exc
         return self
 
-    async def text(self) -> str:
-        return str(self.response)
+    @property
+    def content(self) -> Self:
+        return self
+
+    async def iter_chunked(self, size: int) -> AsyncIterator[bytes]:
+        for start in range(0, len(self.body), size):
+            yield self.body[start : start + size]
+
+
+def _serve(
+    monkeypatch: pytest.MonkeyPatch, *, body: bytes = b"", exc: Exception | None = None
+) -> None:
+    monkeypatch.setattr(_FakeSession, "body", body)
+    monkeypatch.setattr(_FakeSession, "exc", exc)
+    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FakeSession)
 
 
 async def test_fetch_returns_the_raw_file(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_FakeSession, "response", "esphome:\n  name: neato\n")
-    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FakeSession)
+    _serve(monkeypatch, body="esphome:\n  name: neato\n  comment: Küche\n".encode())
 
     assert await fetch_full_config("github://x/y/z.yaml@main?full_config") == (
-        "esphome:\n  name: neato\n"
+        "esphome:\n  name: neato\n  comment: Küche\n"
     )
 
 
@@ -177,20 +195,35 @@ async def test_fetch_returns_the_raw_file(monkeypatch: pytest.MonkeyPatch) -> No
     [
         pytest.param(aiohttp.ClientConnectionError("refused"), ErrorCode.UNAVAILABLE, id="connect"),
         pytest.param(TimeoutError(), ErrorCode.UNAVAILABLE, id="timeout"),
-        pytest.param(
-            aiohttp.ClientResponseError(Mock(), (), status=404, message="Not Found"),
-            ErrorCode.INVALID_ARGS,
-            id="http_404",
-        ),
+        pytest.param(_http_error(404), ErrorCode.INVALID_ARGS, id="http_404"),
+        pytest.param(_http_error(429), ErrorCode.RATE_LIMITED, id="http_429"),
+        pytest.param(_http_error(503), ErrorCode.UNAVAILABLE, id="http_503"),
     ],
 )
 async def test_fetch_failures_are_typed(
     monkeypatch: pytest.MonkeyPatch, exc: Exception, code: ErrorCode
 ) -> None:
-    monkeypatch.setattr(_FakeSession, "exc", exc)
-    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FakeSession)
+    _serve(monkeypatch, exc=exc)
 
     with pytest.raises(CommandError) as excinfo:
         await fetch_full_config("github://x/y/z.yaml@main?full_config")
 
     assert excinfo.value.code == code
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"esphome:\n  name: x\n" + b"#" * (1 << 20), id="oversize"),
+        pytest.param(b"esphome:\n  name: \xff\n", id="not_utf8"),
+        pytest.param(b"<html><body>captive portal</body></html>\n: [", id="not_yaml"),
+        pytest.param(b"- just\n- a list\n", id="not_a_mapping"),
+    ],
+)
+async def test_unusable_bodies_are_refused(monkeypatch: pytest.MonkeyPatch, body: bytes) -> None:
+    _serve(monkeypatch, body=body)
+
+    with pytest.raises(CommandError) as excinfo:
+        await fetch_full_config("github://x/y/z.yaml@main?full_config")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
