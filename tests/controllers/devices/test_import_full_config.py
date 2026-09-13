@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Any, Self
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import aiohttp
 import pytest
@@ -78,6 +78,20 @@ def test_absent_friendly_name_leaf_is_inserted() -> None:
         "esphome:\n  name: neato-33abec\n  name_add_mac_suffix: false\n"
         "  friendly_name: Speaker 33abec\n"
     )
+
+
+def test_suffix_inside_a_block_scalar_is_not_a_gate() -> None:
+    upstream = "esphome:\n  name: neato\n  comment: |\n    name_add_mac_suffix: true\n"
+
+    assert materialize_full_config(upstream, "neato-33abec", None) == upstream
+
+
+def test_quoted_suffix_value_is_honoured() -> None:
+    upstream = 'esphome:\n  name: neato\n  name_add_mac_suffix: "true"\n'
+
+    out = materialize_full_config(upstream, "neato-33abec", None)
+
+    assert out == "esphome:\n  name: neato-33abec\n  name_add_mac_suffix: false\n"
 
 
 def test_friendly_name_upsert_refusal_is_typed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,10 +190,14 @@ class _FakeSession:
 
 def _serve(
     monkeypatch: pytest.MonkeyPatch, *, body: bytes = b"", exc: Exception | None = None
-) -> None:
+) -> AsyncMock:
+    """Install the fake session; return the patched no-op retry sleep."""
     monkeypatch.setattr(_FakeSession, "body", body)
     monkeypatch.setattr(_FakeSession, "exc", exc)
     monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FakeSession)
+    sleep = AsyncMock()
+    monkeypatch.setattr(import_full_config.asyncio, "sleep", sleep)
+    return sleep
 
 
 async def test_fetch_returns_the_raw_file(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,12 +221,32 @@ async def test_fetch_returns_the_raw_file(monkeypatch: pytest.MonkeyPatch) -> No
 async def test_fetch_failures_are_typed(
     monkeypatch: pytest.MonkeyPatch, exc: Exception, code: ErrorCode
 ) -> None:
-    _serve(monkeypatch, exc=exc)
+    sleep = _serve(monkeypatch, exc=exc)
 
     with pytest.raises(CommandError) as excinfo:
         await fetch_full_config("github://x/y/z.yaml@main?full_config")
 
     assert excinfo.value.code == code
+    transient = code in (ErrorCode.UNAVAILABLE, ErrorCode.RATE_LIMITED)
+    assert sleep.await_args_list == ([call(2), call(4)] if transient else [])
+
+
+async def test_transient_failure_recovers_on_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep = _serve(monkeypatch, body=b"esphome:\n  name: neato\n")
+    outages = [_http_error(503), aiohttp.ClientConnectionError("refused")]
+    real_get = _FakeSession.get
+
+    def _flaky_get(self: _FakeSession, url: str, **kw: Any) -> _FakeSession:
+        if outages:
+            raise outages.pop(0)
+        return real_get(self, url, **kw)
+
+    monkeypatch.setattr(_FakeSession, "get", _flaky_get)
+
+    assert await fetch_full_config("github://x/y/z.yaml@main?full_config") == (
+        "esphome:\n  name: neato\n"
+    )
+    assert sleep.await_args_list == [call(2), call(4)]
 
 
 @pytest.mark.parametrize(

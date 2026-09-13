@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 import aiohttp
 import yaml
 
 from ...helpers.api import CommandError
-from ...helpers.device_yaml import yaml_has_name_add_mac_suffix
 from ...helpers.lazy_module import async_import_module
 from ...helpers.yaml import (
     ESPHOME_NAME_ADD_MAC_SUFFIX_PATH,
     YamlUpsertNotSupportedError,
+    _strip_yaml_quotes,
+    parse_config_boolean,
+    read_yaml_scalar,
     rewrite_rename_content,
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
 )
 from ...models import ErrorCode
 
+_LOGGER = logging.getLogger(__name__)
+
 _FETCH_TIMEOUT = aiohttp.ClientTimeout(total=30)
+_MAX_ATTEMPTS = 3
 _MAX_CONFIG_BYTES = 1 << 20
 _READ_CHUNK = 64 * 1024
 _PIN_REMEDY = (
@@ -36,6 +44,44 @@ async def fetch_full_config(package_import_url: str) -> str:
         raise CommandError(
             ErrorCode.INVALID_ARGS, f"Unsupported import URL {package_import_url}: {exc}"
         ) from exc
+    for attempt in range(1, _MAX_ATTEMPTS):
+        try:
+            return await _fetch_once(url)
+        except CommandError as exc:
+            if exc.code not in _TRANSIENT_CODES:
+                raise
+            delay = 2**attempt
+            _LOGGER.warning(
+                "Import of %s failed: %s. Retrying in %d seconds... (attempt %d/%d)",
+                url,
+                exc,
+                delay,
+                attempt + 1,
+                _MAX_ATTEMPTS,
+            )
+            await asyncio.sleep(delay)
+    return await _fetch_once(url)
+
+
+def materialize_full_config(contents: str, name: str, friendly_name: str | None) -> str:
+    """Pin *contents* to the adopted device when its ``esphome:`` adds a MAC suffix."""
+    suffix = read_yaml_scalar(contents, ESPHOME_NAME_ADD_MAC_SUFFIX_PATH)
+    if suffix is None or parse_config_boolean(_strip_yaml_quotes(suffix)) is not True:
+        return contents
+    text = rewrite_yaml_scalar(contents, ESPHOME_NAME_ADD_MAC_SUFFIX_PATH, lambda _raw: "false")
+    text = rewrite_rename_content(text, name, remedy=_PIN_REMEDY)
+    if friendly_name:
+        try:
+            text = upsert_yaml_leaf_under_top_block(text, "esphome", "friendly_name", friendly_name)
+        except YamlUpsertNotSupportedError as exc:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+    return text
+
+
+_TRANSIENT_CODES = frozenset({ErrorCode.UNAVAILABLE, ErrorCode.RATE_LIMITED})
+
+
+async def _fetch_once(url: str) -> str:
     try:
         async with (
             aiohttp.ClientSession(timeout=_FETCH_TIMEOUT, trust_env=True) as session,
@@ -49,20 +95,6 @@ async def fetch_full_config(package_import_url: str) -> str:
     except (aiohttp.ClientError, TimeoutError) as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, f"Could not fetch {url}: {exc}") from exc
     return _decode_yaml_text(body, url)
-
-
-def materialize_full_config(contents: str, name: str, friendly_name: str | None) -> str:
-    """Pin *contents* to the adopted device when its ``esphome:`` adds a MAC suffix."""
-    if not yaml_has_name_add_mac_suffix(contents):
-        return contents
-    text = rewrite_yaml_scalar(contents, ESPHOME_NAME_ADD_MAC_SUFFIX_PATH, lambda _raw: "false")
-    text = rewrite_rename_content(text, name, remedy=_PIN_REMEDY)
-    if friendly_name:
-        try:
-            text = upsert_yaml_leaf_under_top_block(text, "esphome", "friendly_name", friendly_name)
-        except YamlUpsertNotSupportedError as exc:
-            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
-    return text
 
 
 def _code_for_status(status: int) -> ErrorCode:
