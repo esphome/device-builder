@@ -1,8 +1,8 @@
 """End-to-end coverage for ``DevicesController.toggle_ignore``.
 
 The handler manages the ``ignored_devices`` set (used by the
-import-list filter), persists the change to disk via the
-executor-routed ``_save_ignored_devices``, and — when an
+import-list filter), schedules a debounced save through the
+ignored-devices store, and — when an
 ``AdoptableDevice`` is currently cached for that name — mirrors
 the new flag onto the cache + re-publishes ``IMPORTABLE_DEVICE_ADDED``
 so subscribed frontends update the badge without waiting for the
@@ -11,7 +11,7 @@ next discovery cycle.
 Four contracts pinned:
 
 1. ``ignore=True`` adds the name to the set; ``ignore=False`` removes it.
-2. The persist path runs in the executor (file actually lands on disk).
+2. The scheduled save lands the legacy file shape on disk once flushed.
 3. A cached ``AdoptableDevice`` gets its ``ignored`` flag mirrored,
    and an ``IMPORTABLE_DEVICE_ADDED`` event fires with the updated
    model so the frontend re-renders the badge.
@@ -24,8 +24,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.event_bus import Event
@@ -43,11 +41,7 @@ def _seed_for_toggle(
 
     Returns ``(events, ignored_path)`` so the test can assert
     against fired events and the on-disk state of the ignored
-    list. ``_save_ignored_devices`` walks ``ignored_devices_storage_path()``
-    which the production loader keys off ``CORE.config_path``;
-    monkeypatching it onto a known location under ``tmp_path``
-    is what lets the test inspect what landed on disk without
-    spinning up a full ``DashboardSettings``.
+    list; the factory's store writes under ``tmp_path``.
 
     The events list is the live capture from
     ``capture_devices_events`` — only ``IMPORTABLE_DEVICE_ADDED``
@@ -55,30 +49,13 @@ def _seed_for_toggle(
     """
     fired = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_ADDED)
     controller.state.import_result = {}
-    controller.state.ignored_devices = set()
+    controller.state.ignored_devices.clear()
     return fired, tmp_path / "ignored-devices.json"
-
-
-@pytest.fixture
-def _patch_ignored_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Redirect ``ignored_devices_storage_path`` at ``tmp_path/ignored-devices.json``.
-
-    Production resolves the path from ``CORE.config_path`` which
-    isn't set in the test process. Pinning the redirect makes
-    ``_save_ignored_devices`` write to a known location the test
-    can read back.
-    """
-    target = tmp_path / "ignored-devices.json"
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.ignored_devices_storage_path",
-        lambda: target,
-    )
 
 
 async def test_toggle_ignore_true_adds_to_set_and_persists(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
-    _patch_ignored_path: None,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """``ignore=True`` adds the name and writes the updated list to disk."""
@@ -88,7 +65,7 @@ async def test_toggle_ignore_true_adds_to_set_and_persists(
     await controller.toggle_ignore(name="kitchen-1a2b3c")
 
     assert "kitchen-1a2b3c" in controller.state.ignored_devices
-    # Persist landed on disk via the executor.
+    await controller._ignored_devices.async_save_now()
     assert ignored_path.exists()
     payload = json.loads(ignored_path.read_text("utf-8"))
     assert payload == {"ignored_devices": ["kitchen-1a2b3c"]}
@@ -97,7 +74,6 @@ async def test_toggle_ignore_true_adds_to_set_and_persists(
 async def test_toggle_ignore_false_removes_and_persists(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
-    _patch_ignored_path: None,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """``ignore=False`` discards the name and writes the trimmed list.
@@ -114,6 +90,7 @@ async def test_toggle_ignore_false_removes_and_persists(
     await controller.toggle_ignore(name="kitchen-1a2b3c", ignore=False)
 
     assert "kitchen-1a2b3c" not in controller.state.ignored_devices
+    await controller._ignored_devices.async_save_now()
     payload = json.loads(ignored_path.read_text("utf-8"))
     assert payload == {"ignored_devices": []}
 
@@ -124,7 +101,6 @@ async def test_toggle_ignore_false_removes_and_persists(
 async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
-    _patch_ignored_path: None,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """When an ``AdoptableDevice`` is cached, its ``ignored`` flag is mirrored.
@@ -164,7 +140,6 @@ async def test_toggle_ignore_mirrors_flag_onto_cached_adoptable_and_fires(
 async def test_toggle_ignore_does_not_fire_when_state_unchanged(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
-    _patch_ignored_path: None,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
     """Re-asserting an already-set flag doesn't fire a duplicate event.

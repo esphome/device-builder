@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from esphome.core import CORE
+from esphome.storage_json import ignored_devices_storage_path
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import SECRETS_FILENAME, is_secrets_file
@@ -79,6 +80,7 @@ from . import (
     troubleshoot,
     validate,
 )
+from ._ignored_devices_store import IgnoredDevicesStore
 from ._metadata_store import DeviceMetadataStore
 from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
@@ -146,6 +148,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # by ``import_device`` so adoption doesn't mint a competing key.
         self._pending_keys = PendingKeysStore(
             data_dir=Path(CORE.data_dir),
+            shutdown_register=self._shutdown_callbacks.append,
+        )
+        self._ignored_devices = IgnoredDevicesStore(
+            ignored_devices_storage_path(),
+            self.state.ignored_devices,
             shutdown_register=self._shutdown_callbacks.append,
         )
         # Resolved here because ``CORE.data_dir`` stats the config dir;
@@ -286,7 +293,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             group.create_task(self._metadata_store.async_load())
             group.create_task(self._pending_keys.async_load())
             group.create_task(self.migrate_board_id_user_set())
-            group.create_task(run_in_executor(self._load_ignored_devices))
+            group.create_task(self._ignored_devices.async_load())
         # Shallow seed; the refine task spawned below deep-reloads each
         # device off the startup critical path.
         await self._scanner.scan(shallow=True)
@@ -1292,12 +1299,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             build_size_dir_mtime=result.signal.dir_mtime,
             build_size_info_mtime=result.signal.info_mtime,
         )
-
-    def _load_ignored_devices(self) -> None:
-        importable.load_ignored_devices(self)
-
-    def _save_ignored_devices(self) -> None:
-        importable.save_ignored_devices(self)
 
     async def _archive_single(self, configuration: str) -> None:
         await archive.archive_single(self, configuration)

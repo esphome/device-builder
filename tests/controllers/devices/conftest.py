@@ -27,6 +27,9 @@ import pytest
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.controllers.config import get_device_metadata, set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._ignored_devices_store import (
+    IgnoredDevicesStore,
+)
 from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
@@ -545,6 +548,11 @@ def make_controller() -> Iterator[MakeControllerFactory]:
         )
         controller._pending_keys = PendingKeysStore(
             data_dir=config_dir,
+            shutdown_register=controller._shutdown_callbacks.append,
+        )
+        controller._ignored_devices = IgnoredDevicesStore(
+            config_dir / "ignored-devices.json",
+            controller.state.ignored_devices,
             shutdown_register=controller._shutdown_callbacks.append,
         )
         controller._packages_root = config_dir / ".esphome" / "packages"
