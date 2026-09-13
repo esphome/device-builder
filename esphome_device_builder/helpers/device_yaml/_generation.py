@@ -160,13 +160,13 @@ def generate_adoption_yaml(
     ssid: str = "",
     psk: str = "",
     wifi_secrets_available: bool = True,
-    api_encryption_key: str | None = None,
+    api_encryption_key: str | None,
 ) -> str:
     """
     Generate the adoption-shape YAML referencing a remote package.
 
     Adds ``wifi:`` only when the package doesn't provide the network and
-    splices *api_encryption_key* in when given.
+    splices *api_encryption_key* in; ``None`` leaves the device's own key alone.
     """
     lines: list[str] = ["substitutions:"]
     lines.append(f"  name: {name}")

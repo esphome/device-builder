@@ -3391,12 +3391,17 @@ def test_generate_adoption_yaml_matches_dashboard_import(
 def test_generate_adoption_yaml_variants() -> None:
     """Inline credentials quote through; no secrets drops the block; a given key is spliced in."""
     inline = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw"
+        "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw", api_encryption_key=None
     )
     assert 'ssid: "Net #1"' in inline
     assert "api:" not in inline
     no_creds = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", wifi_secrets_available=False
+        "p",
+        "P",
+        "k",
+        "github://x/y.yaml@main",
+        wifi_secrets_available=False,
+        api_encryption_key=None,
     )
     assert "wifi" not in no_creds
     supplied = generate_adoption_yaml(

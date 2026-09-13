@@ -1124,6 +1124,16 @@ def test_upsert_api_encryption_key_falls_back_to_the_packages_block() -> None:
     )
 
 
+def test_upsert_api_encryption_key_falls_back_to_the_substitutions_block() -> None:
+    """An unreadable ``packages:`` and no ``esphome:`` leave ``substitutions:`` as the anchor."""
+    yaml = "substitutions:\n  name: x\n\npackages: !include pkgs.yaml\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        'substitutions:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n\n'
+        "packages: !include pkgs.yaml\n\nwifi:\n  ssid: x\n"
+    )
+
+
 def test_upsert_api_encryption_key_prepends_when_esphome_is_an_inline_value() -> None:
     """An ``esphome:`` header the walker cannot read falls back to prepending the block."""
     yaml = "esphome: !include base.yaml\n\nwifi:\n  ssid: x\n"

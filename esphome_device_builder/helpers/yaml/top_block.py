@@ -75,7 +75,7 @@ def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] 
 
 
 def _insert_top_block_after(lines: list[str], anchors: tuple[str, ...], block: str, nl: str) -> str:
-    """Insert *block* below the first column-0 block found among *anchors*, else prepend it."""
+    """Insert *block* below the first readable column-0 *anchors* block, else prepend it."""
     for block_key in anchors:
         try:
             located = _locate_top_block(lines, block_key)
