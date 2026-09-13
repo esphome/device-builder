@@ -3,8 +3,8 @@
 These upstream modules are heavy and now load only when the corresponding
 feature is exercised:
 
-- ``esphome.components.dashboard_import`` (~14 MB) — only used by
-  the device-adoption WS command.
+- ``esphome.components.dashboard_import`` (~14 MB) — no longer imported
+  anywhere; guarded so a re-import surfaces here.
 - ``esphome.bundle`` (~1 MB) — only used by the peer-link receiver
   when an offload submission lands.
 - ``esphome.components.esp32`` / ``esphome.espidf`` — the esp32 package

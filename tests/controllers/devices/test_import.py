@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 from unittest.mock import AsyncMock, Mock
@@ -53,26 +53,9 @@ def _seed_import_state(controller: DevicesController) -> None:
     controller.state.import_result = {}
 
 
-def _import_config_stub(
-    captured: dict[str, Any] | None = None,
-) -> Callable[[str], Awaitable[str]]:
-    """Stub for ``fetch_full_config`` returning a minimal upstream YAML."""
-
-    async def _stub(package_import_url: str) -> str:
-        if captured is not None:
-            captured.setdefault("url", package_import_url)
-        return "esphome:\n  name: kitchen\n"
-
-    return _stub
-
-
-def _full_config_stub(api_tail: str) -> Callable[[str], Awaitable[str]]:
+def _full_config_stub(api_tail: str = "") -> AsyncMock:
     """Stub ``fetch_full_config`` returning an esphome header plus *api_tail*."""
-
-    async def _stub(_url: str) -> str:
-        return f"esphome:\n  name: kitchen\n{api_tail}"
-
-    return _stub
+    return AsyncMock(return_value=f"esphome:\n  name: kitchen\n{api_tail}")
 
 
 async def _import_kitchen(ctrl: DevicesController, **overrides: Any) -> dict[str, Any]:
@@ -288,38 +271,14 @@ async def test_import_device_full_config_url_fetches_and_writes_the_upstream_yam
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A ``?full_config`` import fetches the broadcast URL and writes the upstream YAML."""
-    captured: dict[str, Any] = {}
-    monkeypatch.setattr(importable, "fetch_full_config", _import_config_stub(captured))
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x/y.yaml@main?full_config",
-    )
-
-    assert captured["url"] == "github://x/y.yaml@main?full_config"
-    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: kitchen\n"
-
-
-async def test_import_device_full_config_without_esphome_block_writes_verbatim(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """An upstream YAML whose ``esphome:`` lives in a package is written untouched."""
+    """A ``?full_config`` import writes the fetched YAML untouched when ``esphome:`` is packaged."""
     upstream = (
         "substitutions:\n  id: '1'\n  name: audio-${id}\n"
         "packages:\n  board: !include boards/rev2_4.yaml\n"
         "logger:\n  level: WARN\n"
     )
-
-    async def _fetch(_url: str) -> str:
-        return upstream
-
-    monkeypatch.setattr(importable, "fetch_full_config", _fetch)
+    fetch = AsyncMock(return_value=upstream)
+    monkeypatch.setattr(importable, "fetch_full_config", fetch)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -329,6 +288,7 @@ async def test_import_device_full_config_without_esphome_block_writes_verbatim(
         package_import_url="github://x/y.yaml@main?full_config",
     )
 
+    fetch.assert_awaited_once_with("github://x/y.yaml@main?full_config")
     assert (tmp_path / "audio-33abec.yaml").read_text(encoding="utf-8") == upstream
 
 
@@ -338,11 +298,11 @@ async def test_import_device_full_config_fetch_failure_writes_nothing(
     make_controller: MakeControllerFactory,
 ) -> None:
     """A fetch that fails surfaces its typed error and leaves no file behind."""
-
-    async def _fetch(_url: str) -> str:
-        raise CommandError(ErrorCode.UNAVAILABLE, "Could not fetch")
-
-    monkeypatch.setattr(importable, "fetch_full_config", _fetch)
+    monkeypatch.setattr(
+        importable,
+        "fetch_full_config",
+        AsyncMock(side_effect=CommandError(ErrorCode.UNAVAILABLE, "Could not fetch")),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -546,7 +506,7 @@ async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
     make_controller: MakeControllerFactory,
 ) -> None:
     """No upstream ``api:`` block → YAML stays verbatim, key stays stored, user warned."""
-    monkeypatch.setattr(importable, "fetch_full_config", _import_config_stub())
+    monkeypatch.setattr(importable, "fetch_full_config", _full_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
@@ -2101,11 +2061,11 @@ async def test_import_device_full_config_never_gets_the_package_exemption(
     make_controller: MakeControllerFactory,
 ) -> None:
     """A ``?full_config`` import refuses even for packages-rooted errors."""
-
-    async def _fetch_with_packages(_url: str) -> str:
-        return "packages:\n  base: github://acme/base.yaml\nesphome:\n  name: x\n"
-
-    monkeypatch.setattr(importable, "fetch_full_config", _fetch_with_packages)
+    monkeypatch.setattr(
+        importable,
+        "fetch_full_config",
+        AsyncMock(return_value="packages:\n  base: github://acme/base.yaml\nesphome:\n  name: x\n"),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(

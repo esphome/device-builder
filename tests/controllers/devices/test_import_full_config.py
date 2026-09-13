@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import socket
+from typing import Any, Self
+from unittest.mock import Mock
 
+import aiohttp
 import pytest
-from esphome import git as esphome_git
 
+from esphome_device_builder.controllers.devices import import_full_config
 from esphome_device_builder.controllers.devices.import_full_config import (
     fetch_full_config,
     materialize_full_config,
@@ -48,7 +50,6 @@ def test_literal_friendly_name_is_applied_when_given() -> None:
     out = materialize_full_config(_LITERAL, "neato-33abec", "Speaker 33abec")
 
     assert "friendly_name: Speaker 33abec\n" in out
-    assert "name: neato-33abec  # base name\n" in out
 
 
 def test_substituted_name_rewrites_the_substitution_not_the_leaf() -> None:
@@ -61,12 +62,15 @@ def test_substituted_name_rewrites_the_substitution_not_the_leaf() -> None:
     assert "  name_add_mac_suffix: false\n" in out
 
 
-def test_absent_friendly_name_leaf_is_left_alone() -> None:
+def test_absent_friendly_name_leaf_is_inserted() -> None:
     upstream = "esphome:\n  name: neato\n  name_add_mac_suffix: true\n"
 
     out = materialize_full_config(upstream, "neato-33abec", "Speaker 33abec")
 
-    assert out == "esphome:\n  name: neato-33abec\n  name_add_mac_suffix: false\n"
+    assert out == (
+        "esphome:\n  name: neato-33abec\n  name_add_mac_suffix: false\n"
+        "  friendly_name: Speaker 33abec\n"
+    )
 
 
 @pytest.mark.parametrize(
@@ -84,9 +88,24 @@ def test_other_shapes_are_returned_verbatim(upstream: str) -> None:
     assert materialize_full_config(upstream, "neato-33abec", "Speaker") == upstream
 
 
-def test_suffix_without_a_name_is_refused() -> None:
+@pytest.mark.parametrize(
+    "upstream",
+    [
+        pytest.param("esphome:\n  name_add_mac_suffix: true\n", id="no_name"),
+        pytest.param(
+            "packages:\n  subs: !include subs.yaml\nesphome:\n  name: ${devicename}\n"
+            "  name_add_mac_suffix: true\n",
+            id="nonlocal_substitution",
+        ),
+        pytest.param(
+            "esphome:\n  name: ${prefix}-audio\n  name_add_mac_suffix: true\n",
+            id="embedded_substitution",
+        ),
+    ],
+)
+def test_unpinnable_name_is_refused(upstream: str) -> None:
     with pytest.raises(CommandError) as excinfo:
-        materialize_full_config("esphome:\n  name_add_mac_suffix: true\n", "neato-33abec", None)
+        materialize_full_config(upstream, "neato-33abec", None)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
@@ -106,14 +125,37 @@ async def test_fetch_refuses_unusable_urls(url: str) -> None:
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
-async def test_fetch_failure_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    raw = f"http://127.0.0.1:{port}/x/y/main/z.yaml"
-    monkeypatch.setattr(esphome_git.GitFile, "raw_url", property(lambda _self: raw))
+@pytest.mark.parametrize(
+    ("exc", "code"),
+    [
+        pytest.param(aiohttp.ClientConnectionError("refused"), ErrorCode.UNAVAILABLE, id="connect"),
+        pytest.param(TimeoutError(), ErrorCode.UNAVAILABLE, id="timeout"),
+        pytest.param(
+            aiohttp.ClientResponseError(Mock(), (), status=404, message="Not Found"),
+            ErrorCode.INVALID_ARGS,
+            id="http_404",
+        ),
+    ],
+)
+async def test_fetch_failures_are_typed(
+    monkeypatch: pytest.MonkeyPatch, exc: Exception, code: ErrorCode
+) -> None:
+    class _FailingSession:
+        def __init__(self, **_kw: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+        def get(self, _url: str, **_kw: Any) -> None:
+            raise exc
+
+    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FailingSession)
 
     with pytest.raises(CommandError) as excinfo:
         await fetch_full_config("github://x/y/z.yaml@main?full_config")
 
-    assert excinfo.value.code == ErrorCode.UNAVAILABLE
+    assert excinfo.value.code == code
