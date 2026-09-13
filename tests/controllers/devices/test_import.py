@@ -1474,7 +1474,7 @@ async def test_import_device_full_config_splice_write_failure_rolls_back(
 
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.write_user_yaml", _boom
+        "esphome_device_builder.controllers.devices.controller.write_user_yaml", _boom
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -1501,7 +1501,7 @@ async def test_import_device_mint_write_failure_rolls_back(
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.write_user_yaml", _boom
+        "esphome_device_builder.controllers.devices.controller.write_user_yaml", _boom
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     _seed_import_state(ctrl)

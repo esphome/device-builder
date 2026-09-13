@@ -53,11 +53,6 @@ async def set_encryption_key(
     """Land an HA-provisioned key: splice into configured YAML(s) or stash for adoption."""
     _validate_key(key)
     normalized_mac = normalize_mac(mac)
-    if name in controller.state.adopting:
-        # The adoption in flight lands the newest pending key itself at its write.
-        controller._pending_keys.set(name, key, normalized_mac)
-        _LOGGER.info("Stored pending API encryption key for %s; its adoption is in flight", name)
-        return {"result": KeyHandoffResult.STORED}
     devices = _match_devices(controller, name, normalized_mac)
     if not devices:
         controller._pending_keys.set(name, key, normalized_mac)
@@ -103,7 +98,9 @@ async def set_encryption_key(
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
-    """Match by name, disambiguating duplicate-name buckets (and misses) by MAC."""
+    """Match by name, disambiguating duplicates (and misses) by MAC; none while adopting."""
+    if name in controller.state.adopting:
+        return []
     devices = controller._scanner.get_by_name(name)
     if mac and len(devices) > 1:
         by_mac = [d for d in devices if d.mac_address == mac]

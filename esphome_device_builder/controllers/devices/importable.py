@@ -30,7 +30,6 @@ from ...helpers.yaml import (
     generate_api_encryption_key,
     read_yaml_scalar,
     upsert_api_encryption_key,
-    write_user_yaml,
 )
 from ...models import (
     AdoptableDevice,
@@ -160,7 +159,7 @@ async def import_device(
 
     async with _adoption_in_flight(controller, name, path):
         if content is None:
-            content = await run_in_executor(path.read_text, "utf-8")
+            content = await controller._read_yaml_async(path)
         ctx = _AdoptionKeyContext(controller, name, path, content, full_config_import)
         # Adopt tolerates a validator timeout on a short budget: the config's
         # ``github://`` fetch can outlast a full validate.
@@ -265,6 +264,7 @@ def load_ignored_devices(controller: DevicesController) -> None:
     # ``__init__`` time, before this loader runs in
     # ``start()``; replacing the set here would leave the
     # monitor checking a stale empty set forever.
+    controller.state.ignored_devices.clear()
     ignored = data.get("ignored_devices", [])
     if not isinstance(ignored, list):
         _LOGGER.warning(
@@ -272,9 +272,7 @@ def load_ignored_devices(controller: DevicesController) -> None:
             "field; resetting to an empty set",
             storage_path,
         )
-        controller.state.ignored_devices.clear()
         return
-    controller.state.ignored_devices.clear()
     controller.state.ignored_devices.update(name for name in ignored if isinstance(name, str))
 
 
@@ -290,7 +288,7 @@ def save_ignored_devices(controller: DevicesController) -> None:
 async def _adoption_in_flight(
     controller: DevicesController, name: str, path: Path
 ) -> AsyncIterator[None]:
-    """Hold *name* against the key handoff; a failure inside discards *path* so a retry works."""
+    """Hold *name* against the key handoff; a failure inside discards *path*."""
     controller.state.adopting.add(name)
     try:
         yield
@@ -331,7 +329,7 @@ async def _finalize_adoption_key(
     fresh = ctx.controller._pending_keys.get(ctx.name)
     if fresh is not None:
         outcome = await _splice_pending_key_validated(ctx, fresh["key"], warning)
-    elif encryption and not ctx.full_config_import:
+    elif encryption and ctx.insert_api:
         outcome = await _mint_key_unless_package_encrypts(ctx, warning)
     else:
         outcome = _KeyOutcome(warning, None)
@@ -340,20 +338,20 @@ async def _finalize_adoption_key(
 
 async def _write_keyed(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> _KeyOutcome:
     """Write the keyed YAML, a key pushed meanwhile winning, and consume the pending key in it."""
+    outcome = _prefer_pushed_key(ctx, outcome)
     if outcome.to_write is not None:
-        outcome = _prefer_pushed_key(ctx, outcome, outcome.to_write)
-        await run_in_executor(write_user_yaml, ctx.path, outcome.to_write)
+        await ctx.controller._write_yaml_atomic_async(ctx.path, outcome.to_write)
     if outcome.consume is not None:
         ctx.controller._pending_keys.pop_if(ctx.name, outcome.consume)
     return outcome
 
 
-def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome, keyed: str) -> _KeyOutcome:
-    """Swap a key pushed meanwhile into *keyed*; a refused splice keeps *keyed* and says so."""
+def _prefer_pushed_key(ctx: _AdoptionKeyContext, outcome: _KeyOutcome) -> _KeyOutcome:
+    """Swap a key pushed meanwhile into the YAML to write; a refused splice keeps it and says so."""
     pushed = ctx.controller._pending_keys.get(ctx.name)
-    if pushed is None or pushed["key"] == outcome.consume:
+    if outcome.to_write is None or pushed is None or pushed["key"] == outcome.consume:
         return outcome
-    splice = _splice_pending_key(keyed, pushed["key"], insert_api=ctx.insert_api)
+    splice = _splice_pending_key(outcome.to_write, pushed["key"], insert_api=ctx.insert_api)
     if splice.keyed is None:
         _LOGGER.warning(
             "Pushed key not applied to %s (%s); written key kept", ctx.path.name, splice.refusal
@@ -387,24 +385,35 @@ async def _mint_key(
     ctx: _AdoptionKeyContext, warning: PackageWarning | None, *, resolved: bool
 ) -> _KeyOutcome:
     """Splice a fresh key and re-check when the unkeyed YAML warned; strict when unresolved."""
-    spliced = _splice_fresh_key(ctx.content, ctx.path.name)
-    if spliced.keyed is None:
-        return _KeyOutcome(warning, spliced.refusal)
-    if warning is not None:
-        recheck = await _revalidate_keyed(
-            ctx, spliced.keyed, warning, failure_tail=". Adopted without a key."
+    splice = _splice_pending_key(
+        ctx.content, generate_api_encryption_key(), insert_api=ctx.insert_api
+    )
+    if splice.keyed is None:
+        _LOGGER.warning(
+            "Could not splice a key into %s (%s); adopted without one",
+            ctx.path.name,
+            splice.refusal,
         )
-        if recheck.key_warning is not None:
-            return recheck
-        if not resolved and recheck.validation_warning is not None:
-            _LOGGER.warning(
-                "Could not resolve %s; a key did not repair it (%s), adopted without one",
-                ctx.path.name,
-                recheck.validation_warning.text,
-            )
-            return _KeyOutcome(warning, _UNRESOLVED_WARNING)
-        warning = recheck.validation_warning
-    return _KeyOutcome(warning, None, to_write=spliced.keyed)
+        return _KeyOutcome(
+            warning,
+            f"A generated API encryption key could not be spliced in ({splice.refusal}); "
+            "adopted without one.",
+        )
+    if warning is None:
+        return _KeyOutcome(None, None, to_write=splice.keyed)
+    recheck = await _revalidate_keyed(
+        ctx, splice.keyed, warning, failure_tail=". Adopted without a key."
+    )
+    if recheck.key_warning is not None:
+        return recheck
+    if not resolved and recheck.validation_warning is not None:
+        _LOGGER.warning(
+            "Could not resolve %s; a key did not repair it (%s), adopted without one",
+            ctx.path.name,
+            recheck.validation_warning.text,
+        )
+        return _KeyOutcome(warning, _UNRESOLVED_WARNING)
+    return _KeyOutcome(recheck.validation_warning, None, to_write=splice.keyed)
 
 
 async def _splice_pending_key_validated(
@@ -453,26 +462,7 @@ async def _revalidate_keyed(
 
 def _only_missing_inherited_key(warning: PackageWarning | None) -> bool:
     """Whether every package complaint is the api key a bare ``ota: encryption:`` inherits."""
-    return (
-        warning is not None
-        and bool(warning.messages)
-        and all(_INHERIT_ERROR_MARK in m for m in warning.messages)
-    )
-
-
-def _splice_fresh_key(content: str, config_name: str) -> _SplicedKey:
-    """Splice a freshly minted key into *content*; a refusal when the shape defeats it."""
-    splice = _splice_pending_key(content, generate_api_encryption_key(), insert_api=True)
-    if splice.keyed is None:
-        _LOGGER.warning(
-            "Could not splice a key into %s (%s); adopted without one", config_name, splice.refusal
-        )
-        return _SplicedKey(
-            None,
-            f"A generated API encryption key could not be spliced in ({splice.refusal}); "
-            "adopted without one.",
-        )
-    return splice
+    return warning is not None and all(_INHERIT_ERROR_MARK in m for m in warning.messages)
 
 
 def _splice_pending_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:
