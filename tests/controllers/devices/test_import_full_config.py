@@ -292,6 +292,7 @@ def test_local_includes_walks_nested_tags_in_order() -> None:
         "packages:\n  board: !include boards/rev2_4.yaml\n"
         "  rftx: !include boards/common/rftx_outputs.yaml\n"
         "  cfg: !include\n    file: configs/home_assistant.yaml\n    vars:\n      id: 1\n"
+        "  odd: !include\n    vars:\n      id: 1\n"
         "esphome:\n  name: x\n"
         "script:\n  - id: a\n    then: !include_dir_list scripts/\n"
         "wifi:\n  ssid: !secret wifi_ssid\n"
@@ -304,6 +305,7 @@ def test_local_includes_walks_nested_tags_in_order() -> None:
         "scripts/",
     ]
     assert local_includes("esphome:\n  name: x\n") == []
+    assert local_includes("") == []
 
 
 def test_package_fallback_warning_lists_three_then_counts() -> None:
