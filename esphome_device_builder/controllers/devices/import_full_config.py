@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import aiohttp
-from esphome.git import GitFile
 
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import yaml_has_name_add_mac_suffix
+from ...helpers.lazy_module import async_import_module
 from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     rewrite_rename_content,
@@ -25,8 +25,9 @@ _PIN_REMEDY = (
 
 async def fetch_full_config(package_import_url: str) -> str:
     """Return the raw YAML the ``github://…?full_config`` shorthand points at."""
+    git = await async_import_module("esphome.git")
     try:
-        url = GitFile.from_shorthand(package_import_url).raw_url
+        url: str = git.GitFile.from_shorthand(package_import_url).raw_url
     except (ValueError, NotImplementedError) as exc:
         raise CommandError(
             ErrorCode.INVALID_ARGS, f"Unsupported import URL {package_import_url}: {exc}"

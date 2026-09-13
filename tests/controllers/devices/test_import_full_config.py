@@ -14,6 +14,7 @@ from esphome_device_builder.controllers.devices.import_full_config import (
     materialize_full_config,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.yaml import YamlUpsertNotSupportedError
 from esphome_device_builder.models import ErrorCode
 
 _LITERAL = (
@@ -73,6 +74,19 @@ def test_absent_friendly_name_leaf_is_inserted() -> None:
     )
 
 
+def test_friendly_name_upsert_refusal_is_typed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        import_full_config,
+        "upsert_yaml_leaf_under_top_block",
+        Mock(side_effect=YamlUpsertNotSupportedError("flow-style esphome block")),
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        materialize_full_config(_LITERAL, "neato-33abec", "Speaker 33abec")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
 @pytest.mark.parametrize(
     "upstream",
     [
@@ -125,6 +139,39 @@ async def test_fetch_refuses_unusable_urls(url: str) -> None:
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
 
 
+class _FakeSession:
+    """``aiohttp.ClientSession`` stand-in whose ``get`` yields *response* or raises *exc*."""
+
+    response: Any = None
+    exc: Exception | None = None
+
+    def __init__(self, **_kw: Any) -> None:
+        pass
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+    def get(self, _url: str, **_kw: Any) -> _FakeSession:
+        if self.exc is not None:
+            raise self.exc
+        return self
+
+    async def text(self) -> str:
+        return str(self.response)
+
+
+async def test_fetch_returns_the_raw_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_FakeSession, "response", "esphome:\n  name: neato\n")
+    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FakeSession)
+
+    assert await fetch_full_config("github://x/y/z.yaml@main?full_config") == (
+        "esphome:\n  name: neato\n"
+    )
+
+
 @pytest.mark.parametrize(
     ("exc", "code"),
     [
@@ -140,20 +187,8 @@ async def test_fetch_refuses_unusable_urls(url: str) -> None:
 async def test_fetch_failures_are_typed(
     monkeypatch: pytest.MonkeyPatch, exc: Exception, code: ErrorCode
 ) -> None:
-    class _FailingSession:
-        def __init__(self, **_kw: Any) -> None:
-            pass
-
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *_exc: object) -> None:
-            return None
-
-        def get(self, _url: str, **_kw: Any) -> None:
-            raise exc
-
-    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FailingSession)
+    monkeypatch.setattr(_FakeSession, "exc", exc)
+    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FakeSession)
 
     with pytest.raises(CommandError) as excinfo:
         await fetch_full_config("github://x/y/z.yaml@main?full_config")
