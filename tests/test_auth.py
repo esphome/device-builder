@@ -164,8 +164,10 @@ async def test_session_store_skips_expired_on_load(tmp_path: Path) -> None:
     assert await store2.validate(stale.token) is None
 
 
-async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
-    """A corrupt session row can't take down the whole store."""
+async def test_session_store_load_skips_garbage_entries(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A corrupt session row can't take down the whole store; the drop is counted in one warning."""
     persisted = tmp_path / ".device-builder-sessions.json"
     persisted.write_text(
         json.dumps(
@@ -208,6 +210,7 @@ async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
     assert await store.validate("wrong-types") is None
     assert await store.validate("string-expiry") is None
     assert store.active_count == 1
+    assert any("dropped 4 unreadable rows" in rec.message for rec in caplog.records)
 
 
 async def test_session_store_load_handles_top_level_garbage(tmp_path: Path) -> None:

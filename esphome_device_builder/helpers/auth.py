@@ -82,6 +82,7 @@ def _decode(raw: bytes) -> dict[str, Session]:
         _LOGGER.warning("sessions store: non-list sessions field, starting empty")
         return {}
     sessions: dict[str, Session] = {}
+    skipped = 0
     now = time.time()
     for entry in entries:
         try:
@@ -89,7 +90,11 @@ def _decode(raw: bytes) -> dict[str, Session]:
             if not session.is_expired(now):
                 sessions[session.token] = session
         except (TypeError, ValueError):
-            continue
+            # Unexpected fields, non-numeric timestamps or an unhashable
+            # token: one corrupt row must not take down the whole store.
+            skipped += 1
+    if skipped:
+        _LOGGER.warning("sessions store: dropped %d unreadable rows", skipped)
     return sessions
 
 
