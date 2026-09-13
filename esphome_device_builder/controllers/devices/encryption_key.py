@@ -151,7 +151,7 @@ async def _apply_to_device(
     verdict = await controller._validate_rewritten_yaml_or_raise(
         configuration, new_content, action="update encryption key", tolerate_unavailable=True
     )
-    if verdict.outage is not None:
+    if verdict.unavailable:
         reason = (
             "the rewritten configuration could not be validated (the validator was "
             f"unavailable); {_KEPT_FOR_LATER}"

@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ..editor import EditorController
 
 _LOGGER = logging.getLogger(__name__)
+_INHERIT_ERROR_MARK = "encryption key to inherit"
 
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
@@ -127,26 +128,18 @@ async def yaml_content_for_create(
     )
 
 
-_INHERIT_ERROR_MARK = "encryption key to inherit"
-
-
 class PackageWarning(NamedTuple):
-    """
-    A validation that failed only inside the packages block.
-
-    ``only_missing_api_key`` is set when every complaint is the api key a
-    bare ``ota: encryption:`` inherits.
-    """
+    """A package-confined failure: the user text, and whether a missing api key is all it says."""
 
     text: str
     only_missing_api_key: bool
 
 
 class ValidationVerdict(NamedTuple):
-    """A tolerated validation's outcome: clean, a package-confined warning, or the outage seen."""
+    """The validate outcome: clean, a package-confined warning, or a tolerated outage."""
 
     warning: PackageWarning | None = None
-    outage: ValidatorUnavailableError | None = None
+    unavailable: bool = False
 
 
 async def validate_rewritten_yaml_or_raise(
@@ -171,8 +164,8 @@ async def validate_rewritten_yaml_or_raise(
     input, ``INTERNAL_ERROR`` for broken YAML from our own
     generators.
 
-    *tolerate_unavailable* returns validator unavailability (timeout /
-    subprocess failure) as the verdict's ``outage`` instead of raising;
+    *tolerate_unavailable* reports validator unavailability (timeout /
+    subprocess failure) on the verdict instead of raising;
     genuine YAML/schema errors still raise. *timeout* overrides the
     validator's round-trip budget.
 
@@ -208,7 +201,7 @@ async def validate_rewritten_yaml_or_raise(
             _LOGGER.warning(
                 "Validator subprocess unavailable during %s of %s (%r)", action, configuration, err
             )
-        return ValidationVerdict(outage=err)
+        return ValidationVerdict(unavailable=True)
     errors = [
         *(err.get("message", "") for err in result.get("yaml_errors", [])),
         *(_describe_validation_error(err) for err in result.get("validation_errors", [])),

@@ -402,7 +402,8 @@ async def _mint_key_unless_package_encrypts(
     # A package's own OTA key would have to match a baked api key; leave both out.
     if get_ota_encryption_key(config) or ota_encryption_block_unresolved(config):
         return _KeyOutcome(warning, _OWN_OTA_KEY_WARNING)
-    if not resolved and (config is None or warning is None or not warning.only_missing_api_key):
+    tentative = config is not None and warning is not None and warning.only_missing_api_key
+    if not resolved and not tentative:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", ctx.path.name)
         return _KeyOutcome(warning, _UNRESOLVED_WARNING)
     return await _mint_key(ctx, warning, resolved=resolved)
@@ -476,7 +477,7 @@ async def _revalidate_keyed(
         )
     except CommandError as err:
         return _KeyOutcome(warning, err.message)
-    return _KeyOutcome(warning if verdict.outage is not None else verdict.warning, None)
+    return _KeyOutcome(warning if verdict.unavailable else verdict.warning, None)
 
 
 def _splice_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:

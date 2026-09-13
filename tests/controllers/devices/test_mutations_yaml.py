@@ -44,7 +44,7 @@ async def test_tolerate_path_keeps_file_on_validator_failure(exc: Exception) -> 
         tolerate_unavailable=True,
     )
 
-    assert verdict == mutations_yaml.ValidationVerdict(outage=exc)
+    assert verdict == mutations_yaml.ValidationVerdict(unavailable=True)
 
 
 async def test_tolerate_path_still_propagates_generic_runtime_error() -> None:
@@ -160,15 +160,14 @@ async def test_secrets_reclassification_logs_only_a_would_be_generator_bug(
     assert ("not the generator" in caplog.text) is logged
 
 
+_INHERIT_ERROR = f"no 'api' {mutations_yaml._INHERIT_ERROR_MARK}; set one of them"
+
+
 @pytest.mark.parametrize(
     ("messages", "only_missing_api_key"),
     [
-        pytest.param(
-            [f"complaint {n}" for n in range(3)] + ["no 'api' encryption key to inherit"],
-            False,
-            id="mixed",
-        ),
-        pytest.param(["no 'api' encryption key to inherit; set one of them"] * 4, True, id="all"),
+        pytest.param([f"complaint {n}" for n in range(3)] + [_INHERIT_ERROR], False, id="mixed"),
+        pytest.param([_INHERIT_ERROR] * 4, True, id="all"),
     ],
 )
 def test_packages_confined_warning_classifies_every_message(

@@ -1603,7 +1603,7 @@ async def test_import_device_joins_validation_and_key_warnings(
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
     ctrl._validate_rewritten_yaml_or_raise = AsyncMock(  # type: ignore[method-assign]
         return_value=ValidationVerdict(
-            PackageWarning("Validator unavailable; import kept.", only_missing_api_key=False)
+            PackageWarning("Imported, but the remote package didn't validate.", False)
         )
     )
 
@@ -1613,7 +1613,7 @@ async def test_import_device_joins_validation_and_key_warnings(
         package_import_url="github://x/y.yaml@main?full_config",
     )
 
-    assert "Validator unavailable" in result["warning"]
+    assert "remote package didn't validate" in result["warning"]
     assert "supplies its own API encryption key" in result["warning"]
 
 

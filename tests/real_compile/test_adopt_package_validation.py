@@ -100,7 +100,7 @@ wifi:
 
 def test_bare_ota_encryption_error_carries_the_inherit_mark(tmp_path: Path) -> None:
     """Esphome's error for a bare ``ota: encryption:`` without an api key names the inherit."""
-    if not version_at_least(esphome_version, "2026.10.0"):
+    if not version_at_least(esphome_version, "2026.9.0b1"):
         pytest.skip("installed esphome predates OTA key inheritance")
     content = (
         "substitutions:\n  name: kitchen\n\npackages:\n  v: !include package.yaml\n\n"
