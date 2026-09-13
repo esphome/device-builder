@@ -185,7 +185,9 @@ async def import_device(
     except Exception:
         _LOGGER.exception("Scan after import failed; will pick up on next poll")
 
-    _drop_importable_row_and_probe(controller, name)
+    # The scan's ADDED handler retires the row and probes; a failed
+    # scan would otherwise leave the adopt banner up until the next poll.
+    controller._on_importable_removed(name)
     result = {"configuration": configuration}
     validation = outcome.validation_warning
     if warnings := [w for w in (validation.text if validation else None, outcome.key_warning) if w]:
@@ -455,19 +457,3 @@ def _splice_key(content: str, key: str, *, insert_api: bool) -> _SplicedKey:
     if not api_key_settled(spliced, key):
         return _SplicedKey(None, "The imported config's shape defeated the key splice.")
     return _SplicedKey(spliced, None)
-
-
-def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:
-    """Retire the adopted device's importable row and kick its first probe."""
-    # Drop only the adopted name's row — a URL-wide sweep would retire
-    # every sibling unit of the same product. The removal is a no-op
-    # when the post-write scan already pruned it.
-    controller._on_importable_removed(name)
-
-    # No state seed — the real sources decide. Discovery is
-    # mDNS-based, so the adopt claims ONLINE via the esphomelib
-    # probe's cache hit in this same call.
-    cached = controller._state_monitor.mdns.get_cached_addresses(f"{name}.local")
-    if cached:
-        controller._state_monitor.apply_ip_addresses(name, cached)
-    controller._state_monitor.mdns.probe_device(name)

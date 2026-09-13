@@ -1517,14 +1517,15 @@ def test_on_scan_change_added_prunes_stale_importable_row(
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """A discovered device becoming configured drops its importable row and fires REMOVED."""
+    """A discovered device becoming configured drops only its own importable row."""
     controller = make_controller(tmp_path, with_state_monitor=True)
     controller.state.import_result["kitchen"] = _adoptable("kitchen")
+    controller.state.import_result["kitchen-2"] = _adoptable("kitchen-2")
     captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
 
     controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
 
-    assert "kitchen" not in controller.state.import_result
+    assert list(controller.state.import_result) == ["kitchen-2"]
     assert [e.data["name"] for e in captured] == ["kitchen"]
 
 

@@ -37,6 +37,7 @@ from .conftest import (
     VALIDATOR_OUTAGES,
     CaptureDevicesEventsFactory,
     MakeControllerFactory,
+    MakeDbFactory,
     RecordingStateMonitor,
 )
 
@@ -2347,91 +2348,14 @@ async def test_import_device_returns_even_when_post_scan_fails(
     assert result == {"configuration": "kitchen.yaml"}
 
 
-async def test_import_device_applies_cached_ip_and_probes(
+async def test_import_device_retires_its_row_even_when_the_scan_fails(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """Adopt applies the cached IP and probes; no fabricated state, the real sources decide."""
-    ctrl = make_controller(tmp_path)
-    _seed_import_state(ctrl)
-    ctrl._state_monitor = RecordingStateMonitor(
-        cached_addresses={"kitchen.local": ["192.168.1.42"]}
-    )
-
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x",
-    )
-
-    assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "kitchen.local"),
-        ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
-        ("probe_device", "kitchen"),
-    ]
-
-
-async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """No cached IP → probes still run, just no apply_ip call."""
-    ctrl = make_controller(tmp_path)
-    _seed_import_state(ctrl)
-    ctrl._state_monitor = RecordingStateMonitor()  # no cached addresses
-
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="x",
-        package_import_url="github://x",
-    )
-
-    assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen"),
-    ]
-
-
-async def test_import_device_drops_matching_import_result_entry(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """The discovery banner entry disappears the moment adoption finishes."""
+    """A failed post-write scan still drops the adopted name's row, and only that row."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
-    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
-    discovered = AdoptableDevice(
-        name="apollo-plt-1-983300",
-        friendly_name="Apollo PLT-1",
-        package_import_url="github://apollo/plt-1.yaml",
-        project_name="apollo.plt-1",
-        project_version="26.3.2.1",
-        network="wifi",
-        ignored=False,
-    )
-    ctrl.state.import_result["apollo-plt-1-983300"] = discovered
-
-    await ctrl.import_device(
-        name="apollo-plt-1-983300",
-        project_name="apollo.plt-1",
-        package_import_url="github://apollo/plt-1.yaml",
-    )
-
-    assert "apollo-plt-1-983300" not in ctrl.state.import_result
-    # Removal is broadcast so subscribed frontends drop the card.
-    # Pin both count and payload so a future double-fire / regression
-    # surfaces here — exactly one event should land on the bus.
-    assert [(e.event_type, e.data) for e in captured] == [
-        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-983300"})
-    ]
-
-
-def _seed_two_apollo_plt1_rows(ctrl: DevicesController) -> None:
-    """Seed two discovered units of the same product (shared ``package_import_url``)."""
     for suffix in ("aabbcc", "ddeeff"):
         ctrl.state.import_result[f"apollo-plt-1-{suffix}"] = AdoptableDevice(
             name=f"apollo-plt-1-{suffix}",
@@ -2442,18 +2366,8 @@ def _seed_two_apollo_plt1_rows(ctrl: DevicesController) -> None:
             network="wifi",
             ignored=False,
         )
-
-
-async def test_import_device_keeps_same_url_siblings_discovered(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    capture_devices_events: CaptureDevicesEventsFactory,
-) -> None:
-    """Adopting one unit of a product batch keeps its siblings in the discovered list."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _seed_import_state(ctrl)
-    _seed_two_apollo_plt1_rows(ctrl)
     captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
+    ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("scan broke"))
 
     await ctrl.import_device(
         name="apollo-plt-1-ddeeff",
@@ -2461,37 +2375,39 @@ async def test_import_device_keeps_same_url_siblings_discovered(
         package_import_url="github://apollo/plt-1.yaml",
     )
 
-    assert "apollo-plt-1-ddeeff" not in ctrl.state.import_result
-    assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
-    assert [(e.event_type, e.data) for e in captured] == [
-        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-ddeeff"})
-    ]
+    assert list(ctrl.state.import_result) == ["apollo-plt-1-aabbcc"]
+    assert [e.data for e in captured] == [{"name": "apollo-plt-1-ddeeff"}]
+    assert ctrl._state_monitor.calls == []
 
 
-async def test_import_device_undiscovered_name_retires_nothing(
+async def test_import_device_probe_rides_the_real_scan(
+    tmp_path: Path, make_db: MakeDbFactory
+) -> None:
+    """A real scan over the freshly written YAML emits ADDED, which probes the adopted name."""
+    db = make_db(tmp_path)
+    db.settings.rel_path = lambda configuration: tmp_path / configuration
+    db.editor.validate_yaml = AsyncMock(return_value={"yaml_errors": [], "validation_errors": []})
+    db.version_history = None
+    ctrl = DevicesController(db)
+    ctrl._state_monitor = RecordingStateMonitor()  # type: ignore[assignment]
+
+    await ctrl.import_device(name="kitchen", project_name="x", package_import_url="github://x")
+
+    probes = [c for c in ctrl._state_monitor.calls if c[0].startswith("probe_")]
+    assert probes == [("probe_device", "kitchen"), ("probe_device_ping", "kitchen")]
+    assert ctrl.get_by_configuration("kitchen.yaml") is not None
+
+
+async def test_import_device_leaves_probing_to_the_scan(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
-    capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """Importing a name with no discovered row never retires or probes a URL match."""
+    """Adopt touches no monitor state itself; the scan's ADDED handler probes the device."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
-    _seed_two_apollo_plt1_rows(ctrl)
-    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
-    ctrl._state_monitor = RecordingStateMonitor(
-        cached_addresses={"apollo-plt-1-aabbcc.local": ["192.168.1.77"]}
-    )
+    ctrl._state_monitor = RecordingStateMonitor(cached_addresses={"kitchen.local": ["10.0.0.9"]})
 
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="apollo.plt-1",
-        package_import_url="github://apollo/plt-1.yaml",
-    )
+    await ctrl.import_device(name="kitchen", project_name="x", package_import_url="github://x")
 
-    assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
-    assert "apollo-plt-1-ddeeff" in ctrl.state.import_result
-    assert captured == []
-    assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen"),
-    ]
+    assert ctrl._state_monitor.calls == []
+    assert ctrl._scanner.calls == [("scan", False)]
