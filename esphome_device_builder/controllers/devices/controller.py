@@ -719,7 +719,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         timeout: float | None = None,
         packages_span: tuple[int, int] | None = None,
         failure_tail: str | None = None,
-    ) -> mutations_yaml.PackageWarning | None:
+    ) -> mutations_yaml.ValidationVerdict:
         return await mutations_yaml.validate_rewritten_yaml_or_raise(
             self._db.editor,
             configuration,

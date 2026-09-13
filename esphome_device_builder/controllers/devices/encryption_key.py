@@ -22,7 +22,6 @@ from ...helpers.yaml import (
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
-from ..editor import ValidatorUnavailableError
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
 from .mutations_simple import _read_device_yaml_or_raise
 from .resolve import resolve_config_subprocess
@@ -149,16 +148,10 @@ async def _apply_to_device(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
 
-    try:
-        await controller._validate_rewritten_yaml_or_raise(
-            configuration, new_content, action="update encryption key"
-        )
-    except ValidatorUnavailableError as err:
-        _LOGGER.warning(
-            "Validator unavailable (%r) while updating the key in %s; kept for later",
-            err,
-            configuration,
-        )
+    verdict = await controller._validate_rewritten_yaml_or_raise(
+        configuration, new_content, action="update encryption key", tolerate_unavailable=True
+    )
+    if verdict.outage is not None:
         reason = (
             "the rewritten configuration could not be validated (the validator was "
             f"unavailable); {_KEPT_FOR_LATER}"

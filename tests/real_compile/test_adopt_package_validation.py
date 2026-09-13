@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from esphome.const import __version__ as esphome_version
 
-from esphome_device_builder.controllers.devices.importable import _INHERIT_ERROR_MARK
 from esphome_device_builder.controllers.devices.mutations_yaml import (
+    _INHERIT_ERROR_MARK,
     _packages_confined_warning,
     packages_block_span,
 )
