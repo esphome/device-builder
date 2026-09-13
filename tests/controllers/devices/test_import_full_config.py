@@ -230,9 +230,9 @@ def _serve(
     """Install the fake session; return the patched no-op retry sleep."""
     monkeypatch.setattr(_FakeSession, "body", body)
     monkeypatch.setattr(_FakeSession, "exc", exc)
-    monkeypatch.setattr(import_full_config.aiohttp, "ClientSession", _FakeSession)
+    monkeypatch.setattr(import_full_config, "_new_session", _FakeSession)
     sleep = AsyncMock()
-    monkeypatch.setattr(import_full_config.asyncio, "sleep", sleep)
+    monkeypatch.setattr(import_full_config, "_sleep", sleep)
     return sleep
 
 

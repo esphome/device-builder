@@ -79,16 +79,16 @@ class _AdoptionKeyContext:
     name: str
     path: Path
     content: str
-    full_config_import: bool
+    verbatim: bool
 
     @property
     def insert_api(self) -> bool:
         """Whether a splice may add the ``api:`` block; never on verbatim upstream YAML."""
-        return not self.full_config_import
+        return not self.verbatim
 
     def packages_span(self, text: str) -> tuple[int, int] | None:
         """Return the span of *text* whose errors count as package-confined, or none."""
-        return None if self.full_config_import else packages_block_span(text)
+        return None if self.verbatim else packages_block_span(text)
 
 
 class _KeyOutcome(NamedTuple):
@@ -144,7 +144,7 @@ async def import_device(
             raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
         async with _rolled_back_on_failure(path):
-            ctx = _AdoptionKeyContext(controller, name, path, content, source.verbatim)
+            ctx = _AdoptionKeyContext(controller, name, path, content, verbatim=source.verbatim)
             # Adopt tolerates a validator timeout on a short budget: the config's
             # ``github://`` fetch can outlast a full validate.
             verdict = await controller._validate_rewritten_yaml_or_raise(

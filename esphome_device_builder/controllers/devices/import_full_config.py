@@ -27,6 +27,10 @@ from ...models import ErrorCode
 
 _LOGGER = logging.getLogger(__name__)
 
+# Module-local seams so tests patch this module, not aiohttp or asyncio.
+_new_session = aiohttp.ClientSession
+_sleep = asyncio.sleep
+
 _FETCH_TIMEOUT = aiohttp.ClientTimeout(total=30)
 _MAX_ATTEMPTS = 3
 _MAX_CONFIG_BYTES = 1 << 20
@@ -73,7 +77,7 @@ async def fetch_full_config(package_import_url: str) -> FetchedConfig:
                 attempt + 1,
                 _MAX_ATTEMPTS,
             )
-            await asyncio.sleep(delay)
+            await _sleep(delay)
 
 
 def parse_full_config(text: str, source: str = "the upstream config") -> FetchedConfig:
@@ -144,7 +148,7 @@ def package_fallback_warning(includes: list[str]) -> str:
 async def _fetch_once(url: str) -> FetchedConfig:
     try:
         async with (
-            aiohttp.ClientSession(timeout=_FETCH_TIMEOUT, trust_env=True) as session,
+            _new_session(timeout=_FETCH_TIMEOUT, trust_env=True) as session,
             session.get(url, raise_for_status=True) as resp,
         ):
             body = await _read_capped(resp, url)
