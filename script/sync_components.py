@@ -328,9 +328,6 @@ _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
         (RP2_CANONICAL_PLATFORM, "board"),
-        # the deprecated rp2040 alias of the rp2 component; extraction runs
-        # before ``_fold_rp2_component_alias`` re-keys it onto the canonical id.
-        (RP2_ALIAS_PLATFORM, "board"),
     }
 )
 
@@ -1321,7 +1318,7 @@ def build_catalog(
             out.append(entry)
 
     # Before every later pass so they all see final ids.
-    _fold_rp2_component_alias(out)
+    _fold_component_aliases(out, _component_aliases(), check_canonicals=not limit)
 
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
@@ -1408,28 +1405,34 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
             entry["multi_conf"] = True
 
 
-def _fold_rp2_component_alias(entries: list[dict]) -> None:
-    """
-    Collapse the deprecated ``rp2040`` alias entry onto the canonical ``rp2`` id.
+def _component_aliases() -> dict[str, str]:
+    """Map each esphome component ALIAS to its canonical component id."""
+    loader = _get_esphome_loader()
+    # _sweep_component_aliases owns the abort when the alias API is unavailable.
+    if loader is None or getattr(loader, "get_alias_metadata", None) is None:
+        return {}
+    return {legacy: meta.canonical for legacy, meta in loader.get_alias_metadata().items()}
 
-    Upstream ships the real (docs-repaired) schema under ``rp2``, so that
-    body always wins; the sparse alias entry is dropped, contributing
-    only identity fields ``rp2`` lacks. ``dependencies`` fold so blocks
-    spelled with either key satisfy them — see ``normalize_platform``.
+
+def _fold_component_aliases(
+    entries: list[dict], aliases: dict[str, str], *, check_canonicals: bool
+) -> None:
     """
-    by_id = {entry["id"]: entry for entry in entries}
-    if (legacy := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
-        if (rich := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
-            for key in ("name", "image_url", "category"):
-                if not rich.get(key) and legacy.get(key):
-                    rich[key] = legacy[key]
-            entries.remove(legacy)
-        else:
-            legacy["id"] = RP2_CANONICAL_PLATFORM
+    Respell alias-spelled ``dependencies`` to the canonical component id.
+
+    Fails the sync when an alias id reached *entries* (the bundle dropped its
+    ``alias_of`` tag) or, with *check_canonicals*, an alias's canonical is missing.
+    """
+    # Platform providers ship as ``<domain>.<stem>``; alias names are bare stems.
+    names = {entry["id"].rpartition(".")[2] for entry in entries}
+    if leaked := sorted(names & aliases.keys()):
+        raise SystemExit(f"schema bundle ships component ALIASES without alias_of: {leaked}")
+    if check_canonicals and (orphaned := sorted(set(aliases.values()) - names)):
+        raise SystemExit(f"component ALIAS canonicals missing from the catalog: {orphaned}")
     for entry in entries:
         deps = entry.get("dependencies")
-        if deps and RP2_ALIAS_PLATFORM in deps:
-            entry["dependencies"] = list(dict.fromkeys(normalize_platform(dep) for dep in deps))
+        if deps and any(dep in aliases for dep in deps):
+            entry["dependencies"] = list(dict.fromkeys(aliases.get(dep, dep) for dep in deps))
 
 
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
@@ -2953,7 +2956,7 @@ def build_entries_from_file(
     for top_key, section in raw.items():
         if top_key in _HIDDEN_TOP_LEVEL:
             continue
-        if not isinstance(section, dict):
+        if not isinstance(section, dict) or section.get("alias_of"):
             continue
         entry = build_component_entry(top_key, section, index, schema_dir, image_map)
         if entry is not None:
@@ -4243,7 +4246,7 @@ def _emit_platform_capabilities_index() -> None:
     import esphome
     from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
     from esphome.components.esp32.const import KEY_VARIANT, VARIANTS
-    from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
+    from esphome.components.rp2.boards import BOARDS as RP2_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
 
     # Static-per-platform download types. For esp32 / esp8266 / rp2040
@@ -4292,7 +4295,7 @@ def _emit_platform_capabilities_index() -> None:
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
         "rp2040_no_wifi_boards": sorted(
-            board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
+            board for board, info in RP2_BOARDS.items() if not info.get("wifi", False)
         ),
         "download_types": download_types,
     }
@@ -5162,9 +5165,6 @@ _CATEGORY_OVERRIDES: dict[str, str] = {
     "esp32": "core",
     "esp8266": "core",
     RP2_CANONICAL_PLATFORM: "core",
-    # the deprecated rp2040 alias; extraction categorizes before
-    # ``_fold_rp2_component_alias`` re-keys the entry onto the canonical id.
-    RP2_ALIAS_PLATFORM: "core",
     "bk72xx": "core",
     "rtl87xx": "core",
     "ln882x": "core",
@@ -9895,7 +9895,7 @@ def build_automations(  # noqa: C901
             _LOGGER.exception("Failed to read %s", path.name)
             continue
         for top_key, section in raw.items():
-            if not isinstance(section, dict):
+            if not isinstance(section, dict) or section.get("alias_of"):
                 continue
             # ``top_key`` is the schema's raw ``<stem>.<base>`` form
             # (e.g. ``template.switch``). ``wire_prefix`` flips it to

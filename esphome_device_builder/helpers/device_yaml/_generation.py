@@ -247,7 +247,7 @@ def generate_device_yaml(
     # claim, fall back to a platform/variant/board-aware inference
     # for boards whose hardware block omits ``connectivity``
     # entirely. The inference asks ESPHome's own ``NO_WIFI_VARIANTS``
-    # / ``rp2040.boards.BOARDS`` so a future no-Wi-Fi variant or new
+    # / ``rp2.boards.BOARDS`` so a future no-Wi-Fi variant or new
     # RP2040 Wi-Fi board flows through without a coordinated edit
     # here.
     has_wifi = board_has_native_wifi(board)

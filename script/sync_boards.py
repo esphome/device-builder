@@ -387,7 +387,7 @@ def _derive_rp2040_pins(board_pins: dict[str, int], max_pin: int) -> list[BoardP
     Build GPIO0..max_pin pins for an RP2040/RP2350 board.
 
     Every GPIO carries pwm; the analog GPIOs add adc (26-29, or 40-47 on the
-    48-GPIO rp2350B); default-bus aliases from ``RP2040_BOARD_PINS`` add their
+    48-GPIO rp2350B); default-bus aliases from ``RP2_BOARD_PINS`` add their
     feature + note. ``LED`` becomes ``occupied_by``; alias pins past ``max_pin``
     (the CYW43 virtual LED) are dropped.
     """
@@ -436,17 +436,17 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     No empty-pin fill step — the manifested rp2040 boards already ship full
     pinouts; only generation matters. Dedup on board ``id`` and display name, so a
     curated board claiming an ESPHome key under a different id doesn't also emit a
-    same-named twin. A board missing from ``RP2040_BOARD_PINS`` still gets the matrix.
+    same-named twin. A board missing from ``RP2_BOARD_PINS`` still gets the matrix.
     """
     ids, names = _generation_dedup_keys(boards)
-    module = importlib.import_module("esphome.components.rp2040.boards")
+    module = importlib.import_module("esphome.components.rp2.boards")
     default_max_pin: int = module.DEFAULT_MAX_PIN
     for name, meta in module.BOARDS.items():
         display = _meta_name(meta, name)
         if name in ids or _name_already_listed(Platform.RP2, name, display, names):
             continue
         max_pin = meta.get("max_pin", default_max_pin)
-        pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
+        pins = _resolve_board_pins(module.RP2_BOARD_PINS, name) or {}
         boards.append(
             _generated_board(Platform.RP2, name, display, _derive_rp2040_pins(pins, max_pin))
         )
@@ -463,7 +463,7 @@ def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
     universal on esp32/esp8266/libretiny, so only rp2040 gets the chip. A backfill
     (not part of generation) so the manifest-only drift test applies it the same way.
     """
-    module = importlib.import_module("esphome.components.rp2040.boards")
+    module = importlib.import_module("esphome.components.rp2.boards")
     for board in boards:
         if board.esphome.platform is Platform.RP2 and BoardTag.WIFI not in board.tags:
             meta = module.BOARDS.get(board.esphome.board)
@@ -480,7 +480,7 @@ def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
     real chip. Covers curated and generated boards alike; a backfill (not part of
     generation) so the manifest-only drift test applies it the same way.
     """
-    module = importlib.import_module("esphome.components.rp2040.boards")
+    module = importlib.import_module("esphome.components.rp2.boards")
     for board in boards:
         if board.esphome.platform is Platform.RP2:
             meta = module.BOARDS.get(board.esphome.board)

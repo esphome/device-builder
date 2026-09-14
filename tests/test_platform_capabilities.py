@@ -18,7 +18,7 @@ import orjson
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
-from esphome.components.rp2040.boards import BOARDS
+from esphome.components.rp2.boards import BOARDS
 from esphome.components.wifi import NO_WIFI_VARIANTS
 
 from esphome_device_builder.definitions import (
