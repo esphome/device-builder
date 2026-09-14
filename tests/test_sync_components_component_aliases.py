@@ -104,6 +104,15 @@ def test_fold_fails_on_a_missing_canonical() -> None:
         sync_components._fold_component_aliases(entries, _ALIASES, check_canonicals=True)
 
 
+def test_fold_matches_platform_provider_ids_by_stem() -> None:
+    aliases = {"old_dht": "dht"}
+    sync_components._fold_component_aliases([{"id": "sensor.dht"}], aliases, check_canonicals=True)
+    with pytest.raises(SystemExit, match="old_dht"):
+        sync_components._fold_component_aliases(
+            [{"id": "sensor.dht"}, {"id": "sensor.old_dht"}], aliases, check_canonicals=True
+        )
+
+
 def test_fold_skips_the_canonical_check_on_a_limited_run() -> None:
     entries = [{"id": "rp2"}]
     sync_components._fold_component_aliases(entries, _ALIASES, check_canonicals=False)

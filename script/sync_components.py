@@ -1422,10 +1422,11 @@ def _fold_component_aliases(
     Fails the sync when an alias id reached *entries* (the bundle dropped its
     ``alias_of`` tag) or, with *check_canonicals*, an alias's canonical is missing.
     """
-    ids = {entry["id"] for entry in entries}
-    if leaked := sorted(ids & aliases.keys()):
+    # Platform providers ship as ``<domain>.<stem>``; alias names are bare stems.
+    names = {entry["id"].rpartition(".")[2] for entry in entries}
+    if leaked := sorted(names & aliases.keys()):
         raise SystemExit(f"schema bundle ships component ALIASES without alias_of: {leaked}")
-    if check_canonicals and (orphaned := sorted(set(aliases.values()) - ids)):
+    if check_canonicals and (orphaned := sorted(set(aliases.values()) - names)):
         raise SystemExit(f"component ALIAS canonicals missing from the catalog: {orphaned}")
     for entry in entries:
         deps = entry.get("dependencies")
