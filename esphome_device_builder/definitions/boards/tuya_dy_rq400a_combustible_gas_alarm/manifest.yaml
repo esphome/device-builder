@@ -130,5 +130,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-DY-RQ400A-Combustible-Gas-Alarm
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: bd1009aa94b5c15dfb1bbb0f2e7a8f862b4356ddc96faedf2723a6df81248b4b

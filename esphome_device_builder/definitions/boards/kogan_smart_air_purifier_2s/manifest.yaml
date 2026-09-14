@@ -102,5 +102,5 @@ source:
   type: esphome-devices
   remote_id: Kogan-Smart-Air-Purifier-2S
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smart-Air-Purifier-2S/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: 5a370ca634f887c2e5efab600f83991e80182a39035930eaf55220c0f03bc133

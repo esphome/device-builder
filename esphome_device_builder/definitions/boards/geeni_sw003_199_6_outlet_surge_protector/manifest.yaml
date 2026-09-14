@@ -102,5 +102,5 @@ source:
   type: esphome-devices
   remote_id: Geeni-SW003-199-6-Outlet-Surge-Protector
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geeni-SW003-199-6-Outlet-Surge-Protector/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: d43ca3472d05183e2c58a69eed43aeb23b366923ceb14deff24419c050f961df

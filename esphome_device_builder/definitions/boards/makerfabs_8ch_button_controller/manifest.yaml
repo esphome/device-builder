@@ -107,5 +107,5 @@ source:
   type: esphome-devices
   remote_id: Makerfabs-8CH-Button-Controller
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Makerfabs-8CH-Button-Controller/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: 47096f84e4f87d57429e319b96ef7ddebb3c525626007e6af0c6d7747d31f1e7
