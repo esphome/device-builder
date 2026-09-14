@@ -1408,7 +1408,8 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
 def _component_aliases() -> dict[str, str]:
     """Map each esphome component ALIAS to its canonical component id."""
     loader = _get_esphome_loader()
-    if loader is None:
+    # _sweep_component_aliases owns the abort when the alias API is unavailable.
+    if loader is None or getattr(loader, "get_alias_metadata", None) is None:
         return {}
     return {legacy: meta.canonical for legacy, meta in loader.get_alias_metadata().items()}
 

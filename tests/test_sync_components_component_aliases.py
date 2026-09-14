@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -46,8 +47,11 @@ def test_component_aliases_map_to_loadable_canonicals() -> None:
         assert loader.get_component(canonical) is not None
 
 
-def test_component_aliases_empty_without_esphome(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sync_components, "_get_esphome_loader", lambda: None)
+@pytest.mark.parametrize("loader", [None, SimpleNamespace()], ids=["no_esphome", "no_alias_api"])
+def test_component_aliases_empty_without_the_alias_api(
+    monkeypatch: pytest.MonkeyPatch, loader: object
+) -> None:
+    monkeypatch.setattr(sync_components, "_get_esphome_loader", lambda: loader)
     assert sync_components._component_aliases() == {}
 
 
