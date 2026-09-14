@@ -387,7 +387,7 @@ def _derive_rp2040_pins(board_pins: dict[str, int], max_pin: int) -> list[BoardP
     Build GPIO0..max_pin pins for an RP2040/RP2350 board.
 
     Every GPIO carries pwm; the analog GPIOs add adc (26-29, or 40-47 on the
-    48-GPIO rp2350B); default-bus aliases from ``RP2040_BOARD_PINS`` add their
+    48-GPIO rp2350B); default-bus aliases from ``RP2_BOARD_PINS`` add their
     feature + note. ``LED`` becomes ``occupied_by``; alias pins past ``max_pin``
     (the CYW43 virtual LED) are dropped.
     """
@@ -436,7 +436,7 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     No empty-pin fill step — the manifested rp2040 boards already ship full
     pinouts; only generation matters. Dedup on board ``id`` and display name, so a
     curated board claiming an ESPHome key under a different id doesn't also emit a
-    same-named twin. A board missing from ``RP2040_BOARD_PINS`` still gets the matrix.
+    same-named twin. A board missing from ``RP2_BOARD_PINS`` still gets the matrix.
     """
     ids, names = _generation_dedup_keys(boards)
     module = importlib.import_module("esphome.components.rp2.boards")
@@ -446,7 +446,7 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
         if name in ids or _name_already_listed(Platform.RP2, name, display, names):
             continue
         max_pin = meta.get("max_pin", default_max_pin)
-        pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
+        pins = _resolve_board_pins(module.RP2_BOARD_PINS, name) or {}
         boards.append(
             _generated_board(Platform.RP2, name, display, _derive_rp2040_pins(pins, max_pin))
         )
