@@ -107,5 +107,5 @@ source:
   type: esphome-devices
   remote_id: Connected-Consumer-Fuel-Smart-Oil-Gauge
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Connected-Consumer-Fuel-Smart-Oil-Gauge/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: ae7339c7490ada5d43e6f2ff03973325fb566bd7a4961e7d7371f9c253738f6a

@@ -52,5 +52,5 @@ source:
   type: esphome-devices
   remote_id: Brilliant-Smart-20696-CCT-light
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Brilliant-Smart-20696-CCT-light/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: e34f338b3daef25f52226a17ebd66e00e92e091807bec77855f4c886e3cdba25

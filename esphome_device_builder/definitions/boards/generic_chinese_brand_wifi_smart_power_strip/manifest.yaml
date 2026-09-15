@@ -150,5 +150,5 @@ source:
   type: esphome-devices
   remote_id: Generic-Chinese-Brand-WiFi-Smart-Power-Strip
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: 2a262c4152643d45c86b481222421d18e6b3448141e156467a7535affb5454f3

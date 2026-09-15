@@ -47,5 +47,5 @@ source:
   type: esphome-devices
   remote_id: MiBoxer-WL5-LED-Controller
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MiBoxer-WL5-LED-Controller/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
   content_hash: 262a83ac174349ea6a4dde72eade501cdeb0bd37f811d9e30f6d28722568512f
