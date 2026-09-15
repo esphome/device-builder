@@ -59,8 +59,9 @@ class DeviceRuntimeState(DashboardModel):
 
     Populated by the mDNS / MQTT / ping monitors after startup; the
     fields the metadata sidecar persists (``deployed_version``,
-    ``deployed_config_hash``, ``queued_update``,
-    ``api_encryption_active``) are also seeded from disk on cold load,
+    ``deployed_config_hash``, ``project_name``, ``project_version``,
+    ``network``, ``queued_update``, ``api_encryption_active``) are also
+    seeded from disk on cold load,
     while ``state`` / ``active_source`` / ``ip_addresses`` /
     ``deployed_identity_live`` start empty and repopulate on the next
     announce. A Device rebuild carries the
@@ -88,6 +89,25 @@ class DeviceRuntimeState(DashboardModel):
     # how we tell "flashed with the latest compile" apart from
     # "compile succeeded but device still runs older firmware".
     deployed_config_hash: str = ""
+    # ``project_name`` / ``project_version`` TXT of the running
+    # firmware — the ``esphome: project:`` pair a distributor stamps
+    # into its build (e.g. ``"apollo.plt-1"`` /
+    # ``"2026.09.06.0"``). Descriptive, not identity: unlike
+    # ``deployed_version`` / ``deployed_config_hash`` they never gate
+    # an update or pending-changes verdict, and their presence never
+    # vouches for identity freshness. Empty string when the firmware
+    # declares no project or mDNS hasn't surfaced one yet. Persisted
+    # so the device table can sort / filter a whole fleet on cold load
+    # and while devices are offline.
+    project_name: str = ""
+    project_version: str = ""
+    # Link the device announced itself over, from the ``network`` TXT
+    # (``"wifi"`` / ``"ethernet"``). The wire truth for how the device
+    # is actually attached, which the YAML can't always settle — an
+    # ESP32 board carrying both ``wifi:`` and ``ethernet:`` blocks
+    # resolves to one or the other only at runtime. Empty string until
+    # an announce carries the key (pre-2023.6 firmware omits it).
+    network: str = ""
     # True once a local offline compile finished successfully and is
     # waiting to be flashed via OTA upon the next mDNS check-in.
     queued_update: bool = False
