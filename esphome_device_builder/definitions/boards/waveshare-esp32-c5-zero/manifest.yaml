@@ -1,0 +1,97 @@
+id: waveshare-esp32-c5-zero
+name: "Waveshare ESP32-C5-Zero"
+description: |
+  Ultra-compact ESP32-C5 development board with dual-band 2.4/5 GHz
+  Wi-Fi 6, Bluetooth 5 (LE), and IEEE 802.15.4 (Zigbee 3.0/Thread).
+  Castellated module, USB-C, onboard WS2812 RGB LED, BOOT and RESET
+  buttons.
+manufacturer: "Waveshare"
+
+esphome:
+  platform: esp32
+  board: esp32-c5-devkitc-1
+  variant: esp32c5
+  framework: esp-idf
+
+hardware:
+  flash_size: 4MB
+  ram_size: 393216
+  cpu_frequency: 240MHz
+  connectivity: [wifi, bluetooth]
+
+tags: [compact, usb-c, rgb-led]
+docs_url: "https://docs.waveshare.com/ESP32-C5-Zero"
+product_url: "https://www.waveshare.com/esp32-c5-zero.htm"
+is_generic: false
+
+images:
+  - "https://docs.waveshare.com/assets/images/ESP32-C5-Zero-01-8990bf4d0d6a76153237fb3ced667e9f.webp"
+  - "https://docs.waveshare.com/assets/images/ESP32-C5-Zero-Pin-29de88588448da0be2af9f7e851e5adb.webp"
+
+pins:
+  - gpio: 0
+    label: "GPIO0"
+    available: true
+  - gpio: 1
+    label: "GPIO1"
+    available: true
+  - gpio: 2
+    label: "GPIO2"
+    available: true
+  - gpio: 3
+    label: "GPIO3"
+    available: true
+  - gpio: 4
+    label: "GPIO4"
+    available: true
+  - gpio: 5
+    label: "GPIO5"
+    available: true
+  - gpio: 6
+    label: "GPIO6"
+    available: true
+  - gpio: 7
+    label: "GPIO7"
+    features: [strapping]
+    available: true
+  - gpio: 8
+    label: "GPIO8"
+    available: true
+  - gpio: 9
+    label: "GPIO9"
+    features: [strapping, boot_button]
+    occupied_by: "BOOT button"
+    notes: "Directly connected to BOOT button, usable as input after boot"
+    available: true
+  - gpio: 10
+    label: "GPIO10"
+    available: true
+  - gpio: 11
+    label: "GPIO11"
+    features: [uart_tx]
+    available: true
+  - gpio: 12
+    label: "GPIO12"
+    features: [uart_rx]
+    available: true
+  - gpio: 13
+    label: "GPIO13"
+    available: true
+  - gpio: 14
+    label: "GPIO14"
+    available: true
+  - gpio: 27
+    label: "GPIO27"
+    features: [rgb_led]
+    occupied_by: "WS2812 RGB LED"
+    notes: "Not broken out to header, drives the onboard WS2812 LED"
+    available: false
+
+featured_components:
+  - id: status_rgb
+    component_id: light.esp32_rmt_led_strip
+    name: Onboard RGB LED (WS2812)
+    fields:
+      pin: { value: 27, locked: true }
+      chipset: WS2812
+      num_leds: { value: 1, locked: true }
