@@ -7,6 +7,8 @@ from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from .helpers.cross_os_path import cross_os_basename
+
 
 def _resolve_version() -> str:
     """
@@ -36,8 +38,9 @@ SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
 
 
-# A YAML basename with no NTFS stream suffix (``::$DATA``) or 8.3 alias (``SECRET~1.YAM``).
-_DEVICE_CONFIG_NAME_RE = re.compile(r"[^:~]+\.ya?ml")
+# A YAML basename with no NTFS stream suffix (``::$DATA``); the extension also rules out an
+# 8.3 alias of the secrets file (``SECRET~1.YAM``).
+_DEVICE_CONFIG_NAME_RE = re.compile(r"[^:]+\.ya?ml")
 
 
 def is_secrets_file(configuration: str | Path) -> bool:
@@ -53,7 +56,7 @@ def is_device_config_name(configuration: str | Path) -> bool:
 
 def _config_basename(configuration: str | Path) -> str:
     """Return the basename the way Win32 resolves it: case folded, trailing dots and spaces gone."""
-    return Path(configuration).name.rstrip(". ").casefold()
+    return cross_os_basename(str(configuration)).rstrip(". ").casefold()
 
 
 # Trusted TCP site for HA Ingress. Bound only when ``--ha-addon`` is set,

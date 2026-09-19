@@ -27,6 +27,7 @@ def test_is_secrets_file_matches_by_basename() -> None:
     assert not is_secrets_file("kitchen.yaml")
     assert is_secrets_file(Path("/config/secrets.yml"))
     assert not is_secrets_file("secrets.json")
+    assert is_secrets_file("config\\secrets.yaml")
 
 
 def test_secrets_filenames_match_esphome() -> None:
@@ -34,7 +35,8 @@ def test_secrets_filenames_match_esphome() -> None:
 
 
 @pytest.mark.parametrize(
-    "name", ["kitchen.yaml", "sub/Kitchen.YML", "porch (1).yaml", "kitchen.yaml."]
+    "name",
+    ["kitchen.yaml", "sub/Kitchen.YML", "porch (1).yaml", "kitchen.yaml.", "kitchen~test.yaml"],
 )
 def test_is_device_config_name_accepts_yaml_names(name: str) -> None:
     assert is_device_config_name(name)
@@ -49,6 +51,7 @@ def test_is_device_config_name_accepts_yaml_names(name: str) -> None:
         "SECRET~1.YAM",
         "notes.txt",
         "../../etc/passwd",
+        "config\\secrets.yaml",
     ],
 )
 def test_is_device_config_name_refuses_secrets_aliases_and_other_files(name: str) -> None:
