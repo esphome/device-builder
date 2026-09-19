@@ -236,6 +236,80 @@ def test_collect_required_groups_descends_list_item_schemas() -> None:
     }
 
 
+def test_collect_required_groups_visits_a_shared_sub_schema_at_each_path() -> None:
+    """A sub-schema shared by two fields yields its nested constraint at both paths."""
+    shared = cv.Schema(
+        {
+            cv.Optional("eap"): vol.All(
+                cv.Schema(
+                    {cv.Optional("identity"): cv.string, cv.Optional("certificate"): cv.string}
+                ),
+                cv.has_at_least_one_key("identity", "certificate"),
+            )
+        }
+    )
+    schema = cv.Schema({cv.Optional("primary"): shared, cv.Optional("fallback"): shared})
+    expected = [{"kind": "at_least_one", "keys": ["identity", "certificate"]}]
+    assert _collect_required_groups(_FakeManifest(schema)) == {
+        ("primary", "eap"): expected,
+        ("fallback", "eap"): expected,
+    }
+
+
+def _pin_branch() -> vol.All:
+    return vol.All(
+        cv.Schema({cv.Optional("miso_pin"): cv.string, cv.Optional("mosi_pin"): cv.string}),
+        cv.has_at_least_one_key("miso_pin", "mosi_pin"),
+    )
+
+
+def test_collect_required_groups_descends_typed_schema_branches() -> None:
+    """A constraint on a ``cv.typed_schema`` branch lands at the typed field's path."""
+    typed = cv.typed_schema(
+        {"single": _pin_branch(), "quad": cv.Schema({cv.Optional("data_pins"): cv.string})},
+        default_type="single",
+    )
+    expected = [{"kind": "at_least_one", "keys": ["miso_pin", "mosi_pin"]}]
+    assert _collect_required_groups(_FakeManifest(typed)) == {(): expected}
+    nested = cv.Schema({cv.Optional("bus"): cv.ensure_list(typed)})
+    assert _collect_required_groups(_FakeManifest(nested)) == {("bus",): expected}
+
+
+def test_collect_required_groups_reads_the_list_item_wrapping_a_typed_schema() -> None:
+    """A constraint on the ``cv.ensure_list`` item around a typed schema is still collected."""
+    typed = cv.typed_schema(
+        {
+            "a": cv.Schema({cv.Optional("x"): cv.string}),
+            "b": cv.Schema({cv.Optional("y"): cv.string}),
+        }
+    )
+    item = vol.All(typed, cv.has_at_least_one_key("x", "y"))
+    schema = cv.Schema({cv.Optional("bus"): cv.ensure_list(item)})
+    assert _collect_required_groups(_FakeManifest(schema)) == {
+        ("bus",): [{"kind": "at_least_one", "keys": ["x", "y"]}],
+    }
+
+
+def test_collect_required_groups_dedupes_a_group_shared_by_typed_branches() -> None:
+    """Two typed branches carrying the same constraint emit one group."""
+    typed = cv.typed_schema({"a": _pin_branch(), "b": _pin_branch()})
+    assert _collect_required_groups(_FakeManifest(typed)) == {
+        (): [{"kind": "at_least_one", "keys": ["miso_pin", "mosi_pin"]}],
+    }
+
+
+def test_collect_required_groups_terminates_on_self_referential_typed_schema() -> None:
+    """A typed schema whose branch nests itself still returns its groups."""
+    branches: dict[str, object] = {}
+    typed = cv.typed_schema(branches)
+    branches["menu"] = vol.All(
+        cv.Schema({cv.Optional("items"): cv.ensure_list(typed), cv.Optional("text"): cv.string}),
+        cv.has_at_least_one_key("items", "text"),
+    )
+    out = _collect_required_groups(_FakeManifest(typed))
+    assert out[()] == [{"kind": "at_least_one", "keys": ["items", "text"]}]
+
+
 def test_collect_required_groups_handles_all_four_kinds() -> None:
     """Every ``cv.has_*_one_key`` flavour serialises to its wire kind."""
     schema = cv.All(
@@ -680,6 +754,15 @@ def test_collect_against_live_wifi_eap_nested_schema() -> None:
     assert cert_path in inclusive
     assert key_path in inclusive
     assert inclusive[cert_path] == inclusive[key_path]
+
+
+def test_collect_against_live_spi_typed_branch() -> None:
+    """End-to-end: the ``single`` branch's MISO/MOSI constraint reaches the component root."""
+    pytest.importorskip("esphome.components.spi")
+    from esphome.components import spi  # noqa: PLC0415
+
+    required = _collect_required_groups(_FakeManifest(spi.CONFIG_SCHEMA))
+    assert required[()] == [{"kind": "at_least_one", "keys": ["miso_pin", "mosi_pin"]}]
 
 
 # ---------------------------------------------------------------------------

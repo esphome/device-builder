@@ -6079,6 +6079,22 @@ def _list_item_schema(node: Any) -> Any | None:
     return _ensure_list_item_validator(_templatable_inner(node) or node)
 
 
+def _same_path_branches(node: Any) -> list[Any]:
+    """Return the sub-schemas a dict-less *node* holds at its own path."""
+    # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
+    # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
+    # branch at the same path (typed variants flatten in YAML and add
+    # no path segment) so the collectors reach variant-only fields
+    # like ethernet's ``clock_speed``.
+    branches = _typed_branch_schemas(node)
+    out = list(branches.values()) if branches else []
+    # ``cv.ensure_list(...)`` is also a closure, not a ``vol.*`` wrapper. The
+    # typed search is transitive, so the item wrapper it reaches through still
+    # needs its own visit.
+    item = _list_item_schema(node)
+    return out if item is None else [*out, item]
+
+
 def _walk_schema_keys(
     schema: Any,
     visit: Callable[[Any, str, Any, tuple[str, ...]], None],
@@ -6117,18 +6133,7 @@ def _walk_schema_keys(
             return
         candidate = _unwrap_schema_to_dict(node)
         if candidate is None:
-            # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
-            # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
-            # branch at the same path (typed variants flatten in YAML and add
-            # no path segment) so the collectors reach variant-only fields
-            # like ethernet's ``clock_speed``.
-            branches = _typed_branch_schemas(node)
-            if branches is None:
-                # ``cv.ensure_list(...)`` is also a closure, not a
-                # ``vol.*`` wrapper.
-                item = _list_item_schema(node)
-                branches = {"": item} if item is not None else None
-            for branch in (branches or {}).values():
+            for branch in _same_path_branches(node):
                 walk(branch, path, depth + 1)
             return
         marker = (id(candidate), path)
@@ -8428,24 +8433,26 @@ def _collect_required_groups(
     schema = _hidden_schema(schema) or schema
 
     out: dict[tuple[str, ...], list[dict[str, Any]]] = {}
-    visited: set[int] = set()
+    visited: set[tuple[int, tuple[str, ...]]] = set()
 
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
             return
         if groups := _groups_in_all_chain(node):
-            out.setdefault(path, []).extend(groups)
+            bucket = out.setdefault(path, [])
+            bucket.extend(group for group in groups if group not in bucket)
         target = _unwrap_schema_to_dict(node)
         if target is None:
-            # A constraint on a ``cv.ensure_list`` item schema lands at the
-            # list field's own path, matching the catalog's nesting.
-            item = _list_item_schema(node)
-            if item is not None:
-                walk(item, path, depth + 1)
+            # A constraint on a ``cv.typed_schema`` branch or a ``cv.ensure_list``
+            # item schema lands at the field's own path, matching the catalog's
+            # nesting.
+            for branch in _same_path_branches(node):
+                walk(branch, path, depth + 1)
             return
-        if id(target) in visited:
+        marker = (id(target), path)
+        if marker in visited:
             return
-        visited.add(id(target))
+        visited.add(marker)
         for key, val in target.items():
             key_name = key.schema if hasattr(key, "schema") else str(key)
             walk(val, (*path, key_name), depth + 1)
