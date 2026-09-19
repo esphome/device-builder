@@ -132,28 +132,13 @@ async def test_get_job_zero_tail_still_reports_withheld_output(
     assert data["output_available"] is True
 
 
-async def test_get_job_redacts_concealed_and_secret_values(
+async def test_get_job_redacts_concealed_values(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_text("mqtt_user: alice_smith\n")
-    job = make_job(
-        output=["  password: \x1b[8mhunter2secret\x1b[28m\n", "  username: alice_smith\n"]
-    )
+    job = make_job(output=["  password: \x1b[8mhunter2secret\x1b[28m\n"])
     mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
     data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
-    assert data["output"] == ["  password: <removed>", "  username: <removed>"]
-
-
-async def test_get_job_withholds_the_log_when_secrets_cannot_be_loaded(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_text("- not\n- a mapping\n")
-    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
-        return_value=make_job(output=["  password: hunter2\n"])
-    )
-    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
-    assert data["output"] == []
-    assert data["output_available"] is False
+    assert data["output"] == ["  password: <removed>"]
 
 
 async def test_get_job_flags_an_unreadable_log(

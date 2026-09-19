@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -195,79 +194,17 @@ async def test_validate_config_collects_stream_and_strips_ansi(
     }
 
 
-async def test_validate_config_removes_secret_values(
+async def test_validate_config_removes_concealed_values(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_text(
-        "mqtt_user: alice_smith\nmqtt_port: 1883\nflag: true\n"
-    )
-    (mcp_db.settings.config_dir / "secrets.yml").write_text(
-        "ota_pass: 123456\nnested:\n  - token: abcdefgh\nborn: 2024-01-31\n"
-    )
-    (mcp_db.settings.config_dir / "sub").mkdir()
-    (mcp_db.settings.config_dir / "sub" / "secrets.yaml").write_text(
-        "mqtt_user: qwertyui\ncert: |\n  FIRSTLINEOFCERT\n  SECONDLINEOFCERT\n"
-    )
     mcp_db.command_handlers["devices/validate"] = validate_stub(
         [
-            (StreamEvent.OUTPUT, "  username: alice_smith\n"),
-            (StreamEvent.OUTPUT, "  port: 1883 password: 123456\n"),
-            (StreamEvent.OUTPUT, "  token: abcdefgh keep: true 2024-01-31\n"),
-            (StreamEvent.OUTPUT, "  local: qwertyui\n"),
-            (StreamEvent.OUTPUT, "  SECONDLINEOFCERT\n"),
+            (StreamEvent.OUTPUT, "  password: \x1b[8mhunter2secret\x1b[28m\n"),
             (StreamEvent.RESULT, {"success": True, "code": 0}),
         ]
     )
-    data = await mcp_call_json(mcp_client, "validate_config", {"configuration": "sub/kitchen.yaml"})
-    assert data["output"] == [
-        "  username: <removed>",
-        "  port: 1883 password: <removed>",
-        "  token: <removed> keep: true <removed>",
-        "  local: <removed>",
-        "  <removed>",
-    ]
-
-
-@pytest.mark.parametrize("content", ["", "# nothing yet\n"], ids=["empty", "comment_only"])
-async def test_validate_config_accepts_an_empty_secrets_file(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder, content: str
-) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_text(content)
-    mcp_db.command_handlers["devices/validate"] = validate_stub(
-        [(StreamEvent.OUTPUT, "ok\n"), (StreamEvent.RESULT, {"success": True, "code": 0})]
-    )
     data = await mcp_call_json(mcp_client, "validate_config", {"configuration": "kitchen.yaml"})
-    assert data["output"] == ["ok"]
-
-
-@pytest.mark.parametrize(
-    ("content", "problem"),
-    [
-        (b"- not\n- a mapping\n", "parsed"),
-        (b"\xff\xfe not utf-8", "read"),
-        (None, "read"),
-    ],
-    ids=["not_a_mapping", "not_utf8", "permission_denied"],
-)
-async def test_validate_config_withholds_output_when_secrets_are_unreadable(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder, content: bytes | None, problem: str
-) -> None:
-    if content is not None:
-        (mcp_db.settings.config_dir / "secrets.yaml").write_bytes(content)
-    mcp_db.command_handlers["devices/validate"] = validate_stub(
-        [(StreamEvent.OUTPUT, "x\n"), (StreamEvent.RESULT, {"success": True, "code": 0})]
-    )
-    if content is None:
-        with patch.object(Path, "read_text", side_effect=PermissionError("denied")):
-            is_error, text = await mcp_call(
-                mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
-            )
-    else:
-        is_error, text = await mcp_call(
-            mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
-        )
-    assert is_error
-    assert text == f"unavailable: secrets.yaml could not be {problem}; validation output withheld"
+    assert data["output"] == ["  password: <removed>"]
 
 
 async def test_validate_config_propagates_a_foreign_timeout(
@@ -481,19 +418,9 @@ async def test_search_boards_projects_index_rows(
 async def test_list_secret_names_returns_names_only(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_text("wifi_password: hunter2\n")
-    (mcp_db.settings.config_dir / "secrets.yml").write_text("api_key: abcdefghij\n")
-    names = await mcp_call_json(mcp_client, "list_secret_names")
-    assert names == ["api_key", "wifi_password"]
-
-
-async def test_list_secret_names_fails_closed_on_a_broken_file(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_text("- not\n- a mapping\n")
-    is_error, text = await mcp_call(mcp_client, "list_secret_names")
-    assert is_error
-    assert text == "unavailable: secrets.yaml could not be parsed; validation output withheld"
+    handler = AsyncMock(return_value=["api_key", "wifi_password"])
+    mcp_db.command_handlers["config/get_secrets"] = handler
+    assert await mcp_call_json(mcp_client, "list_secret_names") == ["api_key", "wifi_password"]
 
 
 async def test_set_secret_is_write_only(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:

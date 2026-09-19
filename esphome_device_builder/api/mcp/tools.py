@@ -17,16 +17,13 @@ from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
-from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
-from ...helpers.secrets_state import validate_secrets_content
 from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode
 from ...models.automations import YamlDiff
 
 if TYPE_CHECKING:
-    from ...controllers.config import DashboardSettings
     from ...device_builder import DeviceBuilder
 
     type ToolHandler = Callable[[DeviceBuilder, dict[str, Any]], Any]
@@ -39,7 +36,6 @@ _LOGGER = logging.getLogger(__name__)
 _DEFAULT_TAIL_LINES = 50
 _MAX_TAIL_LINES = 1000
 _MAX_SEARCH_RESULTS = 100
-_MIN_REDACTED_SECRET_LEN = 6
 
 
 def _translate(err: Exception) -> McpToolError | None:
@@ -148,63 +144,6 @@ def _search_limit(args: dict[str, Any]) -> int:
     return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
 
 
-def _load_secrets_for(settings: DashboardSettings, configuration: str) -> list[dict[Any, Any]]:
-    """Load the secrets esphome resolves for *configuration*: beside it, then the config root."""
-    return _load_secrets(settings.rel_path(configuration).parent, settings.config_dir)
-
-
-def _load_secrets(*directories: Path) -> list[dict[Any, Any]]:
-    """Parse every secrets file in *directories*, one mapping each; raise when one is unreadable."""
-    secrets: list[dict[Any, Any]] = []
-    candidates = [directory / filename for directory in directories for filename in SECRETS_FILES]
-    for path in dict.fromkeys(candidates):
-        filename = path.name
-        try:
-            content = path.read_text("utf-8")
-        except FileNotFoundError:
-            continue
-        except (OSError, ValueError) as err:
-            _LOGGER.warning(
-                "%s could not be read; withholding validate output", filename, exc_info=err
-            )
-            msg = f"{filename} could not be read; validation output withheld"
-            raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
-        try:
-            secrets.append(validate_secrets_content(content, path))
-        except ValueError as err:
-            _LOGGER.warning(
-                "%s could not be parsed; withholding validate output", filename, exc_info=err
-            )
-            msg = f"{filename} could not be parsed; validation output withheld"
-            raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
-    return secrets
-
-
-def _scalar_leaves(value: Any) -> list[str]:
-    """Return every scalar inside *value* as text, walking lists and mappings."""
-    if isinstance(value, dict):
-        return [leaf for item in value.values() for leaf in _scalar_leaves(item)]
-    if isinstance(value, list):
-        return [leaf for item in value for leaf in _scalar_leaves(item)]
-    if value is None or isinstance(value, bool):
-        return []
-    return [str(value)]
-
-
-def _redact_secret_values(lines: list[str], secrets: list[dict[Any, Any]]) -> list[str]:
-    """Replace every value of credential length from any secrets mapping with ``<removed>``."""
-    # Output arrives one line at a time, so a multi-line value must match by line.
-    values = {
-        part
-        for text in _scalar_leaves(secrets)
-        for part in text.splitlines()
-        if len(part) >= _MIN_REDACTED_SECRET_LEN
-    }
-    for value in sorted(values, key=len, reverse=True):
-        lines = [line.replace(value, "<removed>") for line in lines]
-    return lines
-
-
 @_tool(
     "list_devices",
     "List configured ESPHome devices with their online state, address and deployed "
@@ -284,8 +223,7 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
     except TimeoutError:
         if not deadline.expired():
             raise
-    secrets = await run_in_executor(_load_secrets_for, db.settings, args["configuration"])
-    output = _redact_secret_values(plain_lines(list(client.output)), secrets)
+    output = plain_lines(list(client.output))
     if deadline.expired():
         return {
             "success": False,
@@ -360,16 +298,11 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
     snapshot = await initial_snapshot(job, job.job_id)
-    try:
-        secrets = await run_in_executor(_load_secrets_for, db.settings, job.configuration)
-    except CommandError:
-        # A build log that cannot be redacted is withheld, like an unreadable one.
-        snapshot, secrets = None, []
     lines = snapshot or []
     output = lines[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
-        "output": _redact_secret_values(plain_lines(output), secrets),
+        "output": plain_lines(output),
         "truncated": len(lines) > len(output),
         "output_available": snapshot is not None,
     }
@@ -476,8 +409,8 @@ async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[s
     "YAML as '!secret <name>'.",
 )
 async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> list[str]:
-    secrets = await run_in_executor(_load_secrets, db.settings.config_dir)
-    return sorted({key for mapping in secrets for key in mapping if isinstance(key, str)})
+    names: list[str] = await _call(db, "config/get_secrets")
+    return names
 
 
 @_tool(
