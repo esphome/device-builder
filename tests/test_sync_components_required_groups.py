@@ -236,9 +236,9 @@ def test_collect_required_groups_descends_list_item_schemas() -> None:
     }
 
 
-def _pin_branch(*extra: str) -> vol.All:
+def _pin_branch() -> vol.All:
     return vol.All(
-        cv.Schema({cv.Optional(key): cv.string for key in ("miso_pin", "mosi_pin", *extra)}),
+        cv.Schema({cv.Optional("miso_pin"): cv.string, cv.Optional("mosi_pin"): cv.string}),
         cv.has_at_least_one_key("miso_pin", "mosi_pin"),
     )
 
@@ -257,7 +257,7 @@ def test_collect_required_groups_descends_typed_schema_branches() -> None:
 
 def test_collect_required_groups_dedupes_a_group_shared_by_typed_branches() -> None:
     """Two typed branches carrying the same constraint emit one group."""
-    typed = cv.typed_schema({"a": _pin_branch(), "b": _pin_branch("extra")})
+    typed = cv.typed_schema({"a": _pin_branch(), "b": _pin_branch()})
     assert _collect_required_groups(_FakeManifest(typed)) == {
         (): [{"kind": "at_least_one", "keys": ["miso_pin", "mosi_pin"]}],
     }
