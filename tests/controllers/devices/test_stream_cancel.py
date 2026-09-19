@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,7 @@ import orjson
 import pytest
 
 from esphome_device_builder.api.ws import WebSocketClient
-from esphome_device_builder.controllers.devices import DevicesController, validate
+from esphome_device_builder.controllers.devices import DevicesController, logs, validate
 from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
@@ -796,6 +797,10 @@ async def test_stream_logs_stays_unbounded(
     await ctrl.stream_logs(configuration="kitchen.yaml", client=MagicMock(), message_id="m")
     assert captured.get("slot") is None
     assert captured.get("run_timeout") is None
+    # The call site passes no bounds, so the helper's defaults are the bounds.
+    defaults = inspect.signature(logs.stream_subprocess).parameters
+    assert defaults["slot"].default is None
+    assert defaults["run_timeout"].default is None
 
 
 async def test_validate_config_streams_through_the_pool(
@@ -848,7 +853,11 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
 
     proc = _Proc()
 
-    async def spawn(*_args: Any, **_kwargs: Any) -> _Proc:
+    spawn_kwargs: dict[str, Any] = {}
+    killed: list[Any] = []
+
+    async def spawn(*_args: Any, **kwargs: Any) -> _Proc:
+        spawn_kwargs.update(kwargs)
         return proc
 
     async def lines(_stream: Any) -> Any:
@@ -862,7 +871,7 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
         "esphome_device_builder.controllers.devices.logs.iter_lines_with_progress", lines
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.logs.kill_quietly", lambda _p: None
+        "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly", killed.append
     )
 
     task = asyncio.create_task(ctrl._stream_subprocess(["x"], client, "s-1"))
@@ -874,3 +883,6 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
     reaped.set()
     await asyncio.sleep(0)
     assert proc.returncode == -9
+    # The child owns its session so the cancel kill reaches its subtree.
+    assert spawn_kwargs["start_new_session"] is True
+    assert killed == [proc]

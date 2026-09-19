@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, registered_stream
-from ...helpers.process import kill_quietly
+from ...helpers.process import kill_subtree_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import OTA_PORT, ErrorCode, StreamEvent
 
@@ -146,6 +146,7 @@ async def _run_streaming(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env=env,
+            start_new_session=True,
         )
         assert proc.stdout is not None
         # Use the shared `\n`/`\r` splitter so esptool / PlatformIO
@@ -159,11 +160,13 @@ async def _run_streaming(
             await client.send_event(message_id, StreamEvent.OUTPUT, payload)
         return await proc.wait()
     except asyncio.CancelledError:
-        # Synchronous kill only; no awaits in the cancel path.
-        # The finally block reaps the process. ``proc`` may be
-        # None if cancellation arrived before spawn returned.
+        # Synchronous kill only; no awaits in the cancel path. The
+        # whole session goes (``esphome config`` forks ``git`` for
+        # remote packages). The finally block reaps the process;
+        # ``proc`` may be None if cancellation arrived before spawn
+        # returned.
         if proc is not None and proc.returncode is None:
-            kill_quietly(proc)
+            kill_subtree_quietly(proc)
         # Honour the asyncio cancellation contract: only swallow
         # if no outstanding cancel requests remain (asyncio.timeout
         # / TaskGroup may have called Task.uncancel()).

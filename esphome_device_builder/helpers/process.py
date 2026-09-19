@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "kill_quietly",
+    "kill_subtree_quietly",
     "terminate_subtree_with_grace",
 ]
 
@@ -66,6 +67,18 @@ _LOGGER = logging.getLogger(__name__)
 # esptool to release the serial port and platformio to flush its log,
 # and short enough that a hung compiler doesn't make the user wait.
 _TERMINATE_GRACE_SECONDS = 3.0
+
+
+def kill_subtree_quietly(proc: asyncio.subprocess.Process) -> None:
+    """
+    Kill *proc*'s whole tree synchronously; safe inside a cancel path.
+
+    POSIX signals the process group, so the spawn site MUST have used
+    ``start_new_session=True`` or the dashboard's own group is hit.
+    Windows and an already-gone group fall back to ``kill_quietly``.
+    """
+    if sys.platform == "win32" or not _signal_process_group(proc.pid, signal.SIGKILL):
+        kill_quietly(proc)
 
 
 def _signal_process_group(pid: int, sig: int) -> bool:
