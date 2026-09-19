@@ -147,14 +147,14 @@ def _search_limit(args: dict[str, Any]) -> int:
     return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
 
 
-def _load_secrets_for(settings: DashboardSettings, configuration: str) -> dict[Any, Any]:
+def _load_secrets_for(settings: DashboardSettings, configuration: str) -> list[dict[Any, Any]]:
     """Load the secrets esphome resolves for *configuration*: beside it, then the config root."""
     return _load_secrets(settings.rel_path(configuration).parent, settings.config_dir)
 
 
-def _load_secrets(*directories: Path) -> dict[Any, Any]:
-    """Return the union of every secrets file in *directories*; raise when one is unreadable."""
-    secrets: dict[Any, Any] = {}
+def _load_secrets(*directories: Path) -> list[dict[Any, Any]]:
+    """Parse every secrets file in *directories*, one mapping each; raise when one is unreadable."""
+    secrets: list[dict[Any, Any]] = []
     candidates = [directory / filename for directory in directories for filename in SECRETS_FILES]
     for path in dict.fromkeys(candidates):
         filename = path.name
@@ -169,7 +169,7 @@ def _load_secrets(*directories: Path) -> dict[Any, Any]:
             msg = f"{filename} could not be read; validation output withheld"
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         try:
-            secrets |= validate_secrets_content(content, path)
+            secrets.append(validate_secrets_content(content, path))
         except ValueError as err:
             _LOGGER.warning(
                 "%s could not be parsed; withholding validate output", filename, exc_info=err
@@ -190,8 +190,8 @@ def _scalar_leaves(value: Any) -> list[str]:
     return [str(value)]
 
 
-def _redact_secret_values(lines: list[str], secrets: dict[Any, Any]) -> list[str]:
-    """Replace every secrets value of credential length in *lines* with ``<removed>``."""
+def _redact_secret_values(lines: list[str], secrets: list[dict[Any, Any]]) -> list[str]:
+    """Replace every value of credential length from any secrets mapping with ``<removed>``."""
     values = {text for text in _scalar_leaves(secrets) if len(text) >= _MIN_REDACTED_SECRET_LEN}
     for value in sorted(values, key=len, reverse=True):
         lines = [line.replace(value, "<removed>") for line in lines]
@@ -356,7 +356,7 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
-    lines = await initial_snapshot(job, job.job_id) if tail_lines > 0 else []
+    lines = await initial_snapshot(job, job.job_id)
     output = lines[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
@@ -467,7 +467,7 @@ async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[s
 )
 async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> list[str]:
     secrets = await run_in_executor(_load_secrets, db.settings.config_dir)
-    return sorted(key for key in secrets if isinstance(key, str))
+    return sorted({key for mapping in secrets for key in mapping if isinstance(key, str)})
 
 
 @_tool(

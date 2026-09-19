@@ -208,7 +208,7 @@ async def test_validate_config_removes_secret_values(
         "ota_pass: 123456\nnested:\n  - token: abcdefgh\nborn: 2024-01-31\n"
     )
     (mcp_db.settings.config_dir / "sub").mkdir()
-    (mcp_db.settings.config_dir / "sub" / "secrets.yaml").write_text("local_key: qwertyui\n")
+    (mcp_db.settings.config_dir / "sub" / "secrets.yaml").write_text("mqtt_user: qwertyui\n")
     mcp_db.command_handlers["devices/validate"] = validate_stub(
         [
             (StreamEvent.OUTPUT, "  username: alice_smith\n"),
@@ -431,15 +431,18 @@ async def test_get_job_reads_sidecar_for_terminal_job(
     assert data["status"] == "completed"
 
 
-async def test_get_job_zero_tail_skips_the_output_read(
+async def test_get_job_zero_tail_still_reports_withheld_output(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     job = make_job(status=JobStatus.COMPLETED, exit_code=0)
     mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
-    with patch("esphome_device_builder.controllers.firmware.follow.read_job_output") as read:
+    with patch(
+        "esphome_device_builder.controllers.firmware.follow.read_job_output",
+        return_value=["built\n"],
+    ):
         data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 0})
-    read.assert_not_called()
     assert data["output"] == []
+    assert data["truncated"] is True
 
 
 @pytest.mark.parametrize(
