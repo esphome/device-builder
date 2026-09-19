@@ -111,8 +111,8 @@ def release_dependents(controller: FirmwareController, job: FirmwareJob) -> bool
     before calling can re-persist when the cascade actually changed state.
     """
     acted = False
-    for dep in list(controller.state.jobs.values()):
-        if dep.depends_on != job.job_id or dep.status is not JobStatus.QUEUED:
+    for dep in list(controller.state.dependents(job.job_id)):
+        if dep.status is not JobStatus.QUEUED:
             continue
         acted = True
         if job.status is not JobStatus.COMPLETED:
@@ -210,8 +210,8 @@ def _defer_install_if_target_offline(controller: FirmwareController, job: Firmwa
     # A compile converts only when it still has a held OTA app upload
     # to spare from the dead address.
     if job.job_type is JobType.COMPILE and not any(
-        dep.depends_on == job.job_id and dep.status is JobStatus.QUEUED and dep.is_ota_app_upload
-        for dep in controller.state.jobs.values()
+        dep.status is JobStatus.QUEUED and dep.is_ota_app_upload
+        for dep in controller.state.dependents(job.job_id)
     ):
         return
     _LOGGER.info(message, job.configuration)
