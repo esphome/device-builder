@@ -46,6 +46,7 @@ __all__ = [
     "raise_device_not_found",
     "read_device_config",
     "read_device_config_async",
+    "refuse_empty_write",
     "require_catalog",
     "require_file_exists",
     "require_unchanged",
