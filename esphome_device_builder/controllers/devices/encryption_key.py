@@ -69,6 +69,8 @@ async def set_encryption_key(
             # must not unwind the loop: the key-retention policy and
             # the other devices' outcomes still apply.
             outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
+            if err.code is ErrorCode.PRECONDITION_FAILED:
+                why = f"{why}; {_KEPT_FOR_LATER}"
         outcomes.add(outcome)
         reason = reason or why
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:

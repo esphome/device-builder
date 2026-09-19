@@ -771,8 +771,8 @@ async def test_add_component_with_draft_merges_draft_and_skips_persist(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
         lambda existing, component, fields: f"{existing}# added\n",
     )
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    rewrite = AsyncMock()
+    monkeypatch.setattr(controller, "rewrite_yaml", rewrite)
     (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
 
     resp = await controller.add_component(
@@ -783,7 +783,7 @@ async def test_add_component_with_draft_merges_draft_and_skips_persist(
     )
 
     assert resp.yaml == "DRAFT\n# added\n"
-    persist.assert_not_awaited()
+    rewrite.assert_not_awaited()
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n"
 
 
@@ -812,6 +812,33 @@ async def test_add_component_without_draft_reads_disk_and_persists(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n# added\n"
 
 
+async def test_add_component_refuses_when_the_file_changed_during_the_merge(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+    monkeypatch.setattr(controller, "_schedule_storage_regenerate", lambda _configuration: None)
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("DISK\n", encoding="utf-8")
+
+    def _merge_while_a_save_lands(existing: str, component: object, fields: object) -> str:
+        path.write_text("SAVED MEANWHILE\n", encoding="utf-8")
+        return f"{existing}# added\n"
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
+        _merge_while_a_save_lands,
+    )
+
+    with pytest.raises(CommandError) as err:
+        await controller.add_component(configuration="kitchen.yaml", component_id="i2c", fields={})
+
+    assert err.value.code == ErrorCode.PRECONDITION_FAILED
+    assert path.read_text(encoding="utf-8") == "SAVED MEANWHILE\n"
+
+
 async def test_add_component_into_broken_draft_appends_through_real_merge(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -824,8 +851,8 @@ async def test_add_component_into_broken_draft_appends_through_real_merge(
     )
     controller._db.components = MagicMock()
     controller._db.components.get_component = AsyncMock(return_value=component)
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    rewrite = AsyncMock()
+    monkeypatch.setattr(controller, "rewrite_yaml", rewrite)
 
     broken = 'esphome:\n  name: "kitch\nsensor:\n  - platform:\n'
     resp = await controller.add_component(
@@ -837,7 +864,8 @@ async def test_add_component_into_broken_draft_appends_through_real_merge(
 
     assert broken in resp.yaml
     assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in resp.yaml
-    persist.assert_not_awaited()
+    rewrite.assert_not_awaited()
+    assert not (tmp_path / "kitchen.yaml").exists()
 
 
 # ---------------------------------------------------------------------------
