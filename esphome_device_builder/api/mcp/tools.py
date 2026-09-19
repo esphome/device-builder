@@ -53,12 +53,14 @@ def _tool(
     description: str,
     properties: dict[str, dict[str, Any]] | None = None,
     required: tuple[str, ...] = (),
+    *,
+    reads_secrets: bool = False,
 ) -> Callable[[ToolHandler], ToolHandler]:
-    """Register a tool whose ``configuration`` argument, if any, may not name the secrets file."""
+    """Register a tool; only a *reads_secrets* tool takes the secrets file as ``configuration``."""
 
     def register(handler: ToolHandler) -> ToolHandler:
         async def guarded(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-            _refuse_secrets(args.get("configuration"))
+            _check_configuration(args.get("configuration"), allow_secrets=reads_secrets)
             return await handler(db, args)
 
         TOOLS.tool(name, description, properties, required)(guarded)
@@ -93,15 +95,18 @@ async def _call(
     )
 
 
-def _refuse_secrets(configuration: Any) -> None:
-    """Refuse the secrets file in any spelling: its contents never reach a model."""
+def _check_configuration(configuration: Any, *, allow_secrets: bool) -> None:
+    """Refuse a non-YAML name and, unless *allow_secrets*, the secrets file in any spelling."""
     if configuration is None:
         return
     if not isinstance(configuration, str):
         raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
     name = Path(configuration).name.rstrip(". ").casefold()
-    if name in SECRETS_FILES:
-        raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
+    if name in SECRETS_FILES and not allow_secrets:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            "secrets.yaml is read with get_config and changed with set_secret",
+        )
     if not _CONFIG_NAME_RE.fullmatch(name):
         raise CommandError(ErrorCode.INVALID_ARGS, "configuration must name a .yaml file")
 
@@ -160,9 +165,10 @@ async def _list_devices(db: DeviceBuilder, _args: dict[str, Any]) -> list[dict[s
 
 @_tool(
     "get_config",
-    "Read a device's YAML configuration.",
+    "Read a device's YAML configuration, or secrets.yaml.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
+    reads_secrets=True,
 )
 async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     return await _call(db, "devices/get_config", **args)
@@ -405,8 +411,7 @@ async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[s
 
 @_tool(
     "list_secret_names",
-    "List the secret names defined in secrets.yaml, never the values. Reference one in "
-    "YAML as '!secret <name>'.",
+    "List the secret names defined in secrets.yaml. Reference one in YAML as '!secret <name>'.",
 )
 async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> list[str]:
     names: list[str] = await _call(db, "config/get_secrets")
@@ -415,8 +420,8 @@ async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> list[s
 
 @_tool(
     "set_secret",
-    "Create or update one secret in secrets.yaml from a value the user supplied. The value "
-    "is never read back; reference it in YAML as '!secret <name>'.",
+    "Create or update one secret in secrets.yaml, the only way to change that file. "
+    "Reference the secret in YAML as '!secret <name>'.",
     {
         "name": _prop("string", "Secret name, e.g. 'wifi_password'."),
         "value": _prop("string", "The secret value."),

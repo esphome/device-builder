@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from esphome_device_builder.api.mcp.tools import TOOLS, _refuse_secrets
+from esphome_device_builder.api.mcp.tools import TOOLS, _check_configuration
 from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.helpers.api import CommandError
@@ -80,12 +80,19 @@ _CONFIG_COMMANDS = (
         7,
     ],
 )
-def test_refuse_secrets_matches_every_spelling(name: object) -> None:
+def test_check_configuration_refuses_every_secrets_spelling(name: object) -> None:
     with pytest.raises(CommandError) as excinfo:
-        _refuse_secrets(name)
+        _check_configuration(name, allow_secrets=False)
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
-    _refuse_secrets("kitchen.yaml")
-    _refuse_secrets(None)
+    _check_configuration("kitchen.yaml", allow_secrets=False)
+    _check_configuration(None, allow_secrets=False)
+
+
+def test_check_configuration_can_allow_the_secrets_file_but_never_another_type() -> None:
+    _check_configuration("secrets.yaml", allow_secrets=True)
+    _check_configuration("SECRETS.YML", allow_secrets=True)
+    with pytest.raises(CommandError):
+        _check_configuration("notes.txt", allow_secrets=True)
 
 
 def test_every_configuration_tool_is_covered() -> None:
@@ -95,8 +102,8 @@ def test_every_configuration_tool_is_covered() -> None:
     assert takes_config == {name for name, _ in _CONFIG_TOOLS}
 
 
-@pytest.mark.parametrize(("tool", "extra"), _CONFIG_TOOLS)
-async def test_secrets_file_is_refused_by_every_config_tool(
+@pytest.mark.parametrize(("tool", "extra"), _CONFIG_TOOLS[1:])
+async def test_secrets_file_is_refused_by_every_tool_but_get_config(
     mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder, tool: str, extra: dict[str, Any]
 ) -> None:
     handler = AsyncMock(return_value="wifi_password: hunter2\n")
@@ -104,8 +111,18 @@ async def test_secrets_file_is_refused_by_every_config_tool(
         mcp_catalog_db.command_handlers[command] = handler
     is_error, text = await mcp_call(mcp_client, tool, {"configuration": "secrets.yaml"} | extra)
     assert is_error
-    assert text == "invalid_args: secrets.yaml is not available over MCP"
+    assert text == "invalid_args: secrets.yaml is read with get_config and changed with set_secret"
     handler.assert_not_awaited()
+
+
+async def test_get_config_reads_the_secrets_file(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    handler = AsyncMock(return_value="wifi_password: hunter2\n")
+    mcp_db.command_handlers["devices/get_config"] = handler
+    is_error, text = await mcp_call(mcp_client, "get_config", {"configuration": "secrets.yaml"})
+    assert not is_error
+    assert text == "wifi_password: hunter2\n"
 
 
 # ---------------------------------------------------------------------------

@@ -40,6 +40,10 @@ async def test_sdk_client_reaches_the_device_builder_tools(server_url: str) -> N
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "esphome:\n  name: k\n"
 
-        refused = await session.call_tool("get_config", {"configuration": "secrets.yaml"})
+        refused = await session.call_tool(
+            "update_config", {"configuration": "secrets.yaml", "content": "wifi_password: x\n"}
+        )
         assert refused.isError is True
-        assert refused.content[0].text == "invalid_args: secrets.yaml is not available over MCP"
+        assert refused.content[0].text == (
+            "invalid_args: secrets.yaml is read with get_config and changed with set_secret"
+        )
