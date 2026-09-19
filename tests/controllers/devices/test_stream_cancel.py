@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import signal
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -12,8 +16,11 @@ import orjson
 import pytest
 
 from esphome_device_builder.api.ws import WebSocketClient
-from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import DevicesController, logs, validate
 from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
+from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
 
@@ -594,7 +601,7 @@ async def test_validate_config_off_attaches_redactor_transform(
     captured: dict[str, Any] = {}
 
     async def fake_stream(
-        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None
+        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None, **_kw: Any
     ) -> None:
         captured["line_transform"] = line_transform
 
@@ -613,7 +620,7 @@ async def test_validate_config_on_passes_no_line_transform(
     captured: dict[str, Any] = {}
 
     async def fake_stream(
-        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None
+        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None, **_kw: Any
     ) -> None:
         captured["line_transform"] = line_transform
 
@@ -683,3 +690,290 @@ def test_redact_concealed_secrets_leaves_unwrapped_lines_alone() -> None:
 
     coloured = "\x1b[32mINFO\x1b[0m starting up"
     assert _redact_concealed_secrets(coloured) == coloured
+
+
+# ---------------------------------------------------------------------------
+# Slots and the run bound
+# ---------------------------------------------------------------------------
+
+
+def _sleeper(seconds: int) -> list[str]:
+    return [sys.executable, "-c", f"import time\nprint('up', flush=True)\ntime.sleep({seconds})\n"]
+
+
+def _recording_client() -> tuple[WebSocketClient, list[tuple[str, str, Any]]]:
+    client = _make_client()
+    events: list[tuple[str, str, Any]] = []
+
+    async def capture(mid: str, event: str, data: Any = None) -> None:
+        events.append((mid, event, data))
+
+    client.send_event = capture  # type: ignore[method-assign]
+    return client, events
+
+
+async def _wait_for_output(events: list[tuple[str, str, Any]], mid: str) -> None:
+    for _ in range(100):
+        if any(m == mid and ev == "output" for m, ev, _ in events):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"{mid} never produced output")
+
+
+async def test_stream_subprocess_refuses_when_no_slot_frees_in_time() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    holder = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot))
+    await _wait_for_output(events, "s-1")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl._stream_subprocess(_sleeper(60), client, "s-2", slot=slot, slot_timeout=0.05)
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(holder, return_exceptions=True)
+    assert not slot.locked()
+
+
+async def test_stream_subprocess_waits_for_a_slot_then_runs() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    holder = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot))
+    await _wait_for_output(events, "s-1")
+
+    second = [sys.executable, "-c", "print('second')"]
+    waiter = asyncio.create_task(
+        ctrl._stream_subprocess(second, client, "s-2", slot=slot, slot_timeout=10)
+    )
+    await asyncio.sleep(0.2)
+    assert not waiter.done()
+    assert ("s-2", "output", "Waiting for a free slot…") in events
+
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(holder, return_exceptions=True)
+    await asyncio.wait_for(waiter, timeout=10)
+    assert ("s-2", "result", {"success": True, "code": 0}) in events
+
+
+async def test_stop_stream_cancels_a_run_waiting_for_a_slot() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    holder = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot))
+    await _wait_for_output(events, "s-1")
+
+    waiter = asyncio.create_task(
+        ctrl._stream_subprocess(_sleeper(60), client, "s-2", slot=slot, slot_timeout=30)
+    )
+    await asyncio.sleep(0.05)
+    assert client.cancel_stream("s-2") is True
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(holder, return_exceptions=True)
+    assert not slot.locked()
+
+
+async def test_stream_subprocess_idle_bound_stops_a_silent_child_and_frees_the_slot() -> None:
+    ctrl = _make_controller()
+    client, _events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot, idle_timeout=0.3)
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+    assert "No output for" in excinfo.value.message
+    assert not slot.locked()
+
+
+async def test_stream_logs_stays_unbounded(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    captured: dict[str, Any] = {}
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+    await ctrl.stream_logs(configuration="kitchen.yaml", client=MagicMock(), message_id="m")
+    assert captured.get("slot") is None
+    assert captured.get("idle_timeout") is None
+
+
+async def test_validate_config_streams_through_the_pool(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    captured: dict[str, Any] = {}
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+    await ctrl.validate_config(
+        configuration="kitchen.yaml", show_secrets=False, client=MagicMock(), message_id="m"
+    )
+    assert captured["slot"] is validate._validate_semaphore
+    assert captured["slot_timeout"] == validate._QUEUE_TIMEOUT
+    assert captured["idle_timeout"] == ESPHOME_CONFIG_TIMEOUT
+
+
+async def test_stream_subprocess_lets_a_foreign_timeout_through() -> None:
+    ctrl = _make_controller()
+    client = _make_client()
+
+    async def slow_send(_mid: str, _event: str, _data: Any = None) -> None:
+        raise TimeoutError("socket")
+
+    client.send_event = slow_send  # type: ignore[method-assign]
+    with pytest.raises(TimeoutError, match="socket"):
+        await asyncio.wait_for(
+            ctrl._stream_subprocess(_sleeper(60), client, "s-1", idle_timeout=30), timeout=10
+        )
+
+
+async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctrl = _make_controller()
+    client, _events = _recording_client()
+    reaped = asyncio.Event()
+
+    class _Proc:
+        pid = 4242
+        returncode: int | None = None
+        stdout = object()
+
+        async def wait(self) -> int:
+            await reaped.wait()
+            self.returncode = -9
+            return -9
+
+    proc = _Proc()
+
+    spawn_kwargs: dict[str, Any] = {}
+    killed: list[Any] = []
+
+    async def spawn(*_args: Any, **kwargs: Any) -> _Proc:
+        spawn_kwargs.update(kwargs)
+        return proc
+
+    async def lines(_stream: Any) -> Any:
+        raise asyncio.CancelledError
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.create_subprocess_exec", spawn
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.iter_lines_with_progress", lines
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly",
+        lambda proc, win_job=None: killed.append(proc),
+    )
+
+    closed: list[int] = []
+    monkeypatch.setattr(
+        logs.WindowsJobObject,
+        "create_for_pid",
+        lambda pid: SimpleNamespace(terminate=lambda: False, close=lambda: closed.append(pid)),
+    )
+
+    task = asyncio.create_task(ctrl._stream_subprocess(["x"], client, "s-1"))
+    await asyncio.sleep(0.05)
+    assert not task.done()  # the swallowed cancel left the task reaping
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert closed == [proc.pid]  # the job handle is released even when the reap is cancelled
+    reaped.set()
+    await asyncio.sleep(0)
+    assert proc.returncode == -9
+    # The child owns its session so the cancel kill reaches its subtree.
+    assert spawn_kwargs["start_new_session"] is True
+    assert killed == [proc]
+
+
+async def test_idle_bound_resets_while_the_child_keeps_talking() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    chatty = [
+        sys.executable,
+        "-c",
+        "import time\nfor _ in range(3):\n    print('tick', flush=True)\n    time.sleep(1.5)\n",
+    ]
+    await ctrl._stream_subprocess(chatty, client, "s-1", idle_timeout=4.0)
+    assert ("s-1", "result", {"success": True, "code": 0}) in events
+
+
+async def test_stream_wraps_the_child_in_a_windows_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[int] = []
+    closed: list[int] = []
+
+    class _Job:
+        def __init__(self, pid: int) -> None:
+            self.pid = pid
+
+        def terminate(self) -> bool:
+            os.kill(self.pid, signal.SIGTERM)  # TerminateProcess on Windows
+            return True
+
+        def close(self) -> None:
+            closed.append(self.pid)
+
+    monkeypatch.setattr(
+        logs.WindowsJobObject, "create_for_pid", lambda pid: created.append(pid) or _Job(pid)
+    )
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    task = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1"))
+    await _wait_for_output(events, "s-1")
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(task, return_exceptions=True)
+    assert created and closed == created
+
+
+async def test_reap_is_bounded_when_the_kill_does_not_take(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    monkeypatch.setattr(logs, "_REAP_TIMEOUT", 0.05)
+
+    class _Proc:
+        pid = 4343
+        returncode: int | None = None
+        stdout = object()
+
+        async def wait(self) -> int:
+            await asyncio.sleep(3600)
+            return 0
+
+    async def spawn(*_args: Any, **_kwargs: Any) -> _Proc:
+        return _Proc()
+
+    async def lines(_stream: Any) -> Any:
+        raise asyncio.CancelledError
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.create_subprocess_exec", spawn
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.iter_lines_with_progress", lines
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(logs.WindowsJobObject, "create_for_pid", lambda _pid: None)
+    slot = asyncio.Semaphore(1)
+    with caplog.at_level(logging.WARNING):
+        await asyncio.wait_for(ctrl._stream_subprocess(["x"], client, "s-1", slot=slot), timeout=5)
+    assert "child 4343 did not exit" in caplog.text
+    assert not slot.locked()
+    assert not any(ev == "result" for _, ev, _ in events)

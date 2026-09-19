@@ -8,8 +8,8 @@ The dashboard spawns subprocesses in a few different shapes:
   whole tree has to come down on cancel.
 * **YAML validator session** (``editor.py``) spawns a single
   ``esphome vscode`` subprocess. Single process, no fork chain.
-* **Device log streams** (``devices/controller.py``) spawn ``esphome
-  logs`` for live tailing. Single process.
+* **Device streams** (``devices/logs.py``) spawn ``esphome logs`` and
+  ``esphome config`` in their own session and kill the tree on cancel.
 * **Startup probes** (``firmware/helpers._verify_esphome_importable``)
   spawn ``esphome --version`` with a hard timeout.
 
@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "kill_quietly",
+    "kill_subtree_quietly",
     "terminate_subtree_with_grace",
 ]
 
@@ -66,6 +67,17 @@ _LOGGER = logging.getLogger(__name__)
 # esptool to release the serial port and platformio to flush its log,
 # and short enough that a hung compiler doesn't make the user wait.
 _TERMINATE_GRACE_SECONDS = 3.0
+
+
+def kill_subtree_quietly(
+    proc: asyncio.subprocess.Process, *, win_job: WindowsJobObject | None = None
+) -> None:
+    """Kill *proc*'s tree synchronously (POSIX group or Windows job); spawn with a new session."""
+    if win_job is not None and win_job.terminate():
+        return
+    if sys.platform != "win32" and _signal_process_group(proc.pid, signal.SIGKILL):
+        return
+    kill_quietly(proc)
 
 
 def _signal_process_group(pid: int, sig: int) -> bool:

@@ -1332,5 +1332,16 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         message_id: str,
         *,
         line_transform: Callable[[str], str] | None = None,
+        slot: asyncio.Semaphore | None = None,
+        slot_timeout: float | None = None,
+        idle_timeout: float | None = None,
     ) -> None:
-        await logs.stream_subprocess(cmd, client, message_id, line_transform=line_transform)
+        await logs.stream_subprocess(
+            cmd,
+            client,
+            message_id,
+            line_transform=line_transform,
+            slot=slot,
+            slot_timeout=slot_timeout,
+            idle_timeout=idle_timeout,
+        )
