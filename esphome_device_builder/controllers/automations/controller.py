@@ -4,7 +4,8 @@ Automations controller — the eight WS commands the frontend speaks.
 See ``docs/API.md`` for the per-command contract. ``upsert`` /
 ``delete`` return a :class:`YamlDiff` the frontend applies in
 place; the backend does not persist the YAML — the existing
-config-write debounce on the device editor handles that.
+config-write debounce on the device editor handles that. The one
+exception is ``delete`` with ``save``, for callers with no editor.
 """
 
 from __future__ import annotations

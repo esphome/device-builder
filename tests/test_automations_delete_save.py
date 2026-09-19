@@ -24,14 +24,13 @@ _LOCATION = {"kind": "device_on", "trigger": "on_boot"}
 class _Devices:
     """Stand-in for the devices controller's locked read-rewrite-save."""
 
-    def __init__(self, config_dir: Path) -> None:
-        self._config_dir = config_dir
+    def __init__(self) -> None:
         self.saved: list[tuple[str, str, str]] = []
 
     async def rewrite_yaml(
         self, configuration: str, rewrite: Callable[[str], tuple[str, YamlDiff]], *, message: str
     ) -> YamlDiff:
-        new_text, diff = rewrite((self._config_dir / configuration).read_text("utf-8"))
+        new_text, diff = rewrite(_YAML)
         self.saved.append((configuration, new_text, message))
         return diff
 
@@ -45,7 +44,7 @@ def _make_controller(config_dir: Path, *, devices: Any) -> AutomationsController
 
 
 async def test_delete_with_save_writes_the_spliced_config(tmp_path: Path) -> None:
-    devices = _Devices(tmp_path)
+    devices = _Devices()
     controller = _make_controller(tmp_path, devices=devices)
 
     result = await controller.delete(configuration="d.yaml", location=_LOCATION, save=True)
@@ -55,7 +54,7 @@ async def test_delete_with_save_writes_the_spliced_config(tmp_path: Path) -> Non
 
 
 async def test_delete_without_save_leaves_the_config_alone(tmp_path: Path) -> None:
-    devices = _Devices(tmp_path)
+    devices = _Devices()
     controller = _make_controller(tmp_path, devices=devices)
 
     result = await controller.delete(configuration="d.yaml", location=_LOCATION)
@@ -72,7 +71,7 @@ async def test_delete_without_save_leaves_the_config_alone(tmp_path: Path) -> No
     ],
 )
 async def test_delete_refuses_invalid_save_args(tmp_path: Path, args: dict[str, Any]) -> None:
-    devices = _Devices(tmp_path)
+    devices = _Devices()
     controller = _make_controller(tmp_path, devices=devices)
 
     with pytest.raises(CommandError) as err:
