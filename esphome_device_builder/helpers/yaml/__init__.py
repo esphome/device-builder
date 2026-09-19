@@ -58,6 +58,7 @@ from .component import _splice_into_multi_conf_block as _splice_into_multi_conf_
 from .component import component_block_present as component_block_present
 from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
+from .diff import apply_yaml_diff as apply_yaml_diff
 from .inline import SubEntityRef as SubEntityRef
 from .inline import _indent_block as _indent_block
 from .inline import remove_inline_handler as remove_inline_handler

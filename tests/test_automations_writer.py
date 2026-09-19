@@ -37,6 +37,7 @@ from esphome_device_builder.controllers.automations.writing_lists import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
     SubEntityRef,
+    apply_yaml_diff,
     remove_nested_handler,
     upsert_nested_handler,
 )
@@ -54,7 +55,7 @@ from esphome_device_builder.models.automations import (
     ScriptLocation,
     YamlDiff,
 )
-from tests.conftest import apply_yaml_diff
+from tests.conftest import apply_yaml_diff_like_frontend
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
@@ -64,7 +65,9 @@ def _load(name: str) -> str:
 
 
 def _apply_diff(text: str, diff: YamlDiff) -> str:
-    return apply_yaml_diff(text, diff.fromLine, diff.toLine, diff.replacement)
+    result = apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
+    assert apply_yaml_diff(text, diff) == result
+    return result
 
 
 # ---------------------------------------------------------------------------

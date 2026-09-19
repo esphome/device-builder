@@ -17,8 +17,9 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController, catalog
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation
-from tests.conftest import apply_yaml_diff
+from esphome_device_builder.helpers.yaml import apply_yaml_diff
+from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation, YamlDiff
+from tests.conftest import apply_yaml_diff_like_frontend
 
 # Co-locate every automations-catalog test on one xdist worker so
 # the slim index (cached after first :func:`catalog._load_index`)
@@ -1107,7 +1108,11 @@ def test_decode_location_compiles_unpacker_once_per_kind() -> None:
 
 
 def _apply_diff(text: str, diff: dict) -> str:
-    return apply_yaml_diff(text, diff["fromLine"], diff["toLine"], diff["replacement"])
+    result = apply_yaml_diff_like_frontend(
+        text, diff["fromLine"], diff["toLine"], diff["replacement"]
+    )
+    assert apply_yaml_diff(text, YamlDiff.from_dict(diff)) == result
+    return result
 
 
 @pytest.mark.usefixtures("_sprinkler_paths")
