@@ -102,7 +102,10 @@ async def stream_subprocess(
                     await slot.acquire()
             except TimeoutError as err:
                 _LOGGER.warning(
-                    "Stream %s refused: no slot freed within %ss", message_id, slot_timeout
+                    "Stream %s refused, no slot freed within %ss: %s",
+                    message_id,
+                    slot_timeout,
+                    " ".join(cmd),
                 )
                 msg = "Too many concurrent runs; retry shortly"
                 raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
@@ -112,12 +115,16 @@ async def stream_subprocess(
         except TimeoutError as err:
             if not deadline.expired():
                 raise
+            _LOGGER.warning(
+                "Stream %s stopped after %ss: %s", message_id, run_timeout, " ".join(cmd)
+            )
             msg = f"Run exceeded {run_timeout:.0f}s and was stopped"
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         finally:
             if slot is not None:
                 slot.release()
         if exit_code is None:
+            # Swallowed cancel: the stop_stream reply is the client's terminal signal.
             return
         await client.send_event(
             message_id, "result", {"success": exit_code == 0, "code": exit_code}

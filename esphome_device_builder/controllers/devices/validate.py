@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 # A stream holds its permit until the client drains it: a separate budget from
-# ``_config_semaphore``.
+# ``_config_semaphore``, so both pools can be full at once on a low-RAM host.
 _MAX_CONCURRENT_VALIDATES = 3
 _QUEUE_TIMEOUT = 30.0
 _validate_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_VALIDATES)

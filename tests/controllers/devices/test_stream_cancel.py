@@ -783,6 +783,21 @@ async def test_stream_subprocess_run_bound_stops_the_child_and_frees_the_slot() 
     assert not slot.locked()
 
 
+async def test_stream_logs_stays_unbounded(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    captured: dict[str, Any] = {}
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+    await ctrl.stream_logs(configuration="kitchen.yaml", client=MagicMock(), message_id="m")
+    assert captured.get("slot") is None
+    assert captured.get("run_timeout") is None
+
+
 async def test_validate_config_streams_through_the_pool(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
