@@ -45,6 +45,17 @@ def test_append_after_the_last_line() -> None:
     assert apply_yaml_diff(_TEXT, _diff(4, 3, "d: 4\n")) == "a: 1\nb: 2\nc: 3\nd: 4\n"
 
 
+@pytest.mark.parametrize(("from_line", "to_line"), [(0, 1), (5, 4), (1, 4), (3, 1)])
+def test_out_of_range_splice_raises(from_line: int, to_line: int) -> None:
+    with pytest.raises(ValueError, match="outside 3 lines"):
+        apply_yaml_diff(_TEXT, {"fromLine": from_line, "toLine": to_line, "replacement": ""})
+
+
+def test_append_after_the_last_line() -> None:
+    diff = {"fromLine": 4, "toLine": 3, "replacement": "d: 4\n"}
+    assert apply_yaml_diff(_TEXT, diff) == "a: 1\nb: 2\nc: 3\nd: 4\n"
+
+
 def test_counts_lines_like_the_producer() -> None:
     text = "a: 'x\x0cy'\nb: 2\nc: 3\n"
     assert apply_yaml_diff(text, _diff(3, 3, "")) == "a: 'x\x0cy'\nc: 3\n"

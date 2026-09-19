@@ -1,0 +1,83 @@
+"""Fixtures and helpers shared by the MCP endpoint and tool suites."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from functools import partial
+from typing import Any
+
+import pytest
+from pytest_aiohttp.plugin import AiohttpClient
+
+from esphome_device_builder.api.mcp import MCP_PATH
+from esphome_device_builder.controllers.components import ComponentCatalog
+
+from ..conftest import (
+    MakeSettingsFactory,
+    McpStubDeviceBuilder,
+    make_mcp_app,
+    rpc_post,
+)
+
+mcp_rpc = partial(rpc_post, path=MCP_PATH)
+
+
+async def mcp_call(client: Any, name: str, arguments: dict[str, Any] | None = None) -> tuple:
+    """Return ``(is_error, text)`` for one ``tools/call``."""
+    params: dict[str, Any] = {"name": name}
+    if arguments is not None:
+        params["arguments"] = arguments
+    result = (await mcp_rpc(client, method="tools/call", params=params))["result"]
+    return result["isError"], result["content"][0]["text"]
+
+
+async def mcp_call_json(client: Any, name: str, arguments: dict[str, Any] | None = None) -> Any:
+    """Return a successful tool call's text parsed as JSON."""
+    is_error, text = await mcp_call(client, name, arguments)
+    assert not is_error, text
+    return json.loads(text)
+
+
+def validate_stub(
+    frames: list[tuple[str, Any]], *, sleep: float = 0, swallow_cancel: bool = False
+) -> Any:
+    """
+    Build a ``devices/validate`` stand-in that emits *frames*, then optionally stalls.
+
+    A stalled stub re-raises the cancel like ``stream_subprocess`` under
+    ``asyncio.timeout``, or swallows it when ``swallow_cancel`` is set.
+    """
+
+    async def validate(*, client: Any, message_id: str, configuration: str) -> None:
+        for event, data in frames:
+            await client.send_event(message_id, event, data)
+        if sleep:
+            try:
+                await asyncio.sleep(sleep)
+            except asyncio.CancelledError:
+                if not swallow_cancel:
+                    raise
+
+    return validate
+
+
+@pytest.fixture
+def db(make_settings: MakeSettingsFactory) -> McpStubDeviceBuilder:
+    return McpStubDeviceBuilder(make_settings())
+
+
+@pytest.fixture
+async def client(db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient) -> Any:
+    return await aiohttp_client(make_mcp_app(db))
+
+
+@pytest.fixture
+def catalog_db(
+    db: McpStubDeviceBuilder, session_component_catalog: ComponentCatalog
+) -> McpStubDeviceBuilder:
+    db.components = session_component_catalog
+    db.command_handlers["components/get_component_bodies"] = (
+        session_component_catalog.get_component_bodies
+    )
+    return db

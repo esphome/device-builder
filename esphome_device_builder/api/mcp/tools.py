@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.const import SECRETS_FILES
 
+from ...constants import SECRETS_FILENAME
 from ...controllers.devices.helpers import raise_device_not_found, require_catalog
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
@@ -163,11 +164,23 @@ def _search_limit(args: dict[str, Any]) -> int:
     return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
 
 
-def _redact_secret_values(lines: list[str], secrets: dict[Any, Any] | None) -> list[str]:
+def _load_secrets(config_dir: Path) -> dict[Any, Any]:
+    """Return the ``secrets.yaml`` mapping (empty without a file); raise when it is unreadable."""
+    if not (config_dir / SECRETS_FILENAME).exists():
+        return {}
+    secrets = read_secrets_yaml(config_dir)
+    if secrets is None:
+        _LOGGER.warning("secrets.yaml could not be parsed; withholding MCP validate output")
+        msg = "secrets.yaml could not be parsed; validation output withheld"
+        raise CommandError(ErrorCode.UNAVAILABLE, msg)
+    return secrets
+
+
+def _redact_secret_values(lines: list[str], secrets: dict[Any, Any]) -> list[str]:
     """Replace every ``secrets.yaml`` value of credential length in *lines* with ``<removed>``."""
     values = {
         text
-        for value in (secrets or {}).values()
+        for value in secrets.values()
         if isinstance(value, str | int | float) and not isinstance(value, bool)
         if len(text := str(value)) >= _MIN_REDACTED_SECRET_LEN
     }
@@ -259,7 +272,7 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
     except TimeoutError:
         if not deadline.expired():
             raise
-    secrets = await run_in_executor(read_secrets_yaml, db.settings.config_dir)
+    secrets = await run_in_executor(_load_secrets, db.settings.config_dir)
     output = _redact_secret_values(_strip_lines(list(client.output)), secrets)
     if deadline.expired():
         return {
@@ -268,12 +281,15 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
             "output": output,
             "truncated": client.truncated,
         }
-    if client.result is None:
-        _LOGGER.error("MCP validate of %s produced no result frame", args["configuration"])
+    result = client.result
+    if result is None or "success" not in result or "code" not in result:
+        _LOGGER.error(
+            "MCP validate of %s produced no result frame: %r", args["configuration"], result
+        )
         raise McpToolError(INTERNAL_ERROR, "Validation produced no result")
     return {
-        "success": client.result.get("success", False),
-        "exit_code": client.result.get("code"),
+        "success": result["success"],
+        "exit_code": result["code"],
         "output": output,
         "truncated": client.truncated,
     }
@@ -507,6 +523,10 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    for ref in args["refs"]:
+        if not isinstance(ref, dict) or ref.get("type") not in _AUTOMATION_TYPES:
+            msg = f"each ref needs a type of {', '.join(_AUTOMATION_TYPES)} and an id"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return _prune(await _call(db, "automations/get_bodies", **args))
 
 
@@ -525,5 +545,8 @@ async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
     text = await _call(db, "devices/get_config", configuration=configuration)
     splice = await _call(db, "automations/delete", yaml=text, **args)
     new_text = apply_yaml_diff(text, splice["yaml_diff"])
+    if new_text == text:
+        _LOGGER.error("MCP delete_automation left %s unchanged: %r", configuration, splice)
+        raise McpToolError(INTERNAL_ERROR, "Delete produced no change")
     await _call(db, "devices/update_config", configuration=configuration, content=new_text)
     return f"Removed the automation and saved {configuration}"
