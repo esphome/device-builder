@@ -622,6 +622,9 @@ class ConfigEntry(DashboardModel):
     # means a plain structured group.
     platform_type: str | None = None
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 # ---------------------------------------------------------------------------
 # Featured-component presets (board-side)

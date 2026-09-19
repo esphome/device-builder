@@ -264,6 +264,8 @@ Board catalog dataclasses (`BoardCatalogIndex`, `BoardCatalogEntry`, `BoardHardw
 >
 > Enums: [`ComponentCategory`](../esphome_device_builder/models/components.py), [`ConfigEntryType`](../esphome_device_builder/models/common.py)
 
+`ComponentCatalogEntry`, `ComponentCatalogIndexEntry` and `ConfigEntry` (so automation bodies too) serialise like the board catalog models below: a field whose value equals its declared default, or `None`, is **absent from the wire payload**. Only `key`, `type` and `label` are guaranteed on a `ConfigEntry`; read an absent flag as `false`, an absent nullable as `null` and an absent list as empty. The comparison is per field, so a `default_value` of `false` is sent (its declared default is `None`) while `required: false` is not. The frontend types mark these fields optional and its API client backfills the component level `config_entries`.
+
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `components/get_categories` | `{board_id?}` | `[{id, name, count}]` | List categories with counts |

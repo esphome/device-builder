@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, TypedDict
 
-from .common import ConfigEntry, DashboardModel, PagedResponse, RequiredGroup
+from .common import ConfigEntry, DashboardModel, PagedResponse, RequiredGroup, _CatalogConfig
 
 
 class IntegrationDocEntry(TypedDict):
@@ -133,6 +133,9 @@ class ComponentCatalogIndexEntry(DashboardModel):
     # recommendation status. ``None`` on regular entries.
     underlying_category: ComponentCategory | None = None
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class ComponentCatalogEntry(DashboardModel):
@@ -220,6 +223,9 @@ class ComponentCatalogEntry(DashboardModel):
     # group). Frontend pairs these with each entry's ``group`` to
     # render the full "either X or all of {Y, Z, …}" rule.
     required_groups: list[RequiredGroup] = field(default_factory=list)
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 @dataclass
