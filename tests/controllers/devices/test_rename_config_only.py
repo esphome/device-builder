@@ -125,6 +125,29 @@ async def test_config_only_rename_never_replaces_a_target_created_during_validat
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == _YAML
 
 
+async def test_config_only_rename_holds_both_filenames_until_the_metadata_moved(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    held: list[tuple[bool, bool]] = []
+
+    async def _migrate(_controller: object, old: str, new: str) -> None:
+        held.append(
+            (controller._yaml_write_lock(old).locked(), controller._yaml_write_lock(new).locked())
+        )
+
+    monkeypatch.setattr(mutations_simple, "migrate_metadata_then_scan", _migrate)
+
+    await controller.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+
+    assert held == [(True, True)]
+    assert not controller._yaml_write_lock("kitchen.yaml").locked()
+    assert not controller._yaml_write_lock("livingroom.yaml").locked()
+
+
 async def test_config_only_rename_lands_as_one_executor_job(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -138,8 +161,9 @@ async def test_config_only_rename_lands_as_one_executor_job(
             configuration="kitchen.yaml", new_name="livingroom", config_only=True
         )
 
-    # The read, the target-exists probe, and the write + unlink + storage migration.
-    assert spy.await_count == 3
+    jobs = [call.args[0].__name__ for call in spy.await_args_list]
+    assert jobs.count("_land") == 1
+    assert "_migrate_storage_json" not in jobs
 
 
 async def test_config_only_rename_retargets_name_labelled_ap_ssid(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
@@ -344,10 +345,14 @@ async def _config_only_rename(
         # The YAML is already renamed; storage migration is best-effort (logs on failure).
         _migrate_storage_json(configuration, new_filename, new_name)
 
-    async with controller._yaml_write_lock(configuration):
+    async with AsyncExitStack() as locks:
+        # Both filenames, in a stable order, until the metadata has moved: a rename of the
+        # new name must not run between the file landing and its metadata following it.
+        for name in sorted({configuration, new_filename}):
+            await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
-    # The shared metadata-migrate-then-scan always rescans.
-    await migrate_metadata_then_scan(controller, configuration, new_filename)
+        # The shared metadata-migrate-then-scan always rescans.
+        await migrate_metadata_then_scan(controller, configuration, new_filename)
     return {"configuration": new_filename, "job": None}
 
 
