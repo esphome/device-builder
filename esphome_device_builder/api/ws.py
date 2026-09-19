@@ -21,7 +21,7 @@ from ..helpers.async_ import create_eager_task, drain_tasks
 from ..helpers.auth import extract_bearer_token, reject_untrusted_browser_request
 from ..helpers.dashboard_advertise import advertised_friendly_name
 from ..helpers.event_bus import StreamBackpressureError
-from ..helpers.json import JSONDecodeError, dumps_str, loads, to_wire
+from ..helpers.json import JSONDecodeError, dumps_str, loads
 from ..models import (
     CommandMessage,
     ErrorCode,
@@ -30,6 +30,7 @@ from ..models import (
     ResultMessage,
     ServerInfoMessage,
 )
+from ..models.common import DashboardModel
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -152,7 +153,7 @@ class WebSocketClient:
 
     async def send_result(self, message_id: str, result: Any = None) -> None:
         """Send a success result; models serialise at the top level or one container down."""
-        msg = ResultMessage(message_id=message_id, result=to_wire(result))
+        msg = ResultMessage(message_id=message_id, result=DashboardModel.to_wire(result))
         await self.send(msg.to_dict())
 
     async def send_error(self, message_id: str, error_code: ErrorCode, details: str = "") -> None:

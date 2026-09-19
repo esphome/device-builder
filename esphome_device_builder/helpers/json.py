@@ -73,17 +73,6 @@ def dumps_indent(obj: Any) -> bytes:
     return orjson.dumps(obj, option=orjson.OPT_INDENT_2)
 
 
-def to_wire(value: Any) -> Any:
-    """Apply ``to_dict`` to a model, or to the models directly inside a dict or list."""
-    if hasattr(value, "to_dict"):
-        return value.to_dict()
-    if isinstance(value, dict):
-        return {k: v.to_dict() if hasattr(v, "to_dict") else v for k, v in value.items()}
-    if isinstance(value, list):
-        return [v.to_dict() if hasattr(v, "to_dict") else v for v in value]
-    return value
-
-
 def json_response(
     data: Any, status: int = 200, *, dumps: Callable[[Any], bytes] = dumps
 ) -> web.Response:

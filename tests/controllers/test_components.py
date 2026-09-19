@@ -37,7 +37,6 @@ from esphome_device_builder.controllers.components import _resolve as components
 from esphome_device_builder.controllers.components import controller as comp_controller
 from esphome_device_builder.controllers.components._resolve import FeaturedView
 from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
-from esphome_device_builder.helpers.json import to_wire
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -47,6 +46,7 @@ from esphome_device_builder.models import (
     FeaturedComponent,
     FieldPreset,
 )
+from esphome_device_builder.models.common import DashboardModel
 
 
 class _Container:
@@ -244,11 +244,11 @@ async def test_get_component_bodies_resolves_rp2040_alias() -> None:
 
 
 async def test_component_bodies_reach_the_wire_in_the_omit_defaults_shape() -> None:
-    """The command's models pass through ``to_wire`` with default-valued fields left out."""
+    """The command's models reach the wire with default-valued fields left out."""
     cat = ComponentCatalog()
     await asyncio.to_thread(cat.load)
 
-    bodies = to_wire(await cat.get_component_bodies(component_ids=["wifi"]))
+    bodies = DashboardModel.to_wire(await cat.get_component_bodies(component_ids=["wifi"]))
 
     fast_connect = next(e for e in bodies["wifi"]["config_entries"] if e["key"] == "fast_connect")
     assert fast_connect["default_value"] is False

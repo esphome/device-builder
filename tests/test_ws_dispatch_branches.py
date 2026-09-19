@@ -63,24 +63,14 @@ def test_token_property_returns_value_set_by_authenticator() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_send_result_invokes_to_dict_on_dataclass_results() -> None:
-    """``send_result`` flattens ``to_dict``-shaped results before sending.
-
-    Most handler returns are mashumaro dataclasses; the wire layer
-    serialises them via the dataclass's own ``to_dict`` so the
-    JSON shape stays under model control instead of getting
-    auto-derived from ``__dict__``.
-    """
+async def test_send_result_serialises_a_top_level_model() -> None:
     client, ws = _make_client()
+    job = make_job()
 
-    class _Result:
-        def to_dict(self) -> dict[str, str]:
-            return {"flavoured": "yes"}
-
-    await client.send_result("m1", _Result())
+    await client.send_result("m1", job)
 
     payload = _last_payload(ws)
-    assert payload["result"] == {"flavoured": "yes"}
+    assert payload["result"] == job.to_dict()
     assert payload["message_id"] == "m1"
 
 

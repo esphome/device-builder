@@ -59,6 +59,7 @@ from .helpers.secrets_state import write_secrets_locked
 from .helpers.startup_timing import StartupTimer
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
+from .models.common import DashboardModel
 
 if TYPE_CHECKING:
     from esphome.zeroconf import AsyncEsphomeZeroconf
@@ -818,10 +819,7 @@ class DeviceBuilder:
             await client.send_result(message_id, {"subscribed": True})
 
         def _handle_event(event: Event, controls: StreamControls) -> None:
-            data = event.data
-            serialized: dict[str, Any] = {}
-            for key, value in data.items():
-                serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
+            serialized: dict[str, Any] = DashboardModel.to_wire(event.data)
             # Fail-closed for every event type. If the queue
             # overflows, the client is 4000+ events behind and the
             # connection is already broken; a forced disconnect +
