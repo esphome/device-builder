@@ -146,6 +146,15 @@ async def test_snapshot_of_a_terminal_job_with_an_unreadable_sidecar_is_none(
     assert await initial_snapshot(_terminal_job([]), "t1") is None
 
 
+def test_read_sidecar_that_is_not_utf8_returns_none(caplog: pytest.LogCaptureFixture) -> None:
+    path = _job_log_path("corrupt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xff\xfe not utf-8\n")
+    with caplog.at_level(logging.WARNING):
+        assert read_job_output("corrupt") is None
+    assert any("Failed to read job output sidecar" in r.message for r in caplog.records)
+
+
 def test_read_unreadable_sidecar_logs_and_returns_none(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

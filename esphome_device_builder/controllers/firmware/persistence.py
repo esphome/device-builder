@@ -258,7 +258,7 @@ def read_job_output(job_id: str) -> list[str] | None:
             text = fh.read()
     except FileNotFoundError:
         return []
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         _LOGGER.warning("Failed to read job output sidecar for %s", job_id, exc_info=True)
         return None
     return _LINE_RE.findall(text)
