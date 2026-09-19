@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome.const import SECRETS_FILES
-
+from ...constants import is_device_config_name, is_secrets_file
 from ...controllers.automations.catalog import AUTOMATION_TYPES
-from ...controllers.devices.helpers import raise_device_not_found, require_catalog
+from ...controllers.devices.helpers import scanned_component_entries
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import plain_lines
@@ -28,7 +25,6 @@ if TYPE_CHECKING:
 
 _MESSAGE_ID = "mcp"
 # No NTFS stream suffix (``::$DATA``) and no 8.3 alias (``SECRET~1.YAM``).
-_CONFIG_NAME_RE = re.compile(r"[^:~]+\.ya?ml")
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TAIL_LINES = 50
@@ -104,14 +100,15 @@ def _check_configuration(configuration: Any, *, allow_secrets: bool) -> None:
         return
     if not isinstance(configuration, str):
         raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
-    name = Path(configuration).name.rstrip(". ").casefold()
-    if name in SECRETS_FILES and not allow_secrets:
+    if is_secrets_file(configuration):
+        if allow_secrets:
+            return
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "secrets.yaml is read with get_config and changed with set_secret",
         )
-    if not _CONFIG_NAME_RE.fullmatch(name):
-        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must name a .yaml file")
+    if not is_device_config_name(configuration):
+        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a device .yaml filename")
 
 
 def _prune(value: Any, *, include_advanced: bool = False) -> Any:
@@ -384,19 +381,8 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
-    catalog = require_catalog(db)
-    if db.devices is None:
-        raise CommandError(ErrorCode.UNAVAILABLE, "Devices are not loaded")
-    configuration = args["configuration"]
-    if (device := db.devices.get_by_configuration(configuration)) is None:
-        raise_device_not_found(configuration)
-    # A resolved config always carries ``esphome``; an empty list means the scan could not load it.
-    if not device.component_ids:
-        msg = f"{configuration} could not be loaded at its last scan; fix and save it, then retry"
-        raise CommandError(ErrorCode.UNAVAILABLE, msg)
-    # Only catalog ids are echoed: a resolved ``platform:`` value may be a ``!secret``.
-    entries = (catalog.index_entry(cid) for cid in device.component_ids)
-    return [_prune(entry.to_dict()) for entry in entries if entry is not None]
+    entries = scanned_component_entries(db, args["configuration"])
+    return [_prune(entry.to_dict()) for entry in entries]
 
 
 @_tool(

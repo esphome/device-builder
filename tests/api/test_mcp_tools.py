@@ -374,7 +374,11 @@ async def test_get_config_components_lists_catalog_rows_from_the_scan(
 
 @pytest.mark.parametrize(
     ("configuration", "code"),
-    [("nope.yaml", "not_found"), ("../../etc/passwd", "invalid_args"), ("../x.yaml", "not_found")],
+    [
+        ("nope.yaml", "not_found"),
+        ("../../etc/passwd", "invalid_args"),
+        ("../x.yaml", "invalid_args"),
+    ],
 )
 async def test_get_config_components_unknown_device_is_refused(
     mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder, configuration: str, code: str
@@ -394,7 +398,7 @@ async def test_get_config_components_unresolved_config_is_unavailable(
         mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
     )
     assert is_error
-    assert text.startswith("unavailable: kitchen.yaml could not be loaded at its last scan")
+    assert text.startswith("unavailable: kitchen.yaml did not resolve at its last scan")
 
 
 async def test_get_config_components_without_devices_is_unavailable(
