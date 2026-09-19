@@ -1,17 +1,14 @@
-"""Tests for ``follow.job_report`` and ``jobs.dependent_job``."""
+"""Tests for ``follow.job_report`` and ``FirmwareState.dependents``."""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import cast
 from unittest.mock import patch
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.follow import job_report
-from esphome_device_builder.controllers.firmware.jobs import dependent_job
-from esphome_device_builder.models import JobStatus
+from esphome_device_builder.models import JobStatus, JobType
 from tests.conftest import make_job
 
 _READ = "esphome_device_builder.controllers.firmware.follow.read_job_output"
@@ -33,7 +30,21 @@ async def test_job_report_tails_the_live_output(
     assert report["output"] == output
     assert report["truncated"] is truncated
     assert report["output_available"] is True
-    assert report["queued_update_armed"] is job.is_queued_update_armed
+    assert report["queued_update_armed"] is False
+
+
+async def test_job_report_reports_an_armed_queued_update() -> None:
+    job = make_job(
+        job_type=JobType.UPLOAD,
+        port="OTA",
+        status=JobStatus.FAILED,
+        is_deferred_install=True,
+    )
+
+    with patch(_READ, return_value=None):
+        report = await job_report(job, tail_lines=10)
+
+    assert report["queued_update_armed"] is True
 
 
 async def test_job_report_cleans_concealed_values_and_colour() -> None:
@@ -61,11 +72,11 @@ async def test_job_report_reads_a_terminal_jobs_sidecar(
     assert report["output_available"] is available
 
 
-def test_dependent_job_finds_the_job_held_on_another() -> None:
+def test_dependents_yields_the_jobs_held_on_another() -> None:
+    state = FirmwareState()
     compile_job = make_job(job_id="compile")
     upload_job = make_job(job_id="upload", depends_on="compile")
-    jobs = {j.job_id: j for j in (compile_job, upload_job)}
-    controller = cast("FirmwareController", SimpleNamespace(state=SimpleNamespace(jobs=jobs)))
+    state.jobs.update({j.job_id: j for j in (compile_job, upload_job)})
 
-    assert dependent_job(controller, "compile") is upload_job
-    assert dependent_job(controller, "upload") is None
+    assert list(state.dependents("compile")) == [upload_job]
+    assert list(state.dependents("upload")) == []

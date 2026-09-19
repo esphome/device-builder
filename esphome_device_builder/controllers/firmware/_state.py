@@ -260,6 +260,10 @@ class FirmwareState:
         """Yield the queued or running jobs (skips terminal history)."""
         return (j for j in self.jobs.values() if j.is_active)
 
+    def dependents(self, job_id: str) -> Iterator[FirmwareJob]:
+        """Yield the jobs held on *job_id* (an install's upload behind its compile)."""
+        return (j for j in self.jobs.values() if j.depends_on == job_id)
+
     def dependency_satisfied(self, job: FirmwareJob) -> bool:
         """Return whether *job* has no prerequisite, or its prerequisite has completed."""
         if not job.depends_on:

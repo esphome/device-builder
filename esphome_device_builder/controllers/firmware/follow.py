@@ -1,4 +1,4 @@
-"""Firmware-job WS streaming endpoints: follow_job + follow_jobs."""
+"""Firmware-job WS streaming endpoints (follow_job, follow_jobs) and the one-shot job_report."""
 
 from __future__ import annotations
 
@@ -131,8 +131,7 @@ async def job_report(job: FirmwareJob, *, tail_lines: int) -> dict[str, Any]:
     """
     Return *job*'s fields with the last *tail_lines* cleaned output lines.
 
-    ``truncated`` says earlier lines were dropped; ``output_available`` is false
-    when a terminal job's log could not be read.
+    ``output_available`` is false when a terminal job's log could not be read.
     """
     snapshot = await initial_snapshot(job, job.job_id)
     lines = snapshot or []
