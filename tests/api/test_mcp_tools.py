@@ -284,7 +284,9 @@ async def test_get_component_include_advanced(
     full = await mcp_call_json(
         mcp_client, "get_component", {"component_id": "sensor.dht", "include_advanced": True}
     )
-    assert "id" in {entry["key"] for entry in full["config_entries"]}
+    slim_keys = {entry["key"] for entry in slim["config_entries"]}
+    full_keys = {entry["key"] for entry in full["config_entries"]}
+    assert {"id", "setup_priority"} <= full_keys - slim_keys  # advanced, and hidden (YAML-only)
     assert len(json.dumps(full)) > len(json.dumps(slim))
 
 
@@ -414,7 +416,14 @@ async def test_get_automation_docs_example_resolves_against_the_catalog(
 async def test_get_automation_docs_hides_advanced_fields_unless_asked(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    body = {"id": "x", "config_entries": [{"key": "plain"}, {"key": "deep", "advanced": True}]}
+    body = {
+        "id": "x",
+        "config_entries": [
+            {"key": "plain"},
+            {"key": "deep", "advanced": True},
+            {"key": "internal", "hidden": True},
+        ],
+    }
     bodies = AsyncMock(return_value={"actions/x": body})
     mcp_db.command_handlers["automations/get_bodies"] = bodies
     refs = [{"type": "actions", "id": "x"}]
@@ -423,7 +432,7 @@ async def test_get_automation_docs_hides_advanced_fields_unless_asked(
     docs = await mcp_call_json(
         mcp_client, "get_automation_docs", {"refs": refs, "include_advanced": True}
     )
-    assert [e["key"] for e in docs["actions/x"]["config_entries"]] == ["plain", "deep"]
+    assert [e["key"] for e in docs["actions/x"]["config_entries"]] == ["plain", "deep", "internal"]
     assert "include_advanced" not in bodies.await_args.kwargs
 
 
@@ -437,7 +446,6 @@ async def test_automation_tools_wrap_the_automation_commands(
             "label": "blink",
             "raw_yaml": "script:\n",
             "automation": {"trigger": {"id": "script"}},
-            "error": None,
         }
     ]
     parse = AsyncMock(return_value=parsed)
@@ -455,7 +463,7 @@ async def test_automation_tools_wrap_the_automation_commands(
     available = await mcp_call_json(
         mcp_client, "get_available_automations", {"configuration": "kitchen.yaml"}
     )
-    assert available == {"triggers": ["on_boot"], "actions": ["light.turn_on"]}
+    assert available == {"triggers": ["on_boot"], "actions": ["light.turn_on"], "scripts": []}
     refs = [{"type": "actions", "id": "light.turn_on"}]
     docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": refs})
     assert docs == {"actions/light.turn_on": {"id": "light.turn_on"}}

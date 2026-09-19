@@ -234,7 +234,7 @@ async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     )
     return {
         "total": response.total,
-        "components": [_prune(entry.to_dict()) for entry in response.components],
+        "components": [entry.to_dict() for entry in response.components],
     }
 
 
@@ -242,14 +242,14 @@ async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     "get_component",
     "Get a component's documentation: description, docs URL and every config field with "
     "type, description, required flag and allowed values. default_value is what ESPHome "
-    "uses when the key is absent; an omitted flag is false. Advanced fields are omitted "
-    "unless include_advanced is true.",
+    "uses when the key is absent; an omitted flag is false. Advanced and YAML-only fields "
+    "are omitted unless include_advanced is true.",
     {
         "component_id": _COMPONENT_ID,
         "platform": _prop(
             "string", "Target platform (esp32, esp8266, ...) to resolve platform defaults."
         ),
-        "include_advanced": _prop("boolean", "Include advanced fields."),
+        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields."),
     },
     ("component_id",),
 )
@@ -263,7 +263,7 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     )
     if component_id not in bodies:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown component: {component_id}")
-    return _prune(
+    return _visible(
         bodies[component_id].to_dict(), include_advanced=args.get("include_advanced", False)
     )
 
@@ -278,7 +278,7 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 )
 async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     entries = scanned_component_entries(db, args["configuration"])
-    return [_prune(entry.to_dict()) for entry in entries]
+    return [entry.to_dict() for entry in entries]
 
 
 @_tool(
@@ -293,7 +293,7 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
 )
 async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     response = await _call(db, "boards/get_boards", query=args["query"], limit=args["limit"])
-    return {"total": response.total, "boards": [_prune(b.to_dict()) for b in response.boards]}
+    return {"total": response.total, "boards": [b.to_dict() for b in response.boards]}
 
 
 @_tool(
@@ -354,7 +354,7 @@ async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     rows = await _call(db, "automations/parse", **_only(args, "configuration"))
     # The decomposed tree serves the visual editor; the model edits the YAML.
-    return _prune([{k: v for k, v in row.items() if k != "automation"} for row in rows])
+    return [{k: v for k, v in row.items() if k != "automation"} for row in rows]
 
 
 @_tool(
@@ -365,7 +365,7 @@ async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    return _prune(await _call(db, "automations/get_available", **_only(args, "configuration")))
+    return await _call(db, "automations/get_available", **_only(args, "configuration"))
 
 
 @_tool(
@@ -373,10 +373,11 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     "Documentation for automation building blocks: each ref is {type, id} with type one of "
     + ", ".join(AUTOMATION_TYPES)
     + " and id from get_available_automations, e.g. {type: 'actions', id: 'light.turn_on'}."
-    " An omitted flag is false; advanced fields are omitted unless include_advanced is true.",
+    " An omitted flag is false; advanced and YAML-only fields are omitted unless "
+    "include_advanced is true.",
     {
         "refs": _prop("array", "List of {type, id} refs."),
-        "include_advanced": _prop("boolean", "Include advanced fields."),
+        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields."),
     },
     ("refs",),
 )
@@ -398,7 +399,7 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
         if f"{ref['type']}/{ref['id']}" not in bodies
     ]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
-    return _prune(bodies, include_advanced=include_advanced)
+    return _visible(bodies, include_advanced=include_advanced)
 
 
 @_tool(
@@ -447,10 +448,12 @@ def _check_configuration(configuration: str | None, *, allow_secrets: bool) -> N
         raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a device .yaml filename")
 
 
-def _prune(value: Any, *, include_advanced: bool = False) -> Any:
-    """Drop empty values recursively; also hidden entries and, unless asked, advanced ones."""
+def _visible(value: Any, *, include_advanced: bool) -> Any:
+    """Drop advanced and hidden config entries recursively unless *include_advanced*."""
+    if include_advanced:
+        return value
     if isinstance(value, list):
-        return [_prune(item, include_advanced=include_advanced) for item in value]
+        return [_visible(item, include_advanced=False) for item in value]
     if not isinstance(value, dict):
         return value
     if isinstance(value.get("config_entries"), list):
@@ -458,13 +461,7 @@ def _prune(value: Any, *, include_advanced: bool = False) -> Any:
             "config_entries": [
                 entry
                 for entry in value["config_entries"]
-                if not (entry.get("hidden") or (entry.get("advanced") and not include_advanced))
+                if not (entry.get("hidden") or entry.get("advanced"))
             ]
         }
-    pruned = {k: _prune(v, include_advanced=include_advanced) for k, v in value.items()}
-    return {k: v for k, v in pruned.items() if not _is_empty(v)}
-
-
-def _is_empty(value: Any) -> bool:
-    # Not ``False``: a default of false is a fact the model needs.
-    return value is None or (isinstance(value, (str, list, dict)) and not value)
+    return {k: _visible(v, include_advanced=False) for k, v in value.items()}
