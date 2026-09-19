@@ -58,7 +58,7 @@ async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *arg
         return await run_in_executor(fn, *args)
 
 
-def read_secrets_yaml(config_dir: Path) -> dict | None:
+def read_secrets_yaml(config_dir: Path, filename: str = SECRETS_FILENAME) -> dict | None:
     """
     Load ``secrets.yaml`` as a plain dict, or ``None`` on any failure.
 
@@ -73,7 +73,7 @@ def read_secrets_yaml(config_dir: Path) -> dict | None:
     at type-check time instead of as an ``AttributeError`` slipping
     past the narrow ``EsphomeError`` catch below.
     """
-    secrets_path = config_dir / SECRETS_FILENAME
+    secrets_path = config_dir / filename
     if not secrets_path.exists():
         return None
     try:

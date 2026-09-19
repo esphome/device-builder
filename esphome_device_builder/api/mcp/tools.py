@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.const import SECRETS_FILES
 
-from ...constants import SECRETS_FILENAME
+from ...controllers.automations.catalog import AUTOMATION_TYPES
 from ...controllers.devices.helpers import raise_device_not_found, require_catalog
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
@@ -39,7 +39,6 @@ _DEFAULT_TAIL_LINES = 50
 _MAX_TAIL_LINES = 1000
 _MAX_SEARCH_RESULTS = 100
 _MIN_REDACTED_SECRET_LEN = 6
-_AUTOMATION_TYPES = ("triggers", "actions", "conditions", "light_effects", "filters")
 
 
 def _translate(err: Exception) -> McpToolError | None:
@@ -165,14 +164,18 @@ def _search_limit(args: dict[str, Any]) -> int:
 
 
 def _load_secrets(config_dir: Path) -> dict[Any, Any]:
-    """Return the ``secrets.yaml`` mapping (empty without a file); raise when it is unreadable."""
-    if not (config_dir / SECRETS_FILENAME).exists():
-        return {}
-    secrets = read_secrets_yaml(config_dir)
-    if secrets is None:
-        _LOGGER.warning("secrets.yaml could not be parsed; withholding MCP validate output")
-        msg = "secrets.yaml could not be parsed; validation output withheld"
-        raise CommandError(ErrorCode.UNAVAILABLE, msg)
+    """Return the union of every secrets file spelling; raise when one exists but is unreadable."""
+    secrets: dict[Any, Any] = {}
+    for filename in SECRETS_FILES:
+        path = config_dir / filename
+        if not path.exists():
+            continue
+        data = read_secrets_yaml(path.parent, filename)
+        if data is None:
+            _LOGGER.warning("%s could not be parsed; withholding MCP validate output", filename)
+            msg = f"{filename} could not be parsed; validation output withheld"
+            raise CommandError(ErrorCode.UNAVAILABLE, msg)
+        secrets |= data
     return secrets
 
 
@@ -517,15 +520,20 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
 @_tool(
     "get_automation_docs",
     "Documentation for automation building blocks: each ref is {type, id} with type one of "
-    + ", ".join(_AUTOMATION_TYPES)
+    + ", ".join(AUTOMATION_TYPES)
     + " and id from get_available_automations, e.g. {type: 'actions', id: 'light.turn_on'}.",
     {"refs": _prop("array", "List of {type, id} refs.")},
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     for ref in args["refs"]:
-        if not isinstance(ref, dict) or ref.get("type") not in _AUTOMATION_TYPES:
-            msg = f"each ref needs a type of {', '.join(_AUTOMATION_TYPES)} and an id"
+        if (
+            not isinstance(ref, dict)
+            or ref.get("type") not in AUTOMATION_TYPES
+            or not isinstance(ref.get("id"), str)
+            or not ref["id"]
+        ):
+            msg = f"each ref needs a type of {', '.join(AUTOMATION_TYPES)} and an id"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return _prune(await _call(db, "automations/get_bodies", **args))
 

@@ -187,8 +187,9 @@ async def test_validate_config_collects_stream_and_strips_ansi(
 
 async def test_validate_config_removes_secret_values(client: Any, db: McpStubDeviceBuilder) -> None:
     (db.settings.config_dir / "secrets.yaml").write_text(
-        "mqtt_user: alice_smith\nmqtt_port: 1883\nota_pass: 123456\nflag: true\n"
+        "mqtt_user: alice_smith\nmqtt_port: 1883\nflag: true\n"
     )
+    (db.settings.config_dir / "secrets.yml").write_text("ota_pass: 123456\n")
     db.command_handlers["devices/validate"] = validate_stub(
         [
             (StreamEvent.OUTPUT, "  username: alice_smith\n"),
@@ -561,10 +562,10 @@ async def test_get_automation_docs_example_resolves_against_the_catalog(
     example = [{"type": "actions", "id": "light.turn_on"}]
     docs = await mcp_call_json(client, "get_automation_docs", {"refs": example})
     assert "config_entries" in docs["actions/light.turn_on"]
-    singular = [{"type": "action", "id": "light.turn_on"}]
-    is_error, text = await mcp_call(client, "get_automation_docs", {"refs": singular})
-    assert is_error
-    assert text.startswith("invalid_args: each ref needs a type of triggers, actions")
+    for bad in ({"type": "action", "id": "light.turn_on"}, {"type": "actions"}, "actions/x"):
+        is_error, text = await mcp_call(client, "get_automation_docs", {"refs": [bad]})
+        assert is_error
+        assert text.startswith("invalid_args: each ref needs a type of triggers, actions")
 
 
 async def test_automation_tools_wrap_the_automation_commands(
