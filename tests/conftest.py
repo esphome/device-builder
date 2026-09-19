@@ -65,6 +65,9 @@ from esphome_device_builder.models import (
     DeviceRuntimeState,
     DeviceState,
     EventType,
+    FirmwareJob,
+    JobStatus,
+    JobType,
     QueueStatus,
     ReachabilitySource,
 )
@@ -1132,6 +1135,43 @@ def make_state_monitor_with_callbacks(
         on_deployed_identity_live_change=callbacks.on_deployed_identity_live_change,
     )
     return monitor, callbacks
+
+
+class StubSessionStore:
+    """``auth.session_store`` stand-in that rejects every bearer token."""
+
+    async def validate(self, token: str) -> object | None:
+        return None
+
+
+class StubRateLimiter:
+    """``auth.rate_limiter`` stand-in with no lockout."""
+
+    def remaining_lockout(self, ip: str) -> float:
+        return 0.0
+
+    def clear(self, ip: str) -> None: ...
+
+    def record_failure(self, ip: str) -> None: ...
+
+
+class StubAuth:
+    """The ``auth`` controller surface ``auth_middleware`` reads."""
+
+    def __init__(self) -> None:
+        self.session_store = StubSessionStore()
+        self.rate_limiter = StubRateLimiter()
+
+
+def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
+    """Build a running COMPILE ``FirmwareJob`` for ``kitchen.yaml``."""
+    base: dict[str, Any] = {
+        "job_id": job_id,
+        "configuration": "kitchen.yaml",
+        "job_type": JobType.COMPILE,
+        "status": JobStatus.RUNNING,
+    }
+    return FirmwareJob(**(base | overrides))
 
 
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:

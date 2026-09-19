@@ -20,6 +20,7 @@ import pytest
 import yaml
 from esphome import yaml_util
 from esphome.const import ALLOWED_NAME_CHARS
+from esphome.core import EsphomeError
 
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
@@ -3820,6 +3821,20 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
     device = load_device_from_storage(yaml_path)
 
     assert device.ota_partition_access is False
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "match"),
+    [
+        pytest.param(": :", "k.yaml", id="unparsable"),
+        pytest.param("- a\n- list\n", "not a mapping", id="non_mapping"),
+    ],
+)
+def test_load_device_yaml_strict_raises(tmp_path: Path, yaml_text: str, match: str) -> None:
+    (tmp_path / "k.yaml").write_text(yaml_text, encoding="utf-8")
+    with pytest.raises(EsphomeError, match=match):
+        device_yaml.load_device_yaml_strict(tmp_path / "k.yaml")
+    assert device_yaml.load_device_yaml(tmp_path / "k.yaml") is None
 
 
 @pytest.mark.parametrize(

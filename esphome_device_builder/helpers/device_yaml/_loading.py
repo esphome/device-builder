@@ -472,6 +472,14 @@ def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: st
 
 
 def load_device_yaml(path: Path) -> dict | None:
+    """Load *path* like :func:`load_device_yaml_strict`, but unparsable input is ``None``."""
+    try:
+        return load_device_yaml_strict(path)
+    except EsphomeError:
+        return None
+
+
+def load_device_yaml_strict(path: Path) -> dict:
     """Load *path* with ESPHome's YAML loader; return the top-level mapping.
 
     Resolves ``!secret`` / ``!include`` / etc. like a real compile,
@@ -493,15 +501,12 @@ def load_device_yaml(path: Path) -> dict | None:
     used by the device-card flags — share one entry point with the
     same error handling and the same package-merge contract.
     """
-    try:
-        # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
-        # pass the ``Path`` directly — handing it a stringified path
-        # raises ``AttributeError`` deep inside the loader.
-        config = yaml_util.load_yaml(path)
-    except EsphomeError:
-        return None
+    # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
+    # pass the ``Path`` directly — handing it a stringified path
+    # raises ``AttributeError`` deep inside the loader.
+    config = yaml_util.load_yaml(path)
     if not isinstance(config, dict):
-        return None
+        raise EsphomeError(f"{path.name} is not a mapping")
     # ``packages:`` is a separate pass in the ESPHome pipeline
     # (``do_packages_pass`` + ``merge_packages`` in
     # ``esphome.config.validate_config``, wrapped for external callers
@@ -539,7 +544,7 @@ def load_device_yaml(path: Path) -> dict | None:
     # ``isinstance(config, dict)`` narrowing earlier. Cast at the
     # return so the public ``dict | None`` signature is honest
     # without forcing every caller to re-narrow on receive.
-    return cast("dict[Any, Any] | None", config)
+    return cast("dict[Any, Any]", config)
 
 
 def resolution_incomplete(config: dict | None) -> bool:

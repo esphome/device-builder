@@ -172,8 +172,6 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
 # and repaints, so escapes land not only as a leading reset but *inside* tokens
 # — the summary banner is ``[<green><bold>SUCCESS<reset>] Took`` — which an
 # anchored/literal match would miss.
-_ANSI_ESCAPE: re.Pattern[str] = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-
 # Compile-phase word markers for stamping ``compile_started_at``. ``Compiling
 # <path>`` is emitted by PlatformIO for every framework (esp32-arduino, esp8266,
 # libretiny, esp-idf-via-pio); ``Reading CMake configuration`` opens an esp-idf

@@ -164,13 +164,18 @@ def _make_devices_mock(
 
 
 class _StubDevice:
-    """Minimal ``Device`` stand-in — only ``to_dict`` is read."""
+    """Minimal ``Device`` / ``AdoptableDevice`` stand-in; only the serialisers are read."""
 
     def __init__(self, payload: dict[str, Any]) -> None:
         self._payload = payload
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self._payload)
+
+    def to_flat_dict(self) -> dict[str, Any]:
+        data = dict(self._payload)
+        data.update(data.pop("runtime_state", {}))
+        return data
 
 
 async def test_devices_returns_configured_and_importable_lists(

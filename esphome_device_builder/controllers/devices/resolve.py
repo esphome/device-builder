@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from ...helpers.device_yaml import (
     ESPHOME_CONFIG_TIMEOUT,
     EsphomeConfigUnavailableError,
     load_device_yaml,
+    load_device_yaml_strict,
     resolution_incomplete,
     run_esphome_config,
 )
@@ -53,10 +55,12 @@ async def resolve_config(
 
 
 async def load_config(
-    controller: DevicesController, configuration: str | Path
+    controller: DevicesController, configuration: str | Path, *, strict: bool = False
 ) -> tuple[Path, dict[Any, Any] | None]:
-    """Locate and load through ESPHome's loader in one hop; config is ``None`` if unparsable."""
-    return await run_in_executor(_locate_and_load, controller._db.settings, configuration)
+    """Locate and load in one hop; unparsable is ``None``, or ``EsphomeError`` when *strict*."""
+    return await run_in_executor(
+        partial(_locate_and_load, controller._db.settings, configuration, strict=strict)
+    )
 
 
 async def resolve_config_subprocess(
@@ -80,7 +84,7 @@ def _locate(settings: DashboardSettings, configuration: str | Path) -> Path:
 
 
 def _locate_and_load(
-    settings: DashboardSettings, configuration: str | Path
+    settings: DashboardSettings, configuration: str | Path, *, strict: bool = False
 ) -> tuple[Path, dict[Any, Any] | None]:
     path = _locate(settings, configuration)
-    return path, load_device_yaml(path)
+    return path, (load_device_yaml_strict if strict else load_device_yaml)(path)

@@ -17,6 +17,7 @@ bucket on the frontend.
 from __future__ import annotations
 
 from esphome_device_builder.helpers.device_yaml import (
+    extract_component_ids,
     extract_directly_referenced_integrations,
 )
 
@@ -209,3 +210,23 @@ def test_empty_value_blocks_still_count() -> None:
     """
     config = {"api": None, "logger": None}
     assert extract_directly_referenced_integrations(config) == ["api", "logger"]
+
+
+def test_extract_component_ids_keeps_yaml_order_and_dots_platforms() -> None:
+    config = {
+        "esphome": {"name": "kitchen"},
+        "sensor": [{"platform": "dht", "pin": 4}, {"platform": "dht"}, "junk"],
+        "ota": {"platform": "esphome"},
+        "logger": None,
+        ".anchors": {"x": "y"},
+        7: "ignored",
+    }
+    assert extract_component_ids(config) == [
+        "esphome",
+        "sensor",
+        "sensor.dht",
+        "ota",
+        "ota.esphome",
+        "logger",
+    ]
+    assert extract_component_ids(None) == []

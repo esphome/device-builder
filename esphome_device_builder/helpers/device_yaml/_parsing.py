@@ -406,24 +406,32 @@ def extract_directly_referenced_integrations(
     Non-string ``platform:`` values (templated lambdas, malformed
     drafts) are skipped silently rather than emitting garbage names.
     """
-    if not isinstance(config, dict):
-        return []
     out: set[str] = set()
+    for key, platform in iter_component_refs(config):
+        out.add(platform or key)
+    return sorted(out)
+
+
+def extract_component_ids(config: dict | None) -> list[str]:
+    """Catalog ids a resolved config references, in YAML order: ``key`` and ``key.platform``."""
+    ids = [
+        f"{key}.{platform}" if platform else key for key, platform in iter_component_refs(config)
+    ]
+    return list(dict.fromkeys(ids))
+
+
+def iter_component_refs(config: dict | None) -> Iterator[tuple[str, str | None]]:
+    """Yield ``(key, None)`` per top-level block and ``(key, platform)`` per ``platform:`` ref."""
+    if not isinstance(config, dict):
+        return
     for key, value in config.items():
         if not isinstance(key, str) or is_ignored_top_level_key(key):
             continue
-        out.add(key)
-        if isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict):
-                    platform = item.get("platform")
-                    if isinstance(platform, str) and platform:
-                        out.add(platform)
-        elif isinstance(value, dict):
-            platform = value.get("platform")
+        yield key, None
+        for block in value if isinstance(value, list) else [value]:
+            platform = block.get("platform") if isinstance(block, dict) else None
             if isinstance(platform, str) and platform:
-                out.add(platform)
-    return sorted(out)
+                yield key, platform
 
 
 def parse_esphome_meta(

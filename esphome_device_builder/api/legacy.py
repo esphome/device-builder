@@ -47,7 +47,6 @@ from ..helpers.json import (
 from ..models import (
     TERMINAL_JOB_EVENTS,
     TERMINAL_JOB_STATUSES,
-    Device,
     DeviceState,
     ErrorCode,
     EventType,
@@ -83,19 +82,6 @@ _STATE_TO_BOOL: dict[DeviceState, bool] = {
     DeviceState.ONLINE: True,
     DeviceState.OFFLINE: False,
 }
-
-
-def _flat_device_dict(device: Device) -> dict[str, Any]:
-    """
-    Serialize *device* with ``runtime_state`` flattened to the top level.
-
-    HA's ``esphome-dashboard-api`` ``ConfiguredDevice`` (and its
-    diagnostics) read flat keys like ``deployed_version``; the legacy
-    wire shape must not nest.
-    """
-    data = device.to_dict()
-    data.update(data.pop("runtime_state"))
-    return data
 
 
 class _LegacyWSWriter:
@@ -414,7 +400,7 @@ def create_legacy_routes() -> web.RouteTableDef:
         devices_ctrl = db.devices
         await devices_ctrl.poll()
 
-        configured = [_flat_device_dict(d) for d in devices_ctrl.get_devices()]
+        configured = [d.to_flat_dict() for d in devices_ctrl.get_devices()]
         configured_names = {d.get("name") for d in configured}
 
         importable = [

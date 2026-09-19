@@ -498,8 +498,12 @@ class ComponentCatalog:
 
     def index_title(self, component_id: str) -> str | None:
         """Catalog title for *component_id* from the in-RAM slim index, or ``None``."""
-        entry = self._by_id.get(normalize_platform(component_id))
+        entry = self.index_entry(component_id)
         return entry.name if entry else None
+
+    def index_entry(self, component_id: str) -> ComponentCatalogIndexEntry | None:
+        """Slim index entry for *component_id* from RAM, or ``None``."""
+        return self._by_id.get(normalize_platform(component_id))
 
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
         """Return the hydrated body for *component_id*, or ``None`` if missing."""

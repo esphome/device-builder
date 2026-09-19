@@ -21,9 +21,10 @@ from .constants import _CONCEALED_SECRET_RE
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from ...device_builder import DeviceBuilder
     from ...models import ComponentCatalogEntry, ConfigEntry
     from .._device_state_monitor import DeviceStateMonitor
-    from ..components import _FeaturedRecord
+    from ..components import ComponentCatalog, _FeaturedRecord
 
 # Top-level YAML key matcher; used instead of yaml.safe_load
 # because ESPHome configs commonly carry custom tags
@@ -74,6 +75,13 @@ async def write_new_file_exclusive(
     except FileExistsError as exc:
         on_exists(exc)
         raise
+
+
+def require_catalog(db: DeviceBuilder) -> ComponentCatalog:
+    """Return the loaded component catalog, or raise ``UNAVAILABLE``."""
+    if db.components is None:
+        raise CommandError(ErrorCode.UNAVAILABLE, "Component catalog is not loaded")
+    return db.components
 
 
 def raise_device_not_found(
