@@ -636,7 +636,7 @@ async def test_validate_config_on_passes_no_line_transform(
     assert captured["line_transform"] is None
 
 
-def testredact_concealed_replaces_wrapped_runs() -> None:
+def test_redact_concealed_replaces_wrapped_runs() -> None:
     r"""ESPHome's ``\\x1b[8m...\\x1b[28m`` wrapper resolves to ``<removed>``.
 
     Spec mirrored from ``esphome.__main__.command_config``: every
@@ -651,7 +651,7 @@ def testredact_concealed_replaces_wrapped_runs() -> None:
     assert redact_concealed(raw) == "  password: <removed>"
 
 
-def testredact_concealed_handles_dashboard_literal_escape() -> None:
+def test_redact_concealed_handles_dashboard_literal_escape() -> None:
     r"""``--dashboard`` mode emits literal ``\\033`` not the raw ESC byte.
 
     ESPHome's ``--dashboard`` flag re-encodes every real ANSI
@@ -671,13 +671,13 @@ def testredact_concealed_handles_dashboard_literal_escape() -> None:
     assert redact_concealed(literal) == "    - ssid: <removed>"
 
 
-def testredact_concealed_handles_multiple_runs_per_line() -> None:
+def test_redact_concealed_handles_multiple_runs_per_line() -> None:
     """Multiple wrapped runs in one line all get redacted (non-greedy)."""
     raw = "ssid: \x1b[8mwifi-name\x1b[28m psk: \x1b[8msuper-secret\x1b[28m"
     assert redact_concealed(raw) == "ssid: <removed> psk: <removed>"
 
 
-def testredact_concealed_leaves_unwrapped_lines_alone() -> None:
+def test_redact_concealed_leaves_unwrapped_lines_alone() -> None:
     r"""No Concealed wrapper → line is forwarded verbatim.
 
     Validate output is mostly schema dumps and ANSI colour codes
