@@ -536,7 +536,7 @@ Right after a client subscribes (and before any live events arrive), the server 
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM agent (Home Assistant's `mcp` integration, Claude Code, Claude Desktop through a local bridge) can read and change device configs, start builds and installs, and read the component catalog. The protocol lives in the generic `mcp/` package (JSON-RPC envelope, tool registry); `api/mcp/` adds the route and the Device Builder tools. Same aiohttp app as everything else; no extra dependency.
 
-**Transport.** Stateless streamable HTTP: one JSON-RPC 2.0 request per `POST /api/mcp` with a JSON reply, no session id, no server-initiated stream. The body must be `Content-Type: application/json` (415 otherwise). `GET` and `DELETE` answer 405. A notification (a message without `id`) answers 202 with an empty body. Batches (a JSON array body) are rejected, so the batching-era revisions are not offered: `2025-06-18` and `2025-11-25` are echoed back and any other request negotiates down to `2025-06-18`.
+**Transport.** Stateless streamable HTTP: one JSON-RPC 2.0 request per `POST /api/mcp` with a JSON reply, no session id, no server-initiated stream. The body must be `Content-Type: application/json` (415 otherwise). `GET` and `DELETE` answer 405. A notification (a message without `id`) answers 202 with an empty body. Batches (a JSON array body) are rejected, so the batching-era revisions are not offered: `2025-06-18` and `2025-11-25` are echoed back and any other request is answered with `2025-11-25`, the newest served, as the spec's counter-offer.
 
 | Method | Result |
 |---|---|

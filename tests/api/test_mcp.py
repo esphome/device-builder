@@ -188,7 +188,12 @@ def test_library_error_words_match_error_code() -> None:
 
 
 async def test_initialize_advertises_server_info(client: Any) -> None:
-    result = (await _rpc(client, method="initialize", params={}))["result"]
+    params = {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "clientInfo": {"name": "test", "version": "0"},
+    }
+    result = (await _rpc(client, method="initialize", params=params))["result"]
     assert result["serverInfo"] == {"name": SERVER_NAME, "version": __version__}
 
 
