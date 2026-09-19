@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -73,7 +74,7 @@ async def test_config_only_rename_refuses_when_the_file_changed_during_validatio
 
     async def _file_moves_on_meanwhile(*_args: object, **_kwargs: object) -> None:
         if on_disk is None:
-            old.unlink()
+            await asyncio.to_thread(old.unlink)
         else:
             await controller.update_config(configuration=configuration, content=on_disk)
 
