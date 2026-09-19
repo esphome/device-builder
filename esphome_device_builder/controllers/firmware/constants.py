@@ -21,6 +21,7 @@ import re
 
 from esphome.const import __version__ as _installed_esphome_version
 
+from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.version_compat import release_line_at_least
 from ...models import JobType
 
@@ -158,7 +159,7 @@ _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
 # gauge by ``_ninja_progress``'s largest-total gate.
 _NINJA_MIN_TOTAL = 100
 _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
+    rf"^(?:{ANSI_CSI_RE.pattern})*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
 )
 
 # This compile-phase grammar is the authoritative copy: it stamps

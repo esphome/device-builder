@@ -407,7 +407,7 @@ def extract_directly_referenced_integrations(
     drafts) are skipped silently rather than emitting garbage names.
     """
     out: set[str] = set()
-    for key, platform in iter_component_refs(config):
+    for key, platform in _iter_component_refs(config):
         out.add(platform or key)
     return sorted(out)
 
@@ -415,12 +415,12 @@ def extract_directly_referenced_integrations(
 def extract_component_ids(config: dict | None) -> list[str]:
     """Catalog ids a resolved config references, in YAML order: ``key`` and ``key.platform``."""
     ids = [
-        f"{key}.{platform}" if platform else key for key, platform in iter_component_refs(config)
+        f"{key}.{platform}" if platform else key for key, platform in _iter_component_refs(config)
     ]
     return list(dict.fromkeys(ids))
 
 
-def iter_component_refs(config: dict | None) -> Iterator[tuple[str, str | None]]:
+def _iter_component_refs(config: dict | None) -> Iterator[tuple[str, str | None]]:
     """Yield ``(key, None)`` per top-level block and ``(key, platform)`` per ``platform:`` ref."""
     if not isinstance(config, dict):
         return
