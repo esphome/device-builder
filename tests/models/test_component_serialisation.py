@@ -67,7 +67,13 @@ def test_a_nested_entry_round_trips() -> None:
 @pytest.mark.parametrize("model", [ConfigEntry, ComponentCatalogEntry, ComponentCatalogIndexEntry])
 def test_no_declared_default_is_truthy(model: type) -> None:
     """An absent field reads as false or empty only while no default is truthy."""
-    assert not [f.name for f in fields(model) if f.default is not MISSING and f.default]
+    truthy = [
+        f.name
+        for f in fields(model)
+        if (f.default is not MISSING and f.default)
+        or (f.default_factory is not MISSING and f.default_factory())
+    ]
+    assert not truthy
 
 
 def test_to_wire_serialises_a_model_or_the_models_one_container_down() -> None:
