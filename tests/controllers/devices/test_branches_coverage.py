@@ -823,13 +823,17 @@ async def test_add_component_refuses_when_the_file_changed_during_the_merge(
     path = tmp_path / "kitchen.yaml"
     path.write_text("DISK\n", encoding="utf-8")
 
-    def _merge_while_a_save_lands(existing: str, component: object, fields: object) -> str:
-        path.write_text("SAVED MEANWHILE\n", encoding="utf-8")
-        return f"{existing}# added\n"
+    real_read = controller._read_yaml_async
 
+    async def _read_then_a_save_lands(read_path: Path) -> str:
+        text = await real_read(read_path)
+        await controller.update_config(configuration="kitchen.yaml", content="SAVED MEANWHILE\n")
+        return text
+
+    monkeypatch.setattr(controller, "_read_yaml_async", _read_then_a_save_lands)
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
-        _merge_while_a_save_lands,
+        lambda existing, component, fields: f"{existing}# added\n",
     )
 
     with pytest.raises(CommandError) as err:
