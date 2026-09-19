@@ -448,8 +448,7 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
     if job.compile_ended_at is not None:
         return
     if job.compile_started_at is None:
-        # PlatformIO repaints, so escapes land inside tokens (``[<green>SUCCESS<reset>]``);
-        # strip before the anchored matches.
+        # PlatformIO repaints, so escapes land inside tokens; strip before matching.
         if _is_compile_start_line(ANSI_CSI_RE.sub("", line)):
             job.compile_started_at = _now_iso()
         return

@@ -352,11 +352,7 @@ class Device(DashboardModel):
     ota_partition_access: bool = False
 
     def to_flat_dict(self) -> dict[str, Any]:
-        """
-        Serialise with ``runtime_state`` merged into the top level.
-
-        HA's dashboard API (``ConfiguredDevice``) reads these keys flat; the shape must not nest.
-        """
+        """Serialise with ``runtime_state`` flattened; HA's dashboard API reads the keys flat."""
         data = self.to_dict()
         data.update(data.pop("runtime_state"))
         return data
