@@ -36,7 +36,7 @@ class CommandError(Exception):
 
 
 class CollectingClient:
-    """Stream client keeping the last *tail* output lines (all if ``None``) and the result."""
+    """Client for per-line subprocess streams: the last *tail* lines (all if ``None``) + result."""
 
     def __init__(self, tail: int | None = None) -> None:
         self.output: deque[str] = deque(maxlen=tail)
@@ -49,6 +49,9 @@ class CollectingClient:
             self.output.append(data)
         elif event == StreamEvent.RESULT:
             self.result = data
+
+    async def send_result(self, _message_id: str, result: Any) -> None:
+        self.result = result
 
     def register_stream(self, message_id: str, task: Any) -> None: ...
 

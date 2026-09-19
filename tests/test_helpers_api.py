@@ -13,7 +13,12 @@ from __future__ import annotations
 
 import asyncio
 
-from esphome_device_builder.helpers.api import CollectingClient, api_command, collect_api_commands
+from esphome_device_builder.helpers.api import (
+    CollectingClient,
+    api_command,
+    collect_api_commands,
+    registered_stream,
+)
 from esphome_device_builder.models import StreamEvent
 
 
@@ -168,11 +173,22 @@ async def test_collecting_client_keeps_the_tail_and_the_result() -> None:
     assert list(client.output) == ["b", "c"]
     assert client.truncated is True
     assert client.result == {"success": True, "code": 0}
-    client.register_stream("m", None)
-    client.unregister_stream("m")
 
-    unbounded = CollectingClient()
+
+async def test_collecting_client_takes_a_direct_result() -> None:
+    client = CollectingClient()
+    await client.send_result("m", {"ok": True})
+    assert client.result == {"ok": True}
+
+
+async def test_collecting_client_without_a_tail_keeps_everything() -> None:
+    client = CollectingClient()
     for line in ("a", "b", "c"):
-        await unbounded.send_event("m", StreamEvent.OUTPUT, line)
-    assert list(unbounded.output) == ["a", "b", "c"]
-    assert unbounded.truncated is False
+        await client.send_event("m", StreamEvent.OUTPUT, line)
+    assert list(client.output) == ["a", "b", "c"]
+    assert client.truncated is False
+
+
+def test_collecting_client_satisfies_registered_stream() -> None:
+    with registered_stream(CollectingClient(), "m"):
+        pass
