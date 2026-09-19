@@ -52,7 +52,7 @@ def is_device_config_name(configuration: str | Path) -> bool:
     raw = str(configuration)
     name = _config_basename(raw)
     return (
-        cross_os_basename(raw) == raw
+        cross_os_basename(raw).rstrip(". ") == raw
         and name not in SECRETS_FILENAMES
         and _DEVICE_CONFIG_NAME_RE.fullmatch(name) is not None
     )

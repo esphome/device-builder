@@ -36,7 +36,7 @@ def test_secrets_filenames_match_esphome() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["kitchen.yaml", "Kitchen.YML", "porch (1).yaml", "kitchen.yaml.", "bedroom~1.yaml"],
+    ["kitchen.yaml", "Kitchen.YML", "porch (1).yaml", "bedroom~1.yaml"],
 )
 def test_is_device_config_name_accepts_yaml_names(name: str) -> None:
     assert is_device_config_name(name)
@@ -50,6 +50,8 @@ def test_is_device_config_name_accepts_yaml_names(name: str) -> None:
         "secrets.yaml::$DATA",
         "SECRET~1.YAM",
         "notes.txt",
+        "kitchen.yaml.",
+        "kitchen.yaml ",
         "sub/kitchen.yaml",
         "sub\\kitchen.yaml",
         "../../etc/passwd.yaml",
