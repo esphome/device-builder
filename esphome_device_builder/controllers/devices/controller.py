@@ -902,9 +902,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self, configuration: str, rewrite: Callable[[str], tuple[str, T]], *, message: str
     ) -> T:
         """Read, rewrite and save *configuration* as one executor job under its write lock."""
-        path = self._db.settings.rel_path(configuration)
+
+        def _rewrite() -> T:
+            return rewrite_user_yaml(self._db.settings.rel_path(configuration), rewrite)
+
         async with self._yaml_write_lock(configuration):
-            result = await run_in_executor(lambda: rewrite_user_yaml(path, rewrite))
+            try:
+                result = await run_in_executor(_rewrite)
+            except FileNotFoundError as err:
+                raise_device_not_found(configuration, from_exc=err)
             await self._commit_history(configuration, message)
         self._after_yaml_write(configuration)
         return result

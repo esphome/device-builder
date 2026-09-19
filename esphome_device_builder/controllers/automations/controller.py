@@ -35,7 +35,6 @@ from ...models.automations import (
     LightEffectLocation,
     ScriptLocation,
     UpsertResponse,
-    YamlDiff,
 )
 from . import catalog, parsing, writing
 from .catalog import AutomationBodyRef
@@ -257,10 +256,14 @@ class AutomationsController:
             raise CommandError(ErrorCode.INVALID_ARGS, "save writes the config on disk; omit yaml")
         loc = _decode_location(location)
         render = partial(writing.render_delete, location=loc)
-        if save:
-            diff = await self._rewrite_config(configuration, render)
-        else:
+        if not save:
             _new_text, diff = await self._run_on_config(configuration, yaml, render)
+        elif (devices := self._db.devices) is None:
+            raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
+        else:
+            diff = await devices.rewrite_yaml(
+                configuration, render, message=f"Delete an automation from {configuration}"
+            )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
     # ------------------------------------------------------------------
@@ -273,18 +276,11 @@ class AutomationsController:
         """Run *func* over the *yaml* draft, else the on-disk config, as one executor job."""
         if yaml is not None:
             return await run_in_executor(func, yaml)
-        path = self._db.settings.rel_path(configuration)
-        return await run_in_executor(lambda: func(path.read_text("utf-8")))
 
-    async def _rewrite_config(
-        self, configuration: str, render: Callable[[str], tuple[str, YamlDiff]]
-    ) -> YamlDiff:
-        """Apply *render* to the on-disk config through the devices controller's save path."""
-        if (devices := self._db.devices) is None:
-            raise CommandError(ErrorCode.UNAVAILABLE, "devices controller unavailable")
-        return await devices.rewrite_yaml(
-            configuration, render, message=f"Edit an automation in {configuration}"
-        )
+        def _read_and_run() -> T:
+            return func(self._db.settings.rel_path(configuration).read_text("utf-8"))
+
+        return await run_in_executor(_read_and_run)
 
 
 # ---------------------------------------------------------------------------
