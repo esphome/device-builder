@@ -8432,7 +8432,7 @@ def _collect_required_groups(
     schema = _hidden_schema(schema) or schema
 
     out: dict[tuple[str, ...], list[dict[str, Any]]] = {}
-    visited: set[int] = set()
+    visited: set[tuple[int, tuple[str, ...]]] = set()
 
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
@@ -8448,9 +8448,10 @@ def _collect_required_groups(
             for branch in _same_path_branches(node):
                 walk(branch, path, depth + 1)
             return
-        if id(target) in visited:
+        marker = (id(target), path)
+        if marker in visited:
             return
-        visited.add(id(target))
+        visited.add(marker)
         for key, val in target.items():
             key_name = key.schema if hasattr(key, "schema") else str(key)
             walk(val, (*path, key_name), depth + 1)

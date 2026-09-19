@@ -236,6 +236,26 @@ def test_collect_required_groups_descends_list_item_schemas() -> None:
     }
 
 
+def test_collect_required_groups_visits_a_shared_sub_schema_at_each_path() -> None:
+    """A sub-schema shared by two fields yields its nested constraint at both paths."""
+    shared = cv.Schema(
+        {
+            cv.Optional("eap"): vol.All(
+                cv.Schema(
+                    {cv.Optional("identity"): cv.string, cv.Optional("certificate"): cv.string}
+                ),
+                cv.has_at_least_one_key("identity", "certificate"),
+            )
+        }
+    )
+    schema = cv.Schema({cv.Optional("primary"): shared, cv.Optional("fallback"): shared})
+    expected = [{"kind": "at_least_one", "keys": ["identity", "certificate"]}]
+    assert _collect_required_groups(_FakeManifest(schema)) == {
+        ("primary", "eap"): expected,
+        ("fallback", "eap"): expected,
+    }
+
+
 def _pin_branch() -> vol.All:
     return vol.All(
         cv.Schema({cv.Optional("miso_pin"): cv.string, cv.Optional("mosi_pin"): cv.string}),
