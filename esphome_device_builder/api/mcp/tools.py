@@ -93,6 +93,11 @@ async def _call(
     )
 
 
+def _only(args: dict[str, Any], *names: str) -> dict[str, Any]:
+    """Return the *names* present in *args*: a tool forwards only what it names."""
+    return {name: args[name] for name in names if name in args}
+
+
 def _check_configuration(configuration: Any, *, allow_secrets: bool) -> None:
     """Refuse a non-YAML name and, unless *allow_secrets*, the secrets file in any spelling."""
     if configuration is None:
@@ -169,7 +174,7 @@ async def _list_devices(db: DeviceBuilder, _args: dict[str, Any]) -> list[dict[s
     reads_secrets=True,
 )
 async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    return await _call(db, "devices/get_config", **args)
+    return await _call(db, "devices/get_config", **_only(args, "configuration"))
 
 
 @_tool(
@@ -183,7 +188,7 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration", "content"),
 )
 async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    await _call(db, "devices/update_config", **args)
+    await _call(db, "devices/update_config", **_only(args, "configuration", "content"))
     return f"Saved {args['configuration']}"
 
 
@@ -201,7 +206,9 @@ async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
     ("configuration", "component_id"),
 )
 async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    response = await _call(db, "devices/add_component", **args)
+    response = await _call(
+        db, "devices/add_component", **_only(args, "configuration", "component_id", "fields")
+    )
     return {"configuration": args["configuration"], "component_id": args["component_id"]} | (
         response.to_dict()
     )
@@ -256,7 +263,7 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
     ("configuration",),
 )
 async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    job = await _call(db, "firmware/compile", **args)
+    job = await _call(db, "firmware/compile", **_only(args, "configuration"))
     return {"job_id": job.job_id, "status": job.status}
 
 
@@ -272,7 +279,7 @@ async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     ("configuration",),
 )
 async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    job = await _call(db, "firmware/install", **args)
+    job = await _call(db, "firmware/install", **_only(args, "configuration", "port"))
     siblings = await _call(db, "firmware/get_jobs", configuration=args["configuration"])
     upload = next((j for j in siblings if j.depends_on == job.job_id), None)
     if upload is None and not job.is_deferred_install:
@@ -319,7 +326,7 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     ("job_id",),
 )
 async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    await _call(db, "firmware/cancel", **args)
+    await _call(db, "firmware/cancel", **_only(args, "job_id"))
     return f"Cancelled {args['job_id']}"
 
 
@@ -334,7 +341,7 @@ async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
 )
 async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     limit = _search_limit(args)
-    response = await _call(db, "components/get_components", **(args | {"limit": limit}))
+    response = await _call(db, "components/get_components", query=args["query"], limit=limit)
     return [_prune(entry.to_dict()) for entry in response.components]
 
 
@@ -403,7 +410,7 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
 )
 async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     limit = _search_limit(args)
-    response = await _call(db, "boards/get_boards", **(args | {"limit": limit}))
+    response = await _call(db, "boards/get_boards", query=args["query"], limit=limit)
     return [_prune(board.to_dict()) for board in response.boards]
 
 
@@ -451,7 +458,7 @@ async def _set_secret(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]
     ("name",),
 )
 async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    response = await _call(db, "devices/create", **args)
+    response = await _call(db, "devices/create", **_only(args, "name", "friendly_name", "board_id"))
     return response.to_dict()
 
 
@@ -464,7 +471,7 @@ async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    rows = await _call(db, "automations/parse", **args)
+    rows = await _call(db, "automations/parse", **_only(args, "configuration"))
     # The decomposed tree serves the visual editor; the model edits the YAML.
     return _prune([{k: v for k, v in row.items() if k != "automation"} for row in rows])
 
@@ -477,7 +484,7 @@ async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    return _prune(await _call(db, "automations/get_available", **args))
+    return _prune(await _call(db, "automations/get_available", **_only(args, "configuration")))
 
 
 @_tool(
@@ -492,7 +499,7 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    include_advanced = args.pop("include_advanced", False)
+    include_advanced = args.get("include_advanced", False)
     for ref in args["refs"]:
         if (
             not isinstance(ref, dict)
@@ -502,7 +509,7 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
         ):
             msg = f"each ref needs a type of {', '.join(AUTOMATION_TYPES)} and an id"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    bodies = await _call(db, "automations/get_bodies", **args)
+    bodies = await _call(db, "automations/get_bodies", refs=args["refs"])
     if missing := [
         f"{ref['type']}/{ref['id']}"
         for ref in args["refs"]
@@ -523,5 +530,5 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration", "location"),
 )
 async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    await _call(db, "automations/delete", save=True, **args)
+    await _call(db, "automations/delete", save=True, **_only(args, "configuration", "location"))
     return f"Removed the automation and saved {args['configuration']}"
