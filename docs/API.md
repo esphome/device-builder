@@ -268,6 +268,8 @@ Board catalog dataclasses (`BoardCatalogIndex`, `BoardCatalogEntry`, `BoardHardw
 
 The automation catalog models (`AutomationTrigger`, `AutomationAction`, `AutomationCondition`, `LightEffect`, `Filter` and their `*Index` rows, as returned by `automations/get_triggers` and the other list commands, `automations/get_bodies` and `automations/get_available`) follow the same rule. The index rows' `AutomationActionIndex.form_editable` is the one truthy default there, so on the list commands and `automations/get_available` an absent `form_editable` means `true` and only a non-editable action carries the field (bodies never carry it). The frontend backfills `config_entries` on every body.
 
+The per-device automation rows follow it too: an `AvailableComponentInstance` (`automations/get_available` `devices`) omits `name`, `title` and `parent_id` when unset and its flags when false, an `AvailableScript` omits an empty `parameters` list (the frontend backfills it), and a `ParsedAutomation` (`automations/parse`) omits `error` when null and `unsupported` when false. The `AvailableAutomations` container's own lists and the `AutomationTree` round-trip shape are exempt: they always serialise every field, so the frontend reads them as required.
+
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `components/get_categories` | `{board_id?}` | `[{id, name, count}]` | List categories with counts |
