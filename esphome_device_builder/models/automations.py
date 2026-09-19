@@ -529,9 +529,10 @@ class YamlDiff(DashboardModel):
       replaced; ``replacement`` is inserted before ``fromLine``,
       matching CodeMirror's empty-range ``replaceRange``.
 
-    Both shapes are applied through one ``lines.slice(0, fromLine
-    - 1) + replacement + lines.slice(toLine)`` pattern on the
-    frontend.
+    Both shapes are one splice of ``replacement``'s lines over that
+    range, on the frontend and in ``helpers.yaml.apply_yaml_diff``:
+    its final terminator is implied, so a splice that reaches an
+    unterminated last line leaves the text unterminated.
     """
 
     fromLine: int  # noqa: N815 — wire-shape matches frontend
