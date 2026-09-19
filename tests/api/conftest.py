@@ -63,21 +63,21 @@ def validate_stub(
 
 
 @pytest.fixture
-def db(make_settings: MakeSettingsFactory) -> McpStubDeviceBuilder:
+def mcp_db(make_settings: MakeSettingsFactory) -> McpStubDeviceBuilder:
     return McpStubDeviceBuilder(make_settings())
 
 
 @pytest.fixture
-async def client(db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient) -> Any:
-    return await aiohttp_client(make_mcp_app(db))
+async def mcp_client(mcp_db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient) -> Any:
+    return await aiohttp_client(make_mcp_app(mcp_db))
 
 
 @pytest.fixture
-def catalog_db(
-    db: McpStubDeviceBuilder, session_component_catalog: ComponentCatalog
+def mcp_catalog_db(
+    mcp_db: McpStubDeviceBuilder, session_component_catalog: ComponentCatalog
 ) -> McpStubDeviceBuilder:
-    db.components = session_component_catalog
-    db.command_handlers["components/get_component_bodies"] = (
+    mcp_db.components = session_component_catalog
+    mcp_db.command_handlers["components/get_component_bodies"] = (
         session_component_catalog.get_component_bodies
     )
-    return db
+    return mcp_db

@@ -43,8 +43,8 @@ _INIT = {
 
 
 @pytest.mark.parametrize("method", ["get", "delete"])
-async def test_non_post_is_405(client: Any, method: str) -> None:
-    assert (await getattr(client, method)(MCP_PATH)).status == 405
+async def test_non_post_is_405(mcp_client: Any, method: str) -> None:
+    assert (await getattr(mcp_client, method)(MCP_PATH)).status == 405
 
 
 async def test_route_wins_over_spa_catch_all(
@@ -52,65 +52,65 @@ async def test_route_wins_over_spa_catch_all(
 ) -> None:
     pytest.importorskip("esphome_device_builder_frontend")
     real_db = DeviceBuilder(make_settings())
-    client = await aiohttp_client(real_db.create_app(with_lifecycle=False))
-    assert (await mcp_rpc(client, method="ping"))["result"] == {}
-    assert (await client.get("/some/deep/link")).status == 200
+    mcp_client = await aiohttp_client(real_db.create_app(with_lifecycle=False))
+    assert (await mcp_rpc(mcp_client, method="ping"))["result"] == {}
+    assert (await mcp_client.get("/some/deep/link")).status == 200
 
 
 async def test_cross_origin_post_is_rejected_before_the_tool_runs(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     handler = AsyncMock(return_value=None)
-    db.command_handlers["devices/update_config"] = handler
+    mcp_db.command_handlers["devices/update_config"] = handler
     body = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
         "params": {"name": "update_config", "arguments": {"configuration": "x", "content": "y"}},
     }
-    resp = await client.post(MCP_PATH, json=body, headers={"Origin": "https://evil.example"})
+    resp = await mcp_client.post(MCP_PATH, json=body, headers={"Origin": "https://evil.example"})
     assert resp.status == 403
     handler.assert_not_awaited()
 
 
-async def test_same_origin_post_is_allowed(client: Any) -> None:
-    origin = f"http://{client.host}:{client.port}"
-    assert (await mcp_rpc(client, method="ping", headers={"Origin": origin}))["result"] == {}
+async def test_same_origin_post_is_allowed(mcp_client: Any) -> None:
+    origin = f"http://{mcp_client.host}:{mcp_client.port}"
+    assert (await mcp_rpc(mcp_client, method="ping", headers={"Origin": origin}))["result"] == {}
 
 
 async def test_trusted_domains_allow_the_origin_and_gate_the_host(
-    db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient
+    mcp_db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient
 ) -> None:
-    db.settings.trusted_domains = ["dashboard.local"]
-    client = await aiohttp_client(make_mcp_app(db))
+    mcp_db.settings.trusted_domains = ["dashboard.local"]
+    mcp_client = await aiohttp_client(make_mcp_app(mcp_db))
     headers = {"Origin": "https://dashboard.local"}
     # Origin is allowlisted but the request Host (127.0.0.1) is not.
-    resp = await client.post(
+    resp = await mcp_client.post(
         MCP_PATH, json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers=headers
     )
     assert resp.status == 403
     assert "trusted-domains" in await resp.text()
-    db.settings.trusted_domains = ["*"]
-    assert (await mcp_rpc(client, method="ping", headers=headers))["result"] == {}
+    mcp_db.settings.trusted_domains = ["*"]
+    assert (await mcp_rpc(mcp_client, method="ping", headers=headers))["result"] == {}
 
 
 async def test_trusted_site_skips_the_origin_gate(
-    db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient
+    mcp_db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient
 ) -> None:
-    app = make_mcp_app(db)
+    app = make_mcp_app(mcp_db)
     app["trusted_site"] = True
-    client = await aiohttp_client(app)
-    reply = await mcp_rpc(client, method="ping", headers={"Origin": "https://evil.example"})
+    mcp_client = await aiohttp_client(app)
+    reply = await mcp_rpc(mcp_client, method="ping", headers={"Origin": "https://evil.example"})
     assert reply["result"] == {}
 
 
 @pytest.mark.parametrize(("using_password", "status"), [(True, 401), (False, 200)])
 async def test_password_gate(
-    db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient, using_password: bool, status: int
+    mcp_db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient, using_password: bool, status: int
 ) -> None:
-    db.settings.using_password = using_password
-    client = await aiohttp_client(make_mcp_app(db, with_auth=True))
-    resp = await client.post(MCP_PATH, json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    mcp_db.settings.using_password = using_password
+    mcp_client = await aiohttp_client(make_mcp_app(mcp_db, with_auth=True))
+    resp = await mcp_client.post(MCP_PATH, json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
     assert resp.status == status
 
 
@@ -119,13 +119,13 @@ async def test_password_gate(
 # ---------------------------------------------------------------------------
 
 
-async def test_initialize_advertises_server_info(client: Any) -> None:
-    result = (await mcp_rpc(client, method="initialize", params=_INIT))["result"]
+async def test_initialize_advertises_server_info(mcp_client: Any) -> None:
+    result = (await mcp_rpc(mcp_client, method="initialize", params=_INIT))["result"]
     assert result["serverInfo"] == {"name": SERVER_NAME, "version": __version__}
 
 
-async def test_tools_list_matches_registry_and_schemas_are_valid(client: Any) -> None:
-    listed = (await mcp_rpc(client, method="tools/list"))["result"]["tools"]
+async def test_tools_list_matches_registry_and_schemas_are_valid(mcp_client: Any) -> None:
+    listed = (await mcp_rpc(mcp_client, method="tools/list"))["result"]["tools"]
     assert [tool["name"] for tool in listed] == list(TOOLS)
     for tool in listed:
         assert tool["description"]
@@ -146,9 +146,9 @@ def test_library_error_words_match_error_code() -> None:
     ],
 )
 async def test_argument_validation_is_a_tool_error(
-    client: Any, arguments: dict[str, Any], fragment: str
+    mcp_client: Any, arguments: dict[str, Any], fragment: str
 ) -> None:
-    is_error, text = await mcp_call(client, "get_job", arguments)
+    is_error, text = await mcp_call(mcp_client, "get_job", arguments)
     assert is_error
     assert text.startswith(f"{ErrorCode.INVALID_ARGS.value}: ")
     assert fragment in text
@@ -167,13 +167,13 @@ async def test_argument_validation_is_a_tool_error(
     ],
 )
 async def test_handler_exceptions_become_tool_errors(
-    client: Any, db: McpStubDeviceBuilder, exc: Exception, expected: str
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, exc: Exception, expected: str
 ) -> None:
-    db.command_handlers["devices/get_config"] = AsyncMock(side_effect=exc)
-    assert await mcp_call(client, "get_config", {"configuration": "k.yaml"}) == (True, expected)
+    mcp_db.command_handlers["devices/get_config"] = AsyncMock(side_effect=exc)
+    assert await mcp_call(mcp_client, "get_config", {"configuration": "k.yaml"}) == (True, expected)
 
 
-async def test_missing_command_is_unavailable(client: Any) -> None:
-    is_error, text = await mcp_call(client, "get_config", {"configuration": "k.yaml"})
+async def test_missing_command_is_unavailable(mcp_client: Any) -> None:
+    is_error, text = await mcp_call(mcp_client, "get_config", {"configuration": "k.yaml"})
     assert is_error
     assert text == "unavailable: devices/get_config is not available"

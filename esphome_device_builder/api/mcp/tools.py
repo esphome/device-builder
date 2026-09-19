@@ -20,7 +20,7 @@ from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
-from ...helpers.secrets_state import read_secrets_yaml
+from ...helpers.secrets_state import SecretsContentError, validate_secrets_content
 from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode, StreamEvent
@@ -170,23 +170,29 @@ def _load_secrets(config_dir: Path) -> dict[Any, Any]:
         path = config_dir / filename
         if not path.exists():
             continue
-        data = read_secrets_yaml(path.parent, filename)
-        if data is None:
-            _LOGGER.warning("%s could not be parsed; withholding MCP validate output", filename)
+        try:
+            secrets |= validate_secrets_content(path.read_text("utf-8"), path)
+        except (OSError, SecretsContentError) as err:
+            _LOGGER.warning("%s could not be read; withholding MCP validate output", filename)
             msg = f"{filename} could not be parsed; validation output withheld"
-            raise CommandError(ErrorCode.UNAVAILABLE, msg)
-        secrets |= data
+            raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
     return secrets
 
 
+def _scalar_leaves(value: Any) -> list[str]:
+    """Return every scalar inside *value* as text, walking lists and mappings."""
+    if isinstance(value, dict):
+        return [leaf for item in value.values() for leaf in _scalar_leaves(item)]
+    if isinstance(value, list):
+        return [leaf for item in value for leaf in _scalar_leaves(item)]
+    if isinstance(value, str | int | float) and not isinstance(value, bool):
+        return [str(value)]
+    return []
+
+
 def _redact_secret_values(lines: list[str], secrets: dict[Any, Any]) -> list[str]:
-    """Replace every ``secrets.yaml`` value of credential length in *lines* with ``<removed>``."""
-    values = {
-        text
-        for value in secrets.values()
-        if isinstance(value, str | int | float) and not isinstance(value, bool)
-        if len(text := str(value)) >= _MIN_REDACTED_SECRET_LEN
-    }
+    """Replace every secrets value of credential length in *lines* with ``<removed>``."""
+    values = {text for text in _scalar_leaves(secrets) if len(text) >= _MIN_REDACTED_SECRET_LEN}
     for value in sorted(values, key=len, reverse=True):
         lines = [line.replace(value, "<removed>") for line in lines]
     return lines
@@ -522,10 +528,14 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     "Documentation for automation building blocks: each ref is {type, id} with type one of "
     + ", ".join(AUTOMATION_TYPES)
     + " and id from get_available_automations, e.g. {type: 'actions', id: 'light.turn_on'}.",
-    {"refs": _prop("array", "List of {type, id} refs.")},
+    {
+        "refs": _prop("array", "List of {type, id} refs."),
+        "include_advanced": _prop("boolean", "Include advanced fields."),
+    },
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    include_advanced = args.pop("include_advanced", False)
     for ref in args["refs"]:
         if (
             not isinstance(ref, dict)
@@ -535,7 +545,8 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
         ):
             msg = f"each ref needs a type of {', '.join(AUTOMATION_TYPES)} and an id"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return _prune(await _call(db, "automations/get_bodies", **args))
+    bodies = await _call(db, "automations/get_bodies", **args)
+    return _prune(bodies, include_advanced=include_advanced)
 
 
 @_tool(

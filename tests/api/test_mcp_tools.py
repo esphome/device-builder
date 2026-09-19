@@ -98,12 +98,12 @@ def test_every_configuration_tool_is_covered() -> None:
 
 @pytest.mark.parametrize(("tool", "extra"), _CONFIG_TOOLS)
 async def test_secrets_file_is_refused_by_every_config_tool(
-    client: Any, catalog_db: McpStubDeviceBuilder, tool: str, extra: dict[str, Any]
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder, tool: str, extra: dict[str, Any]
 ) -> None:
     handler = AsyncMock(return_value="wifi_password: hunter2\n")
     for command in _CONFIG_COMMANDS:
-        catalog_db.command_handlers[command] = handler
-    is_error, text = await mcp_call(client, tool, {"configuration": "secrets.yaml"} | extra)
+        mcp_catalog_db.command_handlers[command] = handler
+    is_error, text = await mcp_call(mcp_client, tool, {"configuration": "secrets.yaml"} | extra)
     assert is_error
     assert text == "invalid_args: secrets.yaml is not available over MCP"
     handler.assert_not_awaited()
@@ -114,27 +114,31 @@ async def test_secrets_file_is_refused_by_every_config_tool(
 # ---------------------------------------------------------------------------
 
 
-async def test_list_devices_keeps_scalar_fields_only(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_list_devices_keeps_scalar_fields_only(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     online = make_device(
         "kitchen",
         state=DeviceState.ONLINE,
         loaded_integrations=["api", "wifi"],
         has_pending_changes=False,
     )
-    db.command_handlers["devices/list"] = AsyncMock(
+    mcp_db.command_handlers["devices/list"] = AsyncMock(
         return_value=DevicesResponse(configured=[online, make_device("porch")], importable=[])
     )
-    rows = await mcp_call_json(client, "list_devices")
+    rows = await mcp_call_json(mcp_client, "list_devices")
     assert [row["configuration"] for row in rows] == ["kitchen.yaml", "porch.yaml"]
     assert rows[0]["state"] == "online"
     assert rows[0]["has_pending_changes"] is False
     assert not any(isinstance(value, list) for row in rows for value in row.values())
 
 
-async def test_get_config_returns_yaml_verbatim(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_get_config_returns_yaml_verbatim(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     handler = AsyncMock(return_value="esphome:\n  name: kitchen\n")
-    db.command_handlers["devices/get_config"] = handler
-    assert await mcp_call(client, "get_config", {"configuration": "kitchen.yaml"}) == (
+    mcp_db.command_handlers["devices/get_config"] = handler
+    assert await mcp_call(mcp_client, "get_config", {"configuration": "kitchen.yaml"}) == (
         False,
         "esphome:\n  name: kitchen\n",
     )
@@ -142,20 +146,24 @@ async def test_get_config_returns_yaml_verbatim(client: Any, db: McpStubDeviceBu
     assert handler.await_args.kwargs["message_id"] == "mcp"
 
 
-async def test_update_config_forwards_content(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_update_config_forwards_content(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     handler = AsyncMock(return_value=None)
-    db.command_handlers["devices/update_config"] = handler
+    mcp_db.command_handlers["devices/update_config"] = handler
     assert await mcp_call(
-        client, "update_config", {"configuration": "kitchen.yaml", "content": "esphome: {}"}
+        mcp_client, "update_config", {"configuration": "kitchen.yaml", "content": "esphome: {}"}
     ) == (False, "Saved kitchen.yaml")
     assert handler.await_args.kwargs["content"] == "esphome: {}"
 
 
-async def test_add_component_returns_the_saved_yaml(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_add_component_returns_the_saved_yaml(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     handler = AsyncMock(return_value=AddComponentResponse(yaml="sensor:\n  - platform: dht\n"))
-    db.command_handlers["devices/add_component"] = handler
+    mcp_db.command_handlers["devices/add_component"] = handler
     assert await mcp_call_json(
-        client,
+        mcp_client,
         "add_component",
         {"configuration": "kitchen.yaml", "component_id": "sensor.dht", "fields": {"pin": 4}},
     ) == {
@@ -167,9 +175,9 @@ async def test_add_component_returns_the_saved_yaml(client: Any, db: McpStubDevi
 
 
 async def test_validate_config_collects_stream_and_strips_ansi(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    db.command_handlers["devices/validate"] = validate_stub(
+    mcp_db.command_handlers["devices/validate"] = validate_stub(
         [
             (StreamEvent.OUTPUT, "\x1b[32mINFO ok\x1b[0m\n"),
             (StreamEvent.OUTPUT, "second\r"),
@@ -177,7 +185,9 @@ async def test_validate_config_collects_stream_and_strips_ansi(
             (StreamEvent.RESULT, {"success": True, "code": 0}),
         ]
     )
-    assert await mcp_call_json(client, "validate_config", {"configuration": "kitchen.yaml"}) == {
+    assert await mcp_call_json(
+        mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
+    ) == {
         "success": True,
         "exit_code": 0,
         "output": ["INFO ok", "second", "ERROR bad"],
@@ -185,35 +195,53 @@ async def test_validate_config_collects_stream_and_strips_ansi(
     }
 
 
-async def test_validate_config_removes_secret_values(client: Any, db: McpStubDeviceBuilder) -> None:
-    (db.settings.config_dir / "secrets.yaml").write_text(
+async def test_validate_config_removes_secret_values(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    (mcp_db.settings.config_dir / "secrets.yaml").write_text(
         "mqtt_user: alice_smith\nmqtt_port: 1883\nflag: true\n"
     )
-    (db.settings.config_dir / "secrets.yml").write_text("ota_pass: 123456\n")
-    db.command_handlers["devices/validate"] = validate_stub(
+    (mcp_db.settings.config_dir / "secrets.yml").write_text(
+        "ota_pass: 123456\nnested:\n  - token: abcdefgh\n"
+    )
+    mcp_db.command_handlers["devices/validate"] = validate_stub(
         [
             (StreamEvent.OUTPUT, "  username: alice_smith\n"),
             (StreamEvent.OUTPUT, "  port: 1883 password: 123456\n"),
-            (StreamEvent.OUTPUT, "  keep: true\n"),
+            (StreamEvent.OUTPUT, "  token: abcdefgh keep: true\n"),
             (StreamEvent.RESULT, {"success": True, "code": 0}),
         ]
     )
-    data = await mcp_call_json(client, "validate_config", {"configuration": "kitchen.yaml"})
+    data = await mcp_call_json(mcp_client, "validate_config", {"configuration": "kitchen.yaml"})
     assert data["output"] == [
         "  username: <removed>",
         "  port: 1883 password: <removed>",
-        "  keep: true",
+        "  token: <removed> keep: true",
     ]
 
 
-async def test_validate_config_withholds_output_when_secrets_are_unreadable(
-    client: Any, db: McpStubDeviceBuilder
+@pytest.mark.parametrize("content", ["", "# nothing yet\n"], ids=["empty", "comment_only"])
+async def test_validate_config_accepts_an_empty_secrets_file(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, content: str
 ) -> None:
-    (db.settings.config_dir / "secrets.yaml").write_text("- not\n- a mapping\n")
-    db.command_handlers["devices/validate"] = validate_stub(
+    (mcp_db.settings.config_dir / "secrets.yaml").write_text(content)
+    mcp_db.command_handlers["devices/validate"] = validate_stub(
+        [(StreamEvent.OUTPUT, "ok\n"), (StreamEvent.RESULT, {"success": True, "code": 0})]
+    )
+    data = await mcp_call_json(mcp_client, "validate_config", {"configuration": "kitchen.yaml"})
+    assert data["output"] == ["ok"]
+
+
+async def test_validate_config_withholds_output_when_secrets_are_unreadable(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    (mcp_db.settings.config_dir / "secrets.yaml").write_text("- not\n- a mapping\n")
+    mcp_db.command_handlers["devices/validate"] = validate_stub(
         [(StreamEvent.OUTPUT, "x\n"), (StreamEvent.RESULT, {"success": True, "code": 0})]
     )
-    is_error, text = await mcp_call(client, "validate_config", {"configuration": "kitchen.yaml"})
+    is_error, text = await mcp_call(
+        mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
+    )
     assert is_error
     assert text == "unavailable: secrets.yaml could not be parsed; validation output withheld"
 
@@ -224,23 +252,30 @@ async def test_validate_config_withholds_output_when_secrets_are_unreadable(
     ids=["no_result", "no_code"],
 )
 async def test_validate_config_without_result_frame_is_an_error(
-    client: Any, db: McpStubDeviceBuilder, frames: list[tuple[str, Any]]
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, frames: list[tuple[str, Any]]
 ) -> None:
-    db.command_handlers["devices/validate"] = validate_stub(frames)
-    is_error, text = await mcp_call(client, "validate_config", {"configuration": "kitchen.yaml"})
+    mcp_db.command_handlers["devices/validate"] = validate_stub(frames)
+    is_error, text = await mcp_call(
+        mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
+    )
     assert is_error
     assert text == "internal_error: Validation produced no result"
 
 
 @pytest.mark.parametrize("swallow_cancel", [True, False], ids=["swallowed", "propagated"])
 async def test_validate_config_times_out_and_keeps_the_tail(
-    client: Any, db: McpStubDeviceBuilder, monkeypatch: pytest.MonkeyPatch, swallow_cancel: bool
+    mcp_client: Any,
+    mcp_db: McpStubDeviceBuilder,
+    monkeypatch: pytest.MonkeyPatch,
+    swallow_cancel: bool,
 ) -> None:
     monkeypatch.setattr("esphome_device_builder.api.mcp.tools.ESPHOME_CONFIG_TIMEOUT", 0.05)
-    db.command_handlers["devices/validate"] = validate_stub(
+    mcp_db.command_handlers["devices/validate"] = validate_stub(
         [(StreamEvent.OUTPUT, "started\n")], sleep=10, swallow_cancel=swallow_cancel
     )
-    assert await mcp_call_json(client, "validate_config", {"configuration": "kitchen.yaml"}) == {
+    assert await mcp_call_json(
+        mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
+    ) == {
         "success": False,
         "timed_out": True,
         "output": ["started"],
@@ -248,17 +283,19 @@ async def test_validate_config_times_out_and_keeps_the_tail(
     }
 
 
-async def test_validate_config_reports_truncation(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_validate_config_reports_truncation(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     frames: list[tuple[str, Any]] = [(StreamEvent.OUTPUT, f"{i}\n") for i in range(60)]
     frames.append((StreamEvent.RESULT, {"success": True, "code": 0}))
-    db.command_handlers["devices/validate"] = validate_stub(frames)
-    data = await mcp_call_json(client, "validate_config", {"configuration": "kitchen.yaml"})
+    mcp_db.command_handlers["devices/validate"] = validate_stub(frames)
+    data = await mcp_call_json(mcp_client, "validate_config", {"configuration": "kitchen.yaml"})
     assert data["truncated"] is True
     assert data["output"][0] == "10"
     assert len(data["output"]) == 50
 
     more = await mcp_call_json(
-        client, "validate_config", {"configuration": "kitchen.yaml", "tail_lines": 5000}
+        mcp_client, "validate_config", {"configuration": "kitchen.yaml", "tail_lines": 5000}
     )
     assert more["truncated"] is False
     assert len(more["output"]) == 60
@@ -269,33 +306,39 @@ async def test_validate_config_reports_truncation(client: Any, db: McpStubDevice
 # ---------------------------------------------------------------------------
 
 
-async def test_compile_returns_job_id_and_status(client: Any, db: McpStubDeviceBuilder) -> None:
-    db.command_handlers["firmware/compile"] = AsyncMock(
+async def test_compile_returns_job_id_and_status(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["firmware/compile"] = AsyncMock(
         return_value=make_job("c1", status=JobStatus.QUEUED)
     )
-    assert await mcp_call_json(client, "compile", {"configuration": "kitchen.yaml"}) == {
+    assert await mcp_call_json(mcp_client, "compile", {"configuration": "kitchen.yaml"}) == {
         "job_id": "c1",
         "status": "queued",
     }
 
 
-async def test_install_reports_dependent_upload(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_install_reports_dependent_upload(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     compile_job = make_job("c1", status=JobStatus.QUEUED)
     upload = make_job("u1", job_type=JobType.UPLOAD, status=JobStatus.QUEUED, depends_on="c1")
     install = AsyncMock(return_value=compile_job)
-    db.command_handlers["firmware/install"] = install
-    db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[upload, compile_job])
+    mcp_db.command_handlers["firmware/install"] = install
+    mcp_db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[upload, compile_job])
     assert await mcp_call_json(
-        client, "install", {"configuration": "kitchen.yaml", "port": "OTA"}
+        mcp_client, "install", {"configuration": "kitchen.yaml", "port": "OTA"}
     ) == {"job_id": "c1", "status": "queued", "upload_job_id": "u1", "deferred": False}
     assert install.await_args.kwargs["port"] == "OTA"
 
 
-async def test_install_deferred_has_no_upload(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_install_deferred_has_no_upload(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     deferred = make_job("c1", status=JobStatus.QUEUED, is_deferred_install=True)
-    db.command_handlers["firmware/install"] = AsyncMock(return_value=deferred)
-    db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[deferred])
-    assert await mcp_call_json(client, "install", {"configuration": "kitchen.yaml"}) == {
+    mcp_db.command_handlers["firmware/install"] = AsyncMock(return_value=deferred)
+    mcp_db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[deferred])
+    assert await mcp_call_json(mcp_client, "install", {"configuration": "kitchen.yaml"}) == {
         "job_id": "c1",
         "status": "queued",
         "upload_job_id": None,
@@ -304,30 +347,30 @@ async def test_install_deferred_has_no_upload(client: Any, db: McpStubDeviceBuil
 
 
 async def test_install_without_upload_and_not_deferred_is_an_error(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     compile_job = make_job("c1", status=JobStatus.QUEUED)
-    db.command_handlers["firmware/install"] = AsyncMock(return_value=compile_job)
-    db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[compile_job])
-    is_error, text = await mcp_call(client, "install", {"configuration": "kitchen.yaml"})
+    mcp_db.command_handlers["firmware/install"] = AsyncMock(return_value=compile_job)
+    mcp_db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[compile_job])
+    is_error, text = await mcp_call(mcp_client, "install", {"configuration": "kitchen.yaml"})
     assert is_error
     assert text == "internal_error: Install chain for c1 has no upload job"
 
 
-async def test_get_job_unknown_is_not_found(client: Any, db: McpStubDeviceBuilder) -> None:
-    db.command_handlers["firmware/get_job"] = AsyncMock(return_value=None)
-    assert await mcp_call(client, "get_job", {"job_id": "nope"}) == (
+async def test_get_job_unknown_is_not_found(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=None)
+    assert await mcp_call(mcp_client, "get_job", {"job_id": "nope"}) == (
         True,
         "not_found: Job not found: nope",
     )
 
 
 async def test_get_job_tails_ram_output_for_running_job(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     job = make_job(output=[f"line {i}\n" for i in range(5)], progress=42)
-    db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
-    data = await mcp_call_json(client, "get_job", {"job_id": "job1", "tail_lines": 2})
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
+    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 2})
     assert data["output"] == ["line 3", "line 4"]
     assert data["status"] == "running"
     assert data["progress"] == 42
@@ -335,15 +378,15 @@ async def test_get_job_tails_ram_output_for_running_job(
 
 
 async def test_get_job_reads_sidecar_for_terminal_job(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     job = make_job(status=JobStatus.COMPLETED, exit_code=0)
-    db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
     with patch(
         "esphome_device_builder.controllers.firmware.follow.read_job_output",
         return_value=["a\n", "b\n", "c\n"],
     ) as read:
-        data = await mcp_call_json(client, "get_job", {"job_id": "job1"})
+        data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
     read.assert_called_once_with("job1")
     assert data["output"] == ["a", "b", "c"]
     assert data["exit_code"] == 0
@@ -351,12 +394,12 @@ async def test_get_job_reads_sidecar_for_terminal_job(
 
 
 async def test_get_job_zero_tail_skips_the_output_read(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     job = make_job(status=JobStatus.COMPLETED, exit_code=0)
-    db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
     with patch("esphome_device_builder.controllers.firmware.follow.read_job_output") as read:
-        data = await mcp_call_json(client, "get_job", {"job_id": "job1", "tail_lines": 0})
+        data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 0})
     read.assert_not_called()
     assert data["output"] == []
 
@@ -371,29 +414,31 @@ async def test_get_job_zero_tail_skips_the_output_read(
     ],
 )
 async def test_negative_bounds_are_invalid_args(
-    client: Any, db: McpStubDeviceBuilder, tool: str, arguments: dict[str, Any]
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, tool: str, arguments: dict[str, Any]
 ) -> None:
-    is_error, text = await mcp_call(client, tool, arguments)
+    is_error, text = await mcp_call(mcp_client, tool, arguments)
     assert is_error
     assert text.startswith("invalid_args: ")
 
 
-async def test_tail_lines_and_limit_are_clamped(client: Any, db: McpStubDeviceBuilder) -> None:
-    db.command_handlers["firmware/get_job"] = AsyncMock(
+async def test_tail_lines_and_limit_are_clamped(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
         return_value=make_job(output=[f"{i}\n" for i in range(1500)])
     )
-    data = await mcp_call_json(client, "get_job", {"job_id": "job1", "tail_lines": 5000})
+    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 5000})
     assert len(data["output"]) == 1000
     search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
-    db.command_handlers["components/get_components"] = search
-    await mcp_call(client, "search_components", {"query": "x", "limit": 5000})
+    mcp_db.command_handlers["components/get_components"] = search
+    await mcp_call(mcp_client, "search_components", {"query": "x", "limit": 5000})
     assert search.await_args.kwargs["limit"] == 100
 
 
-async def test_cancel_job(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_cancel_job(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
     handler = AsyncMock(return_value=None)
-    db.command_handlers["firmware/cancel"] = handler
-    assert await mcp_call(client, "cancel_job", {"job_id": "job1"}) == (False, "Cancelled job1")
+    mcp_db.command_handlers["firmware/cancel"] = handler
+    assert await mcp_call(mcp_client, "cancel_job", {"job_id": "job1"}) == (False, "Cancelled job1")
     assert handler.await_args.kwargs["job_id"] == "job1"
 
 
@@ -402,7 +447,9 @@ async def test_cancel_job(client: Any, db: McpStubDeviceBuilder) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_search_components_projects_index_rows(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_search_components_projects_index_rows(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     entry = ComponentCatalogIndexEntry(
         id="sensor.dht",
         name="DHT",
@@ -411,8 +458,8 @@ async def test_search_components_projects_index_rows(client: Any, db: McpStubDev
         docs_url="https://esphome.io/components/sensor/dht",
     )
     handler = AsyncMock(return_value=PagedComponentsResponse(components=[entry]))
-    db.command_handlers["components/get_components"] = handler
-    assert await mcp_call_json(client, "search_components", {"query": "dht"}) == [
+    mcp_db.command_handlers["components/get_components"] = handler
+    assert await mcp_call_json(mcp_client, "search_components", {"query": "dht"}) == [
         {
             "id": "sensor.dht",
             "name": "DHT",
@@ -425,9 +472,9 @@ async def test_search_components_projects_index_rows(client: Any, db: McpStubDev
 
 
 async def test_get_component_projects_the_catalog_body(
-    client: Any, catalog_db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
 ) -> None:
-    body = await mcp_call_json(client, "get_component", {"component_id": "sensor.dht"})
+    body = await mcp_call_json(mcp_client, "get_component", {"component_id": "sensor.dht"})
     assert body["id"] == "sensor.dht"
     assert body["docs_url"].startswith("https://esphome.io/")
     entries = {entry["key"]: entry for entry in body["config_entries"]}
@@ -439,34 +486,36 @@ async def test_get_component_projects_the_catalog_body(
 
 
 async def test_get_component_include_advanced(
-    client: Any, catalog_db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
 ) -> None:
-    slim = await mcp_call_json(client, "get_component", {"component_id": "sensor.dht"})
+    slim = await mcp_call_json(mcp_client, "get_component", {"component_id": "sensor.dht"})
     full = await mcp_call_json(
-        client, "get_component", {"component_id": "sensor.dht", "include_advanced": True}
+        mcp_client, "get_component", {"component_id": "sensor.dht", "include_advanced": True}
     )
     assert "id" in {entry["key"] for entry in full["config_entries"]}
     assert len(json.dumps(full)) > len(json.dumps(slim))
 
 
 async def test_get_component_unknown_is_not_found(
-    client: Any, catalog_db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
 ) -> None:
-    assert await mcp_call(client, "get_component", {"component_id": "sensor.nope"}) == (
+    assert await mcp_call(mcp_client, "get_component", {"component_id": "sensor.nope"}) == (
         True,
         "not_found: Unknown component: sensor.nope",
     )
 
 
 async def test_get_config_components_lists_catalog_rows_from_the_scan(
-    client: Any, catalog_db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
 ) -> None:
-    catalog_db.devices.get_by_configuration.return_value = make_device(
+    mcp_catalog_db.devices.get_by_configuration.return_value = make_device(
         "kitchen",
         component_ids=["substitutions", "esphome", "sensor", "sensor.dht", "sensor.hunter2"],
     )
-    rows = await mcp_call_json(client, "get_config_components", {"configuration": "kitchen.yaml"})
-    catalog_db.devices.get_by_configuration.assert_called_with("kitchen.yaml")
+    rows = await mcp_call_json(
+        mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
+    )
+    mcp_catalog_db.devices.get_by_configuration.assert_called_with("kitchen.yaml")
     # Domain keys such as ``sensor`` have no catalog entry; a stray value is never echoed.
     assert [row["id"] for row in rows] == ["substitutions", "esphome", "sensor.dht"]
     assert rows[2]["name"]
@@ -479,17 +528,19 @@ async def test_get_config_components_lists_catalog_rows_from_the_scan(
     [("nope.yaml", "not_found"), ("../../etc/passwd", "invalid_args"), ("../x.yaml", "not_found")],
 )
 async def test_get_config_components_unknown_device_is_refused(
-    client: Any, catalog_db: McpStubDeviceBuilder, configuration: str, code: str
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder, configuration: str, code: str
 ) -> None:
     is_error, text = await mcp_call(
-        client, "get_config_components", {"configuration": configuration}
+        mcp_client, "get_config_components", {"configuration": configuration}
     )
     assert is_error
     assert text.startswith(f"{code}: ")
 
 
-async def test_get_config_components_without_catalog_is_unavailable(client: Any) -> None:
-    is_error, text = await mcp_call(client, "get_config_components", {"configuration": "k.yaml"})
+async def test_get_config_components_without_catalog_is_unavailable(mcp_client: Any) -> None:
+    is_error, text = await mcp_call(
+        mcp_client, "get_config_components", {"configuration": "k.yaml"}
+    )
     assert is_error
     assert text.startswith("unavailable: ")
 
@@ -500,28 +551,30 @@ async def test_get_config_components_without_catalog_is_unavailable(client: Any)
 
 
 async def test_search_boards_projects_index_rows(
-    client: Any, db: McpStubDeviceBuilder, session_board_catalog: BoardCatalog
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, session_board_catalog: BoardCatalog
 ) -> None:
     handler = AsyncMock(side_effect=session_board_catalog.get_boards)
-    db.command_handlers["boards/get_boards"] = handler
-    rows = await mcp_call_json(client, "search_boards", {"query": "esp32dev", "limit": 5000})
+    mcp_db.command_handlers["boards/get_boards"] = handler
+    rows = await mcp_call_json(mcp_client, "search_boards", {"query": "esp32dev", "limit": 5000})
     assert any(row["id"] == "esp32dev" for row in rows)
     assert all({"id", "name"} <= set(row) for row in rows)
     assert handler.await_args.kwargs["limit"] == 100
 
 
-async def test_list_secret_names_returns_names_only(client: Any, db: McpStubDeviceBuilder) -> None:
-    db.command_handlers["config/get_secrets"] = AsyncMock(
+async def test_list_secret_names_returns_names_only(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["config/get_secrets"] = AsyncMock(
         return_value=["wifi_password", "wifi_ssid"]
     )
-    assert await mcp_call_json(client, "list_secret_names") == ["wifi_password", "wifi_ssid"]
+    assert await mcp_call_json(mcp_client, "list_secret_names") == ["wifi_password", "wifi_ssid"]
 
 
-async def test_set_secret_is_write_only(client: Any, db: McpStubDeviceBuilder) -> None:
+async def test_set_secret_is_write_only(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
     handler = AsyncMock(return_value={"created": True})
-    db.command_handlers["config/set_secret"] = handler
+    mcp_db.command_handlers["config/set_secret"] = handler
     assert await mcp_call_json(
-        client, "set_secret", {"name": "wifi_password", "value": "hunter2"}
+        mcp_client, "set_secret", {"name": "wifi_password", "value": "hunter2"}
     ) == {
         "name": "wifi_password",
         "created": True,
@@ -536,16 +589,18 @@ async def test_set_secret_is_write_only(client: Any, db: McpStubDeviceBuilder) -
 
 
 async def test_create_device_never_passes_credentials(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     handler = AsyncMock(return_value=WizardResponse(configuration="porch.yaml"))
-    db.command_handlers["devices/create"] = handler
+    mcp_db.command_handlers["devices/create"] = handler
     assert await mcp_call_json(
-        client, "create_device", {"name": "porch", "friendly_name": "Porch", "board_id": "esp32dev"}
+        mcp_client,
+        "create_device",
+        {"name": "porch", "friendly_name": "Porch", "board_id": "esp32dev"},
     ) == {"configuration": "porch.yaml", "warning": None}
     assert "ssid" not in handler.await_args.kwargs
     assert "psk" not in handler.await_args.kwargs
-    is_error, text = await mcp_call(client, "create_device", {"name": "x", "ssid": "net"})
+    is_error, text = await mcp_call(mcp_client, "create_device", {"name": "x", "ssid": "net"})
     assert is_error
     assert "Unknown argument: ssid" in text
 
@@ -556,20 +611,36 @@ async def test_create_device_never_passes_credentials(
 
 
 async def test_get_automation_docs_example_resolves_against_the_catalog(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    db.command_handlers["automations/get_bodies"] = AutomationsController(db).get_bodies  # type: ignore[arg-type]
+    mcp_db.command_handlers["automations/get_bodies"] = AutomationsController(mcp_db).get_bodies  # type: ignore[arg-type]
     example = [{"type": "actions", "id": "light.turn_on"}]
-    docs = await mcp_call_json(client, "get_automation_docs", {"refs": example})
+    docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": example})
     assert "config_entries" in docs["actions/light.turn_on"]
     for bad in ({"type": "action", "id": "light.turn_on"}, {"type": "actions"}, "actions/x"):
-        is_error, text = await mcp_call(client, "get_automation_docs", {"refs": [bad]})
+        is_error, text = await mcp_call(mcp_client, "get_automation_docs", {"refs": [bad]})
         assert is_error
         assert text.startswith("invalid_args: each ref needs a type of triggers, actions")
 
 
+async def test_get_automation_docs_hides_advanced_fields_unless_asked(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    body = {"id": "x", "config_entries": [{"key": "plain"}, {"key": "deep", "advanced": True}]}
+    bodies = AsyncMock(return_value={"actions/x": body})
+    mcp_db.command_handlers["automations/get_bodies"] = bodies
+    refs = [{"type": "actions", "id": "x"}]
+    docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": refs})
+    assert [e["key"] for e in docs["actions/x"]["config_entries"]] == ["plain"]
+    docs = await mcp_call_json(
+        mcp_client, "get_automation_docs", {"refs": refs, "include_advanced": True}
+    )
+    assert [e["key"] for e in docs["actions/x"]["config_entries"]] == ["plain", "deep"]
+    assert "include_advanced" not in bodies.await_args.kwargs
+
+
 async def test_automation_tools_wrap_the_automation_commands(
-    client: Any, db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     location = {"kind": "script", "index": 0}
     parsed = [
@@ -581,36 +652,36 @@ async def test_automation_tools_wrap_the_automation_commands(
             "error": None,
         }
     ]
-    db.command_handlers["automations/parse"] = AsyncMock(return_value=parsed)
-    db.command_handlers["automations/get_available"] = AsyncMock(
+    mcp_db.command_handlers["automations/parse"] = AsyncMock(return_value=parsed)
+    mcp_db.command_handlers["automations/get_available"] = AsyncMock(
         return_value={"triggers": ["on_boot"], "actions": ["light.turn_on"], "scripts": []}
     )
     bodies = AsyncMock(return_value={"actions/light.turn_on": {"id": "light.turn_on"}})
-    db.command_handlers["automations/get_bodies"] = bodies
-    db.command_handlers["devices/get_config"] = AsyncMock(return_value="a:\nb:\nc:\n")
+    mcp_db.command_handlers["automations/get_bodies"] = bodies
+    mcp_db.command_handlers["devices/get_config"] = AsyncMock(return_value="a:\nb:\nc:\n")
     delete = AsyncMock(return_value={"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""}})
-    db.command_handlers["automations/delete"] = delete
+    mcp_db.command_handlers["automations/delete"] = delete
     save = AsyncMock(return_value=None)
-    db.command_handlers["devices/update_config"] = save
+    mcp_db.command_handlers["devices/update_config"] = save
 
-    listed = await mcp_call_json(client, "list_automations", {"configuration": "kitchen.yaml"})
+    listed = await mcp_call_json(mcp_client, "list_automations", {"configuration": "kitchen.yaml"})
     assert listed == [{"location": location, "label": "blink", "raw_yaml": "script:\n"}]
     available = await mcp_call_json(
-        client, "get_available_automations", {"configuration": "kitchen.yaml"}
+        mcp_client, "get_available_automations", {"configuration": "kitchen.yaml"}
     )
     assert available == {"triggers": ["on_boot"], "actions": ["light.turn_on"]}
     refs = [{"type": "actions", "id": "light.turn_on"}]
-    docs = await mcp_call_json(client, "get_automation_docs", {"refs": refs})
+    docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": refs})
     assert docs == {"actions/light.turn_on": {"id": "light.turn_on"}}
     assert bodies.await_args.kwargs["refs"] == refs
     assert await mcp_call(
-        client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
+        mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
     ) == (False, "Removed the automation and saved kitchen.yaml")
     assert delete.await_args.kwargs["location"] == location
 
     delete.return_value = {"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": "b:\n"}}
     is_error, text = await mcp_call(
-        client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
+        mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
     )
     assert is_error
     assert text == "internal_error: Delete produced no change"
