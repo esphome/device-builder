@@ -256,6 +256,14 @@ def test_index_title_resolves_rp2040_alias() -> None:
     assert cat.index_title("rp2040") == "RP2 Platform"
 
 
+def test_index_entry_returns_slim_entry_or_none() -> None:
+    cat = ComponentCatalog()
+    entry = _make_entry(entry_id="rp2", name="RP2 Platform")
+    cat._by_id = {"rp2": entry}
+    assert cat.index_entry("rp2040") is entry
+    assert cat.index_entry("does-not-exist") is None
+
+
 # ── get_components() ────────────────────────────────────────────────
 
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+from ...helpers.ansi import ANSI_ESC
+
 # Match an ANSI conceal-wrapped run. ESPHome's ``command_config``
 # emits this around every ``password|key|psk|ssid`` value when
 # ``--show-secrets`` is off, on the assumption that the terminal
@@ -32,4 +34,4 @@ import re
 # would still expose the secret to anyone screen-recording the
 # network tab even if a hypothetical conceal-aware renderer hid
 # the visible glyphs.
-_CONCEALED_SECRET_RE = re.compile(r"(?:\x1b|\\033)\[8m.*?(?:\x1b|\\033)\[28m")
+_CONCEALED_SECRET_RE = re.compile(rf"{ANSI_ESC}\[8m.*?{ANSI_ESC}\[28m")

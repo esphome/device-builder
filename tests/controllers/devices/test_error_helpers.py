@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, NoReturn, cast
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 from esphome_device_builder.controllers.devices.helpers import (
     raise_device_name_exists,
     raise_device_not_found,
+    require_catalog,
     require_file_exists,
     write_new_file_exclusive,
 )
@@ -19,6 +21,18 @@ from esphome_device_builder.models import ErrorCode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from esphome_device_builder.device_builder import DeviceBuilder
+
+
+def test_require_catalog_raises_unavailable_when_unloaded() -> None:
+    db = SimpleNamespace(components=None)
+    with pytest.raises(CommandError) as excinfo:
+        require_catalog(cast("DeviceBuilder", db))
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+
+    db.components = object()
+    assert require_catalog(cast("DeviceBuilder", db)) is db.components
 
 
 def test_raise_device_not_found_code_and_message() -> None:

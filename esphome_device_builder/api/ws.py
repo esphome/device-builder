@@ -16,14 +16,12 @@ from aiohttp import WSCloseCode, WSMsgType, web
 from esphome.const import __version__ as esphome_version
 
 from ..constants import __version__
-from ..controllers.auth import AuthError
 from ..helpers.api import CommandError
 from ..helpers.async_ import create_eager_task, drain_tasks
-from ..helpers.auth import extract_bearer_token
+from ..helpers.auth import extract_bearer_token, reject_untrusted_browser_request
 from ..helpers.dashboard_advertise import advertised_friendly_name
 from ..helpers.event_bus import StreamBackpressureError
 from ..helpers.json import JSONDecodeError, dumps_str, loads
-from ..helpers.origin import host_in_allowlist, request_origin_allowed
 from ..models import (
     CommandMessage,
     ErrorCode,
@@ -234,8 +232,6 @@ class WebSocketClient:
         try:
             result = await handler(client=self, message_id=cmd.message_id, **cmd.args)
             await self.send_result(cmd.message_id, result)
-        except AuthError as err:
-            await self.send_error(cmd.message_id, err.code, err.message)
         except CommandError as err:
             # Deliberate user-facing failure raised by a handler; pass
             # the code + message through verbatim so the client can
@@ -275,20 +271,9 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     settings = device_builder.settings
     trusted_site = bool(request.app.get("trusted_site", False))
 
-    # Reject cross-origin browser handshakes — CORS middleware doesn't cover WS.
-    # Non-browser clients omit Origin and bypass the gate (auth is in-band).
-    origin = request.headers.get("Origin")
-    if not trusted_site and origin:
-        if not request_origin_allowed(origin, request.host, settings.trusted_domains):
-            _LOGGER.debug(
-                "Rejecting WS handshake (cross-origin): origin=%s host=%s", origin, request.host
-            )
-            return web.Response(status=403, text="Cross-origin connection rejected")
-        if not host_in_allowlist(request.host, settings.trusted_domains):
-            _LOGGER.debug(
-                "Rejecting WS handshake (host not in trusted-domains): host=%s", request.host
-            )
-            return web.Response(status=403, text="Host not in trusted-domains allowlist")
+    # CORS middleware doesn't cover WS; non-browser clients omit Origin (auth is in-band).
+    if (rejected := reject_untrusted_browser_request(request)) is not None:
+        return rejected
 
     ws = web.WebSocketResponse(heartbeat=_WS_HEARTBEAT_SECONDS)
     await ws.prepare(request)

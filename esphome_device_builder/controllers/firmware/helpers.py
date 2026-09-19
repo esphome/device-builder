@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from esphome.upload_targets import PortType, get_port_type
 
+from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.api import CommandError
 from ...helpers.async_ import create_logged_task, drain_tasks
 from ...helpers.subprocess import consume_lines, run_subprocess_capture
@@ -33,7 +34,6 @@ from ...models import (
 )
 from ...models.firmware import _now_iso
 from .constants import (
-    _ANSI_ESCAPE,
     _COMPILE_BRACKET_PERCENT,
     _COMPILE_END_PATTERN,
     _COMPILE_PHASE_WORD_PATTERN,
@@ -448,7 +448,8 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
     if job.compile_ended_at is not None:
         return
     if job.compile_started_at is None:
-        if _is_compile_start_line(_ANSI_ESCAPE.sub("", line)):
+        # PlatformIO repaints, so escapes land inside tokens; strip before matching.
+        if _is_compile_start_line(ANSI_CSI_RE.sub("", line)):
             job.compile_started_at = _now_iso()
         return
     # Every end marker carries a plain-text token (the banner colours only the
@@ -456,7 +457,7 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
     # this skips the strip + regex on every other line.
     if (
         "Took " in line or "Successfully compiled" in line or "build stopped" in line
-    ) and _COMPILE_END_PATTERN.search(_ANSI_ESCAPE.sub("", line)):
+    ) and _COMPILE_END_PATTERN.search(ANSI_CSI_RE.sub("", line)):
         job.compile_ended_at = _now_iso()
 
 
