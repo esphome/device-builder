@@ -13,6 +13,7 @@ from esphome_device_builder.models import (
     ConfigEntry,
     ConfigEntryType,
 )
+from esphome_device_builder.models.common import DashboardModel
 
 
 def _entry(**overrides: object) -> ConfigEntry:
@@ -67,3 +68,16 @@ def test_a_nested_entry_round_trips() -> None:
 def test_no_declared_default_is_truthy(model: type) -> None:
     """An absent field reads as false or empty only while no default is truthy."""
     assert not [f.name for f in fields(model) if f.default is not MISSING and f.default]
+
+
+def test_to_wire_serialises_a_model_or_the_models_one_container_down() -> None:
+    entry = _entry(advanced=True)
+    wire = entry.to_dict()
+    assert DashboardModel.to_wire(entry) == wire
+    assert DashboardModel.to_wire({"a": entry, "n": 1}) == {"a": wire, "n": 1}
+    assert DashboardModel.to_wire([entry, "text"]) == [wire, "text"]
+
+
+@pytest.mark.parametrize("value", [None, "text", 3, {"nested": {"deep": 1}}, ["a", "b"]])
+def test_to_wire_passes_plain_values_through(value: object) -> None:
+    assert DashboardModel.to_wire(value) == value
