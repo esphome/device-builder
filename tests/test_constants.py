@@ -49,6 +49,8 @@ def test_is_device_config_name_accepts_yaml_names(name: str) -> None:
         "SECRETS.YML",
         "secrets.yaml::$DATA",
         "SECRET~1.YAM",
+        "SECRET~1.YML",
+        "SE1A2B~12.yaml",
         "notes.txt",
         "../../etc/passwd",
         "config\\secrets.yaml",

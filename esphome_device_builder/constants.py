@@ -38,8 +38,8 @@ SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
 
 
-# No NTFS stream suffix (``::$DATA``); the extension rules out an 8.3 alias (``SECRET~1.YAM``).
-_DEVICE_CONFIG_NAME_RE = re.compile(r"[^:]+\.ya?ml")
+# No NTFS stream suffix (``::$DATA``) and no 8.3 short alias (``SECRET~1.YML``).
+_DEVICE_CONFIG_NAME_RE = re.compile(r"(?![^:]*~\d+\.)[^:]+\.ya?ml")
 
 
 def is_secrets_file(configuration: str | Path) -> bool:
