@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 
 from ...constants import __version__
-from ...helpers.origin import host_in_allowlist, request_origin_allowed
+from ...helpers.auth import reject_untrusted_browser_request
 from ...mcp import McpServer
 from .tools import TOOLS
 
@@ -35,12 +35,7 @@ def create_mcp_routes() -> web.RouteTableDef:
 
 async def handle_post(request: web.Request) -> web.Response:
     """Apply the ``/ws`` Origin/Host gate, then answer the JSON-RPC request."""
-    db: DeviceBuilder = request.app["device_builder"]
     # cors_middleware runs after the handler, so it cannot stop a cross-origin write.
-    origin = request.headers.get("Origin")
-    if origin and not request.app.get("trusted_site", False):
-        if not request_origin_allowed(origin, request.host, db.settings.trusted_domains):
-            return web.Response(status=403, text="Cross-origin request rejected")
-        if not host_in_allowlist(request.host, db.settings.trusted_domains):
-            return web.Response(status=403, text="Host not in trusted-domains allowlist")
-    return await _SERVER.handle(db, request)
+    if (rejected := reject_untrusted_browser_request(request)) is not None:
+        return rejected
+    return await _SERVER.handle(request.app["device_builder"], request)

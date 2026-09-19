@@ -4,31 +4,25 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome.core import EsphomeError
+from esphome.const import SECRETS_FILES
 
-from ...constants import is_secrets_file
-from ...controllers.auth import AuthError
 from ...controllers.devices.helpers import raise_device_not_found, require_catalog
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor
-from ...helpers.device_yaml import (
-    ESPHOME_CONFIG_TIMEOUT,
-    extract_component_ids,
-    load_device_yaml_strict,
-)
+from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode, StreamEvent
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
-    from ...controllers.config import DashboardSettings
     from ...device_builder import DeviceBuilder
+
+    type ToolHandler = Callable[[DeviceBuilder, dict[str, Any]], Any]
 
 _MESSAGE_ID = "mcp"
 _DEFAULT_TAIL_LINES = 50
@@ -37,14 +31,32 @@ _MAX_SEARCH_RESULTS = 100
 
 
 def _translate(err: Exception) -> McpToolError | None:
-    """Map the user-facing WS command errors onto ``McpToolError``; anything else is internal."""
-    if isinstance(err, (CommandError, AuthError)):
+    """Map a user-facing WS command error onto ``McpToolError``; anything else is internal."""
+    if isinstance(err, CommandError):
         return McpToolError(err.code.value, err.message)
     return None
 
 
 TOOLS: ToolRegistry[DeviceBuilder] = ToolRegistry(translate=_translate)
-_tool = TOOLS.tool
+
+
+def _tool(
+    name: str,
+    description: str,
+    properties: dict[str, dict[str, Any]] | None = None,
+    required: tuple[str, ...] = (),
+) -> Callable[[ToolHandler], ToolHandler]:
+    """Register a tool whose ``configuration`` argument, if any, may not name the secrets file."""
+
+    def register(handler: ToolHandler) -> ToolHandler:
+        async def guarded(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+            _refuse_secrets(args.get("configuration"))
+            return await handler(db, args)
+
+        TOOLS.tool(name, description, properties, required)(guarded)
+        return handler
+
+    return register
 
 
 def _prop(json_type: str, description: str) -> dict[str, str]:
@@ -58,18 +70,18 @@ _COMPONENT_ID = _prop("string", "Catalog id, e.g. 'sensor.dht' or 'wifi'.")
 _JOB_ID = _prop("string", "Firmware job id returned by compile or install.")
 
 
-class CollectingClient:
+class _CollectingClient:
     """Stream-client stand-in keeping the last output lines and the result frame of one call."""
 
     def __init__(self, tail: int = _DEFAULT_TAIL_LINES) -> None:
         self.output: deque[str] = deque(maxlen=tail)
-        self.lines = 0
+        self.truncated = False
         self.result: dict[str, Any] | None = None
 
     async def send_event(self, _message_id: str, event: str, data: Any = None) -> None:
         if event == StreamEvent.OUTPUT:
+            self.truncated = self.truncated or len(self.output) == self.output.maxlen
             self.output.append(data)
-            self.lines += 1
         elif event == StreamEvent.RESULT:
             self.result = data
 
@@ -79,14 +91,19 @@ class CollectingClient:
 
 
 async def _call(
-    db: DeviceBuilder, command: str, *, client: CollectingClient | None = None, **args: Any
+    db: DeviceBuilder, command: str, *, client: _CollectingClient | None = None, **args: Any
 ) -> Any:
     """Invoke a WS command handler; *client* receives any stream frames."""
-    _refuse_secrets(args.get("configuration"))
     handler = db.command_handlers.get(command)
     if handler is None:
         raise CommandError(ErrorCode.UNAVAILABLE, f"{command} is not available")
-    return await handler(client=client or CollectingClient(), message_id=_MESSAGE_ID, **args)
+    return await handler(client=client or _CollectingClient(), message_id=_MESSAGE_ID, **args)
+
+
+def _refuse_secrets(configuration: Any) -> None:
+    """Refuse the secrets file in any spelling: its contents never reach a model."""
+    if isinstance(configuration, str) and Path(configuration).name.lower() in SECRETS_FILES:
+        raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
 
 
 def _prune(value: Any, *, include_advanced: bool = False) -> Any:
@@ -111,25 +128,9 @@ def _is_empty(value: Any) -> bool:
     return value is None or value is False or (isinstance(value, (str, list, dict)) and not value)
 
 
-def _tail(lines: list[str], count: int) -> list[str]:
-    """Last *count* output lines with ANSI colour and line terminators stripped."""
-    if count <= 0:
-        return []
-    return [ANSI_CSI_RE.sub("", line).rstrip("\r\n") for line in lines[-count:]]
-
-
-def _refuse_secrets(configuration: Any) -> None:
-    """Refuse ``secrets.yaml``: its contents never reach a model."""
-    if isinstance(configuration, str) and is_secrets_file(configuration):
-        raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
-
-
-def _load_strict(settings: DashboardSettings, configuration: str) -> dict:
-    """Locate and strictly load *configuration*; runs in the executor (``rel_path`` stats)."""
-    path: Path = settings.rel_path(configuration)
-    if not path.is_file():
-        raise FileNotFoundError(configuration)
-    return load_device_yaml_strict(path)
+def _strip_lines(lines: list[str]) -> list[str]:
+    """Output lines with ANSI colour and line terminators removed."""
+    return [ANSI_CSI_RE.sub("", line).rstrip("\r\n") for line in lines]
 
 
 @_tool(
@@ -200,26 +201,29 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    client = CollectingClient()
+    client = _CollectingClient()
     # The stream helper swallows the cancel and returns, so the deadline is read explicitly.
-    timed_out = False
+    deadline = asyncio.timeout(ESPHOME_CONFIG_TIMEOUT)
     try:
-        async with asyncio.timeout(ESPHOME_CONFIG_TIMEOUT) as deadline:
+        async with deadline:
             await _call(db, "devices/validate", client=client, **args)
-        timed_out = bool(deadline.expired())
     except TimeoutError:
-        timed_out = True
-    output = _tail(list(client.output), _DEFAULT_TAIL_LINES)
-    truncated = client.lines > len(client.output)
-    if timed_out:
-        return {"success": False, "timed_out": True, "output": output, "truncated": truncated}
+        pass
+    output = _strip_lines(list(client.output))
+    if deadline.expired():
+        return {
+            "success": False,
+            "timed_out": True,
+            "output": output,
+            "truncated": client.truncated,
+        }
     if client.result is None:
         raise McpToolError(INTERNAL_ERROR, "Validation produced no result")
     return {
         "success": client.result.get("success", False),
         "exit_code": client.result.get("code"),
         "output": output,
-        "truncated": truncated,
+        "truncated": client.truncated,
     }
 
 
@@ -275,10 +279,10 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
     tail_lines = min(args.get("tail_lines", _DEFAULT_TAIL_LINES), _MAX_TAIL_LINES)
-    output = await initial_snapshot(job, job.job_id) if tail_lines > 0 else []
+    output = (await initial_snapshot(job, job.job_id))[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
-        "output": _tail(output, tail_lines),
+        "output": _strip_lines(output),
     }
 
 
@@ -304,7 +308,7 @@ async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
 )
 async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     limit = min(args.get("limit", 20), _MAX_SEARCH_RESULTS)
-    response = await _call(db, "components/get_components", **{**args, "limit": limit})
+    response = await _call(db, "components/get_components", **(args | {"limit": limit}))
     return [_prune(entry.to_dict()) for entry in response.components]
 
 
@@ -340,26 +344,18 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 
 @_tool(
     "get_config_components",
-    "List the catalog components a device config uses, with a short description and docs "
-    "URL for each. Call get_component for the fields of any of them. Resolving a config that "
-    "pulls a package for the first time can take longer than ten seconds.",
+    "List the catalog components a device config used as of its last scan (every save "
+    "rescans), with a short description and docs URL for each. Call get_component for "
+    "the fields of any of them.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
 async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     catalog = require_catalog(db)
     configuration = args["configuration"]
-    _refuse_secrets(configuration)
-    try:
-        async with asyncio.timeout(ESPHOME_CONFIG_TIMEOUT):
-            config = await run_in_executor(_load_strict, db.settings, configuration)
-    except FileNotFoundError as err:
-        raise_device_not_found(configuration, from_exc=err)
-    except EsphomeError as err:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"{configuration}: {err}") from err
-    except TimeoutError as err:
-        msg = f"Resolving {configuration} exceeded {ESPHOME_CONFIG_TIMEOUT:.0f}s"
-        raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
+    device = db.devices.get_by_configuration(configuration) if db.devices else None
+    if device is None:
+        raise_device_not_found(configuration)
     # Only catalog ids are echoed: a resolved ``platform:`` value may be a ``!secret``.
-    entries = (catalog.index_entry(cid) for cid in extract_component_ids(config))
+    entries = (catalog.index_entry(cid) for cid in device.component_ids)
     return [_prune(entry.to_dict()) for entry in entries if entry is not None]

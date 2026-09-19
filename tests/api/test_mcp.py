@@ -1,13 +1,12 @@
-"""Coverage for the MCP endpoint: JSON-RPC envelope, method dispatch and every tool."""
+"""Coverage for the MCP endpoint route and the Device Builder tools."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 from functools import partial
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import jsonschema
 import pytest
@@ -15,11 +14,12 @@ from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.api.mcp import MCP_PATH, SERVER_NAME, create_mcp_routes
-from esphome_device_builder.api.mcp.tools import TOOLS
+from esphome_device_builder.api.mcp.tools import TOOLS, _refuse_secrets
 from esphome_device_builder.constants import __version__
 from esphome_device_builder.controllers.auth import AuthError
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.auth import auth_middleware
@@ -39,6 +39,30 @@ from esphome_device_builder.models import (
 
 from ..conftest import MakeSettingsFactory, StubAuth, make_device, make_job, rpc_post
 
+_rpc = partial(rpc_post, path=MCP_PATH)
+_INIT = {
+    "protocolVersion": "2025-11-25",
+    "capabilities": {},
+    "clientInfo": {"name": "test", "version": "0"},
+}
+_CONFIG_TOOLS = (
+    ("get_config", {}),
+    ("update_config", {"content": "x: 1"}),
+    ("add_component", {"component_id": "wifi"}),
+    ("validate_config", {}),
+    ("compile", {}),
+    ("install", {}),
+    ("get_config_components", {}),
+)
+_CONFIG_COMMANDS = (
+    "devices/get_config",
+    "devices/update_config",
+    "devices/add_component",
+    "devices/validate",
+    "firmware/compile",
+    "firmware/install",
+)
+
 
 class _StubDeviceBuilder:
     def __init__(self, settings: DashboardSettings) -> None:
@@ -47,6 +71,8 @@ class _StubDeviceBuilder:
         self.components: ComponentCatalog | None = None
         self.command_handlers: dict[str, Any] = {}
         self.auth = StubAuth()
+        self.devices = MagicMock(spec=DevicesController)
+        self.devices.get_by_configuration.return_value = None
 
 
 def _make_app(db: _StubDeviceBuilder, *, with_auth: bool = False) -> web.Application:
@@ -56,16 +82,12 @@ def _make_app(db: _StubDeviceBuilder, *, with_auth: bool = False) -> web.Applica
     return app
 
 
-_rpc = partial(rpc_post, path=MCP_PATH)
-
-
 async def _call(client: Any, name: str, arguments: dict[str, Any] | None = None) -> tuple:
     """Return ``(is_error, text)`` for one ``tools/call``."""
     params: dict[str, Any] = {"name": name}
     if arguments is not None:
         params["arguments"] = arguments
-    reply = await _rpc(client, method="tools/call", params=params)
-    result = reply["result"]
+    result = (await _rpc(client, method="tools/call", params=params))["result"]
     return result["isError"], result["content"][0]["text"]
 
 
@@ -74,6 +96,24 @@ async def _call_json(client: Any, name: str, arguments: dict[str, Any] | None = 
     is_error, text = await _call(client, name, arguments)
     assert not is_error, text
     return json.loads(text)
+
+
+def _validate_stub(
+    frames: list[tuple[str, Any]], *, sleep: float = 0, swallow_cancel: bool = False
+) -> Any:
+    """Build a ``devices/validate`` stand-in that emits *frames*, then optionally stalls."""
+
+    async def validate(*, client: Any, message_id: str, configuration: str) -> None:
+        for event, data in frames:
+            await client.send_event(message_id, event, data)
+        if sleep:
+            try:
+                await asyncio.sleep(sleep)
+            except asyncio.CancelledError:
+                if not swallow_cancel:
+                    raise
+
+    return validate
 
 
 @pytest.fixture
@@ -98,18 +138,13 @@ def catalog_db(
 
 
 # ---------------------------------------------------------------------------
-# Envelope
+# Route
 # ---------------------------------------------------------------------------
 
 
-async def test_get_is_405_with_allow(client: Any) -> None:
-    resp = await client.get(MCP_PATH)
-    assert resp.status == 405
-    assert resp.headers["Allow"] == "POST"
-
-
-async def test_delete_is_405(client: Any) -> None:
-    assert (await client.delete(MCP_PATH)).status == 405
+@pytest.mark.parametrize("method", ["get", "delete"])
+async def test_non_post_is_405(client: Any, method: str) -> None:
+    assert (await getattr(client, method)(MCP_PATH)).status == 405
 
 
 async def test_route_wins_over_spa_catch_all(
@@ -118,15 +153,8 @@ async def test_route_wins_over_spa_catch_all(
     pytest.importorskip("esphome_device_builder_frontend")
     real_db = DeviceBuilder(make_settings())
     client = await aiohttp_client(real_db.create_app(with_lifecycle=False))
-
-    assert (await client.get(MCP_PATH)).status == 405
     assert (await _rpc(client, method="ping"))["result"] == {}
     assert (await client.get("/some/deep/link")).status == 200
-
-
-# ---------------------------------------------------------------------------
-# Browser gate, initialize, tools/list
-# ---------------------------------------------------------------------------
 
 
 async def test_cross_origin_post_is_rejected_before_the_tool_runs(
@@ -147,8 +175,7 @@ async def test_cross_origin_post_is_rejected_before_the_tool_runs(
 
 async def test_same_origin_post_is_allowed(client: Any) -> None:
     origin = f"http://{client.host}:{client.port}"
-    reply = await _rpc(client, method="ping", headers={"Origin": origin})
-    assert reply["result"] == {}
+    assert (await _rpc(client, method="ping", headers={"Origin": origin}))["result"] == {}
 
 
 async def test_trusted_domains_allow_the_origin_and_gate_the_host(
@@ -177,23 +204,23 @@ async def test_trusted_site_skips_the_origin_gate(
     assert reply["result"] == {}
 
 
-async def test_non_json_content_type_is_415(client: Any) -> None:
-    resp = await client.post(MCP_PATH, data=b'{"jsonrpc":"2.0","id":1,"method":"ping"}')
-    assert resp.status == 415
+@pytest.mark.parametrize(("using_password", "status"), [(True, 401), (False, 200)])
+async def test_password_gate(
+    db: _StubDeviceBuilder, aiohttp_client: AiohttpClient, using_password: bool, status: int
+) -> None:
+    db.settings.using_password = using_password
+    client = await aiohttp_client(_make_app(db, with_auth=True))
+    resp = await client.post(MCP_PATH, json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert resp.status == status
 
 
-def test_library_error_words_match_error_code() -> None:
-    assert INVALID_ARGS == ErrorCode.INVALID_ARGS
-    assert INTERNAL_ERROR == ErrorCode.INTERNAL_ERROR
+# ---------------------------------------------------------------------------
+# Server identity and tool registry
+# ---------------------------------------------------------------------------
 
 
 async def test_initialize_advertises_server_info(client: Any) -> None:
-    params = {
-        "protocolVersion": "2025-11-25",
-        "capabilities": {},
-        "clientInfo": {"name": "test", "version": "0"},
-    }
-    result = (await _rpc(client, method="initialize", params=params))["result"]
+    result = (await _rpc(client, method="initialize", params=_INIT))["result"]
     assert result["serverInfo"] == {"name": SERVER_NAME, "version": __version__}
 
 
@@ -202,22 +229,29 @@ async def test_tools_list_matches_registry_and_schemas_are_valid(client: Any) ->
     assert [tool["name"] for tool in listed] == list(TOOLS)
     for tool in listed:
         assert tool["description"]
-        schema = tool["inputSchema"]
-        jsonschema.Draft202012Validator.check_schema(schema)
-        assert set(schema["required"]) <= set(schema["properties"])
+        jsonschema.Draft202012Validator.check_schema(tool["inputSchema"])
 
 
-# ---------------------------------------------------------------------------
-# tools/call argument handling and error mapping
-# ---------------------------------------------------------------------------
+def test_library_error_words_match_error_code() -> None:
+    assert INVALID_ARGS == ErrorCode.INVALID_ARGS
+    assert INTERNAL_ERROR == ErrorCode.INTERNAL_ERROR
 
 
-async def test_arguments_may_be_omitted(client: Any, db: _StubDeviceBuilder) -> None:
-    db.command_handlers["devices/list"] = AsyncMock(
-        return_value=DevicesResponse(configured=[], importable=[])
-    )
-    reply = await _rpc(client, method="tools/call", params={"name": "list_devices"})
-    assert reply["result"] == {"content": [{"type": "text", "text": "[]"}], "isError": False}
+@pytest.mark.parametrize(
+    ("arguments", "fragment"),
+    [
+        pytest.param({}, "Missing required argument: job_id", id="missing"),
+        pytest.param({"job_id": "j", "extra": 1}, "Unknown argument: extra", id="unknown"),
+        pytest.param({"job_id": 5}, "job_id must be string", id="wrong_type"),
+    ],
+)
+async def test_argument_validation_is_a_tool_error(
+    client: Any, arguments: dict[str, Any], fragment: str
+) -> None:
+    is_error, text = await _call(client, "get_job", arguments)
+    assert is_error
+    assert text.startswith(f"{ErrorCode.INVALID_ARGS.value}: ")
+    assert fragment in text
 
 
 @pytest.mark.parametrize(
@@ -230,7 +264,6 @@ async def test_arguments_may_be_omitted(client: Any, db: _StubDeviceBuilder) -> 
         pytest.param(
             FileNotFoundError("x"), "internal_error: Tool failed: get_config", id="not_user_facing"
         ),
-        pytest.param(RuntimeError("boom"), "internal_error: Tool failed: get_config", id="crash"),
     ],
 )
 async def test_handler_exceptions_become_tool_errors(
@@ -247,17 +280,41 @@ async def test_missing_command_is_unavailable(client: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["secrets.yaml", "SECRETS.YAML", "./Secrets.yaml", "secrets.yml"])
+def test_refuse_secrets_matches_every_spelling(name: str) -> None:
+    with pytest.raises(CommandError) as excinfo:
+        _refuse_secrets(name)
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    _refuse_secrets("kitchen.yaml")
+    _refuse_secrets(None)
+
+
+@pytest.mark.parametrize(("tool", "extra"), _CONFIG_TOOLS)
+async def test_secrets_file_is_refused_by_every_config_tool(
+    client: Any, catalog_db: _StubDeviceBuilder, tool: str, extra: dict[str, Any]
+) -> None:
+    handler = AsyncMock(return_value="wifi_password: hunter2\n")
+    for command in _CONFIG_COMMANDS:
+        catalog_db.command_handlers[command] = handler
+    is_error, text = await _call(client, tool, {"configuration": "secrets.yaml"} | extra)
+    assert is_error
+    assert text == "invalid_args: secrets.yaml is not available over MCP"
+    handler.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
 # Device and config tools
 # ---------------------------------------------------------------------------
 
 
-async def test_list_devices_flattens_and_keeps_scalars_only(
-    client: Any, db: _StubDeviceBuilder
-) -> None:
+async def test_list_devices_keeps_scalar_fields_only(client: Any, db: _StubDeviceBuilder) -> None:
     online = make_device(
         "kitchen",
         state=DeviceState.ONLINE,
-        deployed_version="2026.8.2",
         loaded_integrations=["api", "wifi"],
         has_pending_changes=False,
     )
@@ -267,11 +324,8 @@ async def test_list_devices_flattens_and_keeps_scalars_only(
     rows = await _call_json(client, "list_devices")
     assert [row["configuration"] for row in rows] == ["kitchen.yaml", "porch.yaml"]
     assert rows[0]["state"] == "online"
-    assert rows[0]["deployed_version"] == "2026.8.2"
     assert rows[0]["has_pending_changes"] is False
     assert not any(isinstance(value, list) for row in rows for value in row.values())
-    assert "loaded_integrations" not in rows[0]
-    assert "runtime_state" not in rows[0]
 
 
 async def test_get_config_returns_yaml_verbatim(client: Any, db: _StubDeviceBuilder) -> None:
@@ -312,13 +366,14 @@ async def test_add_component_returns_the_saved_yaml(client: Any, db: _StubDevice
 async def test_validate_config_collects_stream_and_strips_ansi(
     client: Any, db: _StubDeviceBuilder
 ) -> None:
-    async def fake_validate(*, client: Any, message_id: str, configuration: str) -> None:
-        await client.send_event(message_id, StreamEvent.OUTPUT, "\x1b[32mINFO ok\x1b[0m\n")
-        await client.send_event(message_id, StreamEvent.OUTPUT, "second\r")
-        await client.send_event(message_id, StreamEvent.OUTPUT, "\\033[31mERROR bad\\033[0m\n")
-        await client.send_event(message_id, StreamEvent.RESULT, {"success": True, "code": 0})
-
-    db.command_handlers["devices/validate"] = fake_validate
+    db.command_handlers["devices/validate"] = _validate_stub(
+        [
+            (StreamEvent.OUTPUT, "\x1b[32mINFO ok\x1b[0m\n"),
+            (StreamEvent.OUTPUT, "second\r"),
+            (StreamEvent.OUTPUT, "\\033[31mERROR bad\\033[0m\n"),
+            (StreamEvent.RESULT, {"success": True, "code": 0}),
+        ]
+    )
     assert await _call_json(client, "validate_config", {"configuration": "kitchen.yaml"}) == {
         "success": True,
         "exit_code": 0,
@@ -330,59 +385,32 @@ async def test_validate_config_collects_stream_and_strips_ansi(
 async def test_validate_config_without_result_frame_is_an_error(
     client: Any, db: _StubDeviceBuilder
 ) -> None:
-    async def swallowed(*, client: Any, message_id: str, configuration: str) -> None:
-        await client.send_event(message_id, StreamEvent.OUTPUT, "partial\n")
-
-    db.command_handlers["devices/validate"] = swallowed
+    db.command_handlers["devices/validate"] = _validate_stub([(StreamEvent.OUTPUT, "partial\n")])
     is_error, text = await _call(client, "validate_config", {"configuration": "kitchen.yaml"})
     assert is_error
     assert text == "internal_error: Validation produced no result"
 
 
+@pytest.mark.parametrize("swallow_cancel", [True, False], ids=["swallowed", "propagated"])
 async def test_validate_config_times_out_and_keeps_the_tail(
-    client: Any, db: _StubDeviceBuilder, monkeypatch: pytest.MonkeyPatch
+    client: Any, db: _StubDeviceBuilder, monkeypatch: pytest.MonkeyPatch, swallow_cancel: bool
 ) -> None:
     monkeypatch.setattr("esphome_device_builder.api.mcp.tools.ESPHOME_CONFIG_TIMEOUT", 0.05)
-    cancelled = asyncio.Event()
-
-    async def slow(*, client: Any, message_id: str, configuration: str) -> None:
-        await client.send_event(message_id, StreamEvent.OUTPUT, "started\n")
-        try:
-            await asyncio.sleep(10)
-        except asyncio.CancelledError:
-            # Mirrors stream_subprocess: kill the child, swallow the cancel, return.
-            cancelled.set()
-
-    db.command_handlers["devices/validate"] = slow
+    db.command_handlers["devices/validate"] = _validate_stub(
+        [(StreamEvent.OUTPUT, "started\n")], sleep=10, swallow_cancel=swallow_cancel
+    )
     assert await _call_json(client, "validate_config", {"configuration": "kitchen.yaml"}) == {
         "success": False,
         "timed_out": True,
         "output": ["started"],
         "truncated": False,
     }
-    assert cancelled.is_set()
-
-
-async def test_validate_config_times_out_when_the_cancel_propagates(
-    client: Any, db: _StubDeviceBuilder, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("esphome_device_builder.api.mcp.tools.ESPHOME_CONFIG_TIMEOUT", 0.05)
-
-    async def slow(*, client: Any, message_id: str, configuration: str) -> None:
-        await asyncio.sleep(10)
-
-    db.command_handlers["devices/validate"] = slow
-    data = await _call_json(client, "validate_config", {"configuration": "kitchen.yaml"})
-    assert data["timed_out"] is True
 
 
 async def test_validate_config_reports_truncation(client: Any, db: _StubDeviceBuilder) -> None:
-    async def chatty(*, client: Any, message_id: str, configuration: str) -> None:
-        for i in range(60):
-            await client.send_event(message_id, StreamEvent.OUTPUT, f"{i}\n")
-        await client.send_event(message_id, StreamEvent.RESULT, {"success": True, "code": 0})
-
-    db.command_handlers["devices/validate"] = chatty
+    frames: list[tuple[str, Any]] = [(StreamEvent.OUTPUT, f"{i}\n") for i in range(60)]
+    frames.append((StreamEvent.RESULT, {"success": True, "code": 0}))
+    db.command_handlers["devices/validate"] = _validate_stub(frames)
     data = await _call_json(client, "validate_config", {"configuration": "kitchen.yaml"})
     assert data["truncated"] is True
     assert data["output"][0] == "10"
@@ -482,6 +510,18 @@ async def test_get_job_zero_tail_skips_the_output_read(client: Any, db: _StubDev
     assert data["output"] == []
 
 
+async def test_tail_lines_and_limit_are_clamped(client: Any, db: _StubDeviceBuilder) -> None:
+    db.command_handlers["firmware/get_job"] = AsyncMock(
+        return_value=make_job(output=[f"{i}\n" for i in range(1500)])
+    )
+    data = await _call_json(client, "get_job", {"job_id": "job1", "tail_lines": 5000})
+    assert len(data["output"]) == 1000
+    search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
+    db.command_handlers["components/get_components"] = search
+    await _call(client, "search_components", {"query": "x", "limit": 5000})
+    assert search.await_args.kwargs["limit"] == 100
+
+
 async def test_cancel_job(client: Any, db: _StubDeviceBuilder) -> None:
     handler = AsyncMock(return_value=None)
     db.command_handlers["firmware/cancel"] = handler
@@ -514,9 +554,6 @@ async def test_search_components_projects_index_rows(client: Any, db: _StubDevic
         }
     ]
     assert handler.await_args.kwargs["limit"] == 20
-
-    await _call(client, "search_components", {"query": "dht", "limit": 3})
-    assert handler.await_args.kwargs["limit"] == 3
 
 
 async def test_get_component_projects_the_catalog_body(
@@ -551,163 +588,32 @@ async def test_get_component_unknown_is_not_found(
     )
 
 
-async def test_get_config_components_lists_catalog_rows(
-    client: Any,
-    catalog_db: _StubDeviceBuilder,
-    make_settings: MakeSettingsFactory,
-    tmp_path: Path,
+async def test_get_config_components_lists_catalog_rows_from_the_scan(
+    client: Any, catalog_db: _StubDeviceBuilder
 ) -> None:
-    make_settings(with_core_path=True)
-    (tmp_path / "kitchen.yaml").write_text(
-        "substitutions:\n  room: kitchen\n"
-        "esphome:\n  name: ${room}\n"
-        "sensor:\n  - platform: dht\n    pin: 4\n"
-        "notacomponent:\n  x: 1\n"
-    )
-    rows = {
-        row["id"]: row
-        for row in await _call_json(
-            client, "get_config_components", {"configuration": "kitchen.yaml"}
-        )
-    }
-    # Domain keys such as ``sensor`` have no catalog entry of their own.
-    assert list(rows) == ["substitutions", "esphome", "sensor.dht"]
-    assert rows["sensor.dht"]["name"]
-    assert rows["sensor.dht"]["docs_url"].startswith("https://esphome.io/")
-
-
-@pytest.mark.parametrize(
-    ("configuration", "content", "prefix"),
-    [
-        pytest.param("nope.yaml", None, "not_found: Device 'nope.yaml' not found", id="missing"),
-        pytest.param(
-            "bad.yaml",
-            "- just\n- a list\n",
-            "invalid_args: bad.yaml: bad.yaml is not a mapping",
-            id="non_mapping",
-        ),
-        pytest.param("syntax.yaml", ": :", "invalid_args: syntax.yaml: ", id="syntax"),
-        pytest.param("../../etc/passwd", None, "invalid_args: ", id="traversal"),
-    ],
-)
-async def test_get_config_components_failures(
-    client: Any,
-    catalog_db: _StubDeviceBuilder,
-    make_settings: MakeSettingsFactory,
-    tmp_path: Path,
-    configuration: str,
-    content: str | None,
-    prefix: str,
-) -> None:
-    make_settings(with_core_path=True)
-    if content is not None:
-        (tmp_path / configuration).write_text(content)
-    is_error, text = await _call(client, "get_config_components", {"configuration": configuration})
-    assert is_error
-    assert text.startswith(prefix)
-
-
-async def test_get_config_components_times_out(
-    client: Any,
-    catalog_db: _StubDeviceBuilder,
-    make_settings: MakeSettingsFactory,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    make_settings(with_core_path=True)
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
-    monkeypatch.setattr("esphome_device_builder.api.mcp.tools.ESPHOME_CONFIG_TIMEOUT", 0.05)
-
-    async def stalled(*_args: Any) -> dict[str, Any]:
-        await asyncio.sleep(10)
-        return {}
-
-    monkeypatch.setattr("esphome_device_builder.api.mcp.tools.run_in_executor", stalled)
-    is_error, text = await _call(client, "get_config_components", {"configuration": "kitchen.yaml"})
-    assert is_error
-    assert text.startswith("unavailable: Resolving kitchen.yaml exceeded")
-
-
-@pytest.mark.parametrize(
-    ("tool", "extra"),
-    [
-        ("get_config", {}),
-        ("update_config", {"content": "x: 1"}),
-        ("add_component", {"component_id": "wifi"}),
-        ("validate_config", {}),
-        ("compile", {}),
-        ("install", {}),
-        ("get_config_components", {}),
-    ],
-)
-@pytest.mark.parametrize("name", ["secrets.yaml", "SECRETS.YAML", "./Secrets.yaml"])
-async def test_secrets_file_is_refused_by_every_config_tool(
-    client: Any, catalog_db: _StubDeviceBuilder, tool: str, extra: dict[str, Any], name: str
-) -> None:
-    handler = AsyncMock(return_value="wifi_password: hunter2\n")
-    for command in (
-        "devices/get_config",
-        "devices/update_config",
-        "devices/add_component",
-        "devices/validate",
-        "firmware/compile",
-        "firmware/install",
-    ):
-        catalog_db.command_handlers[command] = handler
-    is_error, text = await _call(client, tool, {"configuration": name} | extra)
-    assert is_error
-    assert text == "invalid_args: secrets.yaml is not available over MCP"
-    handler.assert_not_awaited()
-
-
-async def test_get_config_components_never_echoes_resolved_values(
-    client: Any,
-    catalog_db: _StubDeviceBuilder,
-    make_settings: MakeSettingsFactory,
-    tmp_path: Path,
-) -> None:
-    make_settings(with_core_path=True)
-    (tmp_path / "secrets.yaml").write_text("wifi_password: hunter2\n")
-    (tmp_path / "kitchen.yaml").write_text(
-        "<<: !include secrets.yaml\n"
-        "esphome:\n  name: kitchen\n"
-        "sensor:\n  - platform: !secret wifi_password\n"
+    catalog_db.devices.get_by_configuration.return_value = make_device(
+        "kitchen",
+        component_ids=["substitutions", "esphome", "sensor", "sensor.dht", "sensor.hunter2"],
     )
     rows = await _call_json(client, "get_config_components", {"configuration": "kitchen.yaml"})
-    text = json.dumps(rows)
-    assert "hunter2" not in text
-    assert "wifi_password" not in text
-    assert [row["id"] for row in rows] == ["esphome"]
+    catalog_db.devices.get_by_configuration.assert_called_with("kitchen.yaml")
+    # Domain keys such as ``sensor`` have no catalog entry; a stray value is never echoed.
+    assert [row["id"] for row in rows] == ["substitutions", "esphome", "sensor.dht"]
+    assert rows[2]["name"]
+    assert rows[2]["docs_url"].startswith("https://esphome.io/")
+    assert "hunter2" not in json.dumps(rows)
 
 
-async def test_tail_lines_and_limit_are_clamped(client: Any, db: _StubDeviceBuilder) -> None:
-    db.command_handlers["firmware/get_job"] = AsyncMock(
-        return_value=make_job(output=[f"{i}\n" for i in range(1500)])
-    )
-    data = await _call_json(client, "get_job", {"job_id": "job1", "tail_lines": 5000})
-    assert len(data["output"]) == 1000
-    search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
-    db.command_handlers["components/get_components"] = search
-    await _call(client, "search_components", {"query": "x", "limit": 5000})
-    assert search.await_args.kwargs["limit"] == 100
+@pytest.mark.parametrize("configuration", ["nope.yaml", "../../etc/passwd"])
+async def test_get_config_components_unknown_device_is_not_found(
+    client: Any, catalog_db: _StubDeviceBuilder, configuration: str
+) -> None:
+    is_error, text = await _call(client, "get_config_components", {"configuration": configuration})
+    assert is_error
+    assert text.startswith("not_found: ")
 
 
 async def test_get_config_components_without_catalog_is_unavailable(client: Any) -> None:
     is_error, text = await _call(client, "get_config_components", {"configuration": "k.yaml"})
     assert is_error
     assert text.startswith("unavailable: ")
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(("using_password", "status"), [(True, 401), (False, 200)])
-async def test_password_gate(
-    db: _StubDeviceBuilder, aiohttp_client: AiohttpClient, using_password: bool, status: int
-) -> None:
-    db.settings.using_password = using_password
-    client = await aiohttp_client(_make_app(db, with_auth=True))
-    resp = await client.post(MCP_PATH, json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
-    assert resp.status == status

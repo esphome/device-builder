@@ -545,7 +545,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `tools/list` | `{tools: [{name, description, inputSchema}]}` |
 | `tools/call` | `{content: [{type: "text", text}], isError}`. A tool failure is a result with `isError: true` whose text starts with the `ErrorCode` (`not_found: ...`, `invalid_args: ...`), not a JSON-RPC error. An unknown tool name is JSON-RPC `-32602`. |
 
-**Tools.** Each wraps one WS command through the same dispatcher, so validation and error codes match the WS surface. Every tool answers within Home Assistant's 10 second per-call budget except `validate_config`, which runs `esphome config` (bounded to `ESPHOME_CONFIG_TIMEOUT`, one minute; a timed out run kills the subprocess and reports `timed_out`), and `get_config_components` when a package has to be cloned; both are best effort there. Long work is start-then-poll.
+**Tools.** Each wraps one WS command through the same dispatcher, so validation and error codes match the WS surface. Every tool answers within Home Assistant's 10 second per-call budget except `validate_config`, which runs `esphome config` (bounded to `ESPHOME_CONFIG_TIMEOUT`, one minute; a timed out run kills the subprocess and reports `timed_out`) and is best effort there. Long work is start-then-poll.
 
 | Tool | Wraps | Notes |
 |---|---|---|
@@ -560,9 +560,9 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `cancel_job {job_id}` | `firmware/cancel` | |
 | `search_components {query, limit?}` | `components/get_components` | Slim index rows (`limit` capped at 100) |
 | `get_component {component_id, platform?, include_advanced?}` | `components/get_component_bodies` | The catalog body with `hidden` entries removed and `advanced` entries removed unless asked for; empty and false fields are omitted |
-| `get_config_components {configuration}` | (loader + slim index) | The catalog components a device YAML uses (`key` and `key.platform` that have a catalog entry; nothing else from the resolved YAML is echoed, so a `!secret` in a `platform:` slot cannot leak), each with name, description and docs URL; an unparsable YAML answers `invalid_args` with the parser's diagnostic; resolution is bounded to `ESPHOME_CONFIG_TIMEOUT` (`unavailable` past it) and a config that clones a package for the first time can exceed HA's 10 s budget |
+| `get_config_components {configuration}` | `Device.component_ids` (scan data) + slim index | The catalog components a device YAML used as of its last scan (every save rescans): the `key` and `key.platform` ids with a catalog entry, each with name, description and docs URL. Nothing else from the resolved YAML is echoed, so a `!secret` in a `platform:` slot cannot leak. An unknown or mid-edit unparsable config answers `not_found` or the last good list |
 
-**Secrets.** Every tool that takes a `configuration` refuses `secrets.yaml` (any case), so the file never reaches a model; `get_config_components` echoes only catalog ids, never resolved YAML values.
+**Secrets.** Every tool that takes a `configuration` refuses the secrets file (`secrets.yaml` or `.yml`, any case), so it never reaches a model; `get_config_components` echoes only catalog ids, never resolved YAML values.
 
 **Auth.** The route mirrors `/ws` on each site: nothing on the trusted ingress site; on the public site the REST `Authorization` gate (`Basic` or a `Bearer` session token) whenever a password is set, plus the WebSocket handshake's `Origin` / `Host` check for any request carrying an `Origin` header (same-origin or `--trusted-domains`, 403 otherwise). Non-browser clients send no `Origin`. Home Assistant's `mcp` integration cannot send a static credential (a 401 sends it into OAuth discovery, which this server does not offer), so from HA the server must be reachable without a password: the add-on ingress site, or a standalone install with no password.
 
