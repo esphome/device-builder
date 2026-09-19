@@ -359,3 +359,66 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
     # Only catalog ids are echoed: a resolved ``platform:`` value may be a ``!secret``.
     entries = (catalog.index_entry(cid) for cid in device.component_ids)
     return [_prune(entry.to_dict()) for entry in entries if entry is not None]
+
+
+@_tool(
+    "search_boards",
+    "Search the board catalog by name or chip; returns board ids for create_device.",
+    {
+        "query": _prop("string", "Search text, e.g. 'esp32-c3' or 'nodemcu'."),
+        "limit": _prop("integer", f"Max results (default 20, max {_MAX_SEARCH_RESULTS})."),
+    },
+    ("query",),
+)
+async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
+    limit = min(args.get("limit", 20), _MAX_SEARCH_RESULTS)
+    response = await _call(db, "boards/get_boards", **(args | {"limit": limit}))
+    return [_prune(board.to_dict()) for board in response.boards]
+
+
+@_tool(
+    "list_secret_names",
+    "List the secret names defined in secrets.yaml, never the values. Reference one in "
+    "YAML as '!secret <name>'.",
+)
+async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> Any:
+    return await _call(db, "config/get_secrets")
+
+
+@_tool(
+    "set_secret",
+    "Create or update one secret in secrets.yaml from a value the user supplied. The value "
+    "is never read back; reference it in YAML as '!secret <name>'.",
+    {
+        "name": _prop("string", "Secret name, e.g. 'wifi_password'."),
+        "value": _prop("string", "The secret value."),
+        "overwrite": _prop("boolean", "Replace an existing value (default true)."),
+    },
+    ("name", "value"),
+)
+async def _set_secret(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
+    result = await _call(
+        db,
+        "config/set_secret",
+        key=args["name"],
+        value=args["value"],
+        overwrite=args.get("overwrite", True),
+    )
+    return {"name": args["name"], "created": result["created"]}
+
+
+@_tool(
+    "create_device",
+    "Create a new device YAML with the wizard. Wi-Fi is written as '!secret wifi_ssid' and "
+    "'!secret wifi_password' (set them first with set_secret if list_secret_names lacks them); "
+    "credentials are never passed inline. Returns the new configuration filename.",
+    {
+        "name": _prop("string", "Device name (its hostname), e.g. 'living-room-sensor'."),
+        "friendly_name": _prop("string", "Human readable name."),
+        "board_id": _prop("string", "Board id from search_boards, e.g. 'esp32dev'."),
+    },
+    ("name",),
+)
+async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    response = await _call(db, "devices/create", **args)
+    return response.to_dict()

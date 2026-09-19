@@ -561,8 +561,12 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `search_components {query, limit?}` | `components/get_components` | Slim index rows (`limit` capped at 100) |
 | `get_component {component_id, platform?, include_advanced?}` | `components/get_component_bodies` | The catalog body with `hidden` entries removed and `advanced` entries removed unless asked for; empty and false fields are omitted |
 | `get_config_components {configuration}` | `Device.component_ids` (scan data) + slim index | The catalog components a device YAML used as of its last scan (every save rescans): the `key` and `key.platform` ids with a catalog entry, each with name, description and docs URL. Nothing else from the resolved YAML is echoed, so a `!secret` in a `platform:` slot cannot leak. An unknown or mid-edit unparsable config answers `not_found` or the last good list |
+| `search_boards {query, limit?}` | `boards/get_boards` | Slim board rows (`limit` capped at 100); the `id` is what `create_device` takes |
+| `list_secret_names` | `config/get_secrets` | Secret names only, never values |
+| `set_secret {name, value, overwrite?}` | `config/set_secret` | Write-only: `{name, created}`; the value is never read back |
+| `create_device {name, friendly_name?, board_id?}` | `devices/create` | The wizard, without the inline `ssid` / `psk` arguments, so Wi-Fi lands as `!secret wifi_ssid` / `!secret wifi_password` references |
 
-**Secrets.** Every tool that takes a `configuration` refuses the secrets file (`secrets.yaml` or `.yml`, any case), so it never reaches a model; `get_config_components` echoes only catalog ids, never resolved YAML values.
+**Secrets.** Values flow one way. Every tool that takes a `configuration` refuses the secrets file (`secrets.yaml` or `.yml`, any case), `get_config_components` echoes only catalog ids, and `list_secret_names` returns names alone, so no secret value reaches a model from the server. `set_secret` writes a value the user supplied and never reads it back; `create_device` references the Wi-Fi secrets by name instead of taking credentials.
 
 **Auth.** The route mirrors `/ws` on each site: nothing on the trusted ingress site; on the public site the REST `Authorization` gate (`Basic` or a `Bearer` session token) whenever a password is set, plus the WebSocket handshake's `Origin` / `Host` check for any request carrying an `Origin` header (same-origin or `--trusted-domains`, 403 otherwise). Non-browser clients send no `Origin`. Home Assistant's `mcp` integration cannot send a static credential (a 401 sends it into OAuth discovery, which this server does not offer), so from HA the server must be reachable without a password: the add-on ingress site, or a standalone install with no password.
 

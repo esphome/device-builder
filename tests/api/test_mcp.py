@@ -26,6 +26,7 @@ from esphome_device_builder.helpers.auth import auth_middleware
 from esphome_device_builder.mcp import INTERNAL_ERROR, INVALID_ARGS
 from esphome_device_builder.models import (
     AddComponentResponse,
+    BoardCatalogIndex,
     ComponentCatalogIndexEntry,
     ComponentCategory,
     DevicesResponse,
@@ -33,8 +34,10 @@ from esphome_device_builder.models import (
     ErrorCode,
     JobStatus,
     JobType,
+    PagedBoardsResponse,
     PagedComponentsResponse,
     StreamEvent,
+    WizardResponse,
 )
 
 from ..conftest import MakeSettingsFactory, StubAuth, make_device, make_job, rpc_post
@@ -617,3 +620,58 @@ async def test_get_config_components_without_catalog_is_unavailable(client: Any)
     is_error, text = await _call(client, "get_config_components", {"configuration": "k.yaml"})
     assert is_error
     assert text.startswith("unavailable: ")
+
+
+# ---------------------------------------------------------------------------
+# Device creation and secrets
+# ---------------------------------------------------------------------------
+
+
+async def test_search_boards_projects_index_rows(client: Any, db: _StubDeviceBuilder) -> None:
+    board = BoardCatalogIndex(
+        id="esp32dev", name="ESP32 Dev Module", description="", manufacturer="Espressif"
+    )
+    handler = AsyncMock(return_value=PagedBoardsResponse(boards=[board]))
+    db.command_handlers["boards/get_boards"] = handler
+    rows = await _call_json(client, "search_boards", {"query": "esp32", "limit": 5000})
+    assert rows[0]["id"] == "esp32dev"
+    assert rows[0]["name"] == "ESP32 Dev Module"
+    assert handler.await_args.kwargs["limit"] == 100
+
+
+async def test_list_secret_names_returns_names_only(client: Any, db: _StubDeviceBuilder) -> None:
+    db.command_handlers["config/get_secrets"] = AsyncMock(
+        return_value=["wifi_password", "wifi_ssid"]
+    )
+    assert await _call_json(client, "list_secret_names") == ["wifi_password", "wifi_ssid"]
+
+
+async def test_set_secret_is_write_only(client: Any, db: _StubDeviceBuilder) -> None:
+    handler = AsyncMock(return_value={"created": True})
+    db.command_handlers["config/set_secret"] = handler
+    assert await _call_json(
+        client, "set_secret", {"name": "wifi_password", "value": "hunter2"}
+    ) == {
+        "name": "wifi_password",
+        "created": True,
+    }
+    assert handler.await_args.kwargs == {
+        "client": handler.await_args.kwargs["client"],
+        "message_id": "mcp",
+        "key": "wifi_password",
+        "value": "hunter2",
+        "overwrite": True,
+    }
+
+
+async def test_create_device_never_passes_credentials(client: Any, db: _StubDeviceBuilder) -> None:
+    handler = AsyncMock(return_value=WizardResponse(configuration="porch.yaml"))
+    db.command_handlers["devices/create"] = handler
+    assert await _call_json(
+        client, "create_device", {"name": "porch", "friendly_name": "Porch", "board_id": "esp32dev"}
+    ) == {"configuration": "porch.yaml", "warning": None}
+    assert "ssid" not in handler.await_args.kwargs
+    assert "psk" not in handler.await_args.kwargs
+    is_error, text = await _call(client, "create_device", {"name": "x", "ssid": "net"})
+    assert is_error
+    assert "Unknown argument: ssid" in text
