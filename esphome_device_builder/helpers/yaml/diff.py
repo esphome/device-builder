@@ -16,7 +16,12 @@ def apply_yaml_diff(text: str, diff: YamlDiff) -> str:
     if not 1 <= from_line <= to_line + 1 <= len(lines) + 1:
         raise ValueError(f"YamlDiff {from_line}..{to_line} is outside {len(lines)} lines")
     head = "".join(lines[: from_line - 1])
-    # An append after a final unterminated line needs the boundary it lacks.
-    if diff.replacement and from_line > len(lines) and text and not text.endswith(("\n", "\r")):
+    # Only the text's last line can lack a terminator; an append after it starts a new line.
+    if diff.replacement and head and not _ends_line(head[-1]):
         head += "\n"
     return head + diff.replacement + "".join(lines[to_line:])
+
+
+def _ends_line(char: str) -> bool:
+    """Return True when *char* is a line boundary to ``str.splitlines``."""
+    return len(f"{char}x".splitlines()) == 2

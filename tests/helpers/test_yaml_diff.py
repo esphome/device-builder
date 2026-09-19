@@ -50,5 +50,11 @@ def test_append_after_an_unterminated_last_line_keeps_the_boundary() -> None:
     assert apply_yaml_diff("a: 1", _diff(2, 1, "b: 2\n")) == "a: 1\nb: 2\n"
 
 
+@pytest.mark.parametrize("boundary", ["\n", "\r", "\r\n", "\x0c", "\x85", "\u2028"])
+def test_append_after_any_splitlines_boundary_adds_nothing(boundary: str) -> None:
+    text = f"a: 1{boundary}"
+    assert apply_yaml_diff(text, _diff(2, 1, "b: 2\n")) == f"{text}b: 2\n"
+
+
 def test_deleting_the_only_line_leaves_nothing() -> None:
     assert apply_yaml_diff("a: 1", _diff(1, 1, "")) == ""
