@@ -6,6 +6,8 @@ from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from esphome.const import SECRETS_FILES
+
 
 def _resolve_version() -> str:
     """
@@ -34,9 +36,9 @@ SECRETS_FILENAME = "secrets.yaml"
 
 
 def is_secrets_file(configuration: str | Path) -> bool:
-    """Return True when *configuration* names the shared secrets.yaml (by basename)."""
+    """Return True when *configuration* names a secrets file (``secrets.yaml`` or ``.yml``)."""
     # Win32 opens ``secrets.yaml.`` and ``secrets.yaml `` as the real file.
-    return Path(configuration).name.rstrip(". ").casefold() == SECRETS_FILENAME
+    return Path(configuration).name.rstrip(". ").casefold() in SECRETS_FILES
 
 
 # Trusted TCP site for HA Ingress. Bound only when ``--ha-addon`` is set,

@@ -8,7 +8,7 @@ from esphome_device_builder.constants import SECRETS_FILENAME, is_secrets_file
 
 
 def test_is_secrets_file_matches_by_basename() -> None:
-    """is_secrets_file is True only for the secrets.yaml basename, str or Path."""
+    """is_secrets_file is True for either secrets file spelling, str or Path."""
     assert is_secrets_file(SECRETS_FILENAME)
     assert is_secrets_file("secrets.yaml")
     assert is_secrets_file(Path("/config/esphome/secrets.yaml"))
@@ -17,4 +17,5 @@ def test_is_secrets_file_matches_by_basename() -> None:
     assert is_secrets_file("secrets.yaml.")
     assert is_secrets_file("secrets.yaml ")
     assert not is_secrets_file("kitchen.yaml")
-    assert not is_secrets_file(Path("/config/secrets.yml"))
+    assert is_secrets_file(Path("/config/secrets.yml"))
+    assert not is_secrets_file("secrets.json")
