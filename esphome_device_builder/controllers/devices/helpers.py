@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from ...device_builder import DeviceBuilder
-    from ...models import ComponentCatalogEntry, ConfigEntry
+    from ...models import ComponentCatalogEntry, ComponentCatalogIndexEntry, ConfigEntry
     from .._device_state_monitor import DeviceStateMonitor
     from ..components import ComponentCatalog, _FeaturedRecord
 
@@ -81,6 +81,23 @@ def require_catalog(db: DeviceBuilder) -> ComponentCatalog:
     if db.components is None:
         raise CommandError(ErrorCode.UNAVAILABLE, "Component catalog is not loaded")
     return db.components
+
+
+def scanned_component_entries(
+    db: DeviceBuilder, configuration: str
+) -> list[ComponentCatalogIndexEntry]:
+    """Return the catalog index entries *configuration* used at its last scan."""
+    catalog = require_catalog(db)
+    if db.devices is None:
+        raise CommandError(ErrorCode.UNAVAILABLE, "Devices are not loaded")
+    if (device := db.devices.get_by_configuration(configuration)) is None:
+        raise_device_not_found(configuration)
+    # Empty: the last scan could not resolve the config to any component.
+    if not device.component_ids:
+        msg = f"{configuration} did not resolve at its last scan; fix and save it, then retry"
+        raise CommandError(ErrorCode.UNAVAILABLE, msg)
+    entries = (catalog.index_entry(component_id) for component_id in device.component_ids)
+    return [entry for entry in entries if entry is not None]
 
 
 def raise_device_not_found(
