@@ -29,10 +29,12 @@ from __future__ import annotations
 import stat
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import controller as devices_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -133,6 +135,55 @@ async def test_update_config_writes_content_to_disk(
 
     assert result is None  # API contract: no payload on success
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
+
+
+async def test_rewrite_yaml_saves_the_rewritten_text_and_returns_the_result(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    with patch.object(
+        devices_controller, "run_in_executor", wraps=devices_controller.run_in_executor
+    ) as spy:
+        result = await controller.rewrite_yaml(
+            "kitchen.yaml", lambda text: (text + "logger:\n", len(text)), message="Add logger"
+        )
+
+    assert spy.await_count == 1
+    assert result == len("esphome:\n  name: kitchen\n")
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == (
+        "esphome:\n  name: kitchen\nlogger:\n"
+    )
+
+
+async def test_rewrite_yaml_leaves_the_file_alone_when_the_rewrite_raises(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    original = "esphome:\n  name: kitchen\n"
+    (tmp_path / "kitchen.yaml").write_text(original, encoding="utf-8")
+
+    def _refuse(_text: str) -> tuple[str, None]:
+        raise CommandError(ErrorCode.NOT_FOUND, "nothing to rewrite")
+
+    with pytest.raises(CommandError):
+        await controller.rewrite_yaml("kitchen.yaml", _refuse, message="unused")
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == original
+
+
+async def test_rewrite_yaml_of_a_missing_config_is_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+
+    with pytest.raises(CommandError) as err:
+        await controller.rewrite_yaml("ghost.yaml", lambda text: (text, None), message="unused")
+
+    assert err.value.code == ErrorCode.NOT_FOUND
+    assert not (tmp_path / "ghost.yaml").exists()
 
 
 async def test_update_config_overwrites_existing_yaml(

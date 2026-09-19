@@ -33,7 +33,7 @@ from ...helpers.secrets_state import (
 )
 from ...helpers.sibling_cli import find_esphome_cmd
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
-from ...helpers.yaml import write_user_yaml
+from ...helpers.yaml import rewrite_user_yaml, write_user_yaml
 from ...models import (
     OTA_PORT,
     AddComponentResponse,
@@ -898,6 +898,23 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             configuration, content, message=f"Restore {configuration} to {restored_from}"
         )
 
+    async def rewrite_yaml[T](
+        self, configuration: str, rewrite: Callable[[str], tuple[str, T]], *, message: str
+    ) -> T:
+        """Read, rewrite and save *configuration* as one executor job under its write lock."""
+
+        def _rewrite() -> T:
+            return rewrite_user_yaml(self._db.settings.rel_path(configuration), rewrite)
+
+        async with self._yaml_write_lock(configuration):
+            try:
+                result = await run_in_executor(_rewrite)
+            except FileNotFoundError as err:
+                raise_device_not_found(configuration, from_exc=err)
+            await self._commit_history(configuration, message)
+        self._after_yaml_write(configuration)
+        return result
+
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
 
@@ -1112,6 +1129,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         async with self._yaml_write_lock(configuration):
             await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
             await self._commit_history(configuration, message or f"Update {configuration}")
+        self._after_yaml_write(configuration)
+
+    def _after_yaml_write(self, configuration: str) -> None:
+        """Drop the editor caches and reload *configuration* after a write."""
         # A write here (device YAML, or the whole-file secrets.yaml editor)
         # can change what any open editor's lint resolves; clear the caches
         # so the next validate re-reads disk instead of the stale result.

@@ -4,12 +4,15 @@ Automations controller — the eight WS commands the frontend speaks.
 See ``docs/API.md`` for the per-command contract. ``upsert`` /
 ``delete`` return a :class:`YamlDiff` the frontend applies in
 place; the backend does not persist the YAML — the existing
-config-write debounce on the device editor handles that.
+config-write debounce on the device editor handles that. The one
+exception is ``delete`` with ``save``, for callers with no editor.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAMLError
@@ -160,8 +163,7 @@ class AutomationsController:
         *configuration* from disk (same override as ``parse`` /
         ``upsert`` / ``delete``).
         """
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        scoped = await run_in_executor(_scope_from_yaml, text)
+        scoped = await self._run_on_config(configuration, yaml, _scope_from_yaml)
         # Scope builders are catalog-free; stamp the catalog title here.
         components = self._db.components
         if components is not None:
@@ -194,8 +196,7 @@ class AutomationsController:
         stale on-disk YAML, fails to find the new automation, and
         the form lands empty.
         """
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        parsed = await run_in_executor(parsing.parse_device_yaml, text)
+        parsed = await self._run_on_config(configuration, yaml, parsing.parse_device_yaml)
         return [p.to_dict() for p in parsed]
 
     @api_command("automations/upsert")
@@ -227,9 +228,8 @@ class AutomationsController:
         """
         tree = AutomationTree.from_dict(automation)
         loc = _decode_location(location)
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        _new_text, diff = await run_in_executor(
-            lambda: writing.render_upsert(text, tree=tree, location=loc),
+        _new_text, diff = await self._run_on_config(
+            configuration, yaml, partial(writing.render_upsert, tree=tree, location=loc)
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
@@ -240,29 +240,47 @@ class AutomationsController:
         configuration: str,
         location: dict,
         yaml: str | None = None,
+        save: bool = False,
         **_kwargs: Any,
     ) -> dict:
         """Delete the automation at *location*.
 
         Accepts the same optional ``yaml`` override as ``upsert``
         so the delete is computed against the frontend's current
-        draft buffer when one exists.
+        draft buffer when one exists. ``save`` writes the on-disk
+        config instead, so it is refused alongside ``yaml``.
         """
+        if not isinstance(save, bool):
+            raise CommandError(ErrorCode.INVALID_ARGS, "save must be a boolean")
+        if save and yaml is not None:
+            raise CommandError(ErrorCode.INVALID_ARGS, "save writes the config on disk; omit yaml")
         loc = _decode_location(location)
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        _new_text, diff = await run_in_executor(
-            lambda: writing.render_delete(text, location=loc),
-        )
+        render = partial(writing.render_delete, location=loc)
+        if not save:
+            _new_text, diff = await self._run_on_config(configuration, yaml, render)
+        elif (devices := self._db.devices) is None:
+            raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
+        else:
+            diff = await devices.rewrite_yaml(
+                configuration, render, message=f"Delete an automation from {configuration}"
+            )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    async def _read_config(self, configuration: str) -> str:
-        """Read a device's YAML off disk in a worker thread."""
-        path = self._db.settings.rel_path(configuration)
-        return await run_in_executor(path.read_text, "utf-8")
+    async def _run_on_config[T](
+        self, configuration: str, yaml: str | None, func: Callable[[str], T]
+    ) -> T:
+        """Run *func* over the *yaml* draft, else the on-disk config, as one executor job."""
+        if yaml is not None:
+            return await run_in_executor(func, yaml)
+
+        def _read_and_run() -> T:
+            return func(self._db.settings.rel_path(configuration).read_text("utf-8"))
+
+        return await run_in_executor(_read_and_run)
 
 
 # ---------------------------------------------------------------------------
