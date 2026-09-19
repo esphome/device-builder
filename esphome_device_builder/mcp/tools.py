@@ -45,11 +45,6 @@ class McpTool[ContextT](NamedTuple):
     schema: dict[str, Any]
     handler: ToolHandler[ContextT]
 
-    @property
-    def definition(self) -> dict[str, Any]:
-        """The ``tools/list`` entry."""
-        return {"name": self.name, "description": self.description, "inputSchema": self.schema}
-
 
 class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
     """Tools keyed by name; *translate* maps a handler's exceptions onto ``McpToolError``."""
@@ -95,7 +90,10 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
 
     def definitions(self) -> list[dict[str, Any]]:
         """Build the ``tools/list`` payload."""
-        return [tool.definition for tool in self.values()]
+        return [
+            {"name": t.name, "description": t.description, "inputSchema": t.schema}
+            for t in self.values()
+        ]
 
     async def call(self, context: ContextT, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Run tool *name* and shape the outcome as a ``tools/call`` result."""
@@ -126,9 +124,9 @@ def validate_args(schema: dict[str, Any], arguments: dict[str, Any]) -> None:
             raise McpToolError(INVALID_ARGS, f"Unknown argument: {key}")
         json_type = properties[key]["type"]
         # JSON Schema: a bool is not an integer or a number.
-        if isinstance(value, bool) and json_type != "boolean":
-            raise McpToolError(INVALID_ARGS, f"Argument {key} must be {json_type}")
-        if not isinstance(value, _JSON_TYPES[json_type]):
+        if not isinstance(value, _JSON_TYPES[json_type]) or (
+            isinstance(value, bool) and json_type != "boolean"
+        ):
             raise McpToolError(INVALID_ARGS, f"Argument {key} must be {json_type}")
 
 
