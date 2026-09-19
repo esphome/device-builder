@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from ...helpers.ansi import redact_concealed
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
-from .helpers import _redact_concealed_secrets
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,7 +49,7 @@ async def validate_config(
         # the escape, so the resolved secret bytes were leaking
         # plain into the validate dialog. Strip the wrapped runs
         # before the line leaves the WS handler.
-        line_transform = _redact_concealed_secrets
+        line_transform = redact_concealed
     await controller._stream_subprocess(
         cmd,
         client,

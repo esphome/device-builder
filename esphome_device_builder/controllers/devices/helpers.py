@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, NoReturn
 from esphome.core.config import FRIENDLY_NAME_MAX_LEN
 from esphome.helpers import friendly_name_slugify, sort_ip_addresses
 
-from ...helpers.ansi import redact_concealed
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
@@ -37,7 +36,6 @@ __all__ = [
     "_drop_unconfigured_dependent_fields",
     "_looks_binary",
     "_normalize_pin_value",
-    "_redact_concealed_secrets",
     "_rewrite_required_yaml_leaf",
     "_validate_archive_configuration",
     "clean_friendly_name",
@@ -234,9 +232,6 @@ def _validate_archive_configuration(configuration: str) -> None:
             f"configuration must be a plain filename without path separators, "
             f"got {configuration!r}",
         )
-
-
-_redact_concealed_secrets = redact_concealed
 
 
 def _normalize_pin_value(value: Any) -> Any:
