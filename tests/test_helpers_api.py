@@ -12,6 +12,9 @@ that changes the scan rules surfaces.
 from __future__ import annotations
 
 import asyncio
+import logging
+
+import pytest
 
 from esphome_device_builder.helpers.api import (
     CollectingClient,
@@ -192,3 +195,11 @@ async def test_collecting_client_without_a_tail_keeps_everything() -> None:
 async def test_collecting_client_satisfies_registered_stream() -> None:
     with registered_stream(CollectingClient(), "m"):
         pass
+
+
+async def test_collecting_client_ignores_other_frames(caplog: pytest.LogCaptureFixture) -> None:
+    client = CollectingClient()
+    with caplog.at_level(logging.DEBUG, logger="esphome_device_builder.helpers.api"):
+        await client.send_event("m", StreamEvent.SNAPSHOT, ["old"])
+    assert list(client.output) == []
+    assert "ignored a snapshot frame" in caplog.text

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import deque
 from collections.abc import Callable, Coroutine, Iterator
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
 from ..models import ErrorCode, StreamEvent
+
+_LOGGER = logging.getLogger(__name__)
 
 # Type alias for command handler functions. ``CommandHandler`` is the
 # erased shape used by the registry side (``collect_api_commands``);
@@ -49,10 +52,13 @@ class CollectingClient:
             self.output.append(data)
         elif event == StreamEvent.RESULT:
             self.result = data
+        else:
+            _LOGGER.debug("CollectingClient ignored a %s frame", event)
 
     async def send_result(self, _message_id: str, result: Any) -> None:
         self.result = result
 
+    # Inert: nothing cancels a collecting client out of band.
     def register_stream(self, message_id: str, task: Any) -> None: ...
 
     def unregister_stream(self, message_id: str) -> None: ...
