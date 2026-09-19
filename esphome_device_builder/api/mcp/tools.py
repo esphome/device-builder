@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,13 +16,13 @@ from ...controllers.devices.helpers import raise_device_not_found, require_catal
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import ANSI_CSI_RE
-from ...helpers.api import CommandError
+from ...helpers.api import CollectingClient, CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
 from ...helpers.secrets_state import validate_secrets_content
 from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
-from ...models import ErrorCode, StreamEvent
+from ...models import ErrorCode
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -84,34 +83,16 @@ _TAIL_LINES = _prop(
 )
 
 
-class _CollectingClient:
-    """Stream-client stand-in keeping the last output lines and the result frame of one call."""
-
-    def __init__(self, tail: int = _DEFAULT_TAIL_LINES) -> None:
-        self.output: deque[str] = deque(maxlen=tail)
-        self.truncated = False
-        self.result: dict[str, Any] | None = None
-
-    async def send_event(self, _message_id: str, event: str, data: Any = None) -> None:
-        if event == StreamEvent.OUTPUT:
-            self.truncated = self.truncated or len(self.output) == self.output.maxlen
-            self.output.append(data)
-        elif event == StreamEvent.RESULT:
-            self.result = data
-
-    def register_stream(self, message_id: str, task: Any) -> None: ...
-
-    def unregister_stream(self, message_id: str) -> None: ...
-
-
 async def _call(
-    db: DeviceBuilder, command: str, *, client: _CollectingClient | None = None, **args: Any
+    db: DeviceBuilder, command: str, *, client: CollectingClient | None = None, **args: Any
 ) -> Any:
     """Invoke a WS command handler; *client* receives any stream frames."""
     handler = db.command_handlers.get(command)
     if handler is None:
         raise CommandError(ErrorCode.UNAVAILABLE, f"{command} is not available")
-    return await handler(client=client or _CollectingClient(), message_id=_MESSAGE_ID, **args)
+    return await handler(
+        client=client or CollectingClient(tail=_DEFAULT_TAIL_LINES), message_id=_MESSAGE_ID, **args
+    )
 
 
 def _refuse_secrets(configuration: Any) -> None:
@@ -283,7 +264,7 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    client = _CollectingClient(tail=_tail_lines(args))
+    client = CollectingClient(tail=_tail_lines(args))
     # Under asyncio.timeout the stream helper re-raises the cancel (TimeoutError below);
     # a handler that swallows it instead still reports through the expired deadline.
     deadline = asyncio.timeout(ESPHOME_CONFIG_TIMEOUT)
