@@ -15,6 +15,7 @@ from ...models import (
     FirmwareJob,
     StreamEvent,
 )
+from .constants import _OUTPUT_TRIM_NOTICE_PREFIX
 from .persistence import job_dict_without_output, read_job_output
 
 if TYPE_CHECKING:
@@ -131,15 +132,17 @@ async def job_report(job: FirmwareJob, *, tail_lines: int) -> dict[str, Any]:
     """
     Return *job*'s fields with the last *tail_lines* cleaned output lines.
 
-    ``output_available`` is false when a terminal job's log could not be read.
+    ``truncated`` covers the retention trim too; ``output_available`` is false
+    when a terminal job's log could not be read.
     """
     snapshot = await initial_snapshot(job, job.job_id)
     lines = snapshot or []
     output = list(deque(lines, maxlen=tail_lines))
+    trimmed = bool(lines) and lines[0].startswith(_OUTPUT_TRIM_NOTICE_PREFIX)
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
         "output": plain_lines(output),
-        "truncated": len(lines) > len(output),
+        "truncated": trimmed or len(lines) > len(output),
         "output_available": snapshot is not None,
     }
 

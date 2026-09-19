@@ -262,6 +262,8 @@ class FirmwareState:
 
     def dependents(self, job_id: str) -> Iterator[FirmwareJob]:
         """Yield the jobs held on *job_id* (an install's upload behind its compile)."""
+        if not job_id:
+            return iter(())
         return (j for j in self.jobs.values() if j.depends_on == job_id)
 
     def dependency_satisfied(self, job: FirmwareJob) -> bool:

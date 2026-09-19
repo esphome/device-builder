@@ -47,6 +47,15 @@ async def test_job_report_reports_an_armed_queued_update() -> None:
     assert report["queued_update_armed"] is True
 
 
+async def test_job_report_counts_the_retention_trim_as_truncation() -> None:
+    job = make_job(output=["... [output trimmed: 8000 earlier line(s) elided]\n", "tail\n"])
+
+    report = await job_report(job, tail_lines=10)
+
+    assert report["output"] == ["... [output trimmed: 8000 earlier line(s) elided]", "tail"]
+    assert report["truncated"] is True
+
+
 async def test_job_report_cleans_concealed_values_and_colour() -> None:
     job = make_job(output=["\x1b[32mpassword: \x1b[8mhunter2secret\x1b[28m\x1b[0m\n"])
 
@@ -80,3 +89,4 @@ def test_dependents_yields_the_jobs_held_on_another() -> None:
 
     assert list(state.dependents("compile")) == [upload_job]
     assert list(state.dependents("upload")) == []
+    assert list(state.dependents("")) == []
