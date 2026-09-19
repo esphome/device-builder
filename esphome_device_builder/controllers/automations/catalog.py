@@ -189,6 +189,7 @@ _STORES_BY_TYPE: dict[str, LazyBodyStore[Any]] = {
     "light_effects": _LIGHT_EFFECT_STORE,
     "filters": _FILTER_STORE,
 }
+AUTOMATION_TYPES = tuple(_STORES_BY_TYPE)
 
 
 # ---------------------------------------------------------------------------
