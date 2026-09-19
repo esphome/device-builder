@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from ...helpers.api import registered_stream
+from ...helpers.api import CommandError, registered_stream
 from ...helpers.process import kill_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
-from ...models import OTA_PORT, StreamEvent
+from ...models import OTA_PORT, ErrorCode, StreamEvent
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -75,6 +78,9 @@ async def stream_subprocess(
     message_id: str,
     *,
     line_transform: Callable[[str], str] | None = None,
+    slot: asyncio.Semaphore | None = None,
+    slot_timeout: float = 30.0,
+    run_timeout: float | None = None,
 ) -> None:
     """
     Run a CLI subprocess and stream its merged stdout/stderr to a single client.
@@ -82,53 +88,85 @@ async def stream_subprocess(
     Registers the running task with the client so a peer
     ``devices/stop_stream`` (or a WS disconnect) can cancel it
     and kill the subprocess. ``line_transform`` is applied per
-    line before it leaves the WS handler; ``validate_config``
-    uses it to scrub resolved secrets that ``esphome config``
-    leaks via the ANSI conceal SGR.
+    line before it leaves the WS handler. With *slot*, the run
+    waits up to *slot_timeout* for a permit and holds it to the
+    end; a run longer than *run_timeout* is killed. Either bound
+    answers ``UNAVAILABLE``.
     """
     # ``registered_stream`` enters before the first await so an early
-    # ``stop_stream`` (during subprocess spawn) still finds and cancels
-    # this task.
+    # ``stop_stream`` (during the slot wait or subprocess spawn) still
+    # finds and cancels this task.
     with registered_stream(client, message_id):
-        env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
-        proc: asyncio.subprocess.Process | None = None
+        if slot is not None:
+            try:
+                async with asyncio.timeout(slot_timeout):
+                    await slot.acquire()
+            except TimeoutError as err:
+                _LOGGER.warning(
+                    "Stream %s refused: no slot freed within %ss", message_id, slot_timeout
+                )
+                msg = "Too many concurrent runs; retry shortly"
+                raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         try:
-            proc = await create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                env=env,
-            )
-            assert proc.stdout is not None
-            # Use the shared `\n`/`\r` splitter so esptool / PlatformIO
-            # carriage-return progress lines surface live; strip the
-            # terminator since the frontend's logs view appends every
-            # event as a new line.
-            async for line in iter_lines_with_progress(proc.stdout):
-                payload = line.rstrip("\n\r")
-                if line_transform is not None:
-                    payload = line_transform(payload)
-                await client.send_event(message_id, StreamEvent.OUTPUT, payload)
-            exit_code = await proc.wait()
-        except asyncio.CancelledError:
-            # Synchronous kill only; no awaits in the cancel path.
-            # The finally block reaps the process. ``proc`` may be
-            # None if cancellation arrived before spawn returned.
-            if proc is not None and proc.returncode is None:
-                kill_quietly(proc)
-            # Honour the asyncio cancellation contract: only swallow
-            # if no outstanding cancel requests remain (asyncio.timeout
-            # / TaskGroup may have called Task.uncancel()).
-            if (current := asyncio.current_task()) and current.cancelling():
+            async with asyncio.timeout(run_timeout) as deadline:
+                exit_code = await _run_streaming(cmd, client, message_id, line_transform)
+        except TimeoutError as err:
+            if not deadline.expired():
                 raise
-            return
+            msg = f"Run exceeded {run_timeout:.0f}s and was stopped"
+            raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         finally:
-            if proc is not None and proc.returncode is None:
-                # Reap so the transport closes cleanly; shielded so an
-                # additional cancellation doesn't strand the subprocess.
-                with contextlib.suppress(asyncio.CancelledError):
-                    await asyncio.shield(proc.wait())
-
+            if slot is not None:
+                slot.release()
+        if exit_code is None:
+            return
         await client.send_event(
             message_id, "result", {"success": exit_code == 0, "code": exit_code}
         )
+
+
+async def _run_streaming(
+    cmd: list[str],
+    client: Any,
+    message_id: str,
+    line_transform: Callable[[str], str] | None,
+) -> int | None:
+    """Spawn *cmd* and forward its lines; ``None`` when a swallowed cancel ended the run."""
+    env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
+    proc: asyncio.subprocess.Process | None = None
+    try:
+        proc = await create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+        assert proc.stdout is not None
+        # Use the shared `\n`/`\r` splitter so esptool / PlatformIO
+        # carriage-return progress lines surface live; strip the
+        # terminator since the frontend's logs view appends every
+        # event as a new line.
+        async for line in iter_lines_with_progress(proc.stdout):
+            payload = line.rstrip("\n\r")
+            if line_transform is not None:
+                payload = line_transform(payload)
+            await client.send_event(message_id, StreamEvent.OUTPUT, payload)
+        return await proc.wait()
+    except asyncio.CancelledError:
+        # Synchronous kill only; no awaits in the cancel path.
+        # The finally block reaps the process. ``proc`` may be
+        # None if cancellation arrived before spawn returned.
+        if proc is not None and proc.returncode is None:
+            kill_quietly(proc)
+        # Honour the asyncio cancellation contract: only swallow
+        # if no outstanding cancel requests remain (asyncio.timeout
+        # / TaskGroup may have called Task.uncancel()).
+        if (current := asyncio.current_task()) and current.cancelling():
+            raise
+        return None
+    finally:
+        if proc is not None and proc.returncode is None:
+            # Reap so the transport closes cleanly; shielded so an
+            # additional cancellation doesn't strand the subprocess.
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(proc.wait())

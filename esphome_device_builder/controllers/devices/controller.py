@@ -1329,7 +1329,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         cmd: list[str],
         client: Any,
         message_id: str,
-        *,
-        line_transform: Callable[[str], str] | None = None,
+        **kwargs: Any,
     ) -> None:
-        await logs.stream_subprocess(cmd, client, message_id, line_transform=line_transform)
+        await logs.stream_subprocess(cmd, client, message_id, **kwargs)

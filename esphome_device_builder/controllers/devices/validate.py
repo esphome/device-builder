@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING, Any
 
-from ...helpers.api import CommandError
-from ...models import ErrorCode
+from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
 from .helpers import _redact_concealed_secrets
 
 if TYPE_CHECKING:
@@ -15,14 +13,11 @@ if TYPE_CHECKING:
 
     from .controller import DevicesController
 
-# Each ``esphome config`` child imports ``esphome.components`` (~70 MiB RSS).
-# A stream holds its permit until the client drains it, so this pool is
-# separate from the bounded ``_config_semaphore`` in ``helpers/device_yaml``.
+# A stream holds its permit until the client drains it: a separate budget from
+# ``_config_semaphore``.
 _MAX_CONCURRENT_VALIDATES = 3
 _QUEUE_TIMEOUT = 30.0
 _validate_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_VALIDATES)
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def validate_config(
@@ -55,18 +50,12 @@ async def validate_config(
         # plain into the validate dialog. Strip the wrapped runs
         # before the line leaves the WS handler.
         line_transform = _redact_concealed_secrets
-    if _validate_semaphore.locked():
-        _LOGGER.debug("Validate of %s is queued behind the running pool", configuration)
-    try:
-        async with asyncio.timeout(_QUEUE_TIMEOUT):
-            await _validate_semaphore.acquire()
-    except TimeoutError as err:
-        _LOGGER.warning(
-            "Validate of %s refused: the pool stayed full for %ss", configuration, _QUEUE_TIMEOUT
-        )
-        msg = "Too many validations are running; retry shortly"
-        raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
-    try:
-        await controller._stream_subprocess(cmd, client, message_id, line_transform=line_transform)
-    finally:
-        _validate_semaphore.release()
+    await controller._stream_subprocess(
+        cmd,
+        client,
+        message_id,
+        line_transform=line_transform,
+        slot=_validate_semaphore,
+        slot_timeout=_QUEUE_TIMEOUT,
+        run_timeout=ESPHOME_CONFIG_TIMEOUT,
+    )

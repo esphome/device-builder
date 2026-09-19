@@ -12,8 +12,11 @@ import orjson
 import pytest
 
 from esphome_device_builder.api.ws import WebSocketClient
-from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import DevicesController, validate
 from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
+from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
 
@@ -594,7 +597,7 @@ async def test_validate_config_off_attaches_redactor_transform(
     captured: dict[str, Any] = {}
 
     async def fake_stream(
-        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None
+        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None, **_kw: Any
     ) -> None:
         captured["line_transform"] = line_transform
 
@@ -613,7 +616,7 @@ async def test_validate_config_on_passes_no_line_transform(
     captured: dict[str, Any] = {}
 
     async def fake_stream(
-        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None
+        _cmd: list[str], _client: Any, _mid: str, *, line_transform: Any = None, **_kw: Any
     ) -> None:
         captured["line_transform"] = line_transform
 
@@ -683,3 +686,130 @@ def test_redact_concealed_secrets_leaves_unwrapped_lines_alone() -> None:
 
     coloured = "\x1b[32mINFO\x1b[0m starting up"
     assert _redact_concealed_secrets(coloured) == coloured
+
+
+# ---------------------------------------------------------------------------
+# Slots and the run bound
+# ---------------------------------------------------------------------------
+
+
+def _sleeper(seconds: int) -> list[str]:
+    return [sys.executable, "-c", f"import time\nprint('up', flush=True)\ntime.sleep({seconds})\n"]
+
+
+def _recording_client() -> tuple[WebSocketClient, list[tuple[str, str, Any]]]:
+    client = _make_client()
+    events: list[tuple[str, str, Any]] = []
+
+    async def capture(mid: str, event: str, data: Any = None) -> None:
+        events.append((mid, event, data))
+
+    client.send_event = capture  # type: ignore[method-assign]
+    return client, events
+
+
+async def _wait_for_output(events: list[tuple[str, str, Any]], mid: str) -> None:
+    for _ in range(100):
+        if any(m == mid and ev == "output" for m, ev, _ in events):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"{mid} never produced output")
+
+
+async def test_stream_subprocess_refuses_when_no_slot_frees_in_time() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    holder = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot))
+    await _wait_for_output(events, "s-1")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl._stream_subprocess(_sleeper(60), client, "s-2", slot=slot, slot_timeout=0.05)
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(holder, return_exceptions=True)
+    assert not slot.locked()
+
+
+async def test_stream_subprocess_waits_for_a_slot_then_runs() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    holder = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot))
+    await _wait_for_output(events, "s-1")
+
+    second = [sys.executable, "-c", "print('second')"]
+    waiter = asyncio.create_task(
+        ctrl._stream_subprocess(second, client, "s-2", slot=slot, slot_timeout=10)
+    )
+    await asyncio.sleep(0.2)
+    assert not waiter.done()
+
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(holder, return_exceptions=True)
+    await asyncio.wait_for(waiter, timeout=10)
+    assert ("s-2", "result", {"success": True, "code": 0}) in events
+
+
+async def test_stop_stream_cancels_a_run_waiting_for_a_slot() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    holder = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot))
+    await _wait_for_output(events, "s-1")
+
+    waiter = asyncio.create_task(
+        ctrl._stream_subprocess(_sleeper(60), client, "s-2", slot=slot, slot_timeout=30)
+    )
+    await asyncio.sleep(0.05)
+    assert client.cancel_stream("s-2") is True
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(holder, return_exceptions=True)
+    assert not slot.locked()
+
+
+async def test_stream_subprocess_run_bound_stops_the_child_and_frees_the_slot() -> None:
+    ctrl = _make_controller()
+    client, _events = _recording_client()
+    slot = asyncio.Semaphore(1)
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot, run_timeout=0.3)
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+    assert "exceeded" in excinfo.value.message
+    assert not slot.locked()
+
+
+async def test_validate_config_streams_through_the_pool(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = _make_controller_with_settings(make_controller, tmp_path, ["esphome"])
+    captured: dict[str, Any] = {}
+
+    async def fake_stream(cmd: list[str], _client: Any, _mid: str, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
+    await ctrl.validate_config(
+        configuration="kitchen.yaml", show_secrets=False, client=MagicMock(), message_id="m"
+    )
+    assert captured["slot"] is validate._validate_semaphore
+    assert captured["slot_timeout"] == validate._QUEUE_TIMEOUT
+    assert captured["run_timeout"] == ESPHOME_CONFIG_TIMEOUT
+
+
+async def test_stream_subprocess_lets_a_foreign_timeout_through() -> None:
+    ctrl = _make_controller()
+    client = _make_client()
+
+    async def slow_send(_mid: str, _event: str, _data: Any = None) -> None:
+        raise TimeoutError("socket")
+
+    client.send_event = slow_send  # type: ignore[method-assign]
+    with pytest.raises(TimeoutError, match="socket"):
+        await ctrl._stream_subprocess(
+            [sys.executable, "-c", "print('x')"], client, "s-1", run_timeout=30
+        )
