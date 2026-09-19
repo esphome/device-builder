@@ -201,6 +201,8 @@ class Device(DashboardModel):
     # (mid-edit drafts) — frontend falls back to rendering the
     # whole ``loaded_integrations`` list flat.
     directly_referenced_integrations: list[str] = field(default_factory=list)
+    # Catalog ids the resolved YAML references (``key`` and ``key.platform``), scan order.
+    component_ids: list[str] = field(default_factory=list)
 
     # Monitor-observed state; carried whole through rebuilds.
     runtime_state: DeviceRuntimeState = field(default_factory=DeviceRuntimeState)

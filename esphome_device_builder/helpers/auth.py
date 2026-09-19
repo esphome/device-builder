@@ -19,6 +19,7 @@ from aiohttp import web
 
 from ..constants import HA_SUPERVISOR_IP
 from .json import dumps, loads_mapping_or_warn
+from .origin import host_in_allowlist, request_origin_allowed
 from .storage import Store
 
 if TYPE_CHECKING:
@@ -441,6 +442,21 @@ def _unauthorized(message: str = "Authentication required") -> web.Response:
 # The site skips auth, so the TCP peer is the only gate — a bridge add-on or
 # LAN client reaching the bound address gets 403, not the dashboard.
 _TRUSTED_INGRESS_PEERS = frozenset({"127.0.0.1", "::1", HA_SUPERVISOR_IP})
+
+
+def reject_untrusted_browser_request(request: web.Request) -> web.Response | None:
+    """403 a cross-origin browser request on a non-trusted site; ``None`` lets it through."""
+    origin = request.headers.get("Origin")
+    if not origin or request.app.get("trusted_site", False):
+        return None
+    trusted_domains = request.app["device_builder"].settings.trusted_domains
+    if not request_origin_allowed(origin, request.host, trusted_domains):
+        _LOGGER.debug("Rejecting cross-origin request: origin=%s host=%s", origin, request.host)
+        return web.Response(status=403, text="Cross-origin connection rejected")
+    if not host_in_allowlist(request.host, trusted_domains):
+        _LOGGER.debug("Rejecting request: host not in trusted-domains: host=%s", request.host)
+        return web.Response(status=403, text="Host not in trusted-domains allowlist")
+    return None
 
 
 @web.middleware

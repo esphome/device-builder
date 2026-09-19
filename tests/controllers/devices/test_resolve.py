@@ -4,24 +4,18 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import pytest
-from esphome.core import EsphomeError
 
 from esphome_device_builder.controllers.devices import resolve as resolve_module
 from esphome_device_builder.controllers.devices.resolve import (
-    load_config,
     resolve_config,
     resolve_config_subprocess,
 )
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 
 from .conftest import ESPHOME_CONFIG_STUB_TARGET, MakeControllerFactory
-
-if TYPE_CHECKING:
-    from esphome_device_builder.controllers.config import DashboardSettings
 
 PLAIN_YAML = "esphome:\n  name: kitchen\n\napi:\n"
 INLINE_PACKAGE_YAML = "packages:\n  v:\n    api:\n      port: 6054\n\nesphome:\n  name: kitchen\n"
@@ -130,9 +124,7 @@ async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     monkeypatch.setattr(resolve_module, "ESPHOME_CONFIG_TIMEOUT", 0.05)
 
-    def stalled(
-        settings: DashboardSettings, configuration: str | Path, *, strict: bool = False
-    ) -> tuple[Path, dict[str, Any]]:
+    def stalled(settings, configuration):
         time.sleep(0.3)
         return tmp_path / "kitchen.yaml", {"esphome": {"name": "kitchen"}}
 
@@ -176,16 +168,3 @@ async def test_resolve_config_spawn_false_skips_the_subprocess(
     assert resolved is False
     assert config is not None and "packages" in config
     subprocess.assert_not_awaited()
-
-
-async def test_load_config_strict_raises_the_loader_error(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """``strict=True`` surfaces the parse diagnostic instead of ``None``."""
-    ctrl = make_controller(tmp_path, esphome_cmd=[])
-    (tmp_path / "bad.yaml").write_text("- just\n- a list\n")
-
-    _, lenient = await load_config(ctrl, "bad.yaml")
-    assert lenient is None
-    with pytest.raises(EsphomeError, match="not a mapping"):
-        await load_config(ctrl, "bad.yaml", strict=True)

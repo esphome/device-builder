@@ -34,6 +34,7 @@ from ._parsing import (
     config_has_top_level_block,
     configuration_stem,
     detect_platform_from_yaml,
+    extract_component_ids,
     extract_config_content_fingerprint,
     extract_directly_referenced_integrations,
     extract_esphome_meta_from_config,
@@ -358,6 +359,7 @@ def load_device_from_storage(
         loaded_integrations=loaded_integrations,
         loaded_platforms=loaded_platforms,
         directly_referenced_integrations=directly_referenced_integrations,
+        component_ids=extract_component_ids(resolved_config),
         has_pending_changes=has_pending,
         pending_changes_via_hash=pending_via_hash,
         update_available=update_available,
@@ -472,14 +474,6 @@ def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: st
 
 
 def load_device_yaml(path: Path) -> dict | None:
-    """Load *path* like :func:`load_device_yaml_strict`, but unparsable input is ``None``."""
-    try:
-        return load_device_yaml_strict(path)
-    except EsphomeError:
-        return None
-
-
-def load_device_yaml_strict(path: Path) -> dict:
     """Load *path* with ESPHome's YAML loader; return the top-level mapping.
 
     Resolves ``!secret`` / ``!include`` / etc. like a real compile,
@@ -487,7 +481,7 @@ def load_device_yaml_strict(path: Path) -> dict:
     ESPHome's ``resolve_packages``, so callers see what the compiler
     actually sees — ``api:`` / ``wifi:`` / target-platform blocks
     contributed by packages register as top-level keys here — and
-    raises ``EsphomeError`` when the file fails to parse or isn't a mapping.
+    returns ``None`` when the file isn't a mapping or fails to parse.
 
     Package resolution is best-effort: a remote (git) package needs
     network access, an invalid package definition fails ESPHome's
@@ -501,12 +495,15 @@ def load_device_yaml_strict(path: Path) -> dict:
     used by the device-card flags — share one entry point with the
     same error handling and the same package-merge contract.
     """
-    # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
-    # pass the ``Path`` directly — handing it a stringified path
-    # raises ``AttributeError`` deep inside the loader.
-    config = yaml_util.load_yaml(path)
+    try:
+        # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
+        # pass the ``Path`` directly — handing it a stringified path
+        # raises ``AttributeError`` deep inside the loader.
+        config = yaml_util.load_yaml(path)
+    except EsphomeError:
+        return None
     if not isinstance(config, dict):
-        raise EsphomeError(f"{path.name} is not a mapping")
+        return None
     # ``packages:`` is a separate pass in the ESPHome pipeline
     # (``do_packages_pass`` + ``merge_packages`` in
     # ``esphome.config.validate_config``, wrapped for external callers
@@ -542,9 +539,9 @@ def load_device_yaml_strict(path: Path) -> dict:
     # untyped) and was further passed through ``resolve_packages``
     # (also untyped), so it stays ``Any`` despite the
     # ``isinstance(config, dict)`` narrowing earlier. Cast at the
-    # return so the public ``dict`` signature is honest
+    # return so the public ``dict | None`` signature is honest
     # without forcing every caller to re-narrow on receive.
-    return cast("dict[Any, Any]", config)
+    return cast("dict[Any, Any] | None", config)
 
 
 def resolution_incomplete(config: dict | None) -> bool:
