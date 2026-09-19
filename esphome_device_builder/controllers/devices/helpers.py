@@ -92,9 +92,9 @@ def scanned_component_entries(
         raise CommandError(ErrorCode.UNAVAILABLE, "Devices are not loaded")
     if (device := db.devices.get_by_configuration(configuration)) is None:
         raise_device_not_found(configuration)
-    # A resolved config always carries ``esphome``; an empty list means the scan could not load it.
+    # Empty: the last scan could not resolve the config to any component.
     if not device.component_ids:
-        msg = f"{configuration} could not be loaded at its last scan; fix and save it, then retry"
+        msg = f"{configuration} did not resolve at its last scan; fix and save it, then retry"
         raise CommandError(ErrorCode.UNAVAILABLE, msg)
     entries = (catalog.index_entry(component_id) for component_id in device.component_ids)
     return [entry for entry in entries if entry is not None]
