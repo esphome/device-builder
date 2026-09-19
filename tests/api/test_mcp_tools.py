@@ -207,19 +207,23 @@ async def test_validate_config_removes_secret_values(
     (mcp_db.settings.config_dir / "secrets.yml").write_text(
         "ota_pass: 123456\nnested:\n  - token: abcdefgh\nborn: 2024-01-31\n"
     )
+    (mcp_db.settings.config_dir / "sub").mkdir()
+    (mcp_db.settings.config_dir / "sub" / "secrets.yaml").write_text("local_key: qwertyui\n")
     mcp_db.command_handlers["devices/validate"] = validate_stub(
         [
             (StreamEvent.OUTPUT, "  username: alice_smith\n"),
             (StreamEvent.OUTPUT, "  port: 1883 password: 123456\n"),
             (StreamEvent.OUTPUT, "  token: abcdefgh keep: true 2024-01-31\n"),
+            (StreamEvent.OUTPUT, "  local: qwertyui\n"),
             (StreamEvent.RESULT, {"success": True, "code": 0}),
         ]
     )
-    data = await mcp_call_json(mcp_client, "validate_config", {"configuration": "kitchen.yaml"})
+    data = await mcp_call_json(mcp_client, "validate_config", {"configuration": "sub/kitchen.yaml"})
     assert data["output"] == [
         "  username: <removed>",
         "  port: 1883 password: <removed>",
         "  token: <removed> keep: true <removed>",
+        "  local: <removed>",
     ]
 
 
@@ -673,6 +677,11 @@ async def test_get_automation_docs_example_resolves_against_the_catalog(
     example = [{"type": "actions", "id": "light.turn_on"}]
     docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": example})
     assert "config_entries" in docs["actions/light.turn_on"]
+    is_error, text = await mcp_call(
+        mcp_client, "get_automation_docs", {"refs": [{"type": "actions", "id": "nope.x"}]}
+    )
+    assert is_error
+    assert text == "not_found: Unknown automation refs: actions/nope.x"
     for bad in ({"type": "action", "id": "light.turn_on"}, {"type": "actions"}, "actions/x"):
         is_error, text = await mcp_call(mcp_client, "get_automation_docs", {"refs": [bad]})
         assert is_error

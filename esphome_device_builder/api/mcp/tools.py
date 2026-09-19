@@ -146,11 +146,11 @@ def _search_limit(args: dict[str, Any]) -> int:
     return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
 
 
-def _load_secrets(config_dir: Path) -> dict[Any, Any]:
-    """Return the union of every secrets file spelling; raise when one exists but is unreadable."""
+def _load_secrets(*directories: Path) -> dict[Any, Any]:
+    """Return the union of every secrets file in *directories*; raise when one is unreadable."""
     secrets: dict[Any, Any] = {}
-    for filename in SECRETS_FILES:
-        path = config_dir / filename
+    for path in {directory / filename for directory in directories for filename in SECRETS_FILES}:
+        filename = path.name
         try:
             content = path.read_text("utf-8")
         except FileNotFoundError:
@@ -274,7 +274,9 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
     except TimeoutError:
         if not deadline.expired():
             raise
-    secrets = await run_in_executor(_load_secrets, db.settings.config_dir)
+    # esphome resolves ``!secret`` beside the device YAML first, then in the config root.
+    device_dir = db.settings.rel_path(args["configuration"]).parent
+    secrets = await run_in_executor(_load_secrets, db.settings.config_dir, device_dir)
     output = _redact_secret_values(_strip_lines(list(client.output)), secrets)
     if deadline.expired():
         return {
@@ -547,6 +549,12 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
             msg = f"each ref needs a type of {', '.join(AUTOMATION_TYPES)} and an id"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
     bodies = await _call(db, "automations/get_bodies", **args)
+    if missing := [
+        f"{ref['type']}/{ref['id']}"
+        for ref in args["refs"]
+        if f"{ref['type']}/{ref['id']}" not in bodies
+    ]:
+        raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
     return _prune(bodies, include_advanced=include_advanced)
 
 
