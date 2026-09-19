@@ -71,7 +71,7 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
             msg = f"Tool {name} is already registered"
             raise ValueError(msg)
         for key, prop in properties.items():
-            if prop.get("type") not in _JSON_TYPES:
+            if not isinstance(prop.get("type"), str) or prop["type"] not in _JSON_TYPES:
                 msg = f"Tool {name}: property {key} needs a type from {sorted(_JSON_TYPES)}"
                 raise ValueError(msg)
             if unsupported := set(prop) - _PROPERTY_KEYS:
@@ -109,6 +109,7 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         except Exception as err:
             translated = self._translate(err)
             if translated is not None:
+                _LOGGER.debug("MCP tool %s failed: %s: %s", name, translated.code, translated)
                 return _error(translated)
             _LOGGER.exception("MCP tool %s failed", name)
             return _error(McpToolError(INTERNAL_ERROR, f"Tool failed: {name}"))
@@ -125,9 +126,9 @@ def validate_args(schema: dict[str, Any], arguments: dict[str, Any]) -> None:
             raise McpToolError(INVALID_ARGS, f"Unknown argument: {key}")
         json_type = properties[key]["type"]
         # JSON Schema: a bool is not an integer or a number.
-        if isinstance(value, bool) != (json_type == "boolean") or not isinstance(
-            value, _JSON_TYPES[json_type]
-        ):
+        if isinstance(value, bool) and json_type != "boolean":
+            raise McpToolError(INVALID_ARGS, f"Argument {key} must be {json_type}")
+        if not isinstance(value, _JSON_TYPES[json_type]):
             raise McpToolError(INVALID_ARGS, f"Argument {key} must be {json_type}")
 
 
