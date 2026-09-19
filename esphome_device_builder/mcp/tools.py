@@ -13,11 +13,11 @@ _LOGGER = logging.getLogger(__name__)
 type ToolHandler[ContextT] = Callable[[ContextT, dict[str, Any]], Awaitable[Any]]
 type ErrorTranslator = Callable[[Exception], McpToolError | None]
 
-# Prefixes on a failed tool's text, so the model can tell the failure classes apart.
+# Code words prefixed on a failed tool's text.
 INVALID_ARGS = "invalid_args"
 INTERNAL_ERROR = "internal_error"
 
-# The only schema keywords ``validate_args`` enforces; a registration may not advertise others.
+# Schema keywords ``validate_args`` enforces.
 _PROPERTY_KEYS = frozenset({"type", "description"})
 _JSON_TYPES: dict[str, type | tuple[type, ...]] = {
     "string": str,
@@ -65,7 +65,7 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         properties: dict[str, dict[str, Any]] | None = None,
         required: tuple[str, ...] = (),
     ) -> Callable[[ToolHandler[ContextT]], ToolHandler[ContextT]]:
-        """Register the decorated coroutine as tool *name*; the declaration is checked here."""
+        """Register the decorated coroutine as tool *name*."""
         properties = properties or {}
         if name in self:
             msg = f"Tool {name} is already registered"
@@ -124,7 +124,7 @@ def validate_args(schema: dict[str, Any], arguments: dict[str, Any]) -> None:
         if key not in properties:
             raise McpToolError(INVALID_ARGS, f"Unknown argument: {key}")
         json_type = properties[key]["type"]
-        # A bool is only a boolean: JSON Schema keeps it out of integer and number.
+        # JSON Schema: a bool is not an integer or a number.
         if isinstance(value, bool) != (json_type == "boolean") or not isinstance(
             value, _JSON_TYPES[json_type]
         ):

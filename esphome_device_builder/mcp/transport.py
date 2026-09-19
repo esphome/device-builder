@@ -43,7 +43,7 @@ class McpServer[ContextT]:
         }
 
     async def handle(self, context: ContextT, request: web.Request) -> web.Response:
-        """Answer one POST: transport checks, then the JSON-RPC request; notifications get 202."""
+        """Answer one POST; a notification gets an empty 202."""
         rejected = _transport_check(request)
         if rejected is not None:
             return rejected
@@ -98,7 +98,7 @@ def _transport_check(request: web.Request) -> web.Response | None:
     version = request.headers.get(PROTOCOL_VERSION_HEADER)
     if version is not None and version not in SUPPORTED_PROTOCOL_VERSIONS:
         return web.Response(status=400, text=f"Unsupported {PROTOCOL_VERSION_HEADER}")
-    # A JSON body forces a CORS preflight; a text/plain simple request never reaches a tool.
+    # Forces a CORS preflight; a text/plain simple request never reaches a tool.
     if request.content_type != "application/json":
         return web.Response(status=415, text="Content-Type must be application/json")
     return None
@@ -125,7 +125,7 @@ def _object_param(container: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def _error_response(msg_id: Any, code: int, message: str) -> web.Response:
-    """Build a JSON-RPC error reply (HTTP 200; the error rides in the body)."""
+    """Build a JSON-RPC error reply (HTTP 200)."""
     return json_response(
         {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
     )
