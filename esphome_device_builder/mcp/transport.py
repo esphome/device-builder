@@ -56,22 +56,24 @@ class McpServer[ContextT]:
         if "id" not in msg:
             return web.Response(status=202)
         try:
-            result = await self._dispatch(context, msg["method"], msg.get("params"))
+            result = await self._dispatch(context, msg)
         except _RpcError as err:
             return _error_response(msg["id"], err.code, str(err))
         return json_response({"jsonrpc": "2.0", "id": msg["id"], "result": result})
 
-    async def _dispatch(self, context: ContextT, method: str, params: Any) -> Any:
-        handler = self._methods.get(method)
+    async def _dispatch(self, context: ContextT, msg: dict[str, Any]) -> Any:
+        handler = self._methods.get(msg["method"])
         if handler is None:
-            raise _RpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
-        return await handler(context, _object_param(params, "params"))
+            raise _RpcError(METHOD_NOT_FOUND, f"Method not found: {msg['method']}")
+        return await handler(context, _object_param(msg, "params"))
 
     async def _initialize(self, _context: ContextT, params: dict[str, Any]) -> dict[str, Any]:
         requested = params.get("protocolVersion")
         return {
             "protocolVersion": (
-                requested if requested in SUPPORTED_PROTOCOL_VERSIONS else DEFAULT_PROTOCOL_VERSION
+                requested
+                if isinstance(requested, str) and requested in SUPPORTED_PROTOCOL_VERSIONS
+                else DEFAULT_PROTOCOL_VERSION
             ),
             "capabilities": {"tools": {}},
             "serverInfo": self._server_info,
@@ -87,7 +89,7 @@ class McpServer[ContextT]:
         name = params.get("name")
         if not isinstance(name, str) or name not in self._tools:
             raise _RpcError(INVALID_PARAMS, f"Unknown tool: {name}")
-        arguments = _object_param(params.get("arguments"), "arguments")
+        arguments = _object_param(params, "arguments")
         return await self._tools.call(context, name, arguments)
 
 
@@ -112,12 +114,13 @@ def _is_valid_message(msg: Any) -> bool:
     return "id" not in msg or (isinstance(msg_id, (str, int)) and not isinstance(msg_id, bool))
 
 
-def _object_param(value: Any, what: str) -> dict[str, Any]:
-    """Default a missing *what* to ``{}``; anything but an object is INVALID_PARAMS."""
-    if value is None:
+def _object_param(container: dict[str, Any], key: str) -> dict[str, Any]:
+    """Read the object at *key*; an omitted key is ``{}`` but any other value is INVALID_PARAMS."""
+    if key not in container:
         return {}
+    value = container[key]
     if not isinstance(value, dict):
-        raise _RpcError(INVALID_PARAMS, f"{what} must be an object")
+        raise _RpcError(INVALID_PARAMS, f"{key} must be an object")
     return value
 
 

@@ -17,6 +17,8 @@ type ErrorTranslator = Callable[[Exception], McpToolError | None]
 INVALID_ARGS = "invalid_args"
 INTERNAL_ERROR = "internal_error"
 
+# The only schema keywords ``validate_args`` enforces; a registration may not advertise others.
+_PROPERTY_KEYS = frozenset({"type", "description"})
 _JSON_TYPES: dict[str, type | tuple[type, ...]] = {
     "string": str,
     "integer": int,
@@ -71,6 +73,9 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         for key, prop in properties.items():
             if prop.get("type") not in _JSON_TYPES:
                 msg = f"Tool {name}: property {key} needs a type from {sorted(_JSON_TYPES)}"
+                raise ValueError(msg)
+            if unsupported := set(prop) - _PROPERTY_KEYS:
+                msg = f"Tool {name}: property {key} has unenforced keywords {sorted(unsupported)}"
                 raise ValueError(msg)
         if missing := set(required) - set(properties):
             msg = f"Tool {name}: required names not in properties: {sorted(missing)}"

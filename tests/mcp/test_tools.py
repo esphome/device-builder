@@ -129,6 +129,12 @@ async def test_call_shapes_results_and_errors(
     assert result["content"][0]["type"] == "text"
 
 
+def test_registration_rejects_keywords_the_validator_does_not_enforce() -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    with pytest.raises(ValueError, match=r"unenforced keywords \['enum'\]"):
+        tools.tool("t", "desc", {"a": {"type": "string", "enum": ["x"]}})
+
+
 def test_registration_rejects_unknown_required_names_and_duplicates() -> None:
     tools: ToolRegistry[None] = ToolRegistry()
     with pytest.raises(ValueError, match=r"required names not in properties: \['b'\]"):

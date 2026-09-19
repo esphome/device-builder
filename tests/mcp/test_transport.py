@@ -115,8 +115,11 @@ async def test_unknown_method(client: Any) -> None:
     }
 
 
-async def test_params_must_be_an_object(client: Any) -> None:
-    assert (await _rpc(client, method="ping", params=["x"]))["error"]["code"] == INVALID_PARAMS
+@pytest.mark.parametrize("params", [["x"], None], ids=["array", "null"])
+async def test_params_must_be_an_object_when_present(client: Any, params: Any) -> None:
+    body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": params}
+    resp = await client.post(_PATH, json=body)
+    assert (await resp.json())["error"]["code"] == INVALID_PARAMS
 
 
 @pytest.mark.parametrize("version", sorted(SUPPORTED_PROTOCOL_VERSIONS))
@@ -125,7 +128,7 @@ async def test_initialize_echoes_supported_version(client: Any, version: str) ->
     assert reply["result"]["protocolVersion"] == version
 
 
-@pytest.mark.parametrize("requested", ["2025-03-26", "2099-01-01", 7])
+@pytest.mark.parametrize("requested", ["2025-03-26", "2099-01-01", 7, ["2025-06-18"], {"v": 1}])
 async def test_initialize_falls_back_to_default_version(client: Any, requested: Any) -> None:
     reply = await _rpc(client, method="initialize", params={"protocolVersion": requested})
     assert reply["result"]["protocolVersion"] == DEFAULT_PROTOCOL_VERSION
@@ -171,6 +174,7 @@ async def test_tools_call_passes_context_and_arguments(client: Any) -> None:
         pytest.param({"name": "nope"}, id="unknown_tool"),
         pytest.param({"name": 5}, id="non_string_name"),
         pytest.param({"name": "echo", "arguments": ["x"]}, id="arguments_not_object"),
+        pytest.param({"name": "echo", "arguments": None}, id="arguments_null"),
     ],
 )
 async def test_tools_call_invalid_params(client: Any, params: dict[str, Any]) -> None:
@@ -179,6 +183,7 @@ async def test_tools_call_invalid_params(client: Any, params: dict[str, Any]) ->
     ] == INVALID_PARAMS
 
 
-async def test_tools_call_arguments_default_to_empty(client: Any) -> None:
-    reply = await _rpc(client, method="tools/call", params={"name": "echo", "arguments": None})
+async def test_tools_call_arguments_default_to_empty_when_omitted(client: Any) -> None:
+    reply = await _rpc(client, method="tools/call", params={"name": "echo"})
     assert reply["result"]["isError"] is True
+    assert "Missing required argument: text" in reply["result"]["content"][0]["text"]
