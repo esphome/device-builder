@@ -7,7 +7,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from ...constants import is_device_config_name, is_secrets_file
+from ...constants import SECRETS_FILENAMES, is_device_config_name, is_secrets_file
 from ...controllers.automations.catalog import AUTOMATION_TYPES
 from ...controllers.devices.helpers import scanned_component_entries
 from ...controllers.firmware.follow import initial_snapshot
@@ -448,7 +448,8 @@ def _check_configuration(configuration: str | None, *, allow_secrets: bool) -> N
     if configuration is None:
         return
     if is_secrets_file(configuration):
-        if allow_secrets:
+        # Only the bare canonical name reads the file; an alias or a path is refused.
+        if allow_secrets and configuration in SECRETS_FILENAMES:
             return
         raise CommandError(
             ErrorCode.INVALID_ARGS,

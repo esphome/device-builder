@@ -82,9 +82,10 @@ def test_check_configuration_refuses_every_secrets_spelling(name: str) -> None:
 
 def test_check_configuration_can_allow_the_secrets_file_but_never_another_type() -> None:
     _check_configuration("secrets.yaml", allow_secrets=True)
-    _check_configuration("SECRETS.YML", allow_secrets=True)
-    with pytest.raises(CommandError):
-        _check_configuration("notes.txt", allow_secrets=True)
+    _check_configuration("secrets.yml", allow_secrets=True)
+    for refused in ("notes.txt", "packages/secrets.yaml", "SECRETS.YAML", "secrets.yaml."):
+        with pytest.raises(CommandError):
+            _check_configuration(refused, allow_secrets=True)
 
 
 @pytest.mark.parametrize(("tool", "extra"), _SECRET_REFUSING_TOOLS)
