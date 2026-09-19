@@ -487,7 +487,7 @@ def load_device_yaml_strict(path: Path) -> dict:
     ESPHome's ``resolve_packages``, so callers see what the compiler
     actually sees — ``api:`` / ``wifi:`` / target-platform blocks
     contributed by packages register as top-level keys here — and
-    returns ``None`` when the file isn't a mapping or fails to parse.
+    raises ``EsphomeError`` when the file fails to parse or isn't a mapping.
 
     Package resolution is best-effort: a remote (git) package needs
     network access, an invalid package definition fails ESPHome's
@@ -542,7 +542,7 @@ def load_device_yaml_strict(path: Path) -> dict:
     # untyped) and was further passed through ``resolve_packages``
     # (also untyped), so it stays ``Any`` despite the
     # ``isinstance(config, dict)`` narrowing earlier. Cast at the
-    # return so the public ``dict | None`` signature is honest
+    # return so the public ``dict`` signature is honest
     # without forcing every caller to re-narrow on receive.
     return cast("dict[Any, Any]", config)
 
