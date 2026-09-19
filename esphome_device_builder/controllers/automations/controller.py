@@ -441,4 +441,7 @@ def _decode_location(raw: dict) -> AutomationLocation:
     if not isinstance(kind, str) or (loc_type := _LOCATION_TYPES.get(kind)) is None:
         msg = f"Unknown location kind: {kind!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return loc_type.from_dict(raw)
+    try:
+        return loc_type.from_dict(raw)
+    except (LookupError, ValueError, TypeError) as err:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"Invalid {kind} location: {err}") from err
