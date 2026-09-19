@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from enum import IntEnum
 from typing import Any
@@ -10,6 +11,8 @@ from aiohttp import web
 
 from ..helpers.json import JSONDecodeError, json_response, loads
 from .tools import ToolRegistry
+
+_LOGGER = logging.getLogger(__name__)
 
 # Revisions before 2025-06-18 require JSON-RPC batching, which handle() rejects.
 SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-06-18", "2025-11-25"})
@@ -25,6 +28,7 @@ class JsonRpcErrorCode(IntEnum):
     INVALID_REQUEST = -32600
     METHOD_NOT_FOUND = -32601
     INVALID_PARAMS = -32602
+    INTERNAL_ERROR = -32603
 
 
 class _RpcError(Exception):
@@ -59,19 +63,24 @@ class McpServer[ContextT]:
             return _error_response(None, JsonRpcErrorCode.PARSE_ERROR, "Parse error")
         if not _is_valid_message(msg):
             return _error_response(None, JsonRpcErrorCode.INVALID_REQUEST, "Invalid request")
-        if "id" not in msg:
+        # A notification, or a client's response to a server request (this server sends none).
+        if "method" not in msg or "id" not in msg:
             return web.Response(status=202)
-        try:
-            result = await self._dispatch(context, msg)
-        except _RpcError as err:
-            return _error_response(msg["id"], err.code, str(err))
-        return json_response({"jsonrpc": "2.0", "id": msg["id"], "result": result})
+        return await self._reply(context, msg)
 
-    async def _dispatch(self, context: ContextT, msg: dict[str, Any]) -> Any:
+    async def _reply(self, context: ContextT, msg: dict[str, Any]) -> web.Response:
         handler = self._methods.get(msg["method"])
         if handler is None:
-            raise _RpcError(JsonRpcErrorCode.METHOD_NOT_FOUND, f"Method not found: {msg['method']}")
-        return await handler(context, _object_param(msg, "params"))
+            message = f"Method not found: {msg['method']}"
+            return _error_response(msg["id"], JsonRpcErrorCode.METHOD_NOT_FOUND, message)
+        try:
+            result = await handler(context, _object_param(msg, "params"))
+        except _RpcError as err:
+            return _error_response(msg["id"], err.code, str(err))
+        except Exception:
+            _LOGGER.exception("MCP method %s failed", msg["method"])
+            return _error_response(msg["id"], JsonRpcErrorCode.INTERNAL_ERROR, "Internal error")
+        return json_response({"jsonrpc": "2.0", "id": msg["id"], "result": result})
 
     async def _initialize(self, _context: ContextT, params: dict[str, Any]) -> dict[str, Any]:
         requested = params.get("protocolVersion")
@@ -121,10 +130,13 @@ def _transport_check(request: web.Request) -> web.Response | None:
 
 
 def _is_valid_message(msg: Any) -> bool:
-    """Check for a JSON-RPC 2.0 object with a string method and a string or int id, if any."""
+    """Check for a JSON-RPC 2.0 request, notification or response envelope."""
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
         return False
-    if not isinstance(msg.get("method"), str):
+    if "method" in msg:
+        if not isinstance(msg["method"], str):
+            return False
+    elif ("result" in msg) == ("error" in msg):
         return False
     msg_id = msg.get("id")
     return "id" not in msg or (isinstance(msg_id, (str, int)) and not isinstance(msg_id, bool))

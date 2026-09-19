@@ -129,6 +129,23 @@ async def test_call_shapes_results_and_errors(
     assert result["content"][0]["type"] == "text"
 
 
+async def test_a_raising_translator_counts_as_untranslated() -> None:
+    def translate(_err: Exception) -> McpToolError | None:
+        raise RuntimeError("translator bug")
+
+    tools: ToolRegistry[None] = ToolRegistry(translate=translate)
+
+    @tools.tool("crash", "")
+    async def _crash(_context: None, _args: dict[str, Any]) -> None:
+        raise ValueError("boom")
+
+    result = await tools.call(None, "crash", {})
+    assert result == {
+        "content": [{"type": "text", "text": f"{INTERNAL_ERROR}: Tool failed: crash"}],
+        "isError": True,
+    }
+
+
 def test_registration_rejects_keywords_the_validator_does_not_enforce() -> None:
     tools: ToolRegistry[None] = ToolRegistry()
     with pytest.raises(ValueError, match=r"unenforced keywords \['enum'\]"):

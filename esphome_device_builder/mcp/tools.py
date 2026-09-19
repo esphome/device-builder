@@ -105,12 +105,20 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         except McpToolError as err:
             return _error(err)
         except Exception as err:
-            translated = self._translate(err)
+            translated = self._translate_safely(err)
             if translated is not None:
-                _LOGGER.debug("MCP tool %s failed: %s: %s", name, translated.code, translated)
+                _LOGGER.debug("MCP tool %s failed: %s", name, translated, exc_info=err)
                 return _error(translated)
             _LOGGER.exception("MCP tool %s failed", name)
             return _error(McpToolError(INTERNAL_ERROR, f"Tool failed: {name}"))
+
+    def _translate_safely(self, err: Exception) -> McpToolError | None:
+        """Run the translator; a translator that itself raises counts as untranslated."""
+        try:
+            return self._translate(err)
+        except Exception:
+            _LOGGER.exception("MCP error translator failed")
+            return None
 
 
 def validate_args(schema: dict[str, Any], arguments: dict[str, Any]) -> None:

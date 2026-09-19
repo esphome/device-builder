@@ -29,22 +29,28 @@ def _init(version: Any) -> dict[str, Any]:
     return {"protocolVersion": version, **_CLIENT}
 
 
-@pytest.fixture
-async def client(aiohttp_client: AiohttpClient) -> Any:
+def _make_server() -> McpServer[dict[str, Any]]:
     tools: ToolRegistry[dict[str, Any]] = ToolRegistry()
 
     @tools.tool("echo", "Echo the context and arguments.", {"text": {"type": "string"}}, ("text",))
     async def _echo(context: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
         return {"context": context, "text": args["text"]}
 
-    server = McpServer("Test Server", "1.2.3", tools)
+    return McpServer("Test Server", "1.2.3", tools)
 
+
+def _make_app(server: McpServer[dict[str, Any]]) -> web.Application:
     async def handle(request: web.Request) -> web.Response:
         return await server.handle({"site": "test"}, request)
 
     app = web.Application()
     app.router.add_post(_PATH, handle)
-    return await aiohttp_client(app)
+    return app
+
+
+@pytest.fixture
+async def client(aiohttp_client: AiohttpClient) -> Any:
+    return await aiohttp_client(_make_app(_make_server()))
 
 
 async def test_unsupported_protocol_version_header_is_400(client: Any) -> None:
@@ -77,7 +83,8 @@ async def test_parse_error(client: Any) -> None:
     [
         pytest.param([_PING], id="batch"),
         pytest.param({**_PING, "jsonrpc": "1.0"}, id="wrong_version"),
-        pytest.param({"jsonrpc": "2.0", "id": 1}, id="missing_method"),
+        pytest.param({"jsonrpc": "2.0", "id": 1}, id="no_method_or_response"),
+        pytest.param({"jsonrpc": "2.0", "id": 1, "result": {}, "error": {}}, id="both_halves"),
         pytest.param("ping", id="string"),
         pytest.param({**_PING, "id": None}, id="null_id"),
         pytest.param({**_PING, "id": True}, id="bool_id"),
@@ -94,8 +101,20 @@ async def test_invalid_request_answers_with_null_id(client: Any, body: Any) -> N
     }
 
 
-async def test_notification_is_202_with_empty_body(client: Any) -> None:
-    resp = await client.post(_PATH, json={"jsonrpc": "2.0", "method": "notifications/initialized"})
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"jsonrpc": "2.0", "method": "notifications/initialized"}, id="notification"),
+        pytest.param({"jsonrpc": "2.0", "id": 4, "result": {}}, id="result_response"),
+        pytest.param(
+            {"jsonrpc": "2.0", "id": 4, "error": {"code": -1, "message": "x"}}, id="error_response"
+        ),
+    ],
+)
+async def test_notifications_and_responses_are_202_with_empty_body(
+    client: Any, body: dict[str, Any]
+) -> None:
+    resp = await client.post(_PATH, json=body)
     assert resp.status == 202
     assert await resp.read() == b""
 
@@ -106,6 +125,23 @@ async def test_ping_echoes_id(client: Any, msg_id: Any) -> None:
         "jsonrpc": "2.0",
         "id": msg_id,
         "result": {},
+    }
+
+
+async def test_a_crashing_method_answers_a_json_rpc_internal_error(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    async def crash(_context: Any, _params: dict[str, Any]) -> None:
+        raise RuntimeError("boom")
+
+    server = _make_server()
+    server._methods["ping"] = crash
+    client = await aiohttp_client(_make_app(server))
+    reply = await _rpc(client, method="ping", msg_id=9)
+    assert reply == {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "error": {"code": JsonRpcErrorCode.INTERNAL_ERROR, "message": "Internal error"},
     }
 
 
