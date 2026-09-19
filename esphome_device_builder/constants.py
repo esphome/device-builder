@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+
+from .helpers.cross_os_path import cross_os_basename
 
 
 def _resolve_version() -> str:
@@ -35,10 +38,29 @@ SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
 
 
+# No NTFS stream suffix (``::$DATA``); the extension rules out the 8.3 alias ``SECRET~1.YAM``.
+_DEVICE_CONFIG_NAME_RE = re.compile(r"[^:\x00]+\.ya?ml")
+
+
 def is_secrets_file(configuration: str | Path) -> bool:
     """Return True when *configuration* names a secrets file (``secrets.yaml`` or ``.yml``)."""
-    # Win32 opens ``secrets.yaml.`` and ``secrets.yaml `` as the real file.
-    return Path(configuration).name.rstrip(". ").casefold() in SECRETS_FILENAMES
+    return _config_basename(configuration) in SECRETS_FILENAMES
+
+
+def is_device_config_name(configuration: str | Path) -> bool:
+    """Return True for a bare device YAML filename: no directory, secrets file or Win32 alias."""
+    raw = str(configuration)
+    name = _config_basename(raw)
+    return (
+        cross_os_basename(raw).rstrip(". ") == raw
+        and name not in SECRETS_FILENAMES
+        and _DEVICE_CONFIG_NAME_RE.fullmatch(name) is not None
+    )
+
+
+def _config_basename(configuration: str | Path) -> str:
+    """Return the basename the way Win32 resolves it: case folded, trailing dots and spaces gone."""
+    return cross_os_basename(str(configuration)).rstrip(". ").casefold()
 
 
 # Trusted TCP site for HA Ingress. Bound only when ``--ha-addon`` is set,
