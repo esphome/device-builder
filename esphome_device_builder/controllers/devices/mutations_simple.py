@@ -37,6 +37,7 @@ from .helpers import (
     raise_device_name_exists,
     raise_device_not_found,
     read_device_config,
+    read_device_config_async,
     require_unchanged,
 )
 from .mutations_create import save_device_storage
@@ -285,28 +286,6 @@ async def rename_device(
     return {"configuration": new_filename, "job": head.to_dict(), "tail_job": tail.to_dict()}
 
 
-async def _read_device_yaml_or_raise(controller: DevicesController, configuration: str) -> str:
-    """
-    Return *configuration*'s YAML text, raising INVALID_ARGS if it's gone.
-
-    A single ``read_text`` with no preceding ``exists()`` check, so a file
-    deleted mid-call surfaces as the typed "device gone" error instead of
-    leaking ``FileNotFoundError`` as INTERNAL_ERROR.
-    """
-    path = controller._db.settings.rel_path(configuration)
-
-    def _read() -> str | None:
-        try:
-            return path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return None
-
-    content = await run_in_executor(_read)
-    if content is None:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"Device {configuration} not found")
-    return content
-
-
 async def _config_only_rename(
     controller: DevicesController,
     *,
@@ -428,7 +407,7 @@ async def edit_friendly_name(
     if not new_friendly_name:
         raise CommandError(ErrorCode.INVALID_ARGS, "new_friendly_name is required")
 
-    content = await _read_device_yaml_or_raise(controller, configuration)
+    content = await read_device_config_async(controller, configuration)
 
     try:
         new_content = upsert_yaml_leaf_under_top_block(

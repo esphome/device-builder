@@ -212,6 +212,33 @@ async def test_automations_delete_with_save_rewrites_the_config_on_disk(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: kitchen\n"
 
 
+async def test_rewrite_yaml_refuses_to_write_an_empty_config(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    original = "esphome:\n  name: kitchen\n"
+    (tmp_path / "kitchen.yaml").write_text(original, encoding="utf-8")
+
+    with pytest.raises(CommandError) as err:
+        await controller.rewrite_yaml("kitchen.yaml", lambda text: ("\n", None), message="unused")
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == original
+
+
+async def test_rewrite_yaml_refuses_the_secrets_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "secrets.yaml").write_text("wifi_password: hunter2\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as err:
+        await controller.rewrite_yaml("secrets.yaml", lambda text: ("", None), message="unused")
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == "wifi_password: hunter2\n"
+
+
 async def test_rewrite_yaml_of_a_missing_config_is_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

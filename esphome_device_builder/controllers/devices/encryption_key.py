@@ -23,8 +23,7 @@ from ...helpers.yaml import (
 )
 from ...models import ErrorCode
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
-from .helpers import persist_if_unchanged
-from .mutations_simple import _read_device_yaml_or_raise
+from .helpers import persist_if_unchanged, read_device_config_async
 from .resolve import resolve_config_subprocess
 
 if TYPE_CHECKING:
@@ -35,7 +34,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _KEY_BYTES = 32
-_KEPT_FOR_LATER = "the key was kept for a later attempt"
+_KEPT_SUFFIX = "; the key was kept for a later attempt"
 
 
 class KeyHandoffResult(StrEnum):
@@ -70,7 +69,7 @@ async def set_encryption_key(
             # the other devices' outcomes still apply.
             outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
             if err.code is ErrorCode.PRECONDITION_FAILED:
-                why = f"{why}; {_KEPT_FOR_LATER}"
+                why = f"{why}{_KEPT_SUFFIX}"
         outcomes.add(outcome)
         reason = reason or why
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
@@ -79,6 +78,7 @@ async def set_encryption_key(
         # to clear, which pop_if would keep; adoption is the side that must not drop
         # a push that overtook the key it spliced.
         controller._pending_keys.pop(name)
+        reason = reason.removesuffix(_KEPT_SUFFIX)
     else:
         # Nothing accepted the key — keep a copy so a later push, the
         # post-install retry, or a delete-and-readopt can consume it.
@@ -118,7 +118,7 @@ async def _apply_to_device(
 ) -> tuple[KeyHandoffResult, str]:
     """Splice *key* into *device*'s YAML; returns ``(outcome, reason)``."""
     configuration = device.configuration
-    content = await _read_device_yaml_or_raise(controller, configuration)
+    content = await read_device_config_async(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if existing is not None and is_indirected_scalar(existing):
@@ -138,7 +138,7 @@ async def _apply_to_device(
                 "the resolved configuration does not enable the native API"
                 if has_api is False
                 else "the configuration could not be resolved to confirm the "
-                f"native API; {_KEPT_FOR_LATER}"
+                f"native API{_KEPT_SUFFIX}"
             )
             return KeyHandoffResult.NOT_WRITABLE, reason
 
@@ -157,7 +157,7 @@ async def _apply_to_device(
     if verdict.unavailable:
         reason = (
             "the rewritten configuration could not be validated (the validator was "
-            f"unavailable); {_KEPT_FOR_LATER}"
+            f"unavailable){_KEPT_SUFFIX}"
         )
         return KeyHandoffResult.NOT_WRITABLE, reason
     await persist_if_unchanged(
@@ -218,7 +218,7 @@ async def _settle_indirected_key(
     if not resolved:
         return (
             KeyHandoffResult.NOT_WRITABLE,
-            f"{prefix} that could not be resolved; {_KEPT_FOR_LATER}",
+            f"{prefix} that could not be resolved{_KEPT_SUFFIX}",
         )
     return KeyHandoffResult.NOT_WRITABLE, f"{prefix} and resolves to a different value"
 

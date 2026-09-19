@@ -44,9 +44,12 @@ __all__ = [
     "persist_if_unchanged",
     "raise_device_name_exists",
     "raise_device_not_found",
+    "read_device_config",
+    "read_device_config_async",
     "require_catalog",
     "require_file_exists",
     "require_unchanged",
+    "scanned_component_entries",
     "slugify_hostname",
     "write_new_file_exclusive",
 ]
@@ -121,6 +124,15 @@ def read_device_config(path: Path, configuration: str) -> str:
         raise_device_not_found(configuration, from_exc=err)
 
 
+def refuse_empty_write(configuration: str) -> NoReturn:
+    """Raise ``INVALID_ARGS`` for a write that would empty *configuration*."""
+    raise CommandError(
+        ErrorCode.INVALID_ARGS,
+        f"refusing to write empty content to {configuration!r} to prevent "
+        "accidental data loss; use the delete action to remove a file",
+    )
+
+
 def require_unchanged(current: str, expected: str, configuration: str) -> None:
     """Raise ``PRECONDITION_FAILED`` unless *configuration*'s *current* text is still *expected*."""
     if current != expected:
@@ -138,6 +150,12 @@ async def persist_if_unchanged(
         return content, None
 
     await controller.rewrite_yaml(configuration, _replace, message=message)
+
+
+async def read_device_config_async(controller: DevicesController, configuration: str) -> str:
+    """Read *configuration*'s YAML off the loop; ``NOT_FOUND`` when it is missing."""
+    path = controller._db.settings.rel_path(configuration)
+    return await run_in_executor(read_device_config, path, configuration)
 
 
 def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:

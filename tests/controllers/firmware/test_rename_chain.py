@@ -532,7 +532,7 @@ async def test_ws_direct_rename_of_missing_yaml_raises_not_found(
     with pytest.raises(CommandError) as excinfo:
         await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
     assert "not found" in excinfo.value.message
 
 
