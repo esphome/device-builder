@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import script.sync_components as sync_module
@@ -46,6 +48,35 @@ def test_emit_split_automations_writes_index_and_per_type_bodies(
     # Each subcatalog gets its own subdir even when empty.
     for sub in ("triggers", "actions", "conditions", "light_effects", "filters"):
         assert (tmp_path / "automations" / sub).is_dir()
+
+
+def test_emit_split_automations_index_rows_omit_defaults(tmp_path, monkeypatch) -> None:
+    """An index row carries only non-default fields; ``form_editable`` only when false."""
+    monkeypatch.setattr(sync_module, "_AUTOMATIONS_BODIES_DIR", tmp_path / "automations")
+    monkeypatch.setattr(sync_module, "_AUTOMATIONS_INDEX_FILE", tmp_path / "automations.index.json")
+    row = {"name": "X", "description": "", "docs_url": "", "domain": "core"}
+    too_many = [
+        {"key": f"f{i}", "type": "string", "label": f"F{i}"}
+        for i in range(sync_module._MAX_FORM_CONFIG_ENTRIES + 1)
+    ]
+    automations = {
+        "triggers": [],
+        "actions": [
+            {"id": "small", **row, "config_entries": [], "is_control_flow": False},
+            {"id": "big", **row, "config_entries": too_many},
+        ],
+        "conditions": [],
+        "light_effects": [],
+        "filters": [],
+    }
+
+    _emit_split_automations_catalog(automations, "2026.5.1")
+
+    index = json.loads((tmp_path / "automations.index.json").read_text())
+    assert index["actions"] == [
+        {"id": "small", **row},
+        {"id": "big", **row, "form_editable": False},
+    ]
 
 
 def test_emit_split_automations_refuses_body_that_fails_roundtrip(
