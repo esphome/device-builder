@@ -912,7 +912,7 @@ async def test_stream_wraps_the_child_in_a_windows_job(monkeypatch: pytest.Monke
             self.pid = pid
 
         def terminate(self) -> bool:
-            os.kill(self.pid, signal.SIGKILL)
+            os.kill(self.pid, signal.SIGTERM)  # TerminateProcess on Windows
             return True
 
         def close(self) -> None:
