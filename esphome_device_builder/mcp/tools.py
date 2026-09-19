@@ -75,6 +75,9 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         if missing := set(required) - set(properties):
             msg = f"Tool {name}: required names not in properties: {sorted(missing)}"
             raise ValueError(msg)
+        if len(set(required)) != len(required):
+            msg = f"Tool {name}: duplicate required names"
+            raise ValueError(msg)
         schema = {
             "type": "object",
             "properties": properties,

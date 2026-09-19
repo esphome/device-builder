@@ -165,3 +165,6 @@ def test_registration_rejects_unknown_required_names_and_duplicates() -> None:
 
     with pytest.raises(ValueError, match="already registered"):
         tools.tool("t", "desc")
+
+    with pytest.raises(ValueError, match="duplicate required names"):
+        tools.tool("t3", "d", {"a": {"type": "string"}}, ("a", "a"))

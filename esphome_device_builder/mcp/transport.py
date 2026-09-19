@@ -136,10 +136,12 @@ def _is_valid_message(msg: Any) -> bool:
     if "method" in msg:
         if not isinstance(msg["method"], str):
             return False
-    elif ("result" in msg) == ("error" in msg):
+        if "id" not in msg:
+            return True
+    elif ("result" in msg) == ("error" in msg) or "id" not in msg:
         return False
-    msg_id = msg.get("id")
-    return "id" not in msg or (isinstance(msg_id, (str, int)) and not isinstance(msg_id, bool))
+    msg_id = msg["id"]
+    return isinstance(msg_id, (str, int)) and not isinstance(msg_id, bool)
 
 
 def _object_param(container: dict[str, Any], key: str) -> dict[str, Any]:

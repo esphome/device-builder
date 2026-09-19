@@ -86,6 +86,7 @@ async def test_parse_error(client: Any) -> None:
         pytest.param({"jsonrpc": "2.0", "id": 1}, id="no_method_or_response"),
         pytest.param({**_PING, "method": 5}, id="non_string_method"),
         pytest.param({"jsonrpc": "2.0", "id": 1, "result": {}, "error": {}}, id="both_halves"),
+        pytest.param({"jsonrpc": "2.0", "result": {}}, id="response_without_id"),
         pytest.param("ping", id="string"),
         pytest.param({**_PING, "id": None}, id="null_id"),
         pytest.param({**_PING, "id": True}, id="bool_id"),
