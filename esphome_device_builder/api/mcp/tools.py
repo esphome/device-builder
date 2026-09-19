@@ -12,7 +12,11 @@ from typing import TYPE_CHECKING, Any
 from esphome.const import SECRETS_FILES
 
 from ...controllers.automations.catalog import AUTOMATION_TYPES
-from ...controllers.devices.helpers import raise_device_not_found, require_catalog
+from ...controllers.devices.helpers import (
+    _redact_concealed_secrets,
+    raise_device_not_found,
+    require_catalog,
+)
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import ANSI_CSI_RE
@@ -206,8 +210,9 @@ def _redact_secret_values(lines: list[str], secrets: list[dict[Any, Any]]) -> li
 
 
 def _strip_lines(lines: list[str]) -> list[str]:
-    """Output lines with ANSI colour and line terminators removed."""
-    return [ANSI_CSI_RE.sub("", line).rstrip("\r\n") for line in lines]
+    """Output lines with concealed secrets, ANSI colour and line terminators removed."""
+    # Redact first: stripping the conceal escapes alone would expose what they wrap.
+    return [ANSI_CSI_RE.sub("", _redact_concealed_secrets(line)).rstrip("\r\n") for line in lines]
 
 
 @_tool(
@@ -365,13 +370,17 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
     snapshot = await initial_snapshot(job, job.job_id)
+    try:
+        secrets = await run_in_executor(_load_secrets_for, db.settings, job.configuration)
+    except CommandError:
+        # A build log that cannot be redacted is withheld, like an unreadable one.
+        snapshot, secrets = None, []
     lines = snapshot or []
     output = lines[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
-        "output": _strip_lines(output),
+        "output": _redact_secret_values(_strip_lines(output), secrets),
         "truncated": len(lines) > len(output),
-        # None is an unreadable log, not an empty one.
         "output_available": snapshot is not None,
     }
 
@@ -590,10 +599,12 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
     configuration = args["configuration"]
     text = await _call(db, "devices/get_config", configuration=configuration)
+    before = await _call(db, "automations/parse", configuration=configuration, yaml=text)
     splice = await _call(db, "automations/delete", yaml=text, **args)
     new_text = apply_yaml_diff(text, YamlDiff.from_dict(splice["yaml_diff"]))
-    if new_text == text:
-        _LOGGER.error("MCP delete_automation left %s unchanged: %r", configuration, splice)
-        raise McpToolError(INTERNAL_ERROR, "Delete produced no change")
+    after = await _call(db, "automations/parse", configuration=configuration, yaml=new_text)
+    if len(after) != len(before) - 1:
+        _LOGGER.error("MCP delete_automation mis-spliced %s: %r", configuration, splice)
+        raise McpToolError(INTERNAL_ERROR, "Delete did not remove exactly one automation")
     await _call(db, "devices/update_config", configuration=configuration, content=new_text)
     return f"Removed the automation and saved {configuration}"

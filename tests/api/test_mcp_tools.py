@@ -450,6 +450,30 @@ async def test_get_job_zero_tail_still_reports_withheld_output(
     assert data["output_available"] is True
 
 
+async def test_get_job_redacts_concealed_and_secret_values(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    (mcp_db.settings.config_dir / "secrets.yaml").write_text("mqtt_user: alice_smith\n")
+    job = make_job(
+        output=["  password: \x1b[8mhunter2secret\x1b[28m\n", "  username: alice_smith\n"]
+    )
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
+    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
+    assert data["output"] == ["  password: <removed>", "  username: <removed>"]
+
+
+async def test_get_job_withholds_the_log_when_secrets_cannot_be_loaded(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    (mcp_db.settings.config_dir / "secrets.yaml").write_text("- not\n- a mapping\n")
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
+        return_value=make_job(output=["  password: hunter2\n"])
+    )
+    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
+    assert data["output"] == []
+    assert data["output_available"] is False
+
+
 async def test_get_job_flags_an_unreadable_log(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
@@ -747,7 +771,8 @@ async def test_automation_tools_wrap_the_automation_commands(
             "error": None,
         }
     ]
-    mcp_db.command_handlers["automations/parse"] = AsyncMock(return_value=parsed)
+    parse = AsyncMock(return_value=parsed)
+    mcp_db.command_handlers["automations/parse"] = parse
     mcp_db.command_handlers["automations/get_available"] = AsyncMock(
         return_value={"triggers": ["on_boot"], "actions": ["light.turn_on"], "scripts": []}
     )
@@ -769,16 +794,18 @@ async def test_automation_tools_wrap_the_automation_commands(
     docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": refs})
     assert docs == {"actions/light.turn_on": {"id": "light.turn_on"}}
     assert bodies.await_args.kwargs["refs"] == refs
+    parse.side_effect = [parsed, []]
     assert await mcp_call(
         mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
     ) == (False, "Removed the automation and saved kitchen.yaml")
     assert delete.await_args.kwargs["location"] == location
+    assert parse.await_args.kwargs["yaml"] == "a:\nc:\n"
 
-    delete.return_value = {"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": "b:\n"}}
+    parse.side_effect = [parsed, parsed]
     is_error, text = await mcp_call(
         mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
     )
     assert is_error
-    assert text == "internal_error: Delete produced no change"
+    assert text == "internal_error: Delete did not remove exactly one automation"
     assert delete.await_args.kwargs["yaml"] == "a:\nb:\nc:\n"
     assert save.await_args.kwargs["content"] == "a:\nc:\n"
