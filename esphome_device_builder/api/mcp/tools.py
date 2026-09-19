@@ -6,7 +6,6 @@ import asyncio
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
-from esphome.const import CONF_EXTERNAL_COMPONENTS, CONF_PACKAGES, CONF_SUBSTITUTIONS
 from esphome.core import EsphomeError
 
 from ...constants import is_secrets_file
@@ -35,8 +34,6 @@ _MESSAGE_ID = "mcp"
 _DEFAULT_TAIL_LINES = 50
 _MAX_TAIL_LINES = 1000
 _MAX_SEARCH_RESULTS = 100
-# Metadata blocks, not components.
-_NON_COMPONENT_KEYS = frozenset({CONF_SUBSTITUTIONS, CONF_PACKAGES, CONF_EXTERNAL_COMPONENTS})
 
 
 def _translate(err: Exception) -> McpToolError | None:
@@ -66,11 +63,13 @@ class CollectingClient:
 
     def __init__(self, tail: int = _DEFAULT_TAIL_LINES) -> None:
         self.output: deque[str] = deque(maxlen=tail)
+        self.lines = 0
         self.result: dict[str, Any] | None = None
 
     async def send_event(self, _message_id: str, event: str, data: Any = None) -> None:
         if event == StreamEvent.OUTPUT:
             self.output.append(data)
+            self.lines += 1
         elif event == StreamEvent.RESULT:
             self.result = data
 
@@ -83,6 +82,7 @@ async def _call(
     db: DeviceBuilder, command: str, *, client: CollectingClient | None = None, **args: Any
 ) -> Any:
     """Invoke a WS command handler; *client* receives any stream frames."""
+    _refuse_secrets(args.get("configuration"))
     handler = db.command_handlers.get(command)
     if handler is None:
         raise CommandError(ErrorCode.UNAVAILABLE, f"{command} is not available")
@@ -118,11 +118,10 @@ def _tail(lines: list[str], count: int) -> list[str]:
     return [ANSI_CSI_RE.sub("", line).rstrip("\r\n") for line in lines[-count:]]
 
 
-def _device_configuration(configuration: str) -> str:
-    """Refuse ``secrets.yaml``."""
-    if is_secrets_file(configuration):
+def _refuse_secrets(configuration: Any) -> None:
+    """Refuse ``secrets.yaml``: its contents never reach a model."""
+    if isinstance(configuration, str) and is_secrets_file(configuration):
         raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
-    return configuration
 
 
 def _load_strict(settings: DashboardSettings, configuration: str) -> dict:
@@ -154,7 +153,6 @@ async def _list_devices(db: DeviceBuilder, _args: dict[str, Any]) -> list[dict[s
     ("configuration",),
 )
 async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    _device_configuration(args["configuration"])
     return await _call(db, "devices/get_config", **args)
 
 
@@ -169,7 +167,6 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration", "content"),
 )
 async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    _device_configuration(args["configuration"])
     await _call(db, "devices/update_config", **args)
     return f"Saved {args['configuration']}"
 
@@ -196,8 +193,9 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 
 @_tool(
     "validate_config",
-    "Validate a device config with esphome and return the output. Bounded to one minute; "
-    "a timed out run reports timed_out.",
+    "Validate a device config with esphome and return the last 50 output lines "
+    "(truncated says whether earlier lines were dropped). Bounded to one minute; a timed "
+    "out run reports timed_out.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
@@ -212,14 +210,16 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
     except TimeoutError:
         timed_out = True
     output = _tail(list(client.output), _DEFAULT_TAIL_LINES)
+    truncated = client.lines > len(client.output)
     if timed_out:
-        return {"success": False, "timed_out": True, "output": output}
+        return {"success": False, "timed_out": True, "output": output, "truncated": truncated}
     if client.result is None:
         raise McpToolError(INTERNAL_ERROR, "Validation produced no result")
     return {
         "success": client.result.get("success", False),
         "exit_code": client.result.get("code"),
         "output": output,
+        "truncated": truncated,
     }
 
 
@@ -340,15 +340,16 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 
 @_tool(
     "get_config_components",
-    "List the components a device config uses, with a short description and docs URL for "
-    "each. Call get_component for the fields of any of them. Resolving a config that pulls "
-    "a package for the first time can take longer than ten seconds.",
+    "List the catalog components a device config uses, with a short description and docs "
+    "URL for each. Call get_component for the fields of any of them. Resolving a config that "
+    "pulls a package for the first time can take longer than ten seconds.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
 async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     catalog = require_catalog(db)
-    configuration = _device_configuration(args["configuration"])
+    configuration = args["configuration"]
+    _refuse_secrets(configuration)
     try:
         async with asyncio.timeout(ESPHOME_CONFIG_TIMEOUT):
             config = await run_in_executor(_load_strict, db.settings, configuration)
@@ -359,10 +360,6 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
     except TimeoutError as err:
         msg = f"Resolving {configuration} exceeded {ESPHOME_CONFIG_TIMEOUT:.0f}s"
         raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
-    rows = []
-    for component_id in extract_component_ids(config):
-        if component_id in _NON_COMPONENT_KEYS:
-            continue
-        entry = catalog.index_entry(component_id)
-        rows.append({"id": component_id} | (_prune(entry.to_dict()) if entry else {}))
-    return rows
+    # Only catalog ids are echoed: a resolved ``platform:`` value may be a ``!secret``.
+    entries = (catalog.index_entry(cid) for cid in extract_component_ids(config))
+    return [_prune(entry.to_dict()) for entry in entries if entry is not None]

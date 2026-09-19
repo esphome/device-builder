@@ -318,6 +318,7 @@ async def test_validate_config_collects_stream_and_strips_ansi(
         "success": True,
         "exit_code": 0,
         "output": ["INFO ok", "second", "ERROR bad"],
+        "truncated": False,
     }
 
 
@@ -352,8 +353,35 @@ async def test_validate_config_times_out_and_keeps_the_tail(
         "success": False,
         "timed_out": True,
         "output": ["started"],
+        "truncated": False,
     }
     assert cancelled.is_set()
+
+
+async def test_validate_config_times_out_when_the_cancel_propagates(
+    client: Any, db: _StubDeviceBuilder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("esphome_device_builder.api.mcp.tools.ESPHOME_CONFIG_TIMEOUT", 0.05)
+
+    async def slow(*, client: Any, message_id: str, configuration: str) -> None:
+        await asyncio.sleep(10)
+
+    db.command_handlers["devices/validate"] = slow
+    data = await _call_json(client, "validate_config", {"configuration": "kitchen.yaml"})
+    assert data["timed_out"] is True
+
+
+async def test_validate_config_reports_truncation(client: Any, db: _StubDeviceBuilder) -> None:
+    async def chatty(*, client: Any, message_id: str, configuration: str) -> None:
+        for i in range(60):
+            await client.send_event(message_id, StreamEvent.OUTPUT, f"{i}\n")
+        await client.send_event(message_id, StreamEvent.RESULT, {"success": True, "code": 0})
+
+    db.command_handlers["devices/validate"] = chatty
+    data = await _call_json(client, "validate_config", {"configuration": "kitchen.yaml"})
+    assert data["truncated"] is True
+    assert data["output"][0] == "10"
+    assert len(data["output"]) == 50
 
 
 # ---------------------------------------------------------------------------
@@ -537,10 +565,10 @@ async def test_get_config_components_lists_catalog_rows(
             client, "get_config_components", {"configuration": "kitchen.yaml"}
         )
     }
-    assert list(rows) == ["esphome", "sensor", "sensor.dht", "notacomponent"]
+    # Domain keys such as ``sensor`` have no catalog entry of their own.
+    assert list(rows) == ["substitutions", "esphome", "sensor.dht"]
     assert rows["sensor.dht"]["name"]
     assert rows["sensor.dht"]["docs_url"].startswith("https://esphome.io/")
-    assert rows["notacomponent"] == {"id": "notacomponent"}
 
 
 @pytest.mark.parametrize(
@@ -595,20 +623,56 @@ async def test_get_config_components_times_out(
     assert text.startswith("unavailable: Resolving kitchen.yaml exceeded")
 
 
-@pytest.mark.parametrize("tool", ["get_config", "update_config", "get_config_components"])
-async def test_secrets_file_is_refused(
-    client: Any, catalog_db: _StubDeviceBuilder, tool: str
+@pytest.mark.parametrize(
+    ("tool", "extra"),
+    [
+        ("get_config", {}),
+        ("update_config", {"content": "x: 1"}),
+        ("add_component", {"component_id": "wifi"}),
+        ("validate_config", {}),
+        ("compile", {}),
+        ("install", {}),
+        ("get_config_components", {}),
+    ],
+)
+@pytest.mark.parametrize("name", ["secrets.yaml", "SECRETS.YAML", "./Secrets.yaml"])
+async def test_secrets_file_is_refused_by_every_config_tool(
+    client: Any, catalog_db: _StubDeviceBuilder, tool: str, extra: dict[str, Any], name: str
 ) -> None:
     handler = AsyncMock(return_value="wifi_password: hunter2\n")
-    catalog_db.command_handlers["devices/get_config"] = handler
-    catalog_db.command_handlers["devices/update_config"] = handler
-    args = {"configuration": "secrets.yaml"}
-    if tool == "update_config":
-        args["content"] = "x: 1"
-    is_error, text = await _call(client, tool, args)
+    for command in (
+        "devices/get_config",
+        "devices/update_config",
+        "devices/add_component",
+        "devices/validate",
+        "firmware/compile",
+        "firmware/install",
+    ):
+        catalog_db.command_handlers[command] = handler
+    is_error, text = await _call(client, tool, {"configuration": name} | extra)
     assert is_error
     assert text == "invalid_args: secrets.yaml is not available over MCP"
     handler.assert_not_awaited()
+
+
+async def test_get_config_components_never_echoes_resolved_values(
+    client: Any,
+    catalog_db: _StubDeviceBuilder,
+    make_settings: MakeSettingsFactory,
+    tmp_path: Path,
+) -> None:
+    make_settings(with_core_path=True)
+    (tmp_path / "secrets.yaml").write_text("wifi_password: hunter2\n")
+    (tmp_path / "kitchen.yaml").write_text(
+        "<<: !include secrets.yaml\n"
+        "esphome:\n  name: kitchen\n"
+        "sensor:\n  - platform: !secret wifi_password\n"
+    )
+    rows = await _call_json(client, "get_config_components", {"configuration": "kitchen.yaml"})
+    text = json.dumps(rows)
+    assert "hunter2" not in text
+    assert "wifi_password" not in text
+    assert [row["id"] for row in rows] == ["esphome"]
 
 
 async def test_tail_lines_and_limit_are_clamped(client: Any, db: _StubDeviceBuilder) -> None:
