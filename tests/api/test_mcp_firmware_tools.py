@@ -46,7 +46,7 @@ async def test_install_reports_dependent_upload(
     upload = make_job("u1", job_type=JobType.UPLOAD, status=JobStatus.QUEUED, depends_on="c1")
     install = AsyncMock(return_value=compile_job)
     mcp_db.command_handlers["firmware/install"] = install
-    mcp_db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[upload, compile_job])
+    mcp_db.firmware.state.jobs.update({"u1": upload, "c1": compile_job})
     assert await mcp_call_json(
         mcp_client, "install", {"configuration": "kitchen.yaml", "port": "OTA"}
     ) == {"job_id": "c1", "status": "queued", "upload_job_id": "u1", "deferred": False}
@@ -58,27 +58,13 @@ async def test_install_deferred_has_no_upload(
 ) -> None:
     deferred = make_job("c1", status=JobStatus.QUEUED, is_deferred_install=True)
     mcp_db.command_handlers["firmware/install"] = AsyncMock(return_value=deferred)
-    mcp_db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[deferred])
+    mcp_db.firmware.state.jobs["c1"] = deferred
     assert await mcp_call_json(mcp_client, "install", {"configuration": "kitchen.yaml"}) == {
         "job_id": "c1",
         "status": "queued",
         "upload_job_id": None,
         "deferred": True,
     }
-
-
-async def test_install_without_upload_and_not_deferred_is_an_error(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    compile_job = make_job("c1", status=JobStatus.QUEUED)
-    mcp_db.command_handlers["firmware/install"] = AsyncMock(return_value=compile_job)
-    mcp_db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[compile_job])
-    is_error, text = await mcp_call(mcp_client, "install", {"configuration": "kitchen.yaml"})
-    assert is_error
-    assert text == (
-        "internal_error: Compile job c1 is queued but its install chain has no upload job; "
-        "poll it with get_job instead of retrying install"
-    )
 
 
 async def test_get_job_unknown_is_not_found(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:

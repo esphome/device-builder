@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import logging
-from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ...constants import SECRETS_FILENAMES, is_device_config_name, is_secrets_file
 from ...controllers.automations.catalog import AUTOMATION_TYPES
 from ...controllers.devices.helpers import scanned_component_entries
-from ...controllers.firmware.follow import initial_snapshot
-from ...controllers.firmware.persistence import job_dict_without_output
+from ...controllers.firmware.follow import job_report
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
@@ -186,15 +184,8 @@ async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
 )
 async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     job = await _call(db, "firmware/install", **_only(args, "configuration", "port"))
-    siblings = await _call(db, "firmware/get_jobs", configuration=args["configuration"])
-    upload = next((j for j in siblings if j.depends_on == job.job_id), None)
-    if upload is None and not job.is_deferred_install:
-        _LOGGER.error("MCP install chain for %s has no upload job", job.job_id)
-        msg = (
-            f"Compile job {job.job_id} is queued but its install chain has no upload job; "
-            "poll it with get_job instead of retrying install"
-        )
-        raise McpToolError(INTERNAL_ERROR, msg)
+    assert db.firmware is not None  # type narrowing; the command answered, so it is started
+    upload = next(db.firmware.state.dependents(job.job_id), None)
     return {
         "job_id": job.job_id,
         "status": job.status,
@@ -210,19 +201,10 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     ("job_id",),
 )
 async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    tail_lines = args["tail_lines"]
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
-    snapshot = await initial_snapshot(job, job.job_id)
-    lines = snapshot or []
-    output = list(deque(lines, maxlen=tail_lines))
-    return job_dict_without_output(job) | {
-        "queued_update_armed": job.is_queued_update_armed,
-        "output": plain_lines(output),
-        "truncated": len(lines) > len(output),
-        "output_available": snapshot is not None,
-    }
+    return await job_report(job, tail_lines=args["tail_lines"])
 
 
 @_tool(

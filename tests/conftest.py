@@ -52,6 +52,7 @@ from esphome_device_builder.controllers.devices._metadata_store import DeviceMet
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
@@ -1398,6 +1399,8 @@ class McpStubDeviceBuilder:
         self.auth = StubAuth()
         self.devices = MagicMock(spec=DevicesController)
         self.devices.get_by_configuration.return_value = None
+        self.firmware = MagicMock(spec=FirmwareController)
+        self.firmware.state = FirmwareState()
 
 
 def make_mcp_app(db: McpStubDeviceBuilder, *, with_auth: bool = False) -> web.Application:
