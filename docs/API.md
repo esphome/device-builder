@@ -60,7 +60,7 @@ Available only when `desktop_update_capable` is `true`; both shell out to the de
 | `invalid_message` | Malformed JSON or missing fields |
 | `unknown_command` | Command not found |
 | `invalid_args` | Missing or invalid arguments |
-| `not_found` | Resource not found; any command that reads a `configuration` from disk answers this when the file is missing |
+| `not_found` | Resource not found; any command that reads a `configuration`'s YAML from disk answers this when the file is missing |
 | `internal_error` | Server error |
 | `not_authenticated` | Connection has not authenticated; only `auth/login` is accepted |
 | `rate_limited` | Too many failed login attempts from this IP |

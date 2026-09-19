@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, NoReturn, cast
+from unittest.mock import patch
 
 import pytest
 
@@ -182,3 +183,20 @@ def test_read_device_config_returns_the_text_or_not_found(tmp_path: Path) -> Non
         read_device_config(tmp_path / "ghost.yaml", "ghost.yaml")
     assert excinfo.value.code is ErrorCode.NOT_FOUND
     assert "ghost.yaml" in excinfo.value.message
+
+
+def test_read_device_config_answers_not_found_when_the_file_vanishes_mid_read(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    vanished = FileNotFoundError(path)
+
+    with (
+        patch.object(Path, "read_text", side_effect=vanished),
+        pytest.raises(CommandError) as excinfo,
+    ):
+        read_device_config(path, "kitchen.yaml")
+
+    assert excinfo.value.code is ErrorCode.NOT_FOUND
+    assert excinfo.value.__cause__ is vanished

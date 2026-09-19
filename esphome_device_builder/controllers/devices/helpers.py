@@ -124,6 +124,15 @@ def read_device_config(path: Path, configuration: str) -> str:
         raise_device_not_found(configuration, from_exc=err)
 
 
+def refuse_empty_write(configuration: str) -> NoReturn:
+    """Raise ``INVALID_ARGS`` for a write that would empty *configuration*."""
+    raise CommandError(
+        ErrorCode.INVALID_ARGS,
+        f"refusing to write empty content to {configuration!r} to prevent "
+        "accidental data loss; use the delete action to remove a file",
+    )
+
+
 def require_unchanged(current: str, expected: str, configuration: str) -> None:
     """Raise ``PRECONDITION_FAILED`` unless *configuration*'s *current* text is still *expected*."""
     if current != expected:

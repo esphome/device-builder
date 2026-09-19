@@ -92,6 +92,7 @@ from .helpers import (
     _build_address_cache_args,
     read_device_config,
     read_device_config_async,
+    refuse_empty_write,
 )
 from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
@@ -882,11 +883,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 )
             return
         if is_empty:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"refusing to write empty content to {configuration!r} to prevent "
-                "accidental data loss; use the delete action to remove a file",
-            )
+            refuse_empty_write(configuration)
         await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
     async def apply_restored_yaml(
@@ -908,8 +905,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             path = self._db.settings.rel_path(configuration)
             new_text, result = rewrite(read_device_config(path, configuration))
             if not new_text.strip():
-                msg = f"refusing to write empty content to {configuration!r}"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
+                refuse_empty_write(configuration)
             write_user_yaml(path, new_text)
             return result
 
