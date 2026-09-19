@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from functools import partial
 from typing import Any
@@ -39,25 +38,12 @@ async def mcp_call_json(client: Any, name: str, arguments: dict[str, Any] | None
     return json.loads(text)
 
 
-def validate_stub(
-    frames: list[tuple[str, Any]], *, sleep: float = 0, swallow_cancel: bool = False
-) -> Any:
-    """
-    Build a ``devices/validate`` stand-in that emits *frames*, then optionally stalls.
-
-    A stalled stub re-raises the cancel like ``stream_subprocess`` under
-    ``asyncio.timeout``, or swallows it when ``swallow_cancel`` is set.
-    """
+def validate_stub(frames: list[tuple[str, Any]]) -> Any:
+    """Build a ``devices/validate`` stand-in that emits *frames*."""
 
     async def validate(*, client: Any, message_id: str, configuration: str) -> None:
         for event, data in frames:
             await client.send_event(message_id, event, data)
-        if sleep:
-            try:
-                await asyncio.sleep(sleep)
-            except asyncio.CancelledError:
-                if not swallow_cancel:
-                    raise
 
     return validate
 

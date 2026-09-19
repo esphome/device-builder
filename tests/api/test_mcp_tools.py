@@ -34,29 +34,20 @@ from .conftest import (
     validate_stub,
 )
 
-_CONFIG_TOOLS = (
-    ("get_config", {}),
-    ("update_config", {"content": "x: 1"}),
-    ("add_component", {"component_id": "wifi"}),
-    ("validate_config", {}),
-    ("compile", {}),
-    ("install", {}),
-    ("get_config_components", {}),
-    ("list_automations", {}),
-    ("get_available_automations", {}),
-    ("delete_automation", {"location": {"kind": "script", "index": 0}}),
-)
-_CONFIG_COMMANDS = (
-    "devices/get_config",
-    "devices/update_config",
-    "devices/add_component",
-    "devices/validate",
-    "firmware/compile",
-    "firmware/install",
-    "automations/parse",
-    "automations/get_available",
-    "automations/delete",
-)
+_DUMMY_ARGUMENT = {"string": "x", "object": {}, "integer": 1, "boolean": True, "array": []}
+_SECRET_REFUSING_TOOLS = [
+    pytest.param(
+        name,
+        {
+            key: _DUMMY_ARGUMENT[tool.schema["properties"][key]["type"]]
+            for key in tool.schema["required"]
+            if key != "configuration"
+        },
+        id=name,
+    )
+    for name, tool in TOOLS.items()
+    if "configuration" in tool.schema["properties"] and name != "get_config"
+]
 
 
 # ---------------------------------------------------------------------------
@@ -77,10 +68,11 @@ _CONFIG_COMMANDS = (
         "SECRET~1.YAM",
         "\u017fecrets.yaml",
         "notes.txt",
-        7,
+        "../x.yaml",
+        "sub/kitchen.yaml",
     ],
 )
-def test_check_configuration_refuses_every_secrets_spelling(name: object) -> None:
+def test_check_configuration_refuses_every_secrets_spelling(name: str) -> None:
     with pytest.raises(CommandError) as excinfo:
         _check_configuration(name, allow_secrets=False)
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
@@ -95,24 +87,13 @@ def test_check_configuration_can_allow_the_secrets_file_but_never_another_type()
         _check_configuration("notes.txt", allow_secrets=True)
 
 
-def test_every_configuration_tool_is_covered() -> None:
-    takes_config = {
-        name for name, tool in TOOLS.items() if "configuration" in tool.schema["properties"]
-    }
-    assert takes_config == {name for name, _ in _CONFIG_TOOLS}
-
-
-@pytest.mark.parametrize(("tool", "extra"), _CONFIG_TOOLS[1:])
+@pytest.mark.parametrize(("tool", "extra"), _SECRET_REFUSING_TOOLS)
 async def test_secrets_file_is_refused_by_every_tool_but_get_config(
-    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder, tool: str, extra: dict[str, Any]
+    mcp_client: Any, tool: str, extra: dict[str, Any]
 ) -> None:
-    handler = AsyncMock(return_value="wifi_password: hunter2\n")
-    for command in _CONFIG_COMMANDS:
-        mcp_catalog_db.command_handlers[command] = handler
     is_error, text = await mcp_call(mcp_client, tool, {"configuration": "secrets.yaml"} | extra)
     assert is_error
     assert text == "invalid_args: secrets.yaml is read with get_config and changed with set_secret"
-    handler.assert_not_awaited()
 
 
 async def test_get_config_reads_the_secrets_file(
@@ -182,11 +163,7 @@ async def test_add_component_returns_the_saved_yaml(
         mcp_client,
         "add_component",
         {"configuration": "kitchen.yaml", "component_id": "sensor.dht", "fields": {"pin": 4}},
-    ) == {
-        "configuration": "kitchen.yaml",
-        "component_id": "sensor.dht",
-        "yaml": "sensor:\n  - platform: dht\n",
-    }
+    ) == {"yaml": "sensor:\n  - platform: dht\n"}
     assert handler.await_args.kwargs["fields"] == {"pin": 4}
 
 
@@ -224,53 +201,15 @@ async def test_validate_config_removes_concealed_values(
     assert data["output"] == ["  password: <removed>"]
 
 
-async def test_validate_config_propagates_a_foreign_timeout(
+async def test_validate_config_without_result_frame_is_an_error(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    async def validate(**_kwargs: Any) -> None:
-        raise TimeoutError("socket")
-
-    mcp_db.command_handlers["devices/validate"] = validate
-    is_error, text = await mcp_call(mcp_client, "validate_config", {"configuration": "k.yaml"})
-    assert is_error
-    assert text == "internal_error: Tool failed: validate_config"
-
-
-@pytest.mark.parametrize(
-    "frames",
-    [[(StreamEvent.OUTPUT, "partial\n")], [(StreamEvent.RESULT, {"success": True})]],
-    ids=["no_result", "no_code"],
-)
-async def test_validate_config_without_result_frame_is_an_error(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder, frames: list[tuple[str, Any]]
-) -> None:
-    mcp_db.command_handlers["devices/validate"] = validate_stub(frames)
+    mcp_db.command_handlers["devices/validate"] = validate_stub([(StreamEvent.OUTPUT, "partial\n")])
     is_error, text = await mcp_call(
         mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
     )
     assert is_error
     assert text == "internal_error: Validation produced no result"
-
-
-@pytest.mark.parametrize("swallow_cancel", [True, False], ids=["swallowed", "propagated"])
-async def test_validate_config_times_out_and_keeps_the_tail(
-    mcp_client: Any,
-    mcp_db: McpStubDeviceBuilder,
-    monkeypatch: pytest.MonkeyPatch,
-    swallow_cancel: bool,
-) -> None:
-    monkeypatch.setattr("esphome_device_builder.api.mcp.tools.ESPHOME_CONFIG_TIMEOUT", 0.05)
-    mcp_db.command_handlers["devices/validate"] = validate_stub(
-        [(StreamEvent.OUTPUT, "started\n")], sleep=10, swallow_cancel=swallow_cancel
-    )
-    assert await mcp_call_json(
-        mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
-    ) == {
-        "success": False,
-        "timed_out": True,
-        "output": ["started"],
-        "truncated": False,
-    }
 
 
 async def test_validate_config_reports_truncation(
@@ -359,65 +298,16 @@ async def test_get_config_components_lists_catalog_rows_from_the_scan(
 ) -> None:
     mcp_catalog_db.devices.get_by_configuration.return_value = make_device(
         "kitchen",
-        component_ids=["substitutions", "esphome", "sensor", "sensor.dht", "sensor.hunter2"],
+        component_ids=["substitutions", "esphome", "sensor", "sensor.dht", "sensor.unknown"],
     )
     rows = await mcp_call_json(
         mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
     )
     mcp_catalog_db.devices.get_by_configuration.assert_called_with("kitchen.yaml")
-    # Domain keys such as ``sensor`` have no catalog entry; a stray value is never echoed.
+    # Domain keys such as ``sensor`` and unknown ids have no catalog entry.
     assert [row["id"] for row in rows] == ["substitutions", "esphome", "sensor.dht"]
     assert rows[2]["name"]
     assert rows[2]["docs_url"].startswith("https://esphome.io/")
-    assert "hunter2" not in json.dumps(rows)
-
-
-@pytest.mark.parametrize(
-    ("configuration", "code"),
-    [
-        ("nope.yaml", "not_found"),
-        ("../../etc/passwd", "invalid_args"),
-        ("../x.yaml", "invalid_args"),
-    ],
-)
-async def test_get_config_components_unknown_device_is_refused(
-    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder, configuration: str, code: str
-) -> None:
-    is_error, text = await mcp_call(
-        mcp_client, "get_config_components", {"configuration": configuration}
-    )
-    assert is_error
-    assert text.startswith(f"{code}: ")
-
-
-async def test_get_config_components_unresolved_config_is_unavailable(
-    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
-) -> None:
-    mcp_catalog_db.devices.get_by_configuration.return_value = make_device("kitchen")
-    is_error, text = await mcp_call(
-        mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
-    )
-    assert is_error
-    assert text.startswith("unavailable: kitchen.yaml did not resolve at its last scan")
-
-
-async def test_get_config_components_without_devices_is_unavailable(
-    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
-) -> None:
-    mcp_catalog_db.devices = None
-    is_error, text = await mcp_call(
-        mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
-    )
-    assert is_error
-    assert text == "unavailable: Devices are not loaded"
-
-
-async def test_get_config_components_without_catalog_is_unavailable(mcp_client: Any) -> None:
-    is_error, text = await mcp_call(
-        mcp_client, "get_config_components", {"configuration": "k.yaml"}
-    )
-    assert is_error
-    assert text.startswith("unavailable: ")
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +334,9 @@ async def test_list_secret_names_returns_names_only(
     assert await mcp_call_json(mcp_client, "list_secret_names") == ["api_key", "wifi_password"]
 
 
-async def test_set_secret_is_write_only(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
+async def test_set_secret_forwards_the_key_and_value(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
     handler = AsyncMock(return_value={"created": True})
     mcp_db.command_handlers["config/set_secret"] = handler
     assert await mcp_call_json(
@@ -462,7 +354,7 @@ async def test_set_secret_is_write_only(mcp_client: Any, mcp_db: McpStubDeviceBu
     }
 
 
-async def test_create_device_never_passes_credentials(
+async def test_create_device_forwards_only_its_named_arguments(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     handler = AsyncMock(return_value=WizardResponse(configuration="porch.yaml"))

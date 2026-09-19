@@ -117,7 +117,7 @@ async def test_get_job_reads_sidecar_for_terminal_job(
     assert data["status"] == "completed"
 
 
-async def test_get_job_zero_tail_still_reports_withheld_output(
+async def test_get_job_zero_tail_still_reports_truncation(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     job = make_job(status=JobStatus.COMPLETED, exit_code=0)

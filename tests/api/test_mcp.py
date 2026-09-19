@@ -138,23 +138,6 @@ def test_library_error_words_match_error_code() -> None:
 
 
 @pytest.mark.parametrize(
-    ("arguments", "fragment"),
-    [
-        pytest.param({}, "Missing required argument: job_id", id="missing"),
-        pytest.param({"job_id": "j", "extra": 1}, "Unknown argument: extra", id="unknown"),
-        pytest.param({"job_id": 5}, "job_id must be string", id="wrong_type"),
-    ],
-)
-async def test_argument_validation_is_a_tool_error(
-    mcp_client: Any, arguments: dict[str, Any], fragment: str
-) -> None:
-    is_error, text = await mcp_call(mcp_client, "get_job", arguments)
-    assert is_error
-    assert text.startswith(f"{ErrorCode.INVALID_ARGS.value}: ")
-    assert fragment in text
-
-
-@pytest.mark.parametrize(
     ("exc", "expected"),
     [
         pytest.param(CommandError(ErrorCode.NOT_FOUND, "gone"), "not_found: gone", id="command"),

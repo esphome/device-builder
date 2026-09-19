@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
+from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -14,17 +14,14 @@ from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
-from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
-
-    type ToolHandler = Callable[[DeviceBuilder, dict[str, Any]], Any]
+    from ...mcp.tools import ToolHandler
 
 _MESSAGE_ID = "mcp"
-# No NTFS stream suffix (``::$DATA``) and no 8.3 alias (``SECRET~1.YAM``).
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TAIL_LINES = 50
@@ -49,10 +46,10 @@ def _tool(
     required: tuple[str, ...] = (),
     *,
     reads_secrets: bool = False,
-) -> Callable[[ToolHandler], ToolHandler]:
+) -> Callable[[ToolHandler[DeviceBuilder]], ToolHandler[DeviceBuilder]]:
     """Register a tool; only a *reads_secrets* tool takes the secrets file as ``configuration``."""
 
-    def register(handler: ToolHandler) -> ToolHandler:
+    def register(handler: ToolHandler[DeviceBuilder]) -> ToolHandler[DeviceBuilder]:
         async def guarded(db: DeviceBuilder, args: dict[str, Any]) -> Any:
             _check_configuration(args.get("configuration"), allow_secrets=reads_secrets)
             return await handler(db, args)
@@ -75,78 +72,6 @@ _JOB_ID = _prop("string", "Firmware job id returned by compile or install.")
 _TAIL_LINES = _prop(
     "integer", f"Output lines to keep from the end (default 50, max {_MAX_TAIL_LINES})."
 )
-
-
-async def _call(
-    db: DeviceBuilder, command: str, *, client: CollectingClient | None = None, **args: Any
-) -> Any:
-    """Invoke a WS command handler; *client* receives any stream frames."""
-    handler = db.command_handlers.get(command)
-    if handler is None:
-        raise CommandError(ErrorCode.UNAVAILABLE, f"{command} is not available")
-    return await handler(
-        client=client or CollectingClient(tail=_DEFAULT_TAIL_LINES), message_id=_MESSAGE_ID, **args
-    )
-
-
-def _only(args: dict[str, Any], *names: str) -> dict[str, Any]:
-    """Return the *names* present in *args*: a tool forwards only what it names."""
-    return {name: args[name] for name in names if name in args}
-
-
-def _check_configuration(configuration: Any, *, allow_secrets: bool) -> None:
-    """Refuse a non-YAML name and, unless *allow_secrets*, the secrets file in any spelling."""
-    if configuration is None:
-        return
-    if not isinstance(configuration, str):
-        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
-    if is_secrets_file(configuration):
-        if allow_secrets:
-            return
-        raise CommandError(
-            ErrorCode.INVALID_ARGS,
-            "secrets.yaml is read with get_config and changed with set_secret",
-        )
-    if not is_device_config_name(configuration):
-        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a device .yaml filename")
-
-
-def _prune(value: Any, *, include_advanced: bool = False) -> Any:
-    """Drop empty values recursively; also hidden entries and, unless asked, advanced ones."""
-    if isinstance(value, list):
-        return [_prune(item, include_advanced=include_advanced) for item in value]
-    if not isinstance(value, dict):
-        return value
-    if isinstance(value.get("config_entries"), list):
-        value = value | {
-            "config_entries": [
-                entry
-                for entry in value["config_entries"]
-                if not (entry.get("hidden") or (entry.get("advanced") and not include_advanced))
-            ]
-        }
-    pruned = {k: _prune(v, include_advanced=include_advanced) for k, v in value.items()}
-    return {k: v for k, v in pruned.items() if not _is_empty(v)}
-
-
-def _is_empty(value: Any) -> bool:
-    return value is None or value is False or (isinstance(value, (str, list, dict)) and not value)
-
-
-def _bounded(args: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
-    """Return integer argument *key*: below *minimum* is invalid, above *maximum* clamps."""
-    value: int = args.get(key, default)
-    if value < minimum:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"{key} must be at least {minimum}")
-    return min(value, maximum)
-
-
-def _tail_lines(args: dict[str, Any]) -> int:
-    return _bounded(args, "tail_lines", _DEFAULT_TAIL_LINES, 0, _MAX_TAIL_LINES)
-
-
-def _search_limit(args: dict[str, Any]) -> int:
-    return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
 
 
 @_tool(
@@ -206,49 +131,26 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     response = await _call(
         db, "devices/add_component", **_only(args, "configuration", "component_id", "fields")
     )
-    return {"configuration": args["configuration"], "component_id": args["component_id"]} | (
-        response.to_dict()
-    )
+    return response.to_dict()
 
 
 @_tool(
     "validate_config",
     "Validate a device config with esphome and return the last output lines (truncated "
-    "says whether earlier lines were dropped; secret values are removed). Bounded to one "
-    "minute including any wait for a free slot (the output then starts with a waiting "
-    "line); a timed out run reports timed_out.",
+    "says whether earlier lines were dropped; esphome's concealed values show as <removed>).",
     {"configuration": _CONFIGURATION, "tail_lines": _TAIL_LINES},
     ("configuration",),
 )
 async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     client = CollectingClient(tail=_tail_lines(args))
-    # Under asyncio.timeout the stream helper re-raises the cancel (TimeoutError below);
-    # a handler that swallows it instead still reports through the expired deadline.
-    deadline = asyncio.timeout(ESPHOME_CONFIG_TIMEOUT)
-    try:
-        async with deadline:
-            await _call(db, "devices/validate", client=client, configuration=args["configuration"])
-    except TimeoutError:
-        if not deadline.expired():
-            raise
-    output = plain_lines(list(client.output))
-    if deadline.expired():
-        return {
-            "success": False,
-            "timed_out": True,
-            "output": output,
-            "truncated": client.truncated,
-        }
-    result = client.result
-    if result is None or "success" not in result or "code" not in result:
-        _LOGGER.error(
-            "MCP validate of %s produced no result frame: %r", args["configuration"], result
-        )
+    await _call(db, "devices/validate", client=client, configuration=args["configuration"])
+    if (result := client.result) is None:
+        _LOGGER.error("MCP validate of %s produced no result frame", args["configuration"])
         raise McpToolError(INTERNAL_ERROR, "Validation produced no result")
     return {
         "success": result["success"],
         "exit_code": result["code"],
-        "output": output,
+        "output": plain_lines(list(client.output)),
         "truncated": client.truncated,
     }
 
@@ -307,7 +209,7 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
     snapshot = await initial_snapshot(job, job.job_id)
     lines = snapshot or []
-    output = lines[-tail_lines:] if tail_lines > 0 else []
+    output = list(deque(lines, maxlen=tail_lines))
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
         "output": plain_lines(output),
@@ -404,9 +306,8 @@ async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[s
     "list_secret_names",
     "List the secret names defined in secrets.yaml. Reference one in YAML as '!secret <name>'.",
 )
-async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> list[str]:
-    names: list[str] = await _call(db, "config/get_secrets")
-    return names
+async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> Any:
+    return await _call(db, "config/get_secrets")
 
 
 @_tool(
@@ -435,7 +336,7 @@ async def _set_secret(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]
     "create_device",
     "Create a new device YAML with the wizard. Wi-Fi is written as '!secret wifi_ssid' and "
     "'!secret wifi_password' (set them first with set_secret if list_secret_names lacks them); "
-    "credentials are never passed inline. Returns the new configuration filename.",
+    "it takes no Wi-Fi arguments. Returns the new configuration filename.",
     {
         "name": _prop("string", "Device name (its hostname), e.g. 'living-room-sensor'."),
         "friendly_name": _prop("string", "Human readable name."),
@@ -518,3 +419,71 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
     await _call(db, "automations/delete", save=True, **_only(args, "configuration", "location"))
     return f"Removed the automation and saved {args['configuration']}"
+
+
+async def _call(
+    db: DeviceBuilder, command: str, *, client: CollectingClient | None = None, **args: Any
+) -> Any:
+    """Invoke a WS command handler; *client* receives any stream frames."""
+    handler = db.command_handlers.get(command)
+    if handler is None:
+        raise CommandError(ErrorCode.UNAVAILABLE, f"{command} is not available")
+    return await handler(client=client or CollectingClient(), message_id=_MESSAGE_ID, **args)
+
+
+def _only(args: dict[str, Any], *names: str) -> dict[str, Any]:
+    """Return the *names* present in *args*: a tool forwards only what it names."""
+    return {name: args[name] for name in names if name in args}
+
+
+def _check_configuration(configuration: str | None, *, allow_secrets: bool) -> None:
+    """Refuse a non-YAML name and, unless *allow_secrets*, the secrets file in any spelling."""
+    if configuration is None:
+        return
+    if is_secrets_file(configuration):
+        if allow_secrets:
+            return
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            "secrets.yaml is read with get_config and changed with set_secret",
+        )
+    if not is_device_config_name(configuration):
+        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a device .yaml filename")
+
+
+def _prune(value: Any, *, include_advanced: bool = False) -> Any:
+    """Drop empty values recursively; also hidden entries and, unless asked, advanced ones."""
+    if isinstance(value, list):
+        return [_prune(item, include_advanced=include_advanced) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if isinstance(value.get("config_entries"), list):
+        value = value | {
+            "config_entries": [
+                entry
+                for entry in value["config_entries"]
+                if not (entry.get("hidden") or (entry.get("advanced") and not include_advanced))
+            ]
+        }
+    pruned = {k: _prune(v, include_advanced=include_advanced) for k, v in value.items()}
+    return {k: v for k, v in pruned.items() if not _is_empty(v)}
+
+
+def _is_empty(value: Any) -> bool:
+    return value is None or value is False or (isinstance(value, (str, list, dict)) and not value)
+
+
+def _bounded(args: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
+    """Return integer argument *key*: below *minimum* is invalid, above *maximum* clamps."""
+    value: int = args.get(key, default)
+    if value < minimum:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"{key} must be at least {minimum}")
+    return min(value, maximum)
+
+
+def _tail_lines(args: dict[str, Any]) -> int:
+    return _bounded(args, "tail_lines", _DEFAULT_TAIL_LINES, 0, _MAX_TAIL_LINES)
+
+
+def _search_limit(args: dict[str, Any]) -> int:
+    return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
