@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, Any, NoReturn
 from esphome.core.config import FRIENDLY_NAME_MAX_LEN
 from esphome.helpers import friendly_name_slugify, sort_ip_addresses
 
+from ...helpers.ansi import redact_concealed
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
-from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -236,9 +236,7 @@ def _validate_archive_configuration(configuration: str) -> None:
         )
 
 
-def _redact_concealed_secrets(line: str) -> str:
-    """Replace ANSI-conceal-wrapped secret runs with ``<removed>``."""
-    return _CONCEALED_SECRET_RE.sub("<removed>", line)
+_redact_concealed_secrets = redact_concealed
 
 
 def _normalize_pin_value(value: Any) -> Any:
