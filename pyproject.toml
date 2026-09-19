@@ -85,6 +85,10 @@ test = [
   "ruff==0.16.7",
   "types-PyYAML",
 ]
+# Only the SDK interop job installs this: the official client is heavy and test-only.
+mcp-interop = [
+  "mcp>=1.26,<2",
+]
 
 [project.urls]
 Documentation = "https://esphome.io"

@@ -1163,6 +1163,25 @@ class StubAuth:
         self.rate_limiter = StubRateLimiter()
 
 
+async def rpc_post(
+    client: Any,
+    path: str,
+    method: str,
+    params: Any = None,
+    *,
+    msg_id: Any = 1,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """POST one JSON-RPC 2.0 request and return the decoded reply (asserts a JSON 200)."""
+    body: dict[str, Any] = {"jsonrpc": "2.0", "id": msg_id, "method": method}
+    if params is not None:
+        body["params"] = params
+    resp = await client.post(path, json=body, headers=headers)
+    assert resp.status == 200, await resp.text()
+    assert resp.content_type == "application/json"
+    return await resp.json()
+
+
 def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
     """Build a running COMPILE ``FirmwareJob`` for ``kitchen.yaml``."""
     base: dict[str, Any] = {

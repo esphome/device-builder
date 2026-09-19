@@ -379,6 +379,31 @@ jobs:
         timeout-minutes: 5
         run: uv run --no-sync pytest -q tests/e2e/slow/mqtt --durations=10 --timeout=120 --no-cov
 
+  e2e-mcp-sdk:
+    name: E2E MCP SDK interop (esphome stable)
+    runs-on: ubuntu-latest
+    # Drives the official ``mcp`` SDK client (the line Home Assistant ships)
+    # against the MCP server. Lives under tests/e2e/slow/ so the unit matrix,
+    # the channel matrix and the esphome repo's device-builder run all skip it,
+    # and the SDK comes from its own extra so no other venv installs it.
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
+        with:
+          python-version: "3.14"
+          install-args: -c esphome-constraints.txt -e .[esphome,test,mcp-interop]
+
+      - name: Verify the MCP SDK is installed
+        run: uv run --no-sync python -c "import mcp; print(mcp.__file__)"
+      - name: Run MCP SDK interop e2e
+        timeout-minutes: 5
+        run: uv run --no-sync pytest -q tests/e2e/slow/mcp --durations=10 --timeout=120 --no-cov
+
   e2e-libretiny:
     name: E2E LibreTiny (esphome stable)
     runs-on: ubuntu-latest
