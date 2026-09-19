@@ -113,13 +113,14 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
                 return _error(translated)
             _LOGGER.exception("MCP tool %s failed", name)
             return _error(McpToolError(INTERNAL_ERROR, f"Tool failed: {name}"))
-        # The tool ran, so the model must not retry it; only the reply is unusable.
-        try:
-            return _result(value if isinstance(value, str) else dumps_str(value))
-        except Exception:
-            _LOGGER.exception("MCP tool %s returned an unserialisable result", name)
-            msg = f"Tool {name} ran but its result could not be serialised; do not retry"
-            return _error(McpToolError(INTERNAL_ERROR, msg))
+        else:
+            # The tool ran, so the model must not retry it; only the reply is unusable.
+            try:
+                return _result(value if isinstance(value, str) else dumps_str(value))
+            except Exception:
+                _LOGGER.exception("MCP tool %s returned an unserialisable result", name)
+                msg = f"Tool {name} ran but its result could not be serialised; do not retry"
+                return _error(McpToolError(INTERNAL_ERROR, msg))
 
     def _translate_safely(self, err: Exception) -> McpToolError | None:
         """Run the translator; a translator that itself raises counts as untranslated."""
