@@ -37,6 +37,7 @@ from esphome_device_builder.controllers.components import _resolve as components
 from esphome_device_builder.controllers.components import controller as comp_controller
 from esphome_device_builder.controllers.components._resolve import FeaturedView
 from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
+from esphome_device_builder.helpers.json import to_wire
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -242,14 +243,12 @@ async def test_get_component_bodies_resolves_rp2040_alias() -> None:
     assert bodies["rp2040"].id == "rp2"
 
 
-async def test_component_bodies_command_serves_the_omit_defaults_shape() -> None:
-    """The WS command answers plain dicts with default-valued fields left out."""
+async def test_component_bodies_reach_the_wire_in_the_omit_defaults_shape() -> None:
+    """The command's models pass through ``to_wire`` with default-valued fields left out."""
     cat = ComponentCatalog()
     await asyncio.to_thread(cat.load)
-    handler = cat.get_component_bodies_wire
-    assert handler._api_command == "components/get_component_bodies"
 
-    bodies = await handler(component_ids=["wifi"])
+    bodies = to_wire(await cat.get_component_bodies(component_ids=["wifi"]))
 
     fast_connect = next(e for e in bodies["wifi"]["config_entries"] if e["key"] == "fast_connect")
     assert fast_connect["default_value"] is False

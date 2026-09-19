@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import MISSING, fields
+
+import pytest
+
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -57,3 +61,9 @@ def test_a_nested_entry_round_trips() -> None:
         supported_platforms=["esp32"],
     )
     assert ConfigEntry.from_dict(nested.to_dict()) == nested
+
+
+@pytest.mark.parametrize("model", [ConfigEntry, ComponentCatalogEntry, ComponentCatalogIndexEntry])
+def test_no_declared_default_is_truthy(model: type) -> None:
+    """An absent field reads as false or empty only while no default is truthy."""
+    assert not [f.name for f in fields(model) if f.default is not MISSING and f.default]

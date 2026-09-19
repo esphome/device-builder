@@ -307,22 +307,6 @@ class ComponentCatalog:
         return bodies.get(component_id)
 
     @api_command("components/get_component_bodies")
-    async def get_component_bodies_wire(
-        self,
-        *,
-        component_ids: list[str],
-        platform: str | None = None,
-        board_id: str | None = None,
-        **kwargs: Any,
-    ) -> dict[str, dict[str, Any]]:
-        """Serve ``get_component_bodies`` through each model's ``to_dict``."""
-        # The WS sender serialises models nested in a plain dict natively, which
-        # skips their omit-defaults config.
-        bodies = await self.get_component_bodies(
-            component_ids=component_ids, platform=platform, board_id=board_id
-        )
-        return {component_id: entry.to_dict() for component_id, entry in bodies.items()}
-
     async def get_component_bodies(
         self,
         *,
