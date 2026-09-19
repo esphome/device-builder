@@ -20,6 +20,7 @@ INTERNAL_ERROR = "internal_error"
 # Schema keywords ``validate_args`` enforces.
 _PROPERTY_KEYS = frozenset({"type", "description", "minimum", "maximum", "default"})
 _NUMERIC_TYPES = frozenset({"integer", "number"})
+_MUTABLE_TYPES = frozenset({"object", "array"})
 _JSON_TYPES: dict[str, type | tuple[type, ...]] = {
     "string": str,
     "integer": int,
@@ -186,6 +187,8 @@ def _default_problem(prop: dict[str, Any], *, required: bool) -> str | None:
         return None
     if required:
         return "is required, so its default is never used"
+    if prop["type"] in _MUTABLE_TYPES:
+        return "has a default on a mutable type, which every call would share"
     if problem := _value_problem(prop, prop["default"]):
         return f"needs a default that is {problem}"
     return None

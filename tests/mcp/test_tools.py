@@ -172,6 +172,8 @@ _BOUNDED = {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}
         ),
         pytest.param(_BOUNDED | {"default": 11}, "default that is at most 10", id="default_high"),
         pytest.param({"type": "integer", "default": "5"}, "default that is integer", id="type"),
+        pytest.param({"type": "object", "default": {}}, "default on a mutable type", id="object"),
+        pytest.param({"type": "array", "default": []}, "default on a mutable type", id="array"),
     ],
 )
 def test_registration_rejects_bounds_and_defaults_it_cannot_honour(
