@@ -79,7 +79,7 @@ async def stream_subprocess(
     line_transform: Callable[[str], str] | None = None,
     slot: asyncio.Semaphore | None = None,
     slot_timeout: float = 30.0,
-    run_timeout: float | None = None,
+    idle_timeout: float | None = None,
 ) -> None:
     """
     Run a CLI subprocess and stream its merged stdout/stderr to a single client.
@@ -89,7 +89,7 @@ async def stream_subprocess(
     and kill the subprocess. ``line_transform`` is applied per
     line before it leaves the WS handler. With *slot*, the run
     waits up to *slot_timeout* for a permit and holds it to the
-    end; a run longer than *run_timeout* is killed. Either bound
+    end; a run silent for *idle_timeout* is killed. Either bound
     answers ``UNAVAILABLE``.
     """
     # ``registered_stream`` enters before the first await so an early
@@ -110,15 +110,17 @@ async def stream_subprocess(
                 msg = "Too many concurrent runs; retry shortly"
                 raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         try:
-            async with asyncio.timeout(run_timeout) as deadline:
-                exit_code = await _run_streaming(cmd, client, message_id, line_transform)
+            async with asyncio.timeout(idle_timeout) as deadline:
+                exit_code = await _run_streaming(
+                    cmd, client, message_id, line_transform, deadline, idle_timeout
+                )
         except TimeoutError as err:
             if not deadline.expired():
                 raise
             _LOGGER.warning(
-                "Stream %s stopped after %ss: %s", message_id, run_timeout, " ".join(cmd)
+                "Stream %s stopped, silent for %ss: %s", message_id, idle_timeout, " ".join(cmd)
             )
-            msg = f"Run exceeded {run_timeout:.0f}s and was stopped"
+            msg = f"No output for {idle_timeout:.0f}s; the run was stopped"
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         finally:
             if slot is not None:
@@ -136,10 +138,13 @@ async def _run_streaming(
     client: Any,
     message_id: str,
     line_transform: Callable[[str], str] | None,
+    deadline: asyncio.Timeout,
+    idle_timeout: float | None,
 ) -> int | None:
     """Spawn *cmd* and forward its lines; ``None`` when a swallowed cancel ended the run."""
     env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
     proc: asyncio.subprocess.Process | None = None
+    killed = False
     try:
         proc = await create_subprocess_exec(
             *cmd,
@@ -154,6 +159,8 @@ async def _run_streaming(
         # terminator since the frontend's logs view appends every
         # event as a new line.
         async for line in iter_lines_with_progress(proc.stdout):
+            if idle_timeout is not None:
+                deadline.reschedule(asyncio.get_running_loop().time() + idle_timeout)
             payload = line.rstrip("\n\r")
             if line_transform is not None:
                 payload = line_transform(payload)
@@ -167,6 +174,7 @@ async def _run_streaming(
         # returned.
         if proc is not None and proc.returncode is None:
             kill_subtree_quietly(proc)
+            killed = True
         # Honour the asyncio cancellation contract: only swallow
         # if no outstanding cancel requests remain (asyncio.timeout
         # / TaskGroup may have called Task.uncancel()).
@@ -175,6 +183,10 @@ async def _run_streaming(
         return None
     finally:
         if proc is not None and proc.returncode is None:
+            if not killed:
+                # A non-cancel failure (client gone, read error) leaves the child running.
+                _LOGGER.warning("Stream %s failed with its child alive; killing it", message_id)
+                kill_subtree_quietly(proc)
             # Reap so the transport closes cleanly; shielded so a
             # cancellation landing here keeps the reap running while
             # it propagates.

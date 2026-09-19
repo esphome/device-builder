@@ -773,14 +773,14 @@ async def test_stop_stream_cancels_a_run_waiting_for_a_slot() -> None:
     assert not slot.locked()
 
 
-async def test_stream_subprocess_run_bound_stops_the_child_and_frees_the_slot() -> None:
+async def test_stream_subprocess_idle_bound_stops_a_silent_child_and_frees_the_slot() -> None:
     ctrl = _make_controller()
     client, _events = _recording_client()
     slot = asyncio.Semaphore(1)
     with pytest.raises(CommandError) as excinfo:
-        await ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot, run_timeout=0.3)
+        await ctrl._stream_subprocess(_sleeper(60), client, "s-1", slot=slot, idle_timeout=0.3)
     assert excinfo.value.code is ErrorCode.UNAVAILABLE
-    assert "exceeded" in excinfo.value.message
+    assert "No output for" in excinfo.value.message
     assert not slot.locked()
 
 
@@ -796,11 +796,11 @@ async def test_stream_logs_stays_unbounded(
     ctrl._stream_subprocess = fake_stream  # type: ignore[method-assign]
     await ctrl.stream_logs(configuration="kitchen.yaml", client=MagicMock(), message_id="m")
     assert captured.get("slot") is None
-    assert captured.get("run_timeout") is None
+    assert captured.get("idle_timeout") is None
     # The call site passes no bounds, so the helper's defaults are the bounds.
     defaults = inspect.signature(logs.stream_subprocess).parameters
     assert defaults["slot"].default is None
-    assert defaults["run_timeout"].default is None
+    assert defaults["idle_timeout"].default is None
 
 
 async def test_validate_config_streams_through_the_pool(
@@ -818,7 +818,7 @@ async def test_validate_config_streams_through_the_pool(
     )
     assert captured["slot"] is validate._validate_semaphore
     assert captured["slot_timeout"] == validate._QUEUE_TIMEOUT
-    assert captured["run_timeout"] == ESPHOME_CONFIG_TIMEOUT
+    assert captured["idle_timeout"] == ESPHOME_CONFIG_TIMEOUT
 
 
 async def test_stream_subprocess_lets_a_foreign_timeout_through() -> None:
@@ -830,8 +830,8 @@ async def test_stream_subprocess_lets_a_foreign_timeout_through() -> None:
 
     client.send_event = slow_send  # type: ignore[method-assign]
     with pytest.raises(TimeoutError, match="socket"):
-        await ctrl._stream_subprocess(
-            [sys.executable, "-c", "print('x')"], client, "s-1", run_timeout=30
+        await asyncio.wait_for(
+            ctrl._stream_subprocess(_sleeper(60), client, "s-1", idle_timeout=30), timeout=10
         )
 
 
@@ -886,3 +886,15 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
     # The child owns its session so the cancel kill reaches its subtree.
     assert spawn_kwargs["start_new_session"] is True
     assert killed == [proc]
+
+
+async def test_idle_bound_resets_while_the_child_keeps_talking() -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    chatty = [
+        sys.executable,
+        "-c",
+        "import time\nfor _ in range(8):\n    print('tick', flush=True)\n    time.sleep(0.15)\n",
+    ]
+    await ctrl._stream_subprocess(chatty, client, "s-1", idle_timeout=0.6)
+    assert ("s-1", "result", {"success": True, "code": 0}) in events

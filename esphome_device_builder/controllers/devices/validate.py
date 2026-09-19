@@ -57,5 +57,5 @@ async def validate_config(
         line_transform=line_transform,
         slot=_validate_semaphore,
         slot_timeout=_QUEUE_TIMEOUT,
-        run_timeout=ESPHOME_CONFIG_TIMEOUT,
+        idle_timeout=ESPHOME_CONFIG_TIMEOUT,
     )
