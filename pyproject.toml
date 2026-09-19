@@ -73,7 +73,6 @@ test = [
   "codespell==2.4.3",
   "importtime-waterfall==1.0.0",
   "jsonschema>=4.20.0",
-  "mcp>=1.26,<2",
   "mypy==2.3.1",
   "pre-commit==4.6.2",
   "pre-commit-hooks==6.0.0",
@@ -85,6 +84,10 @@ test = [
   "pytest-xdist==3.8.0",
   "ruff==0.16.7",
   "types-PyYAML",
+]
+# Only the SDK interop job installs this: the official client is heavy and test-only.
+mcp-interop = [
+  "mcp>=1.26,<2",
 ]
 
 [project.urls]

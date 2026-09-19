@@ -384,7 +384,8 @@ jobs:
     runs-on: ubuntu-latest
     # Drives the official ``mcp`` SDK client (the line Home Assistant ships)
     # against the MCP server. Lives under tests/e2e/slow/ so the unit matrix,
-    # the channel matrix and the esphome repo's device-builder run all skip it.
+    # the channel matrix and the esphome repo's device-builder run all skip it,
+    # and the SDK comes from its own extra so no other venv installs it.
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -395,7 +396,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-          install-args: -c esphome-constraints.txt -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test,mcp-interop]
 
       - name: Run MCP SDK interop e2e
         timeout-minutes: 5
