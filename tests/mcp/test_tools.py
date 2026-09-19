@@ -146,3 +146,9 @@ def test_registration_rejects_unknown_required_names_and_duplicates() -> None:
 
     with pytest.raises(ValueError, match="already registered"):
         tools.tool("t", "desc")
+
+
+def test_registration_rejects_a_list_typed_property() -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    with pytest.raises(ValueError, match="property a needs a type"):
+        tools.tool("t", "desc", {"a": {"type": ["string", "null"]}})

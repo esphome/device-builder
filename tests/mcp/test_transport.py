@@ -25,6 +25,11 @@ from ..conftest import rpc_post
 _PATH = "/mcp"
 _rpc = partial(rpc_post, path=_PATH)
 _PING = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+_CLIENT = {"capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}
+
+
+def _init(version: Any) -> dict[str, Any]:
+    return {"protocolVersion": version, **_CLIENT}
 
 
 @pytest.fixture
@@ -124,19 +129,38 @@ async def test_params_must_be_an_object_when_present(client: Any, params: Any) -
 
 @pytest.mark.parametrize("version", sorted(SUPPORTED_PROTOCOL_VERSIONS))
 async def test_initialize_echoes_supported_version(client: Any, version: str) -> None:
-    reply = await _rpc(client, method="initialize", params={"protocolVersion": version})
+    reply = await _rpc(client, method="initialize", params=_init(version))
     assert reply["result"]["protocolVersion"] == version
 
 
-@pytest.mark.parametrize("requested", ["2025-03-26", "2099-01-01", 7, ["2025-06-18"], {"v": 1}])
-async def test_initialize_falls_back_to_default_version(client: Any, requested: Any) -> None:
-    reply = await _rpc(client, method="initialize", params={"protocolVersion": requested})
+@pytest.mark.parametrize("requested", ["2025-03-26", "2099-01-01"])
+async def test_initialize_counter_offers_the_newest_supported_version(
+    client: Any, requested: str
+) -> None:
+    reply = await _rpc(client, method="initialize", params=_init(requested))
     assert reply["result"]["protocolVersion"] == DEFAULT_PROTOCOL_VERSION
+    assert max(SUPPORTED_PROTOCOL_VERSIONS) == DEFAULT_PROTOCOL_VERSION
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({}, id="empty"),
+        pytest.param(_init(7), id="non_string_version"),
+        pytest.param(_init(["2025-06-18"]), id="list_version"),
+        pytest.param({"protocolVersion": "2025-06-18"}, id="no_client"),
+        pytest.param({**_init("2025-06-18"), "capabilities": []}, id="capabilities_not_object"),
+        pytest.param({**_init("2025-06-18"), "clientInfo": {"name": "x"}}, id="client_no_version"),
+    ],
+)
+async def test_initialize_rejects_malformed_params(client: Any, params: dict[str, Any]) -> None:
+    reply = await _rpc(client, method="initialize", params=params)
+    assert reply["error"]["code"] == INVALID_PARAMS
 
 
 async def test_initialize_advertises_tools_and_server_info(client: Any) -> None:
-    result = (await _rpc(client, method="initialize", params={}))["result"]
-    assert result["protocolVersion"] == DEFAULT_PROTOCOL_VERSION
+    result = (await _rpc(client, method="initialize", params=_init("2025-06-18")))["result"]
+    assert result["protocolVersion"] == "2025-06-18"
     assert result["capabilities"] == {"tools": {}}
     assert result["serverInfo"] == {"name": "Test Server", "version": "1.2.3"}
 

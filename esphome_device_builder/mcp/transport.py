@@ -12,7 +12,8 @@ from .tools import ToolRegistry
 
 # Revisions before 2025-06-18 require JSON-RPC batching, which handle() rejects.
 SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-06-18", "2025-11-25"})
-DEFAULT_PROTOCOL_VERSION = "2025-06-18"
+# The spec's counter-offer for an unsupported request: the newest revision served.
+DEFAULT_PROTOCOL_VERSION = max(SUPPORTED_PROTOCOL_VERSIONS)
 PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
 
 PARSE_ERROR = -32700
@@ -69,11 +70,20 @@ class McpServer[ContextT]:
 
     async def _initialize(self, _context: ContextT, params: dict[str, Any]) -> dict[str, Any]:
         requested = params.get("protocolVersion")
+        client_info = params.get("clientInfo")
+        if (
+            not isinstance(requested, str)
+            or not isinstance(params.get("capabilities"), dict)
+            or not isinstance(client_info, dict)
+            or not isinstance(client_info.get("name"), str)
+            or not isinstance(client_info.get("version"), str)
+        ):
+            raise _RpcError(
+                INVALID_PARAMS, "initialize needs protocolVersion, capabilities and clientInfo"
+            )
         return {
             "protocolVersion": (
-                requested
-                if isinstance(requested, str) and requested in SUPPORTED_PROTOCOL_VERSIONS
-                else DEFAULT_PROTOCOL_VERSION
+                requested if requested in SUPPORTED_PROTOCOL_VERSIONS else DEFAULT_PROTOCOL_VERSION
             ),
             "capabilities": {"tools": {}},
             "serverInfo": self._server_info,
