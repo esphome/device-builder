@@ -17,6 +17,7 @@ from esphome_device_builder.api.mcp import MCP_PATH, SERVER_NAME, create_mcp_rou
 from esphome_device_builder.api.mcp.tools import TOOLS, _refuse_secrets
 from esphome_device_builder.constants import __version__
 from esphome_device_builder.controllers.auth import AuthError
+from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
@@ -26,7 +27,6 @@ from esphome_device_builder.helpers.auth import auth_middleware
 from esphome_device_builder.mcp import INTERNAL_ERROR, INVALID_ARGS
 from esphome_device_builder.models import (
     AddComponentResponse,
-    BoardCatalogIndex,
     ComponentCatalogIndexEntry,
     ComponentCategory,
     DevicesResponse,
@@ -34,7 +34,6 @@ from esphome_device_builder.models import (
     ErrorCode,
     JobStatus,
     JobType,
-    PagedBoardsResponse,
     PagedComponentsResponse,
     StreamEvent,
     WizardResponse,
@@ -627,15 +626,14 @@ async def test_get_config_components_without_catalog_is_unavailable(client: Any)
 # ---------------------------------------------------------------------------
 
 
-async def test_search_boards_projects_index_rows(client: Any, db: _StubDeviceBuilder) -> None:
-    board = BoardCatalogIndex(
-        id="esp32dev", name="ESP32 Dev Module", description="", manufacturer="Espressif"
-    )
-    handler = AsyncMock(return_value=PagedBoardsResponse(boards=[board]))
+async def test_search_boards_projects_index_rows(
+    client: Any, db: _StubDeviceBuilder, session_board_catalog: BoardCatalog
+) -> None:
+    handler = AsyncMock(side_effect=session_board_catalog.get_boards)
     db.command_handlers["boards/get_boards"] = handler
-    rows = await _call_json(client, "search_boards", {"query": "esp32", "limit": 5000})
-    assert rows[0]["id"] == "esp32dev"
-    assert rows[0]["name"] == "ESP32 Dev Module"
+    rows = await _call_json(client, "search_boards", {"query": "esp32dev", "limit": 5000})
+    assert any(row["id"] == "esp32dev" for row in rows)
+    assert all({"id", "name"} <= set(row) for row in rows)
     assert handler.await_args.kwargs["limit"] == 100
 
 
@@ -675,3 +673,39 @@ async def test_create_device_never_passes_credentials(client: Any, db: _StubDevi
     is_error, text = await _call(client, "create_device", {"name": "x", "ssid": "net"})
     assert is_error
     assert "Unknown argument: ssid" in text
+
+
+# ---------------------------------------------------------------------------
+# Automations
+# ---------------------------------------------------------------------------
+
+
+async def test_automation_tools_wrap_the_automation_commands(
+    client: Any, db: _StubDeviceBuilder
+) -> None:
+    location = {"kind": "script", "index": 0}
+    parsed = [{"location": location, "label": "blink", "raw_yaml": "script:\n", "error": None}]
+    db.command_handlers["automations/parse"] = AsyncMock(return_value=parsed)
+    db.command_handlers["automations/get_available"] = AsyncMock(
+        return_value={"triggers": ["on_boot"], "actions": ["light.turn_on"], "scripts": []}
+    )
+    bodies = AsyncMock(return_value={"action/light.turn_on": {"id": "light.turn_on"}})
+    db.command_handlers["automations/get_bodies"] = bodies
+    delete = AsyncMock(return_value={"yaml_diff": {"from_line": 1}})
+    db.command_handlers["automations/delete"] = delete
+
+    listed = await _call_json(client, "list_automations", {"configuration": "kitchen.yaml"})
+    assert listed == [{"location": location, "label": "blink", "raw_yaml": "script:\n"}]
+    available = await _call_json(
+        client, "get_available_automations", {"configuration": "kitchen.yaml"}
+    )
+    assert available == {"triggers": ["on_boot"], "actions": ["light.turn_on"]}
+    refs = [{"type": "action", "id": "light.turn_on"}]
+    docs = await _call_json(client, "get_automation_docs", {"refs": refs})
+    assert docs == {"action/light.turn_on": {"id": "light.turn_on"}}
+    assert bodies.await_args.kwargs["refs"] == refs
+    diff = await _call_json(
+        client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
+    )
+    assert diff == {"yaml_diff": {"from_line": 1}}
+    assert delete.await_args.kwargs["location"] == location

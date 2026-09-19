@@ -422,3 +422,50 @@ async def _set_secret(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]
 async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     response = await _call(db, "devices/create", **args)
     return response.to_dict()
+
+
+@_tool(
+    "list_automations",
+    "List the automations a device config contains (scripts, intervals, api actions, "
+    "on_* triggers, light effects) with their YAML, line range and location. Edit them by "
+    "rewriting the YAML with update_config; remove one with delete_automation.",
+    {"configuration": _CONFIGURATION},
+    ("configuration",),
+)
+async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    return _prune(await _call(db, "automations/parse", **args))
+
+
+@_tool(
+    "get_available_automations",
+    "The triggers, actions, conditions, scripts and component instances this device's "
+    "config makes available for automations, by id.",
+    {"configuration": _CONFIGURATION},
+    ("configuration",),
+)
+async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    return _prune(await _call(db, "automations/get_available", **args))
+
+
+@_tool(
+    "get_automation_docs",
+    "Documentation for automation building blocks: each ref is {type, id} as listed by "
+    "get_available_automations, e.g. {type: 'action', id: 'light.turn_on'}.",
+    {"refs": _prop("array", "List of {type, id} refs.")},
+    ("refs",),
+)
+async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    return _prune(await _call(db, "automations/get_bodies", **args))
+
+
+@_tool(
+    "delete_automation",
+    "Remove one automation from a device config; pass the location from list_automations.",
+    {
+        "configuration": _CONFIGURATION,
+        "location": _prop("object", "The automation's location as returned by list_automations."),
+    },
+    ("configuration", "location"),
+)
+async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    return await _call(db, "automations/delete", **args)

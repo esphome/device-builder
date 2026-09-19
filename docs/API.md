@@ -565,6 +565,10 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `list_secret_names` | `config/get_secrets` | Secret names only, never values |
 | `set_secret {name, value, overwrite?}` | `config/set_secret` | Write-only: `{name, created}`; the value is never read back |
 | `create_device {name, friendly_name?, board_id?}` | `devices/create` | The wizard, without the inline `ssid` / `psk` arguments, so Wi-Fi lands as `!secret wifi_ssid` / `!secret wifi_password` references |
+| `list_automations {configuration}` | `automations/parse` | Every automation in the YAML with its label, raw YAML, line range and `location` |
+| `get_available_automations {configuration}` | `automations/get_available` | The trigger, action, condition, script and component ids this device's config exposes |
+| `get_automation_docs {refs}` | `automations/get_bodies` | Bodies for `[{type, id}]` refs |
+| `delete_automation {configuration, location}` | `automations/delete` | Removes the automation at a `location` from `list_automations`; adding or changing one is a YAML edit through `update_config` |
 
 **Secrets.** Values flow one way. Every tool that takes a `configuration` refuses the secrets file (`secrets.yaml` or `.yml`, any case), `get_config_components` echoes only catalog ids, and `list_secret_names` returns names alone, so no secret value reaches a model from the server. `set_secret` writes a value the user supplied and never reads it back; `create_device` references the Wi-Fi secrets by name instead of taking credentials.
 
