@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
@@ -31,7 +30,7 @@ from ...models.boards import normalize_platform
 from .helpers import (
     _apply_featured_presets,
     _drop_unconfigured_dependent_fields,
-    replace_if_unchanged,
+    persist_if_unchanged,
     require_catalog,
 )
 
@@ -131,14 +130,11 @@ async def add_component(
     if yaml is None:
         # Atomic write; wizard-driven add-component should not be able
         # to corrupt the source YAML on a mid-write crash.
-        await controller.rewrite_yaml(
+        await persist_if_unchanged(
+            controller,
             configuration,
-            partial(
-                replace_if_unchanged,
-                expected=existing,
-                content=new_yaml,
-                configuration=configuration,
-            ),
+            new_yaml,
+            expected=existing,
             message=f"Add {component.id} to {configuration}",
         )
 

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry, ComponentCatalogIndexEntry, ConfigEntry
     from .._device_state_monitor import DeviceStateMonitor
     from ..components import ComponentCatalog, _FeaturedRecord
+    from .controller import DevicesController
 
 # Top-level YAML key matcher; used instead of yaml.safe_load
 # because ESPHome configs commonly carry custom tags
@@ -40,11 +41,12 @@ __all__ = [
     "_validate_archive_configuration",
     "clean_friendly_name",
     "friendly_name_slugify",
+    "persist_if_unchanged",
     "raise_device_name_exists",
     "raise_device_not_found",
-    "replace_if_unchanged",
     "require_catalog",
     "require_file_exists",
+    "require_unchanged",
     "slugify_hostname",
     "write_new_file_exclusive",
 ]
@@ -119,14 +121,23 @@ def read_device_config(path: Path, configuration: str) -> str:
         raise_device_not_found(configuration, from_exc=err)
 
 
-def replace_if_unchanged(
-    current: str, *, expected: str, content: str, configuration: str
-) -> tuple[str, None]:
-    """Return *content* as the rewrite of *current*; refuse unless it is still *expected*."""
+def require_unchanged(current: str, expected: str, configuration: str) -> None:
+    """Raise ``PRECONDITION_FAILED`` unless *configuration*'s *current* text is still *expected*."""
     if current != expected:
         msg = f"{configuration} changed while it was being edited; nothing was written, retry"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-    return content, None
+
+
+async def persist_if_unchanged(
+    controller: DevicesController, configuration: str, content: str, *, expected: str, message: str
+) -> None:
+    """Save *content* through ``rewrite_yaml`` unless the file no longer holds *expected*."""
+
+    def _replace(current: str) -> tuple[str, None]:
+        require_unchanged(current, expected, configuration)
+        return content, None
+
+    await controller.rewrite_yaml(configuration, _replace, message=message)
 
 
 def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:
