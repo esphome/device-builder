@@ -376,3 +376,19 @@ def test_kill_subtree_quietly_falls_back_to_the_child(monkeypatch: pytest.Monkey
     proc = SimpleNamespace(pid=4242)
     process.kill_subtree_quietly(proc)  # type: ignore[arg-type]
     assert killed == [proc]
+
+
+def test_kill_subtree_quietly_terminates_the_windows_job(
+    monkeypatch: pytest.MonkeyPatch, win32_platform: None
+) -> None:
+    killed: list[Any] = []
+    monkeypatch.setattr(process, "kill_quietly", killed.append)
+    monkeypatch.setattr(
+        process, "_signal_process_group", lambda *_a: pytest.fail("no groups on Windows")
+    )
+    proc = SimpleNamespace(pid=7)
+    process.kill_subtree_quietly(proc, SimpleNamespace(terminate=lambda: True))  # type: ignore[arg-type]
+    assert killed == []
+    process.kill_subtree_quietly(proc, SimpleNamespace(terminate=lambda: False))  # type: ignore[arg-type]
+    process.kill_subtree_quietly(proc)  # type: ignore[arg-type]
+    assert killed == [proc, proc]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -871,7 +873,8 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
         "esphome_device_builder.controllers.devices.logs.iter_lines_with_progress", lines
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly", killed.append
+        "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly",
+        lambda proc, _job=None: killed.append(proc),
     )
 
     task = asyncio.create_task(ctrl._stream_subprocess(["x"], client, "s-1"))
@@ -898,3 +901,31 @@ async def test_idle_bound_resets_while_the_child_keeps_talking() -> None:
     ]
     await ctrl._stream_subprocess(chatty, client, "s-1", idle_timeout=0.6)
     assert ("s-1", "result", {"success": True, "code": 0}) in events
+
+
+async def test_stream_wraps_the_child_in_a_windows_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[int] = []
+    closed: list[int] = []
+
+    class _Job:
+        def __init__(self, pid: int) -> None:
+            self.pid = pid
+
+        def terminate(self) -> bool:
+            os.kill(self.pid, signal.SIGKILL)
+            return True
+
+        def close(self) -> None:
+            closed.append(self.pid)
+
+    monkeypatch.setattr(
+        logs.WindowsJobObject, "create_for_pid", lambda pid: created.append(pid) or _Job(pid)
+    )
+    monkeypatch.setattr(sys, "platform", "win32")
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    task = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1"))
+    await _wait_for_output(events, "s-1")
+    assert client.cancel_stream("s-1") is True
+    await asyncio.gather(task, return_exceptions=True)
+    assert created and closed == created

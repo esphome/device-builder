@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, registered_stream
 from ...helpers.process import kill_subtree_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
+from ...helpers.windows_job_object import WindowsJobObject
 from ...models import OTA_PORT, ErrorCode, StreamEvent
 
 _LOGGER = logging.getLogger(__name__)
@@ -144,6 +146,7 @@ async def _run_streaming(
     """Spawn *cmd* and forward its lines; ``None`` when a swallowed cancel ended the run."""
     env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
     proc: asyncio.subprocess.Process | None = None
+    win_job: WindowsJobObject | None = None
     killed = False
     try:
         proc = await create_subprocess_exec(
@@ -153,6 +156,8 @@ async def _run_streaming(
             env=env,
             start_new_session=True,
         )
+        if sys.platform == "win32":
+            win_job = WindowsJobObject.create_for_pid(proc.pid)
         assert proc.stdout is not None
         # Use the shared `\n`/`\r` splitter so esptool / PlatformIO
         # carriage-return progress lines surface live; strip the
@@ -173,7 +178,7 @@ async def _run_streaming(
         # ``proc`` may be None if cancellation arrived before spawn
         # returned.
         if proc is not None and proc.returncode is None:
-            kill_subtree_quietly(proc)
+            kill_subtree_quietly(proc, win_job)
             killed = True
         # Honour the asyncio cancellation contract: only swallow
         # if no outstanding cancel requests remain (asyncio.timeout
@@ -182,12 +187,24 @@ async def _run_streaming(
             raise
         return None
     finally:
-        if proc is not None and proc.returncode is None:
-            if not killed:
-                # A non-cancel failure (client gone, read error) leaves the child running.
-                _LOGGER.warning("Stream %s failed with its child alive; killing it", message_id)
-                kill_subtree_quietly(proc)
-            # Reap so the transport closes cleanly; shielded so a
-            # cancellation landing here keeps the reap running while
-            # it propagates.
-            await asyncio.shield(proc.wait())
+        await _teardown(proc, win_job, killed=killed, message_id=message_id)
+
+
+async def _teardown(
+    proc: asyncio.subprocess.Process | None,
+    win_job: WindowsJobObject | None,
+    *,
+    killed: bool,
+    message_id: str,
+) -> None:
+    """Kill a child still alive after a failure, reap it, and release the Windows job."""
+    if proc is not None and proc.returncode is None:
+        if not killed:
+            _LOGGER.warning("Stream %s failed with its child alive; killing it", message_id)
+            kill_subtree_quietly(proc, win_job)
+        # Reap so the transport closes cleanly; shielded so a
+        # cancellation landing here keeps the reap running while
+        # it propagates.
+        await asyncio.shield(proc.wait())
+    if win_job is not None:
+        win_job.close()

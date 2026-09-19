@@ -69,15 +69,22 @@ _LOGGER = logging.getLogger(__name__)
 _TERMINATE_GRACE_SECONDS = 3.0
 
 
-def kill_subtree_quietly(proc: asyncio.subprocess.Process) -> None:
+def kill_subtree_quietly(
+    proc: asyncio.subprocess.Process, win_job: WindowsJobObject | None = None
+) -> None:
     """
     Kill *proc*'s whole tree synchronously; safe inside a cancel path.
 
     POSIX signals the process group, so the spawn site MUST have used
     ``start_new_session=True`` or the dashboard's own group is hit.
-    Windows and an already-gone group fall back to ``kill_quietly``.
+    Windows terminates the job *win_job* wraps. Without a job, or once
+    the group is gone, only the direct child is killed.
     """
-    if sys.platform == "win32" or not _signal_process_group(proc.pid, signal.SIGKILL):
+    if sys.platform == "win32":
+        if win_job is None or not win_job.terminate():
+            kill_quietly(proc)
+        return
+    if not _signal_process_group(proc.pid, signal.SIGKILL):
         kill_quietly(proc)
 
 
