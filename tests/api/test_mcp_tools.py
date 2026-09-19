@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
@@ -534,11 +534,8 @@ async def test_automation_tools_wrap_the_automation_commands(
     )
     bodies = AsyncMock(return_value={"actions/light.turn_on": {"id": "light.turn_on"}})
     mcp_db.command_handlers["automations/get_bodies"] = bodies
-    mcp_db.command_handlers["devices/get_config"] = AsyncMock(return_value="a:\nb:\nc:\n")
     delete = AsyncMock(return_value={"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""}})
     mcp_db.command_handlers["automations/delete"] = delete
-    save = AsyncMock(return_value=None)
-    mcp_db.command_handlers["devices/update_config"] = save
 
     listed = await mcp_call_json(mcp_client, "list_automations", {"configuration": "kitchen.yaml"})
     assert listed == [{"location": location, "label": "blink", "raw_yaml": "script:\n"}]
@@ -550,18 +547,13 @@ async def test_automation_tools_wrap_the_automation_commands(
     docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": refs})
     assert docs == {"actions/light.turn_on": {"id": "light.turn_on"}}
     assert bodies.await_args.kwargs["refs"] == refs
-    parse.side_effect = [parsed, []]
     assert await mcp_call(
         mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
     ) == (False, "Removed the automation and saved kitchen.yaml")
-    assert delete.await_args.kwargs["location"] == location
-    assert parse.await_args.kwargs["yaml"] == "a:\nc:\n"
-
-    parse.side_effect = [parsed, parsed]
-    is_error, text = await mcp_call(
-        mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
-    )
-    assert is_error
-    assert text == "internal_error: Delete did not remove exactly one automation"
-    assert delete.await_args.kwargs["yaml"] == "a:\nb:\nc:\n"
-    assert save.await_args.kwargs["content"] == "a:\nc:\n"
+    assert delete.await_args.kwargs == {
+        "client": ANY,
+        "message_id": ANY,
+        "configuration": "kitchen.yaml",
+        "location": location,
+        "save": True,
+    }

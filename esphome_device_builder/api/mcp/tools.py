@@ -18,10 +18,8 @@ from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
-from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode
-from ...models.automations import YamlDiff
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -525,14 +523,5 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration", "location"),
 )
 async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    configuration = args["configuration"]
-    text = await _call(db, "devices/get_config", configuration=configuration)
-    before = await _call(db, "automations/parse", configuration=configuration, yaml=text)
-    splice = await _call(db, "automations/delete", yaml=text, **args)
-    new_text = apply_yaml_diff(text, YamlDiff.from_dict(splice["yaml_diff"]))
-    after = await _call(db, "automations/parse", configuration=configuration, yaml=new_text)
-    if len(after) != len(before) - 1:
-        _LOGGER.error("MCP delete_automation mis-spliced %s: %r", configuration, splice)
-        raise McpToolError(INTERNAL_ERROR, "Delete did not remove exactly one automation")
-    await _call(db, "devices/update_config", configuration=configuration, content=new_text)
-    return f"Removed the automation and saved {configuration}"
+    await _call(db, "automations/delete", save=True, **args)
+    return f"Removed the automation and saved {args['configuration']}"
