@@ -37,6 +37,7 @@ from esphome_device_builder.controllers.automations.writing_lists import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
     SubEntityRef,
+    apply_yaml_diff,
     remove_nested_handler,
     upsert_nested_handler,
 )
@@ -115,6 +116,7 @@ def test_delete_device_on_boot_drops_the_block() -> None:
     )
     assert "on_boot:" not in new_text
     assert diff.replacement == ""
+    assert apply_yaml_diff(text, diff) == new_text
 
 
 _LIST_ON_BOOT = (
