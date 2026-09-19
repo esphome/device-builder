@@ -6,6 +6,7 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import apply_yaml_diff, splice_lines
 from esphome_device_builder.models.automations import YamlDiff
+from tests.conftest import apply_yaml_diff_like_frontend
 
 _TEXT = "a: 1\nb: 2\nc: 3\n"
 
@@ -55,8 +56,8 @@ def test_form_feed_inside_a_scalar_is_not_a_boundary_to_repair() -> None:
 
 
 def test_append_after_an_unterminated_last_line_keeps_the_boundary() -> None:
-    assert apply_yaml_diff("a: 1", _diff(2, 1, "b: 2\n")) == "a: 1\nb: 2\n"
-    assert apply_yaml_diff("a: 1\r\nb: 2", _diff(3, 2, "c: 3\r\n")) == "a: 1\r\nb: 2\r\nc: 3\r\n"
+    assert apply_yaml_diff("a: 1", _diff(2, 1, "b: 2\n")) == "a: 1\nb: 2"
+    assert apply_yaml_diff("a: 1\r\nb: 2", _diff(3, 2, "c: 3\r\n")) == "a: 1\r\nb: 2\r\nc: 3"
 
 
 @pytest.mark.parametrize("boundary", ["\n", "\r", "\r\n", "\x0c", "\x85", "\u2028"])
@@ -79,5 +80,13 @@ def test_splice_lines_returns_the_text_and_the_matching_diff() -> None:
 
 def test_splice_lines_insert_is_the_pure_insert_diff() -> None:
     new_text, diff = splice_lines(["a: 1"], 1, 1, "b: 2\n")
-    assert new_text == "a: 1\nb: 2\n"
+    assert new_text == "a: 1\nb: 2"
     assert diff == _diff(2, 1, "b: 2\n")
+
+
+@pytest.mark.parametrize("text", ["a: 1", "a: 1\n", "a: 1\nb: 2", "a: 1\r\nb: 2"])
+def test_an_append_matches_the_frontend_splice(text: str) -> None:
+    lines = text.splitlines(keepends=True)
+    new_text, diff = splice_lines(lines, len(lines), len(lines), "z: 9\n")
+    frontend = apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
+    assert new_text.replace("\r\n", "\n") == frontend.replace("\r\n", "\n")

@@ -7,11 +7,13 @@ from ...models.automations import YamlDiff
 
 def splice_lines(lines: list[str], start: int, end: int, replacement: str) -> tuple[str, YamlDiff]:
     """Replace ``lines[start:end]`` with *replacement*; return the new text and its diff."""
-    head = "".join(lines[:start])
-    # Only the text's last line can lack a terminator; an append after it starts a new line.
+    head, body = "".join(lines[:start]), replacement
+    # Only the text's last line can lack a terminator. An append after it starts a new line
+    # and, as in the frontend's splice, leaves the text unterminated.
     if replacement and head and not _ends_line(head[-1]):
         head += "\r\n" if "\r\n" in head else "\n"
-    new_text = head + replacement + "".join(lines[end:])
+        body = replacement.removesuffix("\n").removesuffix("\r")
+    new_text = head + body + "".join(lines[end:])
     return new_text, YamlDiff(fromLine=start + 1, toLine=end, replacement=replacement)
 
 
