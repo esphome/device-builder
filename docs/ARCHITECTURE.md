@@ -66,6 +66,8 @@ esphome_device_builder/
 │   ├── single_instance.py     # fcntl.flock guard for one process per <data_dir>
 │   └── yaml.py                # YAML generation
 │
+├── mcp/                       # Minimal MCP server library (JSON-RPC envelope, tool registry)
+│
 ├── api/                       # Transport layer
 │   ├── ws.py                  # /ws WebSocket dispatch
 │   └── legacy.py              # HA compat endpoints
