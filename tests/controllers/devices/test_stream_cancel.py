@@ -17,7 +17,7 @@ import pytest
 
 from esphome_device_builder.api.ws import WebSocketClient
 from esphome_device_builder.controllers.devices import DevicesController, logs, validate
-from esphome_device_builder.controllers.devices.helpers import _redact_concealed_secrets
+from esphome_device_builder.helpers.ansi import redact_concealed
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
 from esphome_device_builder.models import ErrorCode
@@ -609,7 +609,7 @@ async def test_validate_config_off_attaches_redactor_transform(
 
     await ctrl.validate_config(configuration="kitchen.yaml", client=MagicMock(), message_id="m-off")
 
-    assert captured["line_transform"] is _redact_concealed_secrets
+    assert captured["line_transform"] is redact_concealed
 
 
 async def test_validate_config_on_passes_no_line_transform(
@@ -636,7 +636,7 @@ async def test_validate_config_on_passes_no_line_transform(
     assert captured["line_transform"] is None
 
 
-def test_redact_concealed_secrets_replaces_wrapped_runs() -> None:
+def test_redact_concealed_replaces_wrapped_runs() -> None:
     r"""ESPHome's ``\\x1b[8m...\\x1b[28m`` wrapper resolves to ``<removed>``.
 
     Spec mirrored from ``esphome.__main__.command_config``: every
@@ -648,10 +648,10 @@ def test_redact_concealed_secrets_replaces_wrapped_runs() -> None:
     hidden by a hypothetical conceal-aware renderer.
     """
     raw = "  password: \x1b[8mhunter2\x1b[28m"
-    assert _redact_concealed_secrets(raw) == "  password: <removed>"
+    assert redact_concealed(raw) == "  password: <removed>"
 
 
-def test_redact_concealed_secrets_handles_dashboard_literal_escape() -> None:
+def test_redact_concealed_handles_dashboard_literal_escape() -> None:
     r"""``--dashboard`` mode emits literal ``\\033`` not the raw ESC byte.
 
     ESPHome's ``--dashboard`` flag re-encodes every real ANSI
@@ -668,16 +668,16 @@ def test_redact_concealed_secrets_handles_dashboard_literal_escape() -> None:
     # interpreting ``\033`` as the octal escape for ESC.
     backslash = "\\"
     literal = f"    - ssid: {backslash}033[8mrocketiot{backslash}033[28m"
-    assert _redact_concealed_secrets(literal) == "    - ssid: <removed>"
+    assert redact_concealed(literal) == "    - ssid: <removed>"
 
 
-def test_redact_concealed_secrets_handles_multiple_runs_per_line() -> None:
+def test_redact_concealed_handles_multiple_runs_per_line() -> None:
     """Multiple wrapped runs in one line all get redacted (non-greedy)."""
     raw = "ssid: \x1b[8mwifi-name\x1b[28m psk: \x1b[8msuper-secret\x1b[28m"
-    assert _redact_concealed_secrets(raw) == "ssid: <removed> psk: <removed>"
+    assert redact_concealed(raw) == "ssid: <removed> psk: <removed>"
 
 
-def test_redact_concealed_secrets_leaves_unwrapped_lines_alone() -> None:
+def test_redact_concealed_leaves_unwrapped_lines_alone() -> None:
     r"""No Concealed wrapper → line is forwarded verbatim.
 
     Validate output is mostly schema dumps and ANSI colour codes
@@ -686,10 +686,10 @@ def test_redact_concealed_secrets_leaves_unwrapped_lines_alone() -> None:
     so unrelated SGR runs (colours, bold, dim) pass through.
     """
     raw = "INFO Reading configuration kitchen.yaml..."
-    assert _redact_concealed_secrets(raw) == raw
+    assert redact_concealed(raw) == raw
 
     coloured = "\x1b[32mINFO\x1b[0m starting up"
-    assert _redact_concealed_secrets(coloured) == coloured
+    assert redact_concealed(coloured) == coloured
 
 
 # ---------------------------------------------------------------------------

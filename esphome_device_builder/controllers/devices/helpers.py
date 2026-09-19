@@ -16,7 +16,6 @@ from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
-from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -37,7 +36,6 @@ __all__ = [
     "_drop_unconfigured_dependent_fields",
     "_looks_binary",
     "_normalize_pin_value",
-    "_redact_concealed_secrets",
     "_rewrite_required_yaml_leaf",
     "_validate_archive_configuration",
     "clean_friendly_name",
@@ -234,11 +232,6 @@ def _validate_archive_configuration(configuration: str) -> None:
             f"configuration must be a plain filename without path separators, "
             f"got {configuration!r}",
         )
-
-
-def _redact_concealed_secrets(line: str) -> str:
-    """Replace ANSI-conceal-wrapped secret runs with ``<removed>``."""
-    return _CONCEALED_SECRET_RE.sub("<removed>", line)
 
 
 def _normalize_pin_value(value: Any) -> Any:
