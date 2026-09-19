@@ -545,22 +545,22 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `tools/list` | `{tools: [{name, description, inputSchema}]}` |
 | `tools/call` | `{content: [{type: "text", text}], isError}`. A tool failure is a result with `isError: true` whose text starts with the `ErrorCode` (`not_found: ...`, `invalid_args: ...`), not a JSON-RPC error. An unknown tool name is JSON-RPC `-32602`. |
 
-**Tools.** Each wraps one WS command through the same dispatcher, so validation and error codes match the WS surface. Every tool answers within Home Assistant's 10 second per-call budget except `validate_config`, which runs `esphome config` (bounded to `ESPHOME_CONFIG_TIMEOUT`, one minute; a timed out run kills the subprocess and reports `timed_out`) and is best effort there. Long work is start-then-poll.
+**Tools.** Each wraps one WS command through the same dispatcher, so validation and error codes match the WS surface. Every tool answers within Home Assistant's 10 second per-call budget except `validate_config`, which runs `esphome config` (bounded to `ESPHOME_CONFIG_TIMEOUT`, one minute; a timed out run kills the subprocess and reports `timed_out`), and `get_config_components` when a package has to be cloned; both are best effort there. Long work is start-then-poll.
 
 | Tool | Wraps | Notes |
 |---|---|---|
 | `list_devices` | `devices/list` | Flat rows (`runtime_state` merged in) without the integration lists |
-| `get_config {configuration}` | `devices/get_config` | Returns the YAML text |
-| `update_config {configuration, content}` | `devices/update_config` | |
+| `get_config {configuration}` | `devices/get_config` | Returns the YAML text; `secrets.yaml` is refused (its contents never reach a model) |
+| `update_config {configuration, content}` | `devices/update_config` | `secrets.yaml` is refused |
 | `add_component {configuration, component_id, fields?}` | `devices/add_component` | |
 | `validate_config {configuration}` | `devices/validate` | `{success, exit_code, output}`, or `{success: false, timed_out: true, output}` after the one minute bound; a run that ends without a result frame is an `internal_error` |
 | `compile {configuration}` | `firmware/compile` | `{job_id, status}` |
 | `install {configuration, port?}` | `firmware/install` | `{job_id, status, upload_job_id, deferred}`; `upload_job_id` is null only when `deferred` (an offline device whose update was queued), otherwise a missing upload job is an `internal_error` |
-| `get_job {job_id, tail_lines?}` | `firmware/get_job` | Job fields plus the terminal result payload and the last output lines (ANSI stripped); terminal jobs read the output sidecar |
+| `get_job {job_id, tail_lines?}` | `firmware/get_job` | Job fields plus `queued_update_armed` and the last output lines (ANSI stripped, `tail_lines` capped at 1000); terminal jobs read the output sidecar |
 | `cancel_job {job_id}` | `firmware/cancel` | |
-| `search_components {query, limit?}` | `components/get_components` | Slim index rows |
+| `search_components {query, limit?}` | `components/get_components` | Slim index rows (`limit` capped at 100) |
 | `get_component {component_id, platform?, include_advanced?}` | `components/get_component_bodies` | The catalog body with `hidden` entries removed and `advanced` entries removed unless asked for; empty and false fields are omitted |
-| `get_config_components {configuration}` | (loader + slim index) | The catalog ids a device YAML uses (`key` and `key.platform`), each with name, description and docs URL; an unparsable YAML answers `invalid_args` with the parser's diagnostic |
+| `get_config_components {configuration}` | (loader + slim index) | The catalog ids a device YAML uses (`key` and `key.platform`, metadata blocks such as `substitutions` and `packages` skipped), each with name, description and docs URL; an unparsable YAML answers `invalid_args` with the parser's diagnostic; resolution is bounded to `ESPHOME_CONFIG_TIMEOUT` (`unavailable` past it) and a config that clones a package for the first time can exceed HA's 10 s budget |
 
 **Auth.** The route mirrors `/ws` on each site: nothing on the trusted ingress site; on the public site the REST `Authorization` gate (`Basic` or a `Bearer` session token) whenever a password is set, plus the WebSocket handshake's `Origin` / `Host` check for any request carrying an `Origin` header (same-origin or `--trusted-domains`, 403 otherwise). Non-browser clients send no `Origin`. Home Assistant's `mcp` integration cannot send a static credential (a 401 sends it into OAuth discovery, which this server does not offer), so from HA the server must be reachable without a password: the add-on ingress site, or a standalone install with no password.
 

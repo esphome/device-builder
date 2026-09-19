@@ -43,7 +43,4 @@ async def handle_post(request: web.Request) -> web.Response:
             return web.Response(status=403, text="Cross-origin request rejected")
         if not host_in_allowlist(request.host, db.settings.trusted_domains):
             return web.Response(status=403, text="Host not in trusted-domains allowlist")
-    # A JSON body forces a CORS preflight; a text/plain simple request never reaches a tool.
-    if request.content_type != "application/json":
-        return web.Response(status=415, text="Content-Type must be application/json")
-    return await _SERVER.handle(db, await request.read())
+    return await _SERVER.handle(db, request)

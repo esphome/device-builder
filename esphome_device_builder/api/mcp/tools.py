@@ -6,24 +6,37 @@ import asyncio
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from esphome.const import CONF_EXTERNAL_COMPONENTS, CONF_PACKAGES, CONF_SUBSTITUTIONS
 from esphome.core import EsphomeError
 
+from ...constants import is_secrets_file
 from ...controllers.auth import AuthError
 from ...controllers.devices.helpers import raise_device_not_found, require_catalog
-from ...controllers.devices.resolve import load_config
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.api import CommandError
-from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT, extract_component_ids
+from ...helpers.async_ import run_in_executor
+from ...helpers.device_yaml import (
+    ESPHOME_CONFIG_TIMEOUT,
+    extract_component_ids,
+    load_device_yaml_strict,
+)
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode, StreamEvent
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from ...controllers.config import DashboardSettings
     from ...device_builder import DeviceBuilder
 
 _MESSAGE_ID = "mcp"
 _DEFAULT_TAIL_LINES = 50
+_MAX_TAIL_LINES = 1000
+_MAX_SEARCH_RESULTS = 100
+# Config metadata blocks that are not components and have no catalog entry.
+_NON_COMPONENT_KEYS = frozenset({CONF_SUBSTITUTIONS, CONF_PACKAGES, CONF_EXTERNAL_COMPONENTS})
 # Bulk of a device row; ``get_config_components`` covers them per device.
 _LIST_DEVICES_OMIT = frozenset(
     {"loaded_integrations", "loaded_platforms", "directly_referenced_integrations"}
@@ -31,13 +44,9 @@ _LIST_DEVICES_OMIT = frozenset(
 
 
 def _translate(err: Exception) -> McpToolError | None:
-    """Map the WS command layer's failures onto ``McpToolError`` with the same code words."""
+    """Map the user-facing WS command errors onto ``McpToolError``; anything else is internal."""
     if isinstance(err, (CommandError, AuthError)):
         return McpToolError(err.code.value, err.message)
-    if isinstance(err, FileNotFoundError):
-        return McpToolError(ErrorCode.NOT_FOUND.value, str(err))
-    if isinstance(err, (TypeError, ValueError, LookupError)):
-        return McpToolError(ErrorCode.INVALID_ARGS.value, str(err))
     return None
 
 
@@ -118,6 +127,21 @@ def _tail(lines: list[str], count: int) -> list[str]:
     return [ANSI_CSI_RE.sub("", line).rstrip("\r\n") for line in lines[-count:]]
 
 
+def _device_configuration(configuration: str) -> str:
+    """Refuse the shared secrets file: its contents must never reach a model."""
+    if is_secrets_file(configuration):
+        raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
+    return configuration
+
+
+def _load_strict(settings: DashboardSettings, configuration: str) -> dict:
+    """Executor half of ``get_config_components``; ``rel_path`` walks the filesystem."""
+    path: Path = settings.rel_path(configuration)
+    if not path.is_file():
+        raise FileNotFoundError(configuration)
+    return load_device_yaml_strict(path)
+
+
 @_tool(
     "list_devices",
     "List configured ESPHome devices with their online state, address and deployed "
@@ -138,6 +162,7 @@ async def _list_devices(db: DeviceBuilder, _args: dict[str, Any]) -> list[dict[s
     ("configuration",),
 )
 async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    _device_configuration(args["configuration"])
     return await _call(db, "devices/get_config", **args)
 
 
@@ -152,6 +177,7 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration", "content"),
 )
 async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
+    _device_configuration(args["configuration"])
     await _call(db, "devices/update_config", **args)
     return f"Saved {args['configuration']}"
 
@@ -246,7 +272,9 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     "Get a firmware job's status, progress, exit code and the last output lines.",
     {
         "job_id": _JOB_ID,
-        "tail_lines": _prop("integer", "Output lines to return from the end (default 50)."),
+        "tail_lines": _prop(
+            "integer", f"Output lines to return from the end (default 50, max {_MAX_TAIL_LINES})."
+        ),
     },
     ("job_id",),
 )
@@ -254,7 +282,7 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
-    tail_lines = args.get("tail_lines", _DEFAULT_TAIL_LINES)
+    tail_lines = min(args.get("tail_lines", _DEFAULT_TAIL_LINES), _MAX_TAIL_LINES)
     output = await initial_snapshot(job, job.job_id) if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
@@ -278,12 +306,13 @@ async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
     "Search the ESPHome component catalog by name or keyword.",
     {
         "query": _prop("string", "Search text."),
-        "limit": _prop("integer", "Max results (default 20)."),
+        "limit": _prop("integer", f"Max results (default 20, max {_MAX_SEARCH_RESULTS})."),
     },
     ("query",),
 )
 async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
-    response = await _call(db, "components/get_components", **{"limit": 20, **args})
+    limit = min(args.get("limit", 20), _MAX_SEARCH_RESULTS)
+    response = await _call(db, "components/get_components", **{**args, "limit": limit})
     return [_prune(entry.to_dict()) for entry in response.components]
 
 
@@ -320,21 +349,28 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "get_config_components",
     "List the components a device config uses, with a short description and docs URL for "
-    "each. Call get_component for the fields of any of them.",
+    "each. Call get_component for the fields of any of them. Resolving a config that pulls "
+    "a package for the first time can take longer than ten seconds.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
 async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     catalog = require_catalog(db)
-    configuration = args["configuration"]
-    if db.devices is None or db.devices.get_by_configuration(configuration) is None:
-        raise_device_not_found(configuration)
+    configuration = _device_configuration(args["configuration"])
     try:
-        _, config = await load_config(db.devices, configuration, strict=True)
+        async with asyncio.timeout(ESPHOME_CONFIG_TIMEOUT):
+            config = await run_in_executor(_load_strict, db.settings, configuration)
+    except FileNotFoundError as err:
+        raise_device_not_found(configuration, from_exc=err)
     except EsphomeError as err:
         raise CommandError(ErrorCode.INVALID_ARGS, f"{configuration}: {err}") from err
+    except TimeoutError as err:
+        msg = f"Resolving {configuration} exceeded {ESPHOME_CONFIG_TIMEOUT:.0f}s"
+        raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
     rows = []
     for component_id in extract_component_ids(config):
+        if component_id in _NON_COMPONENT_KEYS:
+            continue
         entry = catalog.index_entry(component_id)
         rows.append({"id": component_id} | (_prune(entry.to_dict()) if entry else {}))
     return rows

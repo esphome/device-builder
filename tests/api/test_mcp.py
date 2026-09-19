@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from functools import partial
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import jsonschema
 import pytest
@@ -19,10 +20,10 @@ from esphome_device_builder.constants import __version__
 from esphome_device_builder.controllers.auth import AuthError
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.config import DashboardSettings
-from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.auth import auth_middleware
+from esphome_device_builder.mcp import INTERNAL_ERROR, INVALID_ARGS
 from esphome_device_builder.models import (
     AddComponentResponse,
     ComponentCatalogIndexEntry,
@@ -36,7 +37,7 @@ from esphome_device_builder.models import (
     StreamEvent,
 )
 
-from ..conftest import MakeSettingsFactory, StubAuth, make_device, make_job
+from ..conftest import MakeSettingsFactory, StubAuth, make_device, make_job, rpc_post
 
 
 class _StubDeviceBuilder:
@@ -46,13 +47,6 @@ class _StubDeviceBuilder:
         self.components: ComponentCatalog | None = None
         self.command_handlers: dict[str, Any] = {}
         self.auth = StubAuth()
-        # The scanner index is RAM only; tests register the YAMLs they write here.
-        self.configurations: set[str] = set()
-        self.devices = MagicMock(spec=DevicesController)
-        self.devices._db = self
-        self.devices.get_by_configuration.side_effect = lambda configuration: (
-            object() if configuration in self.configurations else None
-        )
 
 
 def _make_app(db: _StubDeviceBuilder, *, with_auth: bool = False) -> web.Application:
@@ -62,26 +56,15 @@ def _make_app(db: _StubDeviceBuilder, *, with_auth: bool = False) -> web.Applica
     return app
 
 
-async def _rpc(
-    client: Any,
-    method: str,
-    params: Any = None,
-    *,
-    msg_id: Any = 1,
-    headers: dict[str, str] | None = None,
-) -> dict:
-    body: dict[str, Any] = {"jsonrpc": "2.0", "id": msg_id, "method": method}
-    if params is not None:
-        body["params"] = params
-    resp = await client.post(MCP_PATH, json=body, headers=headers)
-    assert resp.status == 200
-    assert resp.content_type == "application/json"
-    return await resp.json()
+_rpc = partial(rpc_post, path=MCP_PATH)
 
 
 async def _call(client: Any, name: str, arguments: dict[str, Any] | None = None) -> tuple:
     """Return ``(is_error, text)`` for one ``tools/call``."""
-    reply = await _rpc(client, "tools/call", {"name": name, "arguments": arguments})
+    params: dict[str, Any] = {"name": name}
+    if arguments is not None:
+        params["arguments"] = arguments
+    reply = await _rpc(client, method="tools/call", params=params)
     result = reply["result"]
     return result["isError"], result["content"][0]["text"]
 
@@ -137,7 +120,7 @@ async def test_route_wins_over_spa_catch_all(
     client = await aiohttp_client(real_db.create_app(with_lifecycle=False))
 
     assert (await client.get(MCP_PATH)).status == 405
-    assert (await _rpc(client, "ping"))["result"] == {}
+    assert (await _rpc(client, method="ping"))["result"] == {}
     assert (await client.get("/some/deep/link")).status == 200
 
 
@@ -164,7 +147,7 @@ async def test_cross_origin_post_is_rejected_before_the_tool_runs(
 
 async def test_same_origin_post_is_allowed(client: Any) -> None:
     origin = f"http://{client.host}:{client.port}"
-    reply = await _rpc(client, "ping", headers={"Origin": origin})
+    reply = await _rpc(client, method="ping", headers={"Origin": origin})
     assert reply["result"] == {}
 
 
@@ -181,7 +164,7 @@ async def test_trusted_domains_allow_the_origin_and_gate_the_host(
     assert resp.status == 403
     assert "trusted-domains" in await resp.text()
     db.settings.trusted_domains = ["*"]
-    assert (await _rpc(client, "ping", headers=headers))["result"] == {}
+    assert (await _rpc(client, method="ping", headers=headers))["result"] == {}
 
 
 async def test_trusted_site_skips_the_origin_gate(
@@ -190,7 +173,7 @@ async def test_trusted_site_skips_the_origin_gate(
     app = _make_app(db)
     app["trusted_site"] = True
     client = await aiohttp_client(app)
-    reply = await _rpc(client, "ping", headers={"Origin": "https://evil.example"})
+    reply = await _rpc(client, method="ping", headers={"Origin": "https://evil.example"})
     assert reply["result"] == {}
 
 
@@ -199,13 +182,18 @@ async def test_non_json_content_type_is_415(client: Any) -> None:
     assert resp.status == 415
 
 
+def test_library_error_words_match_error_code() -> None:
+    assert INVALID_ARGS == ErrorCode.INVALID_ARGS
+    assert INTERNAL_ERROR == ErrorCode.INTERNAL_ERROR
+
+
 async def test_initialize_advertises_server_info(client: Any) -> None:
-    result = (await _rpc(client, "initialize", {}))["result"]
+    result = (await _rpc(client, method="initialize", params={}))["result"]
     assert result["serverInfo"] == {"name": SERVER_NAME, "version": __version__}
 
 
 async def test_tools_list_matches_registry_and_schemas_are_valid(client: Any) -> None:
-    listed = (await _rpc(client, "tools/list"))["result"]["tools"]
+    listed = (await _rpc(client, method="tools/list"))["result"]["tools"]
     assert [tool["name"] for tool in listed] == list(TOOLS)
     for tool in listed:
         assert tool["description"]
@@ -223,7 +211,7 @@ async def test_arguments_may_be_omitted(client: Any, db: _StubDeviceBuilder) -> 
     db.command_handlers["devices/list"] = AsyncMock(
         return_value=DevicesResponse(configured=[], importable=[])
     )
-    reply = await _rpc(client, "tools/call", {"name": "list_devices"})
+    reply = await _rpc(client, method="tools/call", params={"name": "list_devices"})
     assert reply["result"] == {"content": [{"type": "text", "text": "[]"}], "isError": False}
 
 
@@ -234,8 +222,9 @@ async def test_arguments_may_be_omitted(client: Any, db: _StubDeviceBuilder) -> 
         pytest.param(
             AuthError(ErrorCode.NOT_AUTHENTICATED, "no"), "not_authenticated: no", id="auth"
         ),
-        pytest.param(FileNotFoundError("missing.yaml"), "not_found: missing.yaml", id="fnf"),
-        pytest.param(TypeError("bad kwarg"), "invalid_args: bad kwarg", id="type"),
+        pytest.param(
+            FileNotFoundError("x"), "internal_error: Tool failed: get_config", id="not_user_facing"
+        ),
         pytest.param(RuntimeError("boom"), "internal_error: Tool failed: get_config", id="crash"),
     ],
 )
@@ -536,11 +525,11 @@ async def test_get_config_components_lists_catalog_rows(
 ) -> None:
     make_settings(with_core_path=True)
     (tmp_path / "kitchen.yaml").write_text(
-        "esphome:\n  name: kitchen\n"
+        "substitutions:\n  room: kitchen\n"
+        "esphome:\n  name: ${room}\n"
         "sensor:\n  - platform: dht\n    pin: 4\n"
         "notacomponent:\n  x: 1\n"
     )
-    catalog_db.configurations.add("kitchen.yaml")
     rows = {
         row["id"]: row
         for row in await _call_json(
@@ -564,7 +553,7 @@ async def test_get_config_components_lists_catalog_rows(
             id="non_mapping",
         ),
         pytest.param("syntax.yaml", ": :", "invalid_args: syntax.yaml: ", id="syntax"),
-        pytest.param("../../etc/passwd", None, "not_found: ", id="traversal"),
+        pytest.param("../../etc/passwd", None, "invalid_args: ", id="traversal"),
     ],
 )
 async def test_get_config_components_failures(
@@ -579,10 +568,58 @@ async def test_get_config_components_failures(
     make_settings(with_core_path=True)
     if content is not None:
         (tmp_path / configuration).write_text(content)
-        catalog_db.configurations.add(configuration)
     is_error, text = await _call(client, "get_config_components", {"configuration": configuration})
     assert is_error
     assert text.startswith(prefix)
+
+
+async def test_get_config_components_times_out(
+    client: Any,
+    catalog_db: _StubDeviceBuilder,
+    make_settings: MakeSettingsFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    make_settings(with_core_path=True)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+    monkeypatch.setattr("esphome_device_builder.api.mcp.tools.ESPHOME_CONFIG_TIMEOUT", 0.05)
+
+    async def stalled(*_args: Any) -> dict[str, Any]:
+        await asyncio.sleep(10)
+        return {}
+
+    monkeypatch.setattr("esphome_device_builder.api.mcp.tools.run_in_executor", stalled)
+    is_error, text = await _call(client, "get_config_components", {"configuration": "kitchen.yaml"})
+    assert is_error
+    assert text.startswith("unavailable: Resolving kitchen.yaml exceeded")
+
+
+@pytest.mark.parametrize("tool", ["get_config", "update_config", "get_config_components"])
+async def test_secrets_file_is_refused(
+    client: Any, catalog_db: _StubDeviceBuilder, tool: str
+) -> None:
+    handler = AsyncMock(return_value="wifi_password: hunter2\n")
+    catalog_db.command_handlers["devices/get_config"] = handler
+    catalog_db.command_handlers["devices/update_config"] = handler
+    args = {"configuration": "secrets.yaml"}
+    if tool == "update_config":
+        args["content"] = "x: 1"
+    is_error, text = await _call(client, tool, args)
+    assert is_error
+    assert text == "invalid_args: secrets.yaml is not available over MCP"
+    handler.assert_not_awaited()
+
+
+async def test_tail_lines_and_limit_are_clamped(client: Any, db: _StubDeviceBuilder) -> None:
+    db.command_handlers["firmware/get_job"] = AsyncMock(
+        return_value=make_job(output=[f"{i}\n" for i in range(1500)])
+    )
+    data = await _call_json(client, "get_job", {"job_id": "job1", "tail_lines": 5000})
+    assert len(data["output"]) == 1000
+    search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
+    db.command_handlers["components/get_components"] = search
+    await _call(client, "search_components", {"query": "x", "limit": 5000})
+    assert search.await_args.kwargs["limit"] == 100
 
 
 async def test_get_config_components_without_catalog_is_unavailable(client: Any) -> None:
