@@ -13,4 +13,7 @@ def apply_yaml_diff(text: str, diff: dict[str, Any]) -> str:
     if not (1 <= from_line <= len(lines) + 1 and from_line - 1 <= to_line <= len(lines)):
         raise ValueError(f"YamlDiff {from_line}..{to_line} is outside {len(lines)} lines")
     replacement: str = diff["replacement"]
-    return "".join(lines[: from_line - 1]) + replacement + "".join(lines[to_line:])
+    head = lines[: from_line - 1]
+    if replacement and head and head[-1] == head[-1].rstrip("\r\n"):
+        head[-1] += "\n"  # the kept last line had no terminator
+    return "".join(head) + replacement + "".join(lines[to_line:])

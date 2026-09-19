@@ -39,3 +39,9 @@ def test_counts_lines_like_the_producer() -> None:
     text = "a: 'x\x0cy'\nb: 2\nc: 3\n"
     diff = {"fromLine": 3, "toLine": 3, "replacement": ""}
     assert apply_yaml_diff(text, diff) == "a: 'x\x0cy'\nc: 3\n"
+
+
+def test_append_after_an_unterminated_last_line_keeps_the_boundary() -> None:
+    diff = {"fromLine": 2, "toLine": 1, "replacement": "b: 2\n"}
+    assert apply_yaml_diff("a: 1", diff) == "a: 1\nb: 2\n"
+    assert apply_yaml_diff("a: 1", {"fromLine": 1, "toLine": 1, "replacement": ""}) == ""
