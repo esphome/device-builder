@@ -45,15 +45,17 @@ class CollectingClient:
         self.output: deque[str] = deque(maxlen=tail)
         self.truncated = False
         self.result: dict[str, Any] | None = None
+        self.ignored: set[str] = set()
 
-    async def send_event(self, _message_id: str, event: str, data: Any = None) -> None:
+    async def send_event(self, message_id: str, event: str, data: Any = None) -> None:
         if event == StreamEvent.OUTPUT:
             self.truncated = self.truncated or len(self.output) == self.output.maxlen
             self.output.append(data)
         elif event == StreamEvent.RESULT:
             self.result = data
-        else:
-            _LOGGER.debug("CollectingClient ignored a %s frame", event)
+        elif event not in self.ignored:
+            self.ignored.add(event)
+            _LOGGER.debug("CollectingClient %s ignores %s frames", message_id, event)
 
     async def send_result(self, _message_id: str, result: Any) -> None:
         self.result = result

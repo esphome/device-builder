@@ -201,5 +201,6 @@ async def test_collecting_client_ignores_other_frames(caplog: pytest.LogCaptureF
     client = CollectingClient()
     with caplog.at_level(logging.DEBUG, logger="esphome_device_builder.helpers.api"):
         await client.send_event("m", StreamEvent.SNAPSHOT, ["old"])
+        await client.send_event("m", StreamEvent.SNAPSHOT, ["older"])
     assert list(client.output) == []
-    assert "ignored a snapshot frame" in caplog.text
+    assert caplog.text.count("CollectingClient m ignores snapshot frames") == 1
