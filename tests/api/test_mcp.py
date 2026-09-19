@@ -246,7 +246,7 @@ async def test_missing_command_is_unavailable(client: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_list_devices_flattens_and_drops_bulk_lists(
+async def test_list_devices_flattens_and_keeps_scalars_only(
     client: Any, db: _StubDeviceBuilder
 ) -> None:
     online = make_device(
@@ -264,6 +264,7 @@ async def test_list_devices_flattens_and_drops_bulk_lists(
     assert rows[0]["state"] == "online"
     assert rows[0]["deployed_version"] == "2026.8.2"
     assert rows[0]["has_pending_changes"] is False
+    assert not any(isinstance(value, list) for row in rows for value in row.values())
     assert "loaded_integrations" not in rows[0]
     assert "runtime_state" not in rows[0]
 

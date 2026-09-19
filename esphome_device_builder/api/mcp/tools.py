@@ -37,10 +37,6 @@ _MAX_TAIL_LINES = 1000
 _MAX_SEARCH_RESULTS = 100
 # Config metadata blocks that are not components and have no catalog entry.
 _NON_COMPONENT_KEYS = frozenset({CONF_SUBSTITUTIONS, CONF_PACKAGES, CONF_EXTERNAL_COMPONENTS})
-# Bulk of a device row; ``get_config_components`` covers them per device.
-_LIST_DEVICES_OMIT = frozenset(
-    {"loaded_integrations", "loaded_platforms", "directly_referenced_integrations"}
-)
 
 
 def _translate(err: Exception) -> McpToolError | None:
@@ -145,12 +141,13 @@ def _load_strict(settings: DashboardSettings, configuration: str) -> dict:
 @_tool(
     "list_devices",
     "List configured ESPHome devices with their online state, address and deployed "
-    "firmware version.",
+    "firmware version. Scalar fields only; per-device lists such as loaded integrations "
+    "come from get_config_components.",
 )
 async def _list_devices(db: DeviceBuilder, _args: dict[str, Any]) -> list[dict[str, Any]]:
     response = await _call(db, "devices/list")
     return [
-        {k: v for k, v in device.to_flat_dict().items() if k not in _LIST_DEVICES_OMIT}
+        {k: v for k, v in device.to_flat_dict().items() if not isinstance(v, list)}
         for device in response.configured
     ]
 

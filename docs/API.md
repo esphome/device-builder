@@ -549,7 +549,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 
 | Tool | Wraps | Notes |
 |---|---|---|
-| `list_devices` | `devices/list` | Flat rows (`runtime_state` merged in) without the integration lists |
+| `list_devices` | `devices/list` | Flat rows (`runtime_state` merged in), scalar fields only; per-device lists come from the detail tools |
 | `get_config {configuration}` | `devices/get_config` | Returns the YAML text; `secrets.yaml` is refused (its contents never reach a model) |
 | `update_config {configuration, content}` | `devices/update_config` | `secrets.yaml` is refused |
 | `add_component {configuration, component_id, fields?}` | `devices/add_component` | |
