@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import jsonschema
 import pytest
@@ -155,6 +156,73 @@ def test_registration_rejects_keywords_the_validator_does_not_enforce() -> None:
     tools: ToolRegistry[None] = ToolRegistry()
     with pytest.raises(ValueError, match=r"unenforced keywords \['enum'\]"):
         tools.tool("t", "desc", {"a": {"type": "string", "enum": ["x"]}})
+
+
+_BOUNDED = {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}
+
+
+@pytest.mark.parametrize(
+    ("prop", "fragment"),
+    [
+        pytest.param({"type": "string", "minimum": 1}, "bounds on a non-numeric type", id="string"),
+        pytest.param({"type": "integer", "minimum": "1"}, "needs numeric bounds", id="text_bound"),
+        pytest.param({"type": "integer", "maximum": True}, "needs numeric bounds", id="bool_bound"),
+        pytest.param(
+            {"type": "integer", "minimum": 5, "maximum": 1}, "minimum above maximum", id="inverted"
+        ),
+        pytest.param(_BOUNDED | {"default": 11}, "default that is at most 10", id="default_high"),
+        pytest.param({"type": "integer", "default": "5"}, "default that is integer", id="type"),
+    ],
+)
+def test_registration_rejects_bounds_and_defaults_it_cannot_honour(
+    prop: dict[str, Any], fragment: str
+) -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    with pytest.raises(ValueError, match=f"property a .*{fragment}"):
+        tools.tool("t", "desc", {"a": prop})
+
+
+def test_registration_rejects_a_default_on_a_required_property() -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    with pytest.raises(ValueError, match="is required, so its default is never used"):
+        tools.tool("t", "desc", {"a": _BOUNDED}, ("a",))
+
+
+@pytest.mark.parametrize(
+    ("arguments", "fragment"),
+    [({"limit": 0}, "limit must be at least 1"), ({"limit": 11}, "limit must be at most 10")],
+    ids=["below", "above"],
+)
+async def test_call_refuses_a_value_outside_its_bounds(
+    arguments: dict[str, Any], fragment: str
+) -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    handler = AsyncMock(return_value="ok")
+    tools.tool("t", "desc", {"limit": _BOUNDED})(handler)
+
+    result = await tools.call(None, "t", arguments)
+
+    assert result["isError"] is True
+    assert result["content"][0]["text"] == f"{INVALID_ARGS}: Argument {fragment}"
+    handler.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("arguments", "seen"),
+    [({}, {"limit": 5}), ({"limit": 10}, {"limit": 10}), ({"limit": 1}, {"limit": 1})],
+    ids=["default", "at_maximum", "at_minimum"],
+)
+async def test_call_fills_defaults_and_accepts_the_bounds_themselves(
+    arguments: dict[str, Any], seen: dict[str, Any]
+) -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    handler = AsyncMock(return_value="ok")
+    tools.tool("t", "desc", {"limit": _BOUNDED})(handler)
+
+    await tools.call(None, "t", arguments)
+
+    handler.assert_awaited_once_with(None, seen)
+    assert tools.definitions()[0]["inputSchema"]["properties"]["limit"] == _BOUNDED
 
 
 def test_registration_rejects_unknown_required_names_and_duplicates() -> None:
