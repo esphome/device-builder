@@ -398,6 +398,8 @@ jobs:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test,mcp-interop]
 
+      - name: Verify the MCP SDK is installed
+        run: uv run --no-sync python -c "import mcp; print(mcp.__file__)"
       - name: Run MCP SDK interop e2e
         timeout-minutes: 5
         run: uv run --no-sync pytest -q tests/e2e/slow/mcp --durations=10 --timeout=120 --no-cov
