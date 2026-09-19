@@ -30,8 +30,8 @@ DEFAULT_HOST = "0.0.0.0"
 # Shared credentials file in the config dir. It's not a buildable device
 # config (no build dir / build_info.json) and is kept out of version
 # history, so callers special-case it via ``is_secrets_file``.
-SECRETS_FILENAME = "secrets.yaml"
-# Both spellings esphome accepts; pinned against esphome.const in tests.
+SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
+# Both spellings esphome accepts, for guards; pinned against esphome.const in tests.
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
 
 
