@@ -192,7 +192,13 @@ def _scalar_leaves(value: Any) -> list[str]:
 
 def _redact_secret_values(lines: list[str], secrets: list[dict[Any, Any]]) -> list[str]:
     """Replace every value of credential length from any secrets mapping with ``<removed>``."""
-    values = {text for text in _scalar_leaves(secrets) if len(text) >= _MIN_REDACTED_SECRET_LEN}
+    # Output arrives one line at a time, so a multi-line value must match by line.
+    values = {
+        part
+        for text in _scalar_leaves(secrets)
+        for part in text.splitlines()
+        if len(part) >= _MIN_REDACTED_SECRET_LEN
+    }
     for value in sorted(values, key=len, reverse=True):
         lines = [line.replace(value, "<removed>") for line in lines]
     return lines
