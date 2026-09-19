@@ -6060,7 +6060,11 @@ def _ensure_list_item_validator(node: Any) -> Any | None:
     # Deliberately shallow (node + one vol.All level) — a transitive walk like
     # _search_validator_graph could surface an ensure_list buried in an
     # unrelated sub-field and descend its items at the wrong path.
-    for candidate in (node, *(getattr(node, "validators", None) or ())):
+    # Type-strict: a codegen ``MockObj`` answers any getattr and any index with
+    # another ``MockObj``, so unpacking its ``validators`` never ends.
+    validators = getattr(node, "validators", None)
+    inner = validators if isinstance(validators, (list, tuple)) else ()
+    for candidate in (node, *inner):
         qualname = getattr(candidate, "__qualname__", "") or ""
         if qualname.startswith("ensure_list."):
             try:
