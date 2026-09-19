@@ -23,22 +23,23 @@ from esphome_device_builder.models.automations import (
 _ROW = {"id": "x", "name": "X", "description": "", "docs_url": ""}
 _DOMAIN_ROW = _ROW | {"domain": "core"}
 _REGISTRY_ROW = {"id": "x", "name": "X"}
+_MODELS = [
+    (AutomationTrigger, _ROW),
+    (AutomationAction, _DOMAIN_ROW),
+    (AutomationCondition, _DOMAIN_ROW),
+    (LightEffect, _REGISTRY_ROW),
+    (Filter, _REGISTRY_ROW),
+    (AutomationTriggerIndex, _ROW),
+    (AutomationActionIndex, _DOMAIN_ROW),
+    (AutomationConditionIndex, _DOMAIN_ROW),
+    (LightEffectIndex, _REGISTRY_ROW),
+    (FilterIndex, _REGISTRY_ROW),
+]
 
 
 @pytest.mark.parametrize(
     ("model", "required"),
-    [
-        (AutomationTrigger, _ROW),
-        (AutomationAction, _DOMAIN_ROW),
-        (AutomationCondition, _DOMAIN_ROW),
-        (LightEffect, _REGISTRY_ROW),
-        (Filter, _REGISTRY_ROW),
-        (AutomationTriggerIndex, _ROW),
-        (AutomationActionIndex, _DOMAIN_ROW),
-        (AutomationConditionIndex, _DOMAIN_ROW),
-        (LightEffectIndex, _REGISTRY_ROW),
-        (FilterIndex, _REGISTRY_ROW),
-    ],
+    _MODELS,
     ids=lambda value: value.__name__ if isinstance(value, type) else "",
 )
 def test_a_model_at_its_defaults_serialises_to_its_required_fields(
@@ -80,22 +81,7 @@ def test_form_editable_is_sent_only_when_false() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "model",
-    [
-        AutomationTrigger,
-        AutomationAction,
-        AutomationCondition,
-        LightEffect,
-        Filter,
-        AutomationTriggerIndex,
-        AutomationActionIndex,
-        AutomationConditionIndex,
-        LightEffectIndex,
-        FilterIndex,
-    ],
-    ids=lambda model: model.__name__,
-)
+@pytest.mark.parametrize("model", [m for m, _ in _MODELS], ids=lambda model: model.__name__)
 def test_form_editable_is_the_only_truthy_default(model: type) -> None:
     """An absent field reads as false or empty, except the one documented truthy default."""
     truthy = {
