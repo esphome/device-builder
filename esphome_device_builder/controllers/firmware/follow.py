@@ -125,6 +125,34 @@ async def follow_jobs(
     )
 
 
+async def initial_snapshot(job: FirmwareJob, job_id: str) -> list[str]:
+    """Output lines to replay before tailing live: RAM while present, else the sidecar.
+
+    A live job's RAM buffer is frozen synchronously so the listener
+    ``follow_job`` attaches next can't slip lines between freeze and
+    subscribe. A terminal job's output is flushed to its sidecar and
+    dropped from RAM by the post-completion persist, but the terminal
+    event fires *before* that flush — so prefer RAM while it's still
+    populated and fall back to the sidecar once cleared. The persist
+    writes the sidecar then clears RAM in one executor pass, so RAM
+    is non-empty xor the sidecar exists, never neither: no window
+    where a just-finished job reads back an empty log.
+
+    ``job.output`` is captured into a local first: the concurrent
+    flush *rebinds* the attribute to a fresh ``[]``, so reading it
+    twice (truthiness then ``list()``) could see the populated list,
+    miss the sidecar branch, then capture the emptied one. The local
+    keeps the pre-flush list reference regardless of when the rebind
+    lands.
+    """
+    output = job.output
+    if output:
+        return list(output)
+    if job.is_terminal:
+        return await run_in_executor(read_job_output, job_id)
+    return []
+
+
 async def _stream_job(
     controller: FirmwareController,
     job: FirmwareJob,
@@ -182,31 +210,3 @@ def _terminal_result_payload(job: FirmwareJob) -> dict[str, Any]:
         "error": job.error,
         "queued_update_armed": job.is_queued_update_armed,
     }
-
-
-async def initial_snapshot(job: FirmwareJob, job_id: str) -> list[str]:
-    """Output lines to replay before tailing live: RAM while present, else the sidecar.
-
-    A live job's RAM buffer is frozen synchronously so the listener
-    ``follow_job`` attaches next can't slip lines between freeze and
-    subscribe. A terminal job's output is flushed to its sidecar and
-    dropped from RAM by the post-completion persist, but the terminal
-    event fires *before* that flush — so prefer RAM while it's still
-    populated and fall back to the sidecar once cleared. The persist
-    writes the sidecar then clears RAM in one executor pass, so RAM
-    is non-empty xor the sidecar exists, never neither: no window
-    where a just-finished job reads back an empty log.
-
-    ``job.output`` is captured into a local first: the concurrent
-    flush *rebinds* the attribute to a fresh ``[]``, so reading it
-    twice (truthiness then ``list()``) could see the populated list,
-    miss the sidecar branch, then capture the emptied one. The local
-    keeps the pre-flush list reference regardless of when the rebind
-    lands.
-    """
-    output = job.output
-    if output:
-        return list(output)
-    if job.is_terminal:
-        return await run_in_executor(read_job_output, job_id)
-    return []

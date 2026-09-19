@@ -158,6 +158,8 @@ class TestCompileEnd:
             # Real ANSI banner: colours sit *inside* the brackets.
             "\x1b[0m===== [\x1b[32m\x1b[1mSUCCESS\x1b[0m] Took 14.73 seconds =====\x1b[0m",
             "[\x1b[31m\x1b[1mFAILED\x1b[0m] Took 4.10 seconds",
+            # ``--dashboard`` mode spells the escapes out literally.
+            "\\033[0m===== [\\033[32m\\033[1mSUCCESS\\033[0m] Took 14.73 seconds =====\\033[0m",
             # Native esp-idf prints no banner; esphome's own INFO line closes it.
             (
                 "\x1b[32mINFO Successfully compiled program to path "
