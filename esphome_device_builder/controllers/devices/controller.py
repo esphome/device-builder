@@ -898,6 +898,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             configuration, content, message=f"Restore {configuration} to {restored_from}"
         )
 
+    async def apply_automation_edit(self, configuration: str, content: str) -> None:
+        """Write a saved automation edit's YAML back to disk."""
+        await self._persist_yaml_mutation(
+            configuration, content, message=f"Edit an automation in {configuration}"
+        )
+
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
 

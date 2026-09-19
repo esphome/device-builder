@@ -240,19 +240,27 @@ class AutomationsController:
         configuration: str,
         location: dict,
         yaml: str | None = None,
+        save: bool = False,
         **_kwargs: Any,
     ) -> dict:
         """Delete the automation at *location*.
 
         Accepts the same optional ``yaml`` override as ``upsert``
         so the delete is computed against the frontend's current
-        draft buffer when one exists.
+        draft buffer when one exists. ``save`` writes the on-disk
+        config instead, so it is refused alongside ``yaml``.
         """
+        if not isinstance(save, bool):
+            raise CommandError(ErrorCode.INVALID_ARGS, "save must be a boolean")
+        if save and yaml is not None:
+            raise CommandError(ErrorCode.INVALID_ARGS, "save writes the config on disk; omit yaml")
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
-        _new_text, diff = await run_in_executor(
+        new_text, diff = await run_in_executor(
             lambda: writing.render_delete(text, location=loc),
         )
+        if save:
+            await self._save_config(configuration, new_text)
         return UpsertResponse(yaml_diff=diff).to_dict()
 
     # ------------------------------------------------------------------
@@ -263,6 +271,12 @@ class AutomationsController:
         """Read a device's YAML off disk in a worker thread."""
         path = self._db.settings.rel_path(configuration)
         return await run_in_executor(path.read_text, "utf-8")
+
+    async def _save_config(self, configuration: str, content: str) -> None:
+        """Write an automation edit through the devices controller's save path."""
+        if (devices := self._db.devices) is None:
+            raise CommandError(ErrorCode.UNAVAILABLE, "devices controller unavailable")
+        await devices.apply_automation_edit(configuration, content)
 
 
 # ---------------------------------------------------------------------------

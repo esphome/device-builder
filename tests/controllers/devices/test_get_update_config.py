@@ -135,6 +135,19 @@ async def test_update_config_writes_content_to_disk(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
 
 
+async def test_apply_automation_edit_writes_content_to_disk(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``apply_automation_edit`` saves through the same write path as ``update_config``."""
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    new_content = "esphome:\n  name: kitchen\n"
+
+    await controller.apply_automation_edit("kitchen.yaml", new_content)
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
+
+
 async def test_update_config_overwrites_existing_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
