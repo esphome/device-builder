@@ -20,7 +20,7 @@ from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
-from ...helpers.secrets_state import SecretsContentError, validate_secrets_content
+from ...helpers.secrets_state import validate_secrets_content
 from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode, StreamEvent
@@ -116,8 +116,10 @@ async def _call(
 
 def _refuse_secrets(configuration: Any) -> None:
     """Refuse the secrets file in any spelling: its contents never reach a model."""
-    if not isinstance(configuration, str):
+    if configuration is None:
         return
+    if not isinstance(configuration, str):
+        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
     name = Path(configuration).name.rstrip(". ").lower()
     if name in SECRETS_FILES:
         raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
@@ -172,7 +174,7 @@ def _load_secrets(config_dir: Path) -> dict[Any, Any]:
             continue
         try:
             secrets |= validate_secrets_content(path.read_text("utf-8"), path)
-        except (OSError, SecretsContentError) as err:
+        except (OSError, ValueError) as err:
             _LOGGER.warning("%s could not be read; withholding MCP validate output", filename)
             msg = f"{filename} could not be parsed; validation output withheld"
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err

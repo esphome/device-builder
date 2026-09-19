@@ -79,9 +79,10 @@ _CONFIG_COMMANDS = (
         "secrets.yaml::$DATA",
         "SECRET~1.YAM",
         "notes.txt",
+        7,
     ],
 )
-def test_refuse_secrets_matches_every_spelling(name: str) -> None:
+def test_refuse_secrets_matches_every_spelling(name: object) -> None:
     with pytest.raises(CommandError) as excinfo:
         _refuse_secrets(name)
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
@@ -232,10 +233,13 @@ async def test_validate_config_accepts_an_empty_secrets_file(
     assert data["output"] == ["ok"]
 
 
+@pytest.mark.parametrize(
+    "content", [b"- not\n- a mapping\n", b"\xff\xfe not utf-8"], ids=["not_a_mapping", "not_utf8"]
+)
 async def test_validate_config_withholds_output_when_secrets_are_unreadable(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, content: bytes
 ) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_text("- not\n- a mapping\n")
+    (mcp_db.settings.config_dir / "secrets.yaml").write_bytes(content)
     mcp_db.command_handlers["devices/validate"] = validate_stub(
         [(StreamEvent.OUTPUT, "x\n"), (StreamEvent.RESULT, {"success": True, "code": 0})]
     )
