@@ -141,6 +141,24 @@ def validate_secrets_content(content: str, path: Path) -> dict:
     return data or {}
 
 
+def load_secret_mappings(*directories: Path) -> list[dict]:
+    """Parse each secrets file in *directories*; ``UNAVAILABLE`` when one cannot be used."""
+    mappings: list[dict] = []
+    for path in dict.fromkeys(d / name for d in directories for name in SECRETS_FILENAMES):
+        try:
+            mappings.append(validate_secrets_content(path.read_text("utf-8"), path))
+        except FileNotFoundError:
+            continue
+        except SecretsContentError as err:
+            # No traceback: the loader's message can quote a secret.
+            _LOGGER.warning("%s could not be parsed", path.name)
+            raise CommandError(ErrorCode.UNAVAILABLE, f"{path.name} could not be parsed") from err
+        except (OSError, UnicodeDecodeError) as err:
+            _LOGGER.warning("%s could not be read", path.name, exc_info=err)
+            raise CommandError(ErrorCode.UNAVAILABLE, f"{path.name} could not be read") from err
+    return mappings
+
+
 def wifi_secrets_defined(secrets: dict | None) -> bool:
     """
     Return True when a generated ``!secret`` Wi-Fi block would validate.

@@ -17,6 +17,7 @@ import pytest
 from esphome import yaml_util
 from esphome.core import EsphomeError
 
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.secrets_state import (
     MAX_SSID_LEN,
     MAX_WIFI_PASSWORD_LEN,
@@ -27,6 +28,7 @@ from esphome_device_builder.helpers.secrets_state import (
     _replace_or_append_secret,
     _write_validated_secrets,
     is_valid_secret_key,
+    load_secret_mappings,
     merge_secrets_file,
     migrate_placeholder_wifi_secrets,
     read_secrets_yaml,
@@ -39,6 +41,7 @@ from esphome_device_builder.helpers.secrets_state import (
     write_secrets_locked,
     write_wifi_secrets,
 )
+from esphome_device_builder.models import ErrorCode
 
 
 def test_wifi_secrets_defined_requires_both_keys() -> None:
@@ -883,3 +886,62 @@ def test_write_wifi_secrets_refuses_unparsable_rewrite(tmp_path: Path) -> None:
     with pytest.raises(SecretsContentError, match="Duplicate key"):
         write_wifi_secrets(tmp_path, "home", "hunter2")
     assert _secrets(tmp_path).read_text("utf-8") == original
+
+
+def test_loads_both_spellings_from_every_directory_once(tmp_path: Path) -> None:
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (tmp_path / "secrets.yaml").write_text("wifi_password: hunter2xyz\n")
+    (tmp_path / "secrets.yml").write_text("api_key: abcdefghij\n")
+    (sub / "secrets.yaml").write_text("wifi_password: otherpass1\n")
+    assert load_secret_mappings(sub, tmp_path, tmp_path) == [
+        {"wifi_password": "otherpass1"},
+        {"wifi_password": "hunter2xyz"},
+        {"api_key": "abcdefghij"},
+    ]
+
+
+@pytest.mark.parametrize("content", ["", "# nothing yet\n"], ids=["empty", "comment_only"])
+def test_an_empty_secrets_file_is_an_empty_mapping(tmp_path: Path, content: str) -> None:
+    (tmp_path / "secrets.yaml").write_text(content)
+    assert load_secret_mappings(tmp_path) == [{}]
+
+
+def test_no_secrets_file_is_no_mappings(tmp_path: Path) -> None:
+    assert load_secret_mappings(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("content", "problem"),
+    [(b"- not\n- a mapping\n", "parsed"), (b"\xff\xfe not utf-8", "read")],
+    ids=["not_a_mapping", "not_utf8"],
+)
+def test_an_unusable_secrets_file_is_unavailable(
+    tmp_path: Path, content: bytes, problem: str
+) -> None:
+    (tmp_path / "secrets.yaml").write_bytes(content)
+    with pytest.raises(CommandError) as excinfo:
+        load_secret_mappings(tmp_path)
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+    assert excinfo.value.message == f"secrets.yaml could not be {problem}"
+
+
+def test_a_read_failure_is_unavailable_and_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "secrets.yaml").mkdir()  # IsADirectoryError / PermissionError: a real OSError
+    with pytest.raises(CommandError) as excinfo:
+        load_secret_mappings(tmp_path)
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+    assert excinfo.value.message == "secrets.yaml could not be read"
+    assert caplog.records[-1].exc_info is not None
+
+
+def test_a_parse_failure_is_logged_without_the_traceback(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "secrets.yaml").write_text("- hunter2secret\n")
+    with pytest.raises(CommandError):
+        load_secret_mappings(tmp_path)
+    assert caplog.records[-1].exc_info is None
+    assert "hunter2secret" not in caplog.text
