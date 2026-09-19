@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
@@ -28,9 +29,13 @@ if TYPE_CHECKING:
     type ToolHandler = Callable[[DeviceBuilder, dict[str, Any]], Any]
 
 _MESSAGE_ID = "mcp"
+_LOGGER = logging.getLogger(__name__)
+
 _DEFAULT_TAIL_LINES = 50
 _MAX_TAIL_LINES = 1000
 _MAX_SEARCH_RESULTS = 100
+_MIN_REDACTED_SECRET_LEN = 6
+_AUTOMATION_TYPES = ("triggers", "actions", "conditions", "light_effects", "filters")
 
 
 def _translate(err: Exception) -> McpToolError | None:
@@ -154,11 +159,12 @@ def _search_limit(args: dict[str, Any]) -> int:
 
 
 def _redact_secret_values(lines: list[str], secrets: dict[Any, Any] | None) -> list[str]:
-    """Replace every ``secrets.yaml`` value in *lines* with ``<removed>``."""
+    """Replace every ``secrets.yaml`` value of credential length in *lines* with ``<removed>``."""
     values = {
-        str(value)
+        text
         for value in (secrets or {}).values()
-        if isinstance(value, str | int | float) and not isinstance(value, bool) and str(value)
+        if isinstance(value, str | int | float) and not isinstance(value, bool)
+        if len(text := str(value)) >= _MIN_REDACTED_SECRET_LEN
     }
     for value in sorted(values, key=len, reverse=True):
         lines = [line.replace(value, "<removed>") for line in lines]
@@ -258,6 +264,7 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
             "truncated": client.truncated,
         }
     if client.result is None:
+        _LOGGER.error("MCP validate of %s produced no result frame", args["configuration"])
         raise McpToolError(INTERNAL_ERROR, "Validation produced no result")
     return {
         "success": client.result.get("success", False),
@@ -294,6 +301,7 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     siblings = await _call(db, "firmware/get_jobs", configuration=args["configuration"])
     upload = next((j for j in siblings if j.depends_on == job.job_id), None)
     if upload is None and not job.is_deferred_install:
+        _LOGGER.error("MCP install chain for %s has no upload job", job.job_id)
         raise McpToolError(INTERNAL_ERROR, f"Install chain for {job.job_id} has no upload job")
     return {
         "job_id": job.job_id,
@@ -469,7 +477,9 @@ async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    return _prune(await _call(db, "automations/parse", **args))
+    rows = await _call(db, "automations/parse", **args)
+    # The decomposed tree serves the visual editor; the model edits the YAML.
+    return _prune([{k: v for k, v in row.items() if k != "automation"} for row in rows])
 
 
 @_tool(
@@ -485,8 +495,9 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
 
 @_tool(
     "get_automation_docs",
-    "Documentation for automation building blocks: each ref is {type, id} as listed by "
-    "get_available_automations, e.g. {type: 'action', id: 'light.turn_on'}.",
+    "Documentation for automation building blocks: each ref is {type, id} with type one of "
+    + ", ".join(_AUTOMATION_TYPES)
+    + " and id from get_available_automations, e.g. {type: 'actions', id: 'light.turn_on'}.",
     {"refs": _prop("array", "List of {type, id} refs.")},
     ("refs",),
 )

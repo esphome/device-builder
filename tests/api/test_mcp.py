@@ -16,6 +16,7 @@ from esphome_device_builder.api.mcp import MCP_PATH, SERVER_NAME
 from esphome_device_builder.api.mcp.tools import TOOLS, _refuse_secrets
 from esphome_device_builder.constants import __version__
 from esphome_device_builder.controllers.auth import AuthError
+from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.device_builder import DeviceBuilder
@@ -386,18 +387,22 @@ async def test_validate_config_collects_stream_and_strips_ansi(
 
 async def test_validate_config_removes_secret_values(client: Any, db: McpStubDeviceBuilder) -> None:
     (db.settings.config_dir / "secrets.yaml").write_text(
-        "mqtt_user: alice\nmqtt_port: 1883\nempty: ''\nflag: true\n"
+        "mqtt_user: alice_smith\nmqtt_port: 1883\nota_pass: 123456\nflag: true\n"
     )
     db.command_handlers["devices/validate"] = _validate_stub(
         [
-            (StreamEvent.OUTPUT, "  username: alice\n"),
-            (StreamEvent.OUTPUT, "  port: 1883\n"),
+            (StreamEvent.OUTPUT, "  username: alice_smith\n"),
+            (StreamEvent.OUTPUT, "  port: 1883 password: 123456\n"),
             (StreamEvent.OUTPUT, "  keep: true\n"),
             (StreamEvent.RESULT, {"success": True, "code": 0}),
         ]
     )
     data = await _call_json(client, "validate_config", {"configuration": "kitchen.yaml"})
-    assert data["output"] == ["  username: <removed>", "  port: <removed>", "  keep: true"]
+    assert data["output"] == [
+        "  username: <removed>",
+        "  port: 1883 password: <removed>",
+        "  keep: true",
+    ]
 
 
 async def test_validate_config_without_result_frame_is_an_error(
@@ -727,16 +732,35 @@ async def test_create_device_never_passes_credentials(
 # ---------------------------------------------------------------------------
 
 
+async def test_get_automation_docs_example_resolves_against_the_catalog(
+    client: Any, db: McpStubDeviceBuilder
+) -> None:
+    db.command_handlers["automations/get_bodies"] = AutomationsController(db).get_bodies  # type: ignore[arg-type]
+    example = [{"type": "actions", "id": "light.turn_on"}]
+    docs = await _call_json(client, "get_automation_docs", {"refs": example})
+    assert "config_entries" in docs["actions/light.turn_on"]
+    singular = [{"type": "action", "id": "light.turn_on"}]
+    assert await _call_json(client, "get_automation_docs", {"refs": singular}) == {}
+
+
 async def test_automation_tools_wrap_the_automation_commands(
     client: Any, db: McpStubDeviceBuilder
 ) -> None:
     location = {"kind": "script", "index": 0}
-    parsed = [{"location": location, "label": "blink", "raw_yaml": "script:\n", "error": None}]
+    parsed = [
+        {
+            "location": location,
+            "label": "blink",
+            "raw_yaml": "script:\n",
+            "automation": {"trigger": {"id": "script"}},
+            "error": None,
+        }
+    ]
     db.command_handlers["automations/parse"] = AsyncMock(return_value=parsed)
     db.command_handlers["automations/get_available"] = AsyncMock(
         return_value={"triggers": ["on_boot"], "actions": ["light.turn_on"], "scripts": []}
     )
-    bodies = AsyncMock(return_value={"action/light.turn_on": {"id": "light.turn_on"}})
+    bodies = AsyncMock(return_value={"actions/light.turn_on": {"id": "light.turn_on"}})
     db.command_handlers["automations/get_bodies"] = bodies
     db.command_handlers["devices/get_config"] = AsyncMock(return_value="a:\nb:\nc:\n")
     delete = AsyncMock(return_value={"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""}})
@@ -750,9 +774,9 @@ async def test_automation_tools_wrap_the_automation_commands(
         client, "get_available_automations", {"configuration": "kitchen.yaml"}
     )
     assert available == {"triggers": ["on_boot"], "actions": ["light.turn_on"]}
-    refs = [{"type": "action", "id": "light.turn_on"}]
+    refs = [{"type": "actions", "id": "light.turn_on"}]
     docs = await _call_json(client, "get_automation_docs", {"refs": refs})
-    assert docs == {"action/light.turn_on": {"id": "light.turn_on"}}
+    assert docs == {"actions/light.turn_on": {"id": "light.turn_on"}}
     assert bodies.await_args.kwargs["refs"] == refs
     assert await _call(
         client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}

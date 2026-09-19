@@ -32,10 +32,10 @@ _HELPER_TIMEOUT_S = 60.0
 # Each child imports ``esphome.components.<platform>`` (~70 MiB RSS) and holds
 # it for up to the timeout above, and WS dispatch runs every command in its own
 # task, so nothing else serialises a burst of decodes. Same reasoning (and the
-# same low-RAM HA Green target) as ``config_semaphore`` in
+# same low-RAM HA Green target) as ``_config_semaphore`` in
 # ``helpers/device_yaml/_resolve.py``; a decode is user-initiated and rare, so
 # the cap is tighter. Callers queue past it. Note this bounds decodes only:
-# it and ``config_semaphore`` are separate budgets, so a decode burst
+# it and ``_config_semaphore`` are separate budgets, so a decode burst
 # concurrent with a fleet config-resolve can still stack both pools' children.
 _MAX_CONCURRENT_DECODES = 2
 _decode_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_DECODES)

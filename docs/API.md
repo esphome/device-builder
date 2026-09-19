@@ -553,7 +553,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `get_config {configuration}` | `devices/get_config` | Returns the YAML text |
 | `update_config {configuration, content}` | `devices/update_config` | |
 | `add_component {configuration, component_id, fields?}` | `devices/add_component` | |
-| `validate_config {configuration, tail_lines?}` | `devices/validate` | `{success, exit_code, output, truncated}` (the last `tail_lines` lines, default 50, max 1000; `truncated` says earlier lines were dropped; every `secrets.yaml` value in the output is replaced with `<removed>`), or `{success: false, timed_out: true, output, truncated}` after the one minute bound; a run that ends without a result frame is an `internal_error` |
+| `validate_config {configuration, tail_lines?}` | `devices/validate` | `{success, exit_code, output, truncated}` (the last `tail_lines` lines, default 50, max 1000; `truncated` says earlier lines were dropped; every `secrets.yaml` value of six or more characters in the output is replaced with `<removed>`), or `{success: false, timed_out: true, output, truncated}` after the one minute bound; a run that ends without a result frame is an `internal_error` |
 | `compile {configuration}` | `firmware/compile` | `{job_id, status}` |
 | `install {configuration, port?}` | `firmware/install` | `{job_id, status, upload_job_id, deferred}`; `upload_job_id` is null only when `deferred` (an offline device whose update was queued), otherwise a missing upload job is an `internal_error` |
 | `get_job {job_id, tail_lines?}` | `firmware/get_job` | Job fields plus `queued_update_armed` and the last output lines (ANSI stripped, `tail_lines` capped at 1000); terminal jobs read the output sidecar |
@@ -565,9 +565,9 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `list_secret_names` | `config/get_secrets` | Secret names only, never values |
 | `set_secret {name, value, overwrite?}` | `config/set_secret` | Write-only: `{name, created}`; the value is never read back |
 | `create_device {name, friendly_name?, board_id?}` | `devices/create` | The wizard, without the inline `ssid` / `psk` arguments, so Wi-Fi lands as `!secret wifi_ssid` / `!secret wifi_password` references |
-| `list_automations {configuration}` | `automations/parse` | Every automation in the YAML with its label, raw YAML, line range and `location` |
+| `list_automations {configuration}` | `automations/parse` | Every automation in the YAML with its label, raw YAML, line range and `location` (the editor's decomposed tree is dropped) |
 | `get_available_automations {configuration}` | `automations/get_available` | The trigger, action, condition, script and component ids this device's config exposes |
-| `get_automation_docs {refs}` | `automations/get_bodies` | Bodies for `[{type, id}]` refs |
+| `get_automation_docs {refs}` | `automations/get_bodies` | Bodies for `[{type, id}]` refs; `type` is one of `triggers`, `actions`, `conditions`, `light_effects`, `filters` |
 | `delete_automation {configuration, location}` | `automations/delete` + `devices/update_config` | Removes the automation at a `location` from `list_automations` and saves the file (the WS command only returns the splice the editor applies); adding or changing one is a YAML edit through `update_config` |
 
 **Secrets.** Values flow one way. Every tool that takes a `configuration` refuses the secrets file (`secrets.yaml` or `.yml`, any case), `validate_config` removes every `secrets.yaml` value from the `esphome config` output, `get_config_components` echoes only catalog ids, and `list_secret_names` returns names alone, so no secret value reaches a model from the server. `set_secret` writes a value the user supplied and never reads it back; `create_device` references the Wi-Fi secrets by name instead of taking credentials.

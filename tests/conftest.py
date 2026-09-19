@@ -61,6 +61,7 @@ from esphome_device_builder.helpers.auth import auth_middleware
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.secrets_state import write_secrets_locked
+from esphome_device_builder.helpers.yaml import apply_yaml_diff as _apply_yaml_diff
 from esphome_device_builder.models import (
     RUNTIME_STATE_FIELD_NAMES,
     AdoptableDevice,
