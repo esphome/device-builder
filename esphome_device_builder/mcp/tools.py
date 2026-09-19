@@ -33,14 +33,20 @@ class McpToolError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-        self.message = message
 
 
 class McpTool[ContextT](NamedTuple):
-    """One tool: its ``tools/list`` definition plus the coroutine that runs it."""
+    """One tool: name, description, argument schema and the coroutine that runs it."""
 
-    definition: dict[str, Any]
+    name: str
+    description: str
+    schema: dict[str, Any]
     handler: ToolHandler[ContextT]
+
+    @property
+    def definition(self) -> dict[str, Any]:
+        """The ``tools/list`` entry."""
+        return {"name": self.name, "description": self.description, "inputSchema": self.schema}
 
 
 class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
@@ -48,7 +54,7 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
 
     def __init__(self, translate: ErrorTranslator | None = None) -> None:
         super().__init__()
-        self._translate = translate
+        self._translate: ErrorTranslator = translate or (lambda _err: None)
 
     def tool(
         self,
@@ -57,18 +63,21 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         properties: dict[str, dict[str, Any]] | None = None,
         required: tuple[str, ...] = (),
     ) -> Callable[[ToolHandler[ContextT]], ToolHandler[ContextT]]:
-        """Register the decorated coroutine as tool *name* with the given argument schema."""
+        """Register the decorated coroutine as tool *name*; every property type must be known."""
+        properties = properties or {}
+        for key, prop in properties.items():
+            if prop.get("type") not in _JSON_TYPES:
+                msg = f"Tool {name}: property {key} needs a type from {sorted(_JSON_TYPES)}"
+                raise ValueError(msg)
+        schema = {
+            "type": "object",
+            "properties": properties,
+            "required": list(required),
+            "additionalProperties": False,
+        }
 
         def register(handler: ToolHandler[ContextT]) -> ToolHandler[ContextT]:
-            schema = {
-                "type": "object",
-                "properties": properties or {},
-                "required": list(required),
-                "additionalProperties": False,
-            }
-            self[name] = McpTool(
-                {"name": name, "description": description, "inputSchema": schema}, handler
-            )
+            self[name] = McpTool(name, description, schema, handler)
             return handler
 
         return register
@@ -81,13 +90,13 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         """Run tool *name* and shape the outcome as a ``tools/call`` result."""
         tool = self[name]
         try:
-            validate_args(tool.definition["inputSchema"], arguments)
+            validate_args(tool.schema, arguments)
             value = await tool.handler(context, arguments)
             return _result(value if isinstance(value, str) else dumps_str(value))
         except McpToolError as err:
             return _error(err)
         except Exception as err:
-            translated = self._translate(err) if self._translate else None
+            translated = self._translate(err)
             if translated is not None:
                 return _error(translated)
             _LOGGER.exception("MCP tool %s failed", name)
@@ -104,9 +113,10 @@ def validate_args(schema: dict[str, Any], arguments: dict[str, Any]) -> None:
         if key not in properties:
             raise McpToolError(INVALID_ARGS, f"Unknown argument: {key}")
         json_type = properties[key]["type"]
-        expected = _JSON_TYPES[json_type]
-        # ``bool`` is an ``int`` subclass; an integer slot must not accept it.
-        if not isinstance(value, expected) or (expected is int and isinstance(value, bool)):
+        # A bool is only a boolean: JSON Schema keeps it out of integer and number.
+        if isinstance(value, bool) != (json_type == "boolean") or not isinstance(
+            value, _JSON_TYPES[json_type]
+        ):
             raise McpToolError(INVALID_ARGS, f"Argument {key} must be {json_type}")
 
 
@@ -115,4 +125,4 @@ def _result(text: str, *, is_error: bool = False) -> dict[str, Any]:
 
 
 def _error(err: McpToolError) -> dict[str, Any]:
-    return _result(f"{err.code}: {err.message}", is_error=True)
+    return _result(f"{err.code}: {err}", is_error=True)

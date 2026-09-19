@@ -10,10 +10,10 @@ from aiohttp import web
 from ..helpers.json import JSONDecodeError, json_response, loads
 from .tools import ToolRegistry
 
-# Echo allowlist only: the server behaves the same under every version here. Older
-# revisions required JSON-RPC batching, which this server rejects, so they are not listed.
+# Revisions before 2025-06-18 require JSON-RPC batching, which handle() rejects.
 SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-06-18", "2025-11-25"})
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
+PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -30,7 +30,7 @@ class _RpcError(Exception):
 
 
 class McpServer[ContextT]:
-    """Tools-only MCP server answering one JSON-RPC request per ``handle`` call."""
+    """Tools-only MCP server answering one JSON-RPC request per POST."""
 
     def __init__(self, name: str, version: str, tools: ToolRegistry[ContextT]) -> None:
         self._server_info = {"name": name, "version": version}
@@ -42,19 +42,17 @@ class McpServer[ContextT]:
             "tools/call": self._tools_call,
         }
 
-    async def handle(self, context: ContextT, body: bytes) -> web.Response:
-        """Answer one JSON-RPC request body; a notification gets an empty 202."""
+    async def handle(self, context: ContextT, request: web.Request) -> web.Response:
+        """Answer one POST: transport checks, then the JSON-RPC request; notifications get 202."""
+        rejected = _transport_check(request)
+        if rejected is not None:
+            return rejected
         try:
-            msg = loads(body)
+            msg = loads(await request.read())
         except JSONDecodeError:
             return _error_response(None, PARSE_ERROR, "Parse error")
-        if (
-            not isinstance(msg, dict)
-            or msg.get("jsonrpc") != "2.0"
-            or not isinstance(msg.get("method"), str)
-        ):
-            msg_id = msg.get("id") if isinstance(msg, dict) else None
-            return _error_response(msg_id, INVALID_REQUEST, "Invalid request")
+        if not _is_valid_message(msg):
+            return _error_response(None, INVALID_REQUEST, "Invalid request")
         if "id" not in msg:
             return web.Response(status=202)
         try:
@@ -64,14 +62,10 @@ class McpServer[ContextT]:
         return json_response({"jsonrpc": "2.0", "id": msg["id"], "result": result})
 
     async def _dispatch(self, context: ContextT, method: str, params: Any) -> Any:
-        if params is None:
-            params = {}
-        if not isinstance(params, dict):
-            raise _RpcError(INVALID_PARAMS, "params must be an object")
         handler = self._methods.get(method)
         if handler is None:
             raise _RpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
-        return await handler(context, params)
+        return await handler(context, _object_param(params, "params"))
 
     async def _initialize(self, _context: ContextT, params: dict[str, Any]) -> dict[str, Any]:
         requested = params.get("protocolVersion")
@@ -93,12 +87,38 @@ class McpServer[ContextT]:
         name = params.get("name")
         if not isinstance(name, str) or name not in self._tools:
             raise _RpcError(INVALID_PARAMS, f"Unknown tool: {name}")
-        arguments = params.get("arguments")
-        if arguments is None:
-            arguments = {}
-        if not isinstance(arguments, dict):
-            raise _RpcError(INVALID_PARAMS, "arguments must be an object")
+        arguments = _object_param(params.get("arguments"), "arguments")
         return await self._tools.call(context, name, arguments)
+
+
+def _transport_check(request: web.Request) -> web.Response | None:
+    """Reject an unsupported protocol-version header (400) or a non-JSON body (415)."""
+    version = request.headers.get(PROTOCOL_VERSION_HEADER)
+    if version is not None and version not in SUPPORTED_PROTOCOL_VERSIONS:
+        return web.Response(status=400, text=f"Unsupported {PROTOCOL_VERSION_HEADER}")
+    # A JSON body forces a CORS preflight; a text/plain simple request never reaches a tool.
+    if request.content_type != "application/json":
+        return web.Response(status=415, text="Content-Type must be application/json")
+    return None
+
+
+def _is_valid_message(msg: Any) -> bool:
+    """Check for a JSON-RPC 2.0 object with a string method and a string or int id, if any."""
+    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
+        return False
+    if not isinstance(msg.get("method"), str):
+        return False
+    msg_id = msg.get("id")
+    return "id" not in msg or (isinstance(msg_id, (str, int)) and not isinstance(msg_id, bool))
+
+
+def _object_param(value: Any, what: str) -> dict[str, Any]:
+    """Default a missing *what* to ``{}``; anything but an object is INVALID_PARAMS."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise _RpcError(INVALID_PARAMS, f"{what} must be an object")
+    return value
 
 
 def _error_response(msg_id: Any, code: int, message: str) -> web.Response:
