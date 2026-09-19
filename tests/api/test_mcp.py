@@ -59,6 +59,9 @@ _CONFIG_TOOLS = (
     ("compile", {}),
     ("install", {}),
     ("get_config_components", {}),
+    ("list_automations", {}),
+    ("get_available_automations", {}),
+    ("delete_automation", {"location": {"kind": "script", "index": 0}}),
 )
 _CONFIG_COMMANDS = (
     "devices/get_config",
@@ -67,6 +70,9 @@ _CONFIG_COMMANDS = (
     "devices/validate",
     "firmware/compile",
     "firmware/install",
+    "automations/parse",
+    "automations/get_available",
+    "automations/delete",
 )
 
 
@@ -286,6 +292,9 @@ async def test_missing_command_is_unavailable(client: Any) -> None:
         "secrets.yml",
         "secrets.yaml.",
         "secrets.yaml ",
+        "secrets.yaml::$DATA",
+        "SECRET~1.YAM",
+        "notes.txt",
     ],
 )
 def test_refuse_secrets_matches_every_spelling(name: str) -> None:
@@ -294,6 +303,13 @@ def test_refuse_secrets_matches_every_spelling(name: str) -> None:
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
     _refuse_secrets("kitchen.yaml")
     _refuse_secrets(None)
+
+
+def test_every_configuration_tool_is_covered() -> None:
+    takes_config = {
+        name for name, tool in TOOLS.items() if "configuration" in tool.schema["properties"]
+    }
+    assert takes_config == {name for name, _ in _CONFIG_TOOLS}
 
 
 @pytest.mark.parametrize(("tool", "extra"), _CONFIG_TOOLS)
@@ -656,13 +672,16 @@ async def test_get_config_components_lists_catalog_rows_from_the_scan(
     assert "hunter2" not in json.dumps(rows)
 
 
-@pytest.mark.parametrize("configuration", ["nope.yaml", "../../etc/passwd"])
-async def test_get_config_components_unknown_device_is_not_found(
-    client: Any, catalog_db: McpStubDeviceBuilder, configuration: str
+@pytest.mark.parametrize(
+    ("configuration", "code"),
+    [("nope.yaml", "not_found"), ("../../etc/passwd", "invalid_args"), ("../x.yaml", "not_found")],
+)
+async def test_get_config_components_unknown_device_is_refused(
+    client: Any, catalog_db: McpStubDeviceBuilder, configuration: str, code: str
 ) -> None:
     is_error, text = await _call(client, "get_config_components", {"configuration": configuration})
     assert is_error
-    assert text.startswith("not_found: ")
+    assert text.startswith(f"{code}: ")
 
 
 async def test_get_config_components_without_catalog_is_unavailable(client: Any) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
@@ -29,6 +30,8 @@ if TYPE_CHECKING:
     type ToolHandler = Callable[[DeviceBuilder, dict[str, Any]], Any]
 
 _MESSAGE_ID = "mcp"
+# No NTFS stream suffix (``::$DATA``) and no 8.3 alias (``SECRET~1.YAM``).
+_CONFIG_NAME_RE = re.compile(r"[^:~]+\.ya?ml")
 _LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TAIL_LINES = 50
@@ -113,11 +116,13 @@ async def _call(
 
 def _refuse_secrets(configuration: Any) -> None:
     """Refuse the secrets file in any spelling: its contents never reach a model."""
-    if (
-        isinstance(configuration, str)
-        and Path(configuration).name.rstrip(". ").lower() in SECRETS_FILES
-    ):
+    if not isinstance(configuration, str):
+        return
+    name = Path(configuration).name.rstrip(". ").lower()
+    if name in SECRETS_FILES:
         raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
+    if not _CONFIG_NAME_RE.fullmatch(name):
+        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must name a .yaml file")
 
 
 def _prune(value: Any, *, include_advanced: bool = False) -> Any:
