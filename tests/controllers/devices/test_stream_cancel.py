@@ -904,9 +904,9 @@ async def test_idle_bound_resets_while_the_child_keeps_talking() -> None:
     chatty = [
         sys.executable,
         "-c",
-        "import time\nfor _ in range(5):\n    print('tick', flush=True)\n    time.sleep(0.3)\n",
+        "import time\nfor _ in range(3):\n    print('tick', flush=True)\n    time.sleep(1.5)\n",
     ]
-    await ctrl._stream_subprocess(chatty, client, "s-1", idle_timeout=1.0)
+    await ctrl._stream_subprocess(chatty, client, "s-1", idle_timeout=4.0)
     assert ("s-1", "result", {"success": True, "code": 0}) in events
 
 
@@ -970,6 +970,7 @@ async def test_reap_is_bounded_when_the_kill_does_not_take(
         "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly",
         lambda *_a, **_k: None,
     )
+    monkeypatch.setattr(logs.WindowsJobObject, "create_for_pid", lambda _pid: None)
     slot = asyncio.Semaphore(1)
     with caplog.at_level(logging.WARNING):
         await asyncio.wait_for(ctrl._stream_subprocess(["x"], client, "s-1", slot=slot), timeout=5)
