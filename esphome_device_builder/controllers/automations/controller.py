@@ -10,6 +10,8 @@ config-write debounce on the device editor handles that.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAMLError
@@ -32,6 +34,7 @@ from ...models.automations import (
     LightEffectLocation,
     ScriptLocation,
     UpsertResponse,
+    YamlDiff,
 )
 from . import catalog, parsing, writing
 from .catalog import AutomationBodyRef
@@ -160,8 +163,7 @@ class AutomationsController:
         *configuration* from disk (same override as ``parse`` /
         ``upsert`` / ``delete``).
         """
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        scoped = await run_in_executor(_scope_from_yaml, text)
+        scoped = await self._run_on_config(configuration, yaml, _scope_from_yaml)
         # Scope builders are catalog-free; stamp the catalog title here.
         components = self._db.components
         if components is not None:
@@ -194,8 +196,7 @@ class AutomationsController:
         stale on-disk YAML, fails to find the new automation, and
         the form lands empty.
         """
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        parsed = await run_in_executor(parsing.parse_device_yaml, text)
+        parsed = await self._run_on_config(configuration, yaml, parsing.parse_device_yaml)
         return [p.to_dict() for p in parsed]
 
     @api_command("automations/upsert")
@@ -227,9 +228,8 @@ class AutomationsController:
         """
         tree = AutomationTree.from_dict(automation)
         loc = _decode_location(location)
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        _new_text, diff = await run_in_executor(
-            lambda: writing.render_upsert(text, tree=tree, location=loc),
+        _new_text, diff = await self._run_on_config(
+            configuration, yaml, partial(writing.render_upsert, tree=tree, location=loc)
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
@@ -255,28 +255,35 @@ class AutomationsController:
         if save and yaml is not None:
             raise CommandError(ErrorCode.INVALID_ARGS, "save writes the config on disk; omit yaml")
         loc = _decode_location(location)
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        new_text, diff = await run_in_executor(
-            lambda: writing.render_delete(text, location=loc),
-        )
+        render = partial(writing.render_delete, location=loc)
         if save:
-            await self._save_config(configuration, new_text)
+            diff = await self._rewrite_config(configuration, render)
+        else:
+            _new_text, diff = await self._run_on_config(configuration, yaml, render)
         return UpsertResponse(yaml_diff=diff).to_dict()
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    async def _read_config(self, configuration: str) -> str:
-        """Read a device's YAML off disk in a worker thread."""
+    async def _run_on_config[T](
+        self, configuration: str, yaml: str | None, func: Callable[[str], T]
+    ) -> T:
+        """Run *func* over the *yaml* draft, else the on-disk config, as one executor job."""
+        if yaml is not None:
+            return await run_in_executor(func, yaml)
         path = self._db.settings.rel_path(configuration)
-        return await run_in_executor(path.read_text, "utf-8")
+        return await run_in_executor(lambda: func(path.read_text("utf-8")))
 
-    async def _save_config(self, configuration: str, content: str) -> None:
-        """Write an automation edit through the devices controller's save path."""
+    async def _rewrite_config(
+        self, configuration: str, render: Callable[[str], tuple[str, YamlDiff]]
+    ) -> YamlDiff:
+        """Apply *render* to the on-disk config through the devices controller's save path."""
         if (devices := self._db.devices) is None:
             raise CommandError(ErrorCode.UNAVAILABLE, "devices controller unavailable")
-        await devices.apply_automation_edit(configuration, content)
+        return await devices.rewrite_yaml(
+            configuration, render, message=f"Edit an automation in {configuration}"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,22 +1,39 @@
-"""Tests for the ``save`` option of ``automations/delete``."""
+"""Tests for the ``save`` option of ``automations/delete`` and the one-job config reads."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from esphome_device_builder.controllers.automations import AutomationsController
+from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
+from esphome_device_builder.models.automations import YamlDiff
 
 pytestmark = pytest.mark.xdist_group("automations")
 
 _YAML = "esphome:\n  name: d\n  on_boot:\n    then:\n      - delay: 1s\n"
 _LOCATION = {"kind": "device_on", "trigger": "on_boot"}
+
+
+class _Devices:
+    """Stand-in for the devices controller's locked read-rewrite-save."""
+
+    def __init__(self, config_dir: Path) -> None:
+        self._config_dir = config_dir
+        self.saved: list[tuple[str, str, str]] = []
+
+    async def rewrite_yaml(
+        self, configuration: str, rewrite: Callable[[str], tuple[str, YamlDiff]], *, message: str
+    ) -> YamlDiff:
+        new_text, diff = rewrite((self._config_dir / configuration).read_text("utf-8"))
+        self.saved.append((configuration, new_text, message))
+        return diff
 
 
 def _make_controller(config_dir: Path, *, devices: Any) -> AutomationsController:
@@ -28,22 +45,23 @@ def _make_controller(config_dir: Path, *, devices: Any) -> AutomationsController
 
 
 async def test_delete_with_save_writes_the_spliced_config(tmp_path: Path) -> None:
-    devices = SimpleNamespace(apply_automation_edit=AsyncMock())
+    devices = _Devices(tmp_path)
     controller = _make_controller(tmp_path, devices=devices)
 
     result = await controller.delete(configuration="d.yaml", location=_LOCATION, save=True)
 
-    assert result["yaml_diff"]["replacement"] == ""
-    devices.apply_automation_edit.assert_awaited_once_with("d.yaml", "esphome:\n  name: d\n")
+    assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
+    assert devices.saved == [("d.yaml", "esphome:\n  name: d\n", "Edit an automation in d.yaml")]
 
 
 async def test_delete_without_save_leaves_the_config_alone(tmp_path: Path) -> None:
-    devices = SimpleNamespace(apply_automation_edit=AsyncMock())
+    devices = _Devices(tmp_path)
     controller = _make_controller(tmp_path, devices=devices)
 
-    await controller.delete(configuration="d.yaml", location=_LOCATION)
+    result = await controller.delete(configuration="d.yaml", location=_LOCATION)
 
-    devices.apply_automation_edit.assert_not_awaited()
+    assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
+    assert devices.saved == []
 
 
 @pytest.mark.parametrize(
@@ -54,14 +72,14 @@ async def test_delete_without_save_leaves_the_config_alone(tmp_path: Path) -> No
     ],
 )
 async def test_delete_refuses_invalid_save_args(tmp_path: Path, args: dict[str, Any]) -> None:
-    devices = SimpleNamespace(apply_automation_edit=AsyncMock())
+    devices = _Devices(tmp_path)
     controller = _make_controller(tmp_path, devices=devices)
 
     with pytest.raises(CommandError) as err:
         await controller.delete(configuration="d.yaml", location=_LOCATION, **args)
 
     assert err.value.code == ErrorCode.INVALID_ARGS
-    devices.apply_automation_edit.assert_not_awaited()
+    assert devices.saved == []
 
 
 async def test_delete_with_save_needs_the_devices_controller(tmp_path: Path) -> None:
@@ -71,3 +89,23 @@ async def test_delete_with_save_needs_the_devices_controller(tmp_path: Path) -> 
         await controller.delete(configuration="d.yaml", location=_LOCATION, save=True)
 
     assert err.value.code == ErrorCode.UNAVAILABLE
+
+
+@pytest.mark.parametrize("yaml", [None, _YAML], ids=["from_disk", "from_a_draft"])
+async def test_a_config_read_and_its_processing_share_one_executor_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, yaml: str | None
+) -> None:
+    controller = _make_controller(tmp_path, devices=None)
+    jobs: list[Any] = []
+    run_in_executor = automations_controller.run_in_executor
+
+    async def _counting(func: Callable[..., Any], *args: Any) -> Any:
+        jobs.append(func)
+        return await run_in_executor(func, *args)
+
+    monkeypatch.setattr(automations_controller, "run_in_executor", _counting)
+
+    parsed = await controller.parse(configuration="d.yaml", yaml=yaml)
+
+    assert len(parsed) == 1
+    assert len(jobs) == 1

@@ -135,17 +135,37 @@ async def test_update_config_writes_content_to_disk(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
 
 
-async def test_apply_automation_edit_writes_content_to_disk(
+async def test_rewrite_yaml_saves_the_rewritten_text_and_returns_the_result(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``apply_automation_edit`` saves through the same write path as ``update_config``."""
     controller = make_controller(tmp_path)
     _stub_regenerate(controller)
-    new_content = "esphome:\n  name: kitchen\n"
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    await controller.apply_automation_edit("kitchen.yaml", new_content)
+    result = await controller.rewrite_yaml(
+        "kitchen.yaml", lambda text: (text + "logger:\n", len(text)), message="Add logger"
+    )
 
-    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
+    assert result == len("esphome:\n  name: kitchen\n")
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == (
+        "esphome:\n  name: kitchen\nlogger:\n"
+    )
+
+
+async def test_rewrite_yaml_leaves_the_file_alone_when_the_rewrite_raises(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    original = "esphome:\n  name: kitchen\n"
+    (tmp_path / "kitchen.yaml").write_text(original, encoding="utf-8")
+
+    def _refuse(_text: str) -> tuple[str, None]:
+        raise CommandError(ErrorCode.NOT_FOUND, "nothing to rewrite")
+
+    with pytest.raises(CommandError):
+        await controller.rewrite_yaml("kitchen.yaml", _refuse, message="unused")
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == original
 
 
 async def test_update_config_overwrites_existing_yaml(

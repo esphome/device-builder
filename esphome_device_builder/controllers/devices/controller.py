@@ -33,7 +33,7 @@ from ...helpers.secrets_state import (
 )
 from ...helpers.sibling_cli import find_esphome_cmd
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
-from ...helpers.yaml import write_user_yaml
+from ...helpers.yaml import rewrite_user_yaml, write_user_yaml
 from ...models import (
     OTA_PORT,
     AddComponentResponse,
@@ -898,11 +898,16 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             configuration, content, message=f"Restore {configuration} to {restored_from}"
         )
 
-    async def apply_automation_edit(self, configuration: str, content: str) -> None:
-        """Write a saved automation edit's YAML back to disk."""
-        await self._persist_yaml_mutation(
-            configuration, content, message=f"Edit an automation in {configuration}"
-        )
+    async def rewrite_yaml[T](
+        self, configuration: str, rewrite: Callable[[str], tuple[str, T]], *, message: str
+    ) -> T:
+        """Read, rewrite and save *configuration* as one executor job under its write lock."""
+        path = self._db.settings.rel_path(configuration)
+        async with self._yaml_write_lock(configuration):
+            result = await run_in_executor(lambda: rewrite_user_yaml(path, rewrite))
+            await self._commit_history(configuration, message)
+        self._after_yaml_write(configuration)
+        return result
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
@@ -1118,6 +1123,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         async with self._yaml_write_lock(configuration):
             await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
             await self._commit_history(configuration, message or f"Update {configuration}")
+        self._after_yaml_write(configuration)
+
+    def _after_yaml_write(self, configuration: str) -> None:
+        """Drop the editor caches and reload *configuration* after a write."""
         # A write here (device YAML, or the whole-file secrets.yaml editor)
         # can change what any open editor's lint resolves; clear the caches
         # so the next validate re-reads disk instead of the stale result.
