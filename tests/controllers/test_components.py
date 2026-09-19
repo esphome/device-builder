@@ -242,6 +242,21 @@ async def test_get_component_bodies_resolves_rp2040_alias() -> None:
     assert bodies["rp2040"].id == "rp2"
 
 
+async def test_component_bodies_command_serves_the_omit_defaults_shape() -> None:
+    """The WS command answers plain dicts with default-valued fields left out."""
+    cat = ComponentCatalog()
+    await asyncio.to_thread(cat.load)
+    handler = cat.get_component_bodies_wire
+    assert handler._api_command == "components/get_component_bodies"
+
+    bodies = await handler(component_ids=["wifi"])
+
+    fast_connect = next(e for e in bodies["wifi"]["config_entries"] if e["key"] == "fast_connect")
+    assert fast_connect["default_value"] is False
+    assert "required" not in fast_connect
+    assert "options" not in fast_connect
+
+
 def test_index_title_returns_catalog_name_or_none() -> None:
     """``index_title`` is the slim-index name for a known id, else ``None``."""
     cat = ComponentCatalog()
