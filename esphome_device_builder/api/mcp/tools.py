@@ -15,7 +15,9 @@ from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
+from ...helpers.secrets_state import read_secrets_yaml
 from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode, StreamEvent
@@ -55,7 +57,7 @@ def _tool(
             return await handler(db, args)
 
         TOOLS.tool(name, description, properties, required)(guarded)
-        return handler
+        return guarded
 
     return register
 
@@ -135,10 +137,32 @@ def _is_empty(value: Any) -> bool:
     return value is None or value is False or (isinstance(value, (str, list, dict)) and not value)
 
 
+def _bounded(args: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
+    """Return integer argument *key*: below *minimum* is invalid, above *maximum* clamps."""
+    value: int = args.get(key, default)
+    if value < minimum:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"{key} must be at least {minimum}")
+    return min(value, maximum)
+
+
 def _tail_lines(args: dict[str, Any]) -> int:
-    """Return the clamped ``tail_lines`` argument."""
-    tail_lines: int = args.get("tail_lines", _DEFAULT_TAIL_LINES)
-    return max(0, min(tail_lines, _MAX_TAIL_LINES))
+    return _bounded(args, "tail_lines", _DEFAULT_TAIL_LINES, 0, _MAX_TAIL_LINES)
+
+
+def _search_limit(args: dict[str, Any]) -> int:
+    return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
+
+
+def _redact_secret_values(lines: list[str], secrets: dict[Any, Any] | None) -> list[str]:
+    """Replace every ``secrets.yaml`` value in *lines* with ``<removed>``."""
+    values = {
+        str(value)
+        for value in (secrets or {}).values()
+        if isinstance(value, str | int | float) and not isinstance(value, bool) and str(value)
+    }
+    for value in sorted(values, key=len, reverse=True):
+        lines = [line.replace(value, "<removed>") for line in lines]
+    return lines
 
 
 def _strip_lines(lines: list[str]) -> list[str]:
@@ -208,8 +232,8 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "validate_config",
     "Validate a device config with esphome and return the last output lines (truncated "
-    "says whether earlier lines were dropped). Bounded to one minute; a timed out run "
-    "reports timed_out.",
+    "says whether earlier lines were dropped; secret values are removed). Bounded to one "
+    "minute; a timed out run reports timed_out.",
     {"configuration": _CONFIGURATION, "tail_lines": _TAIL_LINES},
     ("configuration",),
 )
@@ -222,8 +246,10 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
         async with deadline:
             await _call(db, "devices/validate", client=client, configuration=args["configuration"])
     except TimeoutError:
-        pass
-    output = _strip_lines(list(client.output))
+        if not deadline.expired():
+            raise
+    secrets = await run_in_executor(read_secrets_yaml, db.settings.config_dir)
+    output = _redact_secret_values(_strip_lines(list(client.output)), secrets)
     if deadline.expired():
         return {
             "success": False,
@@ -284,10 +310,10 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     ("job_id",),
 )
 async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
+    tail_lines = _tail_lines(args)
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
-    tail_lines = _tail_lines(args)
     output = (await initial_snapshot(job, job.job_id))[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
@@ -316,7 +342,7 @@ async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
     ("query",),
 )
 async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
-    limit = min(args.get("limit", 20), _MAX_SEARCH_RESULTS)
+    limit = _search_limit(args)
     response = await _call(db, "components/get_components", **(args | {"limit": limit}))
     return [_prune(entry.to_dict()) for entry in response.components]
 
@@ -361,9 +387,10 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 )
 async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
     catalog = require_catalog(db)
+    if db.devices is None:
+        raise CommandError(ErrorCode.UNAVAILABLE, "Devices are not loaded")
     configuration = args["configuration"]
-    device = db.devices.get_by_configuration(configuration) if db.devices else None
-    if device is None:
+    if (device := db.devices.get_by_configuration(configuration)) is None:
         raise_device_not_found(configuration)
     # Only catalog ids are echoed: a resolved ``platform:`` value may be a ``!secret``.
     entries = (catalog.index_entry(cid) for cid in device.component_ids)
@@ -380,7 +407,7 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
     ("query",),
 )
 async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
-    limit = min(args.get("limit", 20), _MAX_SEARCH_RESULTS)
+    limit = _search_limit(args)
     response = await _call(db, "boards/get_boards", **(args | {"limit": limit}))
     return [_prune(board.to_dict()) for board in response.boards]
 

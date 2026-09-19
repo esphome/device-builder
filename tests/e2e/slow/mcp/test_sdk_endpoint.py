@@ -9,8 +9,7 @@ import pytest
 
 from esphome_device_builder.api.mcp import MCP_PATH, SERVER_NAME
 from esphome_device_builder.api.mcp.tools import TOOLS
-from tests.api.test_mcp import _make_app, _StubDeviceBuilder
-from tests.conftest import MakeSettingsFactory
+from tests.conftest import MakeSettingsFactory, McpStubDeviceBuilder, make_mcp_app
 
 mcp = pytest.importorskip("mcp")
 from mcp import ClientSession  # noqa: E402
@@ -20,9 +19,9 @@ from mcp.types import TextContent  # noqa: E402
 
 @pytest.fixture
 async def server_url(aiohttp_server: Any, make_settings: MakeSettingsFactory) -> str:
-    db = _StubDeviceBuilder(make_settings())
+    db = McpStubDeviceBuilder(make_settings())
     db.command_handlers["devices/get_config"] = AsyncMock(return_value="esphome:\n  name: k\n")
-    return str((await aiohttp_server(_make_app(db))).make_url(MCP_PATH))
+    return str((await aiohttp_server(make_mcp_app(db))).make_url(MCP_PATH))
 
 
 async def test_sdk_client_reaches_the_device_builder_tools(server_url: str) -> None:

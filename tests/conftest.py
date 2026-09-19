@@ -32,9 +32,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from aiohttp import web
 from blockbuster import BlockBusterFunction, blockbuster_ctx
 from esphome.core import CORE
 
+from esphome_device_builder.api.mcp import create_mcp_routes
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
 )
@@ -55,6 +57,7 @@ from esphome_device_builder.controllers.remote_build import (
     ReceiverController,
 )
 from esphome_device_builder.controllers.remote_build.discovery import start_discovery
+from esphome_device_builder.helpers.auth import auth_middleware
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.secrets_state import write_secrets_locked
@@ -1382,3 +1385,24 @@ def apply_yaml_diff_like_frontend(text: str, from_line: int, to_line: int, repla
     stripped = replacement.removesuffix("\n")
     rep_lines = [] if stripped == "" else stripped.split("\n")
     return "\n".join([*lines[:start], *rep_lines, *lines[start + delete :]])
+
+
+class McpStubDeviceBuilder:
+    """A ``DeviceBuilder`` stand-in for the MCP endpoint: settings, catalog and handlers."""
+
+    def __init__(self, settings: DashboardSettings) -> None:
+        self.settings = settings
+        self.settings.trusted_domains = []
+        self.components: ComponentCatalog | None = None
+        self.command_handlers: dict[str, Any] = {}
+        self.auth = StubAuth()
+        self.devices = MagicMock(spec=DevicesController)
+        self.devices.get_by_configuration.return_value = None
+
+
+def make_mcp_app(db: McpStubDeviceBuilder, *, with_auth: bool = False) -> web.Application:
+    """Build an aiohttp app serving only the MCP route."""
+    app = web.Application(middlewares=[auth_middleware] if with_auth else [])
+    app["device_builder"] = db
+    app.router.add_routes(create_mcp_routes())
+    return app
