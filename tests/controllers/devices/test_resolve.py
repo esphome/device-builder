@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +19,9 @@ from esphome_device_builder.controllers.devices.resolve import (
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 
 from .conftest import ESPHOME_CONFIG_STUB_TARGET, MakeControllerFactory
+
+if TYPE_CHECKING:
+    from esphome_device_builder.controllers.config import DashboardSettings
 
 PLAIN_YAML = "esphome:\n  name: kitchen\n\napi:\n"
 INLINE_PACKAGE_YAML = "packages:\n  v:\n    api:\n      port: 6054\n\nesphome:\n  name: kitchen\n"
@@ -126,7 +130,9 @@ async def test_resolve_config_treats_a_stalled_in_process_load_as_deferred(
     monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, subprocess)
     monkeypatch.setattr(resolve_module, "ESPHOME_CONFIG_TIMEOUT", 0.05)
 
-    def stalled(settings, configuration, **kwargs):
+    def stalled(
+        settings: DashboardSettings, configuration: str | Path, *, strict: bool = False
+    ) -> tuple[Path, dict[str, Any]]:
         time.sleep(0.3)
         return tmp_path / "kitchen.yaml", {"esphome": {"name": "kitchen"}}
 
