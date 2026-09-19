@@ -16,6 +16,7 @@ from ...controllers.firmware.persistence import job_dict_without_output
 from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
+from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode, StreamEvent
 
@@ -460,12 +461,18 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 
 @_tool(
     "delete_automation",
-    "Remove one automation from a device config; pass the location from list_automations.",
+    "Remove one automation from a device config and save it; pass the location from "
+    "list_automations.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "The automation's location as returned by list_automations."),
     },
     ("configuration", "location"),
 )
-async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    return await _call(db, "automations/delete", **args)
+async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
+    configuration = args["configuration"]
+    text = await _call(db, "devices/get_config", configuration=configuration)
+    splice = await _call(db, "automations/delete", yaml=text, **args)
+    new_text = apply_yaml_diff(text, splice["yaml_diff"])
+    await _call(db, "devices/update_config", configuration=configuration, content=new_text)
+    return f"Removed the automation and saved {configuration}"

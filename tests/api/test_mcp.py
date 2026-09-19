@@ -691,8 +691,11 @@ async def test_automation_tools_wrap_the_automation_commands(
     )
     bodies = AsyncMock(return_value={"action/light.turn_on": {"id": "light.turn_on"}})
     db.command_handlers["automations/get_bodies"] = bodies
-    delete = AsyncMock(return_value={"yaml_diff": {"from_line": 1}})
+    db.command_handlers["devices/get_config"] = AsyncMock(return_value="a:\nb:\nc:\n")
+    delete = AsyncMock(return_value={"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""}})
     db.command_handlers["automations/delete"] = delete
+    save = AsyncMock(return_value=None)
+    db.command_handlers["devices/update_config"] = save
 
     listed = await _call_json(client, "list_automations", {"configuration": "kitchen.yaml"})
     assert listed == [{"location": location, "label": "blink", "raw_yaml": "script:\n"}]
@@ -704,8 +707,9 @@ async def test_automation_tools_wrap_the_automation_commands(
     docs = await _call_json(client, "get_automation_docs", {"refs": refs})
     assert docs == {"action/light.turn_on": {"id": "light.turn_on"}}
     assert bodies.await_args.kwargs["refs"] == refs
-    diff = await _call_json(
+    assert await _call(
         client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
-    )
-    assert diff == {"yaml_diff": {"from_line": 1}}
+    ) == (False, "Removed the automation and saved kitchen.yaml")
     assert delete.await_args.kwargs["location"] == location
+    assert delete.await_args.kwargs["yaml"] == "a:\nb:\nc:\n"
+    assert save.await_args.kwargs["content"] == "a:\nc:\n"
