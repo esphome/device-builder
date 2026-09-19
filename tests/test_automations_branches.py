@@ -176,6 +176,13 @@ def test_decode_location_per_kind(payload: dict, expected: type) -> None:
     assert isinstance(_decode_location(payload), expected)
 
 
+def test_decode_location_missing_field_is_invalid_args() -> None:
+    with pytest.raises(CommandError) as excinfo:
+        _decode_location({"kind": "script"})
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert 'Invalid script location: Field "id"' in excinfo.value.message
+
+
 def test_decode_location_component_on_legacy_payload_defaults_index_none() -> None:
     """A pre-index component_on payload decodes with ``index`` None."""
     loc = _decode_location({"kind": "component_on", "component_id": "b", "trigger": "on_press"})
