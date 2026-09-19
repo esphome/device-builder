@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers.firmware.follow import initial_snapshot
 from esphome_device_builder.controllers.firmware.persistence import (
     _job_log_path,
     _reconcile_sidecars,
@@ -135,18 +136,28 @@ def test_reconcile_logs_when_dir_unreadable(
     assert any("Failed to scan job-log dir" in r.message for r in caplog.records)
 
 
-def test_read_unreadable_sidecar_logs_and_returns_empty(
+async def test_snapshot_of_a_terminal_job_with_an_unreadable_sidecar_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _boom(self: Path, *args: object, **kwargs: object) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "open", _boom)
+    assert await initial_snapshot(_terminal_job([]), "t1") is None
+
+
+def test_read_unreadable_sidecar_logs_and_returns_none(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A present-but-unreadable sidecar logs a warning instead of silently looking empty."""
+    """A present-but-unreadable sidecar logs a warning and reads as ``None``, not as empty."""
 
     def _boom(self: Path, *args: object, **kwargs: object) -> None:
         raise PermissionError("denied")
 
     monkeypatch.setattr(Path, "open", _boom)
     with caplog.at_level(logging.WARNING):
-        assert read_job_output("unreadable") == []
+        assert read_job_output("unreadable") is None
     assert any("Failed to read job output sidecar" in r.message for r in caplog.records)
 
 

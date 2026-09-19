@@ -240,9 +240,9 @@ def job_dict_without_output(job: FirmwareJob) -> dict:
     return data
 
 
-def read_job_output(job_id: str) -> list[str]:
+def read_job_output(job_id: str) -> list[str] | None:
     r"""
-    Return a job's persisted output lines (terminators preserved), or ``[]``.
+    Return a job's persisted output lines (terminators preserved); ``None`` when unreadable.
 
     ``newline=""`` mirrors the write side so universal-newline
     translation doesn't rewrite a bare ``\r`` terminator to ``\n``;
@@ -250,9 +250,8 @@ def read_job_output(job_id: str) -> list[str]:
     boundaries the ingest path produced (``str.splitlines`` would also
     break on form-feed and other Unicode line boundaries, splitting a
     line the writer kept whole). A missing sidecar is the normal absent-output case
-    and maps to ``[]``; any other read error is logged (and also
-    yields ``[]``) so a genuinely unreadable log surfaces in the logs
-    instead of masquerading as a job with no output.
+    and maps to ``[]``; any other read error is logged and yields ``None`` so a
+    caller can tell an unreadable log from a job with no output.
     """
     try:
         with _job_log_path(job_id).open(encoding="utf-8", newline="") as fh:
@@ -261,7 +260,7 @@ def read_job_output(job_id: str) -> list[str]:
         return []
     except OSError:
         _LOGGER.warning("Failed to read job output sidecar for %s", job_id, exc_info=True)
-        return []
+        return None
     return _LINE_RE.findall(text)
 
 
