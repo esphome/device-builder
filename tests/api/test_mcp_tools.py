@@ -567,6 +567,17 @@ async def test_get_config_components_unknown_device_is_refused(
     assert text.startswith(f"{code}: ")
 
 
+async def test_get_config_components_unresolved_config_is_unavailable(
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
+) -> None:
+    mcp_catalog_db.devices.get_by_configuration.return_value = make_device("kitchen")
+    is_error, text = await mcp_call(
+        mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
+    )
+    assert is_error
+    assert text.startswith("unavailable: kitchen.yaml has not been resolved")
+
+
 async def test_get_config_components_without_devices_is_unavailable(
     mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
 ) -> None:

@@ -175,13 +175,17 @@ def _load_secrets(config_dir: Path) -> dict[Any, Any]:
         except FileNotFoundError:
             continue
         except (OSError, ValueError) as err:
-            _LOGGER.warning("%s could not be read; withholding MCP validate output", filename)
+            _LOGGER.warning(
+                "%s could not be read; withholding validate output", filename, exc_info=err
+            )
             msg = f"{filename} could not be read; validation output withheld"
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         try:
             secrets |= validate_secrets_content(content, path)
         except ValueError as err:
-            _LOGGER.warning("%s could not be read; withholding MCP validate output", filename)
+            _LOGGER.warning(
+                "%s could not be parsed; withholding validate output", filename, exc_info=err
+            )
             msg = f"{filename} could not be parsed; validation output withheld"
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
     return secrets
@@ -438,6 +442,10 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
     configuration = args["configuration"]
     if (device := db.devices.get_by_configuration(configuration)) is None:
         raise_device_not_found(configuration)
+    # A resolved config always carries ``esphome``; an empty list means the scan could not load it.
+    if not device.component_ids:
+        msg = f"{configuration} has not been resolved since its last change; run validate_config"
+        raise CommandError(ErrorCode.UNAVAILABLE, msg)
     # Only catalog ids are echoed: a resolved ``platform:`` value may be a ``!secret``.
     entries = (catalog.index_entry(cid) for cid in device.component_ids)
     return [_prune(entry.to_dict()) for entry in entries if entry is not None]
