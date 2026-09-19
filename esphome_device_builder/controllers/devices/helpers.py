@@ -93,6 +93,14 @@ def raise_device_not_found(
     raise err
 
 
+def read_device_config(path: Path, configuration: str) -> str:
+    """Read *configuration*'s YAML at *path*; ``NOT_FOUND`` when it is missing. Blocking."""
+    try:
+        return path.read_text("utf-8")
+    except FileNotFoundError as err:
+        raise_device_not_found(configuration, from_exc=err)
+
+
 def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:
     """Raise ``INVALID_ARGS`` for a rename/clone target *name* that already exists."""
     err = CommandError(ErrorCode.INVALID_ARGS, f"A device named {name} already exists")

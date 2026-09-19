@@ -36,6 +36,7 @@ from ...models.automations import (
     ScriptLocation,
     UpsertResponse,
 )
+from ..devices.helpers import read_device_config
 from . import catalog, parsing, writing
 from .catalog import AutomationBodyRef
 
@@ -278,7 +279,8 @@ class AutomationsController:
             return await run_in_executor(func, yaml)
 
         def _read_and_run() -> T:
-            return func(self._db.settings.rel_path(configuration).read_text("utf-8"))
+            path = self._db.settings.rel_path(configuration)
+            return func(read_device_config(path, configuration))
 
         return await run_in_executor(_read_and_run)
 

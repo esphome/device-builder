@@ -95,3 +95,22 @@ async def test_a_config_read_and_its_processing_share_one_executor_job(
 
     assert len(parsed) == 1
     assert spy.await_count == 1
+
+
+@pytest.mark.parametrize(
+    ("command", "args"),
+    [
+        ("get_available", {}),
+        ("parse", {}),
+        ("delete", {"location": _LOCATION}),
+    ],
+)
+async def test_a_missing_config_is_not_found(
+    tmp_path: Path, command: str, args: dict[str, Any]
+) -> None:
+    controller = _make_controller(tmp_path, devices=None)
+
+    with pytest.raises(CommandError) as err:
+        await getattr(controller, command)(configuration="ghost.yaml", **args)
+
+    assert err.value.code == ErrorCode.NOT_FOUND
