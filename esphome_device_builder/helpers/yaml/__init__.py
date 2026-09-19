@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -125,10 +124,3 @@ def write_user_yaml(path: Path, content: str | bytes) -> None:
         atomic_write_preserving_mode(path, data)
     except OSError as err:
         raise EsphomeError(f"Could not write file at {path}") from err
-
-
-def rewrite_user_yaml[T](path: Path, rewrite: Callable[[str], tuple[str, T]]) -> T:
-    """Write back the text *rewrite* makes of *path*'s content; return its second value."""
-    new_text, result = rewrite(path.read_text("utf-8"))
-    write_user_yaml(path, new_text)
-    return result

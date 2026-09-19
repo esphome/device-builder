@@ -33,7 +33,7 @@ from ...helpers.secrets_state import (
 )
 from ...helpers.sibling_cli import find_esphome_cmd
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
-from ...helpers.yaml import rewrite_user_yaml, write_user_yaml
+from ...helpers.yaml import write_user_yaml
 from ...models import (
     OTA_PORT,
     AddComponentResponse,
@@ -87,10 +87,7 @@ from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
-from .helpers import (
-    _build_address_cache_args,
-    raise_device_not_found,
-)
+from .helpers import _build_address_cache_args, read_device_config
 from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
 
@@ -841,10 +838,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @api_command("devices/get_config")
     async def get_config(self, *, configuration: str, **kwargs: Any) -> str:
         """Read device config YAML; a missing file is NOT_FOUND, not internal_error."""
-        try:
-            return await self._read_yaml_async(self._db.settings.rel_path(configuration))
-        except FileNotFoundError as err:
-            raise_device_not_found(configuration, from_exc=err)
+        path = self._db.settings.rel_path(configuration)
+        return await run_in_executor(read_device_config, path, configuration)
 
     @api_command("devices/update_config")
     async def update_config(
@@ -901,16 +896,20 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def rewrite_yaml[T](
         self, configuration: str, rewrite: Callable[[str], tuple[str, T]], *, message: str
     ) -> T:
-        """Read, rewrite and save *configuration* as one executor job under its write lock."""
+        """
+        Read, rewrite and save *configuration* as one executor job under its write lock.
+
+        For device YAML: ``update_config``'s empty-content and secrets-file guards do not run.
+        """
 
         def _rewrite() -> T:
-            return rewrite_user_yaml(self._db.settings.rel_path(configuration), rewrite)
+            path = self._db.settings.rel_path(configuration)
+            new_text, result = rewrite(read_device_config(path, configuration))
+            write_user_yaml(path, new_text)
+            return result
 
         async with self._yaml_write_lock(configuration):
-            try:
-                result = await run_in_executor(_rewrite)
-            except FileNotFoundError as err:
-                raise_device_not_found(configuration, from_exc=err)
+            result = await run_in_executor(_rewrite)
             await self._commit_history(configuration, message)
         self._after_yaml_write(configuration)
         return result

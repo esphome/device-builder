@@ -33,6 +33,7 @@ from unittest.mock import patch
 
 import pytest
 
+from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import controller as devices_controller
 from esphome_device_builder.helpers.api import CommandError
@@ -168,10 +169,47 @@ async def test_rewrite_yaml_leaves_the_file_alone_when_the_rewrite_raises(
     def _refuse(_text: str) -> tuple[str, None]:
         raise CommandError(ErrorCode.NOT_FOUND, "nothing to rewrite")
 
-    with pytest.raises(CommandError):
+    with (
+        patch.object(controller, "_commit_history") as commit,
+        pytest.raises(CommandError),
+    ):
         await controller.rewrite_yaml("kitchen.yaml", _refuse, message="unused")
 
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == original
+    commit.assert_not_called()
+
+
+async def test_rewrite_yaml_does_not_relabel_a_missing_file_inside_the_rewrite(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    def _needs_an_include(_text: str) -> tuple[str, None]:
+        raise FileNotFoundError("common.yaml")
+
+    with pytest.raises(FileNotFoundError, match=r"common\.yaml"):
+        await controller.rewrite_yaml("kitchen.yaml", _needs_an_include, message="unused")
+
+
+async def test_automations_delete_with_save_rewrites_the_config_on_disk(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    controller._db.devices = controller
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n  on_boot:\n    then:\n      - delay: 1s\n", encoding="utf-8"
+    )
+
+    result = await AutomationsController(controller._db).delete(
+        configuration="kitchen.yaml",
+        location={"kind": "device_on", "trigger": "on_boot"},
+        save=True,
+    )
+
+    assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: kitchen\n"
 
 
 async def test_rewrite_yaml_of_a_missing_config_is_not_found(
