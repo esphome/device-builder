@@ -44,9 +44,12 @@ __all__ = [
     "persist_if_unchanged",
     "raise_device_name_exists",
     "raise_device_not_found",
+    "read_device_config",
+    "read_device_config_async",
     "require_catalog",
     "require_file_exists",
     "require_unchanged",
+    "scanned_component_entries",
     "slugify_hostname",
     "write_new_file_exclusive",
 ]
@@ -138,6 +141,12 @@ async def persist_if_unchanged(
         return content, None
 
     await controller.rewrite_yaml(configuration, _replace, message=message)
+
+
+async def read_device_config_async(controller: DevicesController, configuration: str) -> str:
+    """Read *configuration*'s YAML off the loop; ``NOT_FOUND`` when it is missing."""
+    path = controller._db.settings.rel_path(configuration)
+    return await run_in_executor(read_device_config, path, configuration)
 
 
 def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:

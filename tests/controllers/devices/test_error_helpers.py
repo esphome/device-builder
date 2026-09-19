@@ -12,6 +12,7 @@ import pytest
 from esphome_device_builder.controllers.devices.helpers import (
     raise_device_name_exists,
     raise_device_not_found,
+    read_device_config,
     require_catalog,
     require_file_exists,
     require_unchanged,
@@ -170,3 +171,14 @@ def test_require_unchanged_refuses_a_text_that_moved_on() -> None:
         require_unchanged("a: 9\n", "a: 1\n", "k.yaml")
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
     assert "k.yaml changed" in excinfo.value.message
+
+
+def test_read_device_config_returns_the_text_or_not_found(tmp_path: Path) -> None:
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    assert read_device_config(path, "kitchen.yaml") == "esphome:\n  name: kitchen\n"
+
+    with pytest.raises(CommandError) as excinfo:
+        read_device_config(tmp_path / "ghost.yaml", "ghost.yaml")
+    assert excinfo.value.code is ErrorCode.NOT_FOUND
+    assert "ghost.yaml" in excinfo.value.message

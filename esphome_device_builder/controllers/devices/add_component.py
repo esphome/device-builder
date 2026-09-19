@@ -31,6 +31,7 @@ from .helpers import (
     _apply_featured_presets,
     _drop_unconfigured_dependent_fields,
     persist_if_unchanged,
+    read_device_config_async,
     require_catalog,
 )
 
@@ -107,8 +108,7 @@ async def add_component(
         _require_present_fields(component, fields)
 
     if yaml is None:
-        config_path = controller._db.settings.rel_path(configuration)
-        existing = await controller._read_yaml_async(config_path)
+        existing = await read_device_config_async(controller, configuration)
     else:
         existing = yaml
     # Honour each field's ``depends_on_component`` gate against
