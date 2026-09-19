@@ -189,6 +189,6 @@ async def test_collecting_client_without_a_tail_keeps_everything() -> None:
     assert client.truncated is False
 
 
-def test_collecting_client_satisfies_registered_stream() -> None:
+async def test_collecting_client_satisfies_registered_stream() -> None:
     with registered_stream(CollectingClient(), "m"):
         pass
