@@ -149,7 +149,8 @@ def _search_limit(args: dict[str, Any]) -> int:
 def _load_secrets(*directories: Path) -> dict[Any, Any]:
     """Return the union of every secrets file in *directories*; raise when one is unreadable."""
     secrets: dict[Any, Any] = {}
-    for path in {directory / filename for directory in directories for filename in SECRETS_FILES}:
+    candidates = [directory / filename for directory in directories for filename in SECRETS_FILES]
+    for path in dict.fromkeys(candidates):
         filename = path.name
         try:
             content = path.read_text("utf-8")
