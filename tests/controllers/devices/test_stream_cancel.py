@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import signal
 import sys
@@ -934,3 +935,44 @@ async def test_stream_wraps_the_child_in_a_windows_job(monkeypatch: pytest.Monke
     assert client.cancel_stream("s-1") is True
     await asyncio.gather(task, return_exceptions=True)
     assert created and closed == created
+
+
+async def test_reap_is_bounded_when_the_kill_does_not_take(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctrl = _make_controller()
+    client, events = _recording_client()
+    monkeypatch.setattr(logs, "_REAP_TIMEOUT", 0.05)
+
+    class _Proc:
+        pid = 4343
+        returncode: int | None = None
+        stdout = object()
+
+        async def wait(self) -> int:
+            await asyncio.sleep(3600)
+            return 0
+
+    async def spawn(*_args: Any, **_kwargs: Any) -> _Proc:
+        return _Proc()
+
+    async def lines(_stream: Any) -> Any:
+        raise asyncio.CancelledError
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.create_subprocess_exec", spawn
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.iter_lines_with_progress", lines
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly",
+        lambda *_a, **_k: None,
+    )
+    slot = asyncio.Semaphore(1)
+    with caplog.at_level(logging.WARNING):
+        await asyncio.wait_for(ctrl._stream_subprocess(["x"], client, "s-1", slot=slot), timeout=5)
+    assert "child 4343 did not exit" in caplog.text
+    assert not slot.locked()
+    assert not any(ev == "result" for _, ev, _ in events)

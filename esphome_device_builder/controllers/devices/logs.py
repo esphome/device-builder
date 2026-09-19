@@ -16,6 +16,9 @@ from ...models import OTA_PORT, ErrorCode, StreamEvent
 
 _LOGGER = logging.getLogger(__name__)
 
+# How long a killed child may take to exit before the slot is given up on it.
+_REAP_TIMEOUT = 5.0
+
 if TYPE_CHECKING:
     from .controller import DevicesController
 
@@ -188,10 +191,23 @@ async def _run_streaming(
                 # Synchronous kill before the only await; the shield keeps the
                 # reap running while a cancellation landing here propagates.
                 kill_subtree_quietly(proc, win_job=win_job)
-                await asyncio.shield(proc.wait())
+                await _reap(proc, message_id)
         finally:
             if win_job is not None:
                 win_job.close()
+
+
+async def _reap(proc: asyncio.subprocess.Process, message_id: str) -> None:
+    """Wait for a killed *proc* to exit; warn and move on after ``_REAP_TIMEOUT``."""
+    try:
+        await asyncio.wait_for(asyncio.shield(proc.wait()), timeout=_REAP_TIMEOUT)
+    except TimeoutError:
+        _LOGGER.warning(
+            "Stream %s child %d did not exit %ss after the kill",
+            message_id,
+            proc.pid,
+            _REAP_TIMEOUT,
+        )
 
 
 def _extend_idle_deadline(deadline: asyncio.Timeout, now: float, idle_timeout: float) -> None:
