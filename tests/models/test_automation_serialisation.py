@@ -12,12 +12,17 @@ from esphome_device_builder.models.automations import (
     AutomationActionIndex,
     AutomationCondition,
     AutomationConditionIndex,
+    AutomationTree,
     AutomationTrigger,
     AutomationTriggerIndex,
+    AvailableComponentInstance,
+    AvailableScript,
     Filter,
     FilterIndex,
     LightEffect,
     LightEffectIndex,
+    ParsedAutomation,
+    ScriptLocation,
 )
 
 _ROW = {"id": "x", "name": "X", "description": "", "docs_url": ""}
@@ -34,6 +39,8 @@ _MODELS = [
     (AutomationConditionIndex, _DOMAIN_ROW),
     (LightEffectIndex, _REGISTRY_ROW),
     (FilterIndex, _REGISTRY_ROW),
+    (AvailableScript, {"id": "blink"}),
+    (AvailableComponentInstance, {"component_id": "wifi", "id": "wifi"}),
 ]
 
 
@@ -73,6 +80,24 @@ def test_set_flags_and_lists_survive_and_nested_entries_stay_slim() -> None:
     assert AutomationAction.from_dict(wire) == action
 
 
+def test_a_parsed_automation_omits_a_null_error_and_a_false_unsupported() -> None:
+    parsed = ParsedAutomation(
+        location=ScriptLocation(id="blink"),
+        label="blink",
+        automation=AutomationTree(),
+        from_line=1,
+        to_line=3,
+        raw_yaml="script:\n",
+    )
+
+    wire = parsed.to_dict()
+
+    assert "error" not in wire and "unsupported" not in wire
+    assert wire["automation"] == {"trigger_id": None, "trigger_params": {}, "actions": []}
+    assert ParsedAutomation.from_dict(wire) == parsed
+    assert ParsedAutomation.from_dict(wire | {"error": "bad", "unsupported": True}).error == "bad"
+
+
 def test_form_editable_is_sent_only_when_false() -> None:
     assert "form_editable" not in AutomationActionIndex(**_DOMAIN_ROW).to_dict()
     assert (
@@ -81,7 +106,9 @@ def test_form_editable_is_sent_only_when_false() -> None:
     )
 
 
-@pytest.mark.parametrize("model", [m for m, _ in _MODELS], ids=lambda model: model.__name__)
+@pytest.mark.parametrize(
+    "model", [m for m, _ in _MODELS] + [ParsedAutomation], ids=lambda model: model.__name__
+)
 def test_form_editable_is_the_only_truthy_default(model: type) -> None:
     """An absent field reads as false or empty, except the one documented truthy default."""
     truthy = {

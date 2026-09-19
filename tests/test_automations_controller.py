@@ -340,7 +340,7 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert devices[("switch.gpio", "relay_one")]["name"] == "Relay 1"
     assert ("switch.gpio", "relay_two") in devices
     # A single-reading platform with no sub-entity blocks is never a container.
-    assert devices[("switch.gpio", "relay_one")]["is_entity_container"] is False
+    assert "is_entity_container" not in devices[("switch.gpio", "relay_one")]
 
 
 async def test_get_available_lists_instances_with_only_platform_scoped_triggers(
@@ -421,13 +421,13 @@ async def test_get_available_flags_explicit_ids(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     result = await controller.get_available(configuration="device.yaml")
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
-    assert devices[("logger", "logger")]["has_explicit_id"] is False
+    assert "has_explicit_id" not in devices[("logger", "logger")]
     assert devices[("wifi", "my_wifi")]["has_explicit_id"] is True
     assert devices[("switch.gpio", "relay_one")]["has_explicit_id"] is True
-    assert devices[("switch.gpio", "switch_1")]["has_explicit_id"] is False
+    assert "has_explicit_id" not in devices[("switch.gpio", "switch_1")]
     assert devices[("sensor.aht10", "aht20")]["has_explicit_id"] is True
     assert devices[("sensor", "kitchen_temp")]["has_explicit_id"] is True
-    assert devices[("sensor", "aht20_humidity")]["has_explicit_id"] is False
+    assert "has_explicit_id" not in devices[("sensor", "aht20_humidity")]
 
 
 async def test_get_available_stamps_catalog_title(tmp_path: Path) -> None:
@@ -450,7 +450,7 @@ async def test_get_available_stamps_catalog_title(tmp_path: Path) -> None:
     result = await controller.get_available(configuration="device.yaml")
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
     # Keyed on component_id, stamped regardless of whether name is set.
-    assert devices[("wifi", "wifi")]["name"] is None
+    assert "name" not in devices[("wifi", "wifi")]
     assert devices[("wifi", "wifi")]["title"] == "Title[wifi]"
     assert devices[("switch.gpio", "relay_one")]["title"] == "Title[switch.gpio]"
 
@@ -475,7 +475,7 @@ async def test_get_available_surfaces_multi_entity_subentities(tmp_path: Path) -
     assert devices[("sensor.aht10", "aht20")]["is_entity_container"] is True
     # Each ided sub-sensor is its own bare-domain instance pointing at the parent.
     temp = devices[("sensor", "aht20_temperature")]
-    assert temp["is_entity_container"] is False
+    assert "is_entity_container" not in temp
     assert temp["parent_id"] == "aht20"
     assert temp["name"] == "Kit Temp"
     assert devices[("sensor", "aht20_humidity")]["parent_id"] == "aht20"
@@ -576,7 +576,7 @@ async def test_get_available_surfaces_idless_binary_sensor_leaf(tmp_path: Path) 
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
     button = devices[("binary_sensor.gpio", "binary_sensor_1")]
     assert button["name"] == "Button"
-    assert button["is_entity_container"] is False
+    assert "is_entity_container" not in button
     assert ("binary_sensor.status", "binary_sensor_0") in devices
     assert ("binary_sensor.gpio", "pir") in devices
     trigger_ids = {t["id"] for t in result["triggers"]}
@@ -1081,7 +1081,7 @@ async def test_parse_keeps_uncatalogued_action_as_passthrough(tmp_path: Path) ->
 
     result = await controller.parse(configuration="x.yaml")
     assert len(result) == 1
-    assert result[0]["error"] is None
+    assert "error" not in result[0]
     action = result[0]["automation"]["actions"][0]
     assert action["action_id"] == "made_up.action"
     assert action["unknown"] is True

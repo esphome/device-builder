@@ -475,6 +475,9 @@ class ParsedAutomation(DashboardModel):
     error: str | None = None
     unsupported: bool = False
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 # ---------------------------------------------------------------------------
 # get_available response
@@ -496,6 +499,9 @@ class AvailableScript(DashboardModel):
     id: str
     parameters: list[AvailableScriptParameter] = field(default_factory=list)
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class AvailableComponentInstance(DashboardModel):
@@ -516,6 +522,9 @@ class AvailableComponentInstance(DashboardModel):
     # True only when the YAML declares ``id:``; a synthesized round-trip
     # identity must not be written into reference params.
     has_explicit_id: bool = False
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 @dataclass
