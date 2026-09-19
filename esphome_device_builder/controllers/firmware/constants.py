@@ -167,7 +167,7 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
 # frontend mirrors these markers in ``src/util/compile-phase.ts`` only to drive
 # the live per-second timer before the stamped fields land over the stream —
 # keep the two in sync (word markers, bracket-percent, ninja counter, end
-# banner).
+# banner); the frontend's ``stripAnsi`` also handles the literal ``\\033`` spelling.
 
 # Compile-phase word markers for stamping ``compile_started_at``. ``Compiling
 # <path>`` is emitted by PlatformIO for every framework (esp32-arduino, esp8266,
