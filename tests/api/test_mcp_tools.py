@@ -624,10 +624,19 @@ async def test_search_boards_projects_index_rows(
 async def test_list_secret_names_returns_names_only(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    mcp_db.command_handlers["config/get_secrets"] = AsyncMock(
-        return_value=["wifi_password", "wifi_ssid"]
-    )
-    assert await mcp_call_json(mcp_client, "list_secret_names") == ["wifi_password", "wifi_ssid"]
+    (mcp_db.settings.config_dir / "secrets.yaml").write_text("wifi_password: hunter2\n")
+    (mcp_db.settings.config_dir / "secrets.yml").write_text("api_key: abcdefghij\n")
+    names = await mcp_call_json(mcp_client, "list_secret_names")
+    assert names == ["api_key", "wifi_password"]
+
+
+async def test_list_secret_names_fails_closed_on_a_broken_file(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    (mcp_db.settings.config_dir / "secrets.yaml").write_text("- not\n- a mapping\n")
+    is_error, text = await mcp_call(mcp_client, "list_secret_names")
+    assert is_error
+    assert text == "unavailable: secrets.yaml could not be parsed; validation output withheld"
 
 
 async def test_set_secret_is_write_only(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:

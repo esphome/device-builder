@@ -25,6 +25,7 @@ from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode
 
 if TYPE_CHECKING:
+    from ...controllers.config import DashboardSettings
     from ...device_builder import DeviceBuilder
 
     type ToolHandler = Callable[[DeviceBuilder, dict[str, Any]], Any]
@@ -144,6 +145,11 @@ def _tail_lines(args: dict[str, Any]) -> int:
 
 def _search_limit(args: dict[str, Any]) -> int:
     return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)
+
+
+def _load_secrets_for(settings: DashboardSettings, configuration: str) -> dict[Any, Any]:
+    """Load the secrets esphome resolves for *configuration*: beside it, then the config root."""
+    return _load_secrets(settings.rel_path(configuration).parent, settings.config_dir)
 
 
 def _load_secrets(*directories: Path) -> dict[Any, Any]:
@@ -275,9 +281,7 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
     except TimeoutError:
         if not deadline.expired():
             raise
-    # esphome resolves ``!secret`` beside the device YAML first, then in the config root.
-    device_dir = db.settings.rel_path(args["configuration"]).parent
-    secrets = await run_in_executor(_load_secrets, db.settings.config_dir, device_dir)
+    secrets = await run_in_executor(_load_secrets_for, db.settings, args["configuration"])
     output = _redact_secret_values(_strip_lines(list(client.output)), secrets)
     if deadline.expired():
         return {
@@ -352,10 +356,12 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
-    output = (await initial_snapshot(job, job.job_id))[-tail_lines:] if tail_lines > 0 else []
+    lines = await initial_snapshot(job, job.job_id) if tail_lines > 0 else []
+    output = lines[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
         "output": _strip_lines(output),
+        "truncated": len(lines) > len(output),
     }
 
 
@@ -459,8 +465,9 @@ async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[s
     "List the secret names defined in secrets.yaml, never the values. Reference one in "
     "YAML as '!secret <name>'.",
 )
-async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> Any:
-    return await _call(db, "config/get_secrets")
+async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> list[str]:
+    secrets = await run_in_executor(_load_secrets, db.settings.config_dir)
+    return sorted(key for key in secrets if isinstance(key, str))
 
 
 @_tool(
