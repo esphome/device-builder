@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -203,13 +204,13 @@ async def test_validate_config_removes_secret_values(
         "mqtt_user: alice_smith\nmqtt_port: 1883\nflag: true\n"
     )
     (mcp_db.settings.config_dir / "secrets.yml").write_text(
-        "ota_pass: 123456\nnested:\n  - token: abcdefgh\n"
+        "ota_pass: 123456\nnested:\n  - token: abcdefgh\nborn: 2024-01-31\n"
     )
     mcp_db.command_handlers["devices/validate"] = validate_stub(
         [
             (StreamEvent.OUTPUT, "  username: alice_smith\n"),
             (StreamEvent.OUTPUT, "  port: 1883 password: 123456\n"),
-            (StreamEvent.OUTPUT, "  token: abcdefgh keep: true\n"),
+            (StreamEvent.OUTPUT, "  token: abcdefgh keep: true 2024-01-31\n"),
             (StreamEvent.RESULT, {"success": True, "code": 0}),
         ]
     )
@@ -217,7 +218,7 @@ async def test_validate_config_removes_secret_values(
     assert data["output"] == [
         "  username: <removed>",
         "  port: 1883 password: <removed>",
-        "  token: <removed> keep: true",
+        "  token: <removed> keep: true <removed>",
     ]
 
 
@@ -234,20 +235,33 @@ async def test_validate_config_accepts_an_empty_secrets_file(
 
 
 @pytest.mark.parametrize(
-    "content", [b"- not\n- a mapping\n", b"\xff\xfe not utf-8"], ids=["not_a_mapping", "not_utf8"]
+    ("content", "problem"),
+    [
+        (b"- not\n- a mapping\n", "parsed"),
+        (b"\xff\xfe not utf-8", "read"),
+        (None, "read"),
+    ],
+    ids=["not_a_mapping", "not_utf8", "permission_denied"],
 )
 async def test_validate_config_withholds_output_when_secrets_are_unreadable(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder, content: bytes
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, content: bytes | None, problem: str
 ) -> None:
-    (mcp_db.settings.config_dir / "secrets.yaml").write_bytes(content)
+    if content is not None:
+        (mcp_db.settings.config_dir / "secrets.yaml").write_bytes(content)
     mcp_db.command_handlers["devices/validate"] = validate_stub(
         [(StreamEvent.OUTPUT, "x\n"), (StreamEvent.RESULT, {"success": True, "code": 0})]
     )
-    is_error, text = await mcp_call(
-        mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
-    )
+    if content is None:
+        with patch.object(Path, "read_text", side_effect=PermissionError("denied")):
+            is_error, text = await mcp_call(
+                mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
+            )
+    else:
+        is_error, text = await mcp_call(
+            mcp_client, "validate_config", {"configuration": "kitchen.yaml"}
+        )
     assert is_error
-    assert text == "unavailable: secrets.yaml could not be parsed; validation output withheld"
+    assert text == f"unavailable: secrets.yaml could not be {problem}; validation output withheld"
 
 
 @pytest.mark.parametrize(

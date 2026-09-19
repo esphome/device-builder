@@ -170,11 +170,17 @@ def _load_secrets(config_dir: Path) -> dict[Any, Any]:
     secrets: dict[Any, Any] = {}
     for filename in SECRETS_FILES:
         path = config_dir / filename
-        if not path.exists():
-            continue
         try:
-            secrets |= validate_secrets_content(path.read_text("utf-8"), path)
+            content = path.read_text("utf-8")
+        except FileNotFoundError:
+            continue
         except (OSError, ValueError) as err:
+            _LOGGER.warning("%s could not be read; withholding MCP validate output", filename)
+            msg = f"{filename} could not be read; validation output withheld"
+            raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
+        try:
+            secrets |= validate_secrets_content(content, path)
+        except ValueError as err:
             _LOGGER.warning("%s could not be read; withholding MCP validate output", filename)
             msg = f"{filename} could not be parsed; validation output withheld"
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
@@ -187,9 +193,9 @@ def _scalar_leaves(value: Any) -> list[str]:
         return [leaf for item in value.values() for leaf in _scalar_leaves(item)]
     if isinstance(value, list):
         return [leaf for item in value for leaf in _scalar_leaves(item)]
-    if isinstance(value, str | int | float) and not isinstance(value, bool):
-        return [str(value)]
-    return []
+    if value is None or isinstance(value, bool):
+        return []
+    return [str(value)]
 
 
 def _redact_secret_values(lines: list[str], secrets: dict[Any, Any]) -> list[str]:
