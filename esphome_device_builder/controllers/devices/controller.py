@@ -1332,7 +1332,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         *,
         line_transform: Callable[[str], str] | None = None,
         slot: asyncio.Semaphore | None = None,
-        slot_timeout: float = 30.0,
+        slot_timeout: float | None = None,
         idle_timeout: float | None = None,
     ) -> None:
         await logs.stream_subprocess(

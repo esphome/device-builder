@@ -356,7 +356,7 @@ async def test_terminate_subtree_with_grace_without_job_object_uses_taskkill(
     assert fake_proc.kill_calls == 0
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
+@posix_only
 def test_kill_subtree_quietly_signals_the_group(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[int, int]] = []
     monkeypatch.setattr(
@@ -387,8 +387,9 @@ def test_kill_subtree_quietly_terminates_the_windows_job(
         process, "_signal_process_group", lambda *_a: pytest.fail("no groups on Windows")
     )
     proc = SimpleNamespace(pid=7)
-    process.kill_subtree_quietly(proc, SimpleNamespace(terminate=lambda: True))  # type: ignore[arg-type]
+    process.kill_subtree_quietly(proc, win_job=SimpleNamespace(terminate=lambda: True))  # type: ignore[arg-type]
     assert killed == []
-    process.kill_subtree_quietly(proc, SimpleNamespace(terminate=lambda: False))  # type: ignore[arg-type]
+    process.kill_subtree_quietly(proc, win_job=SimpleNamespace(terminate=lambda: False))  # type: ignore[arg-type]
+    assert killed == [proc]
     process.kill_subtree_quietly(proc)  # type: ignore[arg-type]
     assert killed == [proc, proc]

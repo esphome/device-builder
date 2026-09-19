@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -80,7 +79,7 @@ async def stream_subprocess(
     *,
     line_transform: Callable[[str], str] | None = None,
     slot: asyncio.Semaphore | None = None,
-    slot_timeout: float = 30.0,
+    slot_timeout: float | None = None,
     idle_timeout: float | None = None,
 ) -> None:
     """
@@ -145,9 +144,9 @@ async def _run_streaming(
 ) -> int | None:
     """Spawn *cmd* and forward its lines; ``None`` when a swallowed cancel ended the run."""
     env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
+    loop = asyncio.get_running_loop()
     proc: asyncio.subprocess.Process | None = None
     win_job: WindowsJobObject | None = None
-    killed = False
     try:
         proc = await create_subprocess_exec(
             *cmd,
@@ -156,8 +155,7 @@ async def _run_streaming(
             env=env,
             start_new_session=True,
         )
-        if sys.platform == "win32":
-            win_job = WindowsJobObject.create_for_pid(proc.pid)
+        win_job = WindowsJobObject.create_for_pid(proc.pid)
         assert proc.stdout is not None
         # Use the shared `\n`/`\r` splitter so esptool / PlatformIO
         # carriage-return progress lines surface live; strip the
@@ -165,46 +163,35 @@ async def _run_streaming(
         # event as a new line.
         async for line in iter_lines_with_progress(proc.stdout):
             if idle_timeout is not None:
-                deadline.reschedule(asyncio.get_running_loop().time() + idle_timeout)
+                _extend_idle_deadline(deadline, loop.time(), idle_timeout)
             payload = line.rstrip("\n\r")
             if line_transform is not None:
                 payload = line_transform(payload)
             await client.send_event(message_id, StreamEvent.OUTPUT, payload)
         return await proc.wait()
     except asyncio.CancelledError:
-        # Synchronous kill only; no awaits in the cancel path. The
-        # whole session goes (``esphome config`` forks ``git`` for
-        # remote packages). The finally block reaps the process;
-        # ``proc`` may be None if cancellation arrived before spawn
-        # returned.
-        if proc is not None and proc.returncode is None:
-            kill_subtree_quietly(proc, win_job)
-            killed = True
         # Honour the asyncio cancellation contract: only swallow
         # if no outstanding cancel requests remain (asyncio.timeout
         # / TaskGroup may have called Task.uncancel()).
         if (current := asyncio.current_task()) and current.cancelling():
             raise
         return None
-    finally:
-        await _teardown(proc, win_job, killed=killed, message_id=message_id)
-
-
-async def _teardown(
-    proc: asyncio.subprocess.Process | None,
-    win_job: WindowsJobObject | None,
-    *,
-    killed: bool,
-    message_id: str,
-) -> None:
-    """Kill a child still alive after a failure, reap it, and release the Windows job."""
-    if proc is not None and proc.returncode is None:
-        if not killed:
+    except Exception:
+        if proc is not None and proc.returncode is None:
             _LOGGER.warning("Stream %s failed with its child alive; killing it", message_id)
-            kill_subtree_quietly(proc, win_job)
-        # Reap so the transport closes cleanly; shielded so a
-        # cancellation landing here keeps the reap running while
-        # it propagates.
-        await asyncio.shield(proc.wait())
-    if win_job is not None:
-        win_job.close()
+        raise
+    finally:
+        if proc is not None and proc.returncode is None:
+            # Synchronous kill before the only await; the shield keeps the
+            # reap running while a cancellation landing here propagates.
+            kill_subtree_quietly(proc, win_job=win_job)
+            await asyncio.shield(proc.wait())
+        if win_job is not None:
+            win_job.close()
+
+
+def _extend_idle_deadline(deadline: asyncio.Timeout, now: float, idle_timeout: float) -> None:
+    """Push *deadline* out to ``now + idle_timeout``, skipping reschedules closer than a second."""
+    when = deadline.when()
+    if when is None or when - now < idle_timeout - min(1.0, idle_timeout / 2):
+        deadline.reschedule(now + idle_timeout)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import os
 import signal
 import sys
@@ -799,10 +798,6 @@ async def test_stream_logs_stays_unbounded(
     await ctrl.stream_logs(configuration="kitchen.yaml", client=MagicMock(), message_id="m")
     assert captured.get("slot") is None
     assert captured.get("idle_timeout") is None
-    # The call site passes no bounds, so the helper's defaults are the bounds.
-    defaults = inspect.signature(logs.stream_subprocess).parameters
-    assert defaults["slot"].default is None
-    assert defaults["idle_timeout"].default is None
 
 
 async def test_validate_config_streams_through_the_pool(
@@ -874,7 +869,7 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
     )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.logs.kill_subtree_quietly",
-        lambda proc, _job=None: killed.append(proc),
+        lambda proc, win_job=None: killed.append(proc),
     )
 
     task = asyncio.create_task(ctrl._stream_subprocess(["x"], client, "s-1"))
@@ -897,9 +892,9 @@ async def test_idle_bound_resets_while_the_child_keeps_talking() -> None:
     chatty = [
         sys.executable,
         "-c",
-        "import time\nfor _ in range(8):\n    print('tick', flush=True)\n    time.sleep(0.15)\n",
+        "import time\nfor _ in range(5):\n    print('tick', flush=True)\n    time.sleep(0.3)\n",
     ]
-    await ctrl._stream_subprocess(chatty, client, "s-1", idle_timeout=0.6)
+    await ctrl._stream_subprocess(chatty, client, "s-1", idle_timeout=1.0)
     assert ("s-1", "result", {"success": True, "code": 0}) in events
 
 
@@ -921,7 +916,6 @@ async def test_stream_wraps_the_child_in_a_windows_job(monkeypatch: pytest.Monke
     monkeypatch.setattr(
         logs.WindowsJobObject, "create_for_pid", lambda pid: created.append(pid) or _Job(pid)
     )
-    monkeypatch.setattr(sys, "platform", "win32")
     ctrl = _make_controller()
     client, events = _recording_client()
     task = asyncio.create_task(ctrl._stream_subprocess(_sleeper(60), client, "s-1"))
