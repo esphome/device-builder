@@ -813,3 +813,49 @@ async def test_stream_subprocess_lets_a_foreign_timeout_through() -> None:
         await ctrl._stream_subprocess(
             [sys.executable, "-c", "print('x')"], client, "s-1", run_timeout=30
         )
+
+
+async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctrl = _make_controller()
+    client, _events = _recording_client()
+    reaped = asyncio.Event()
+
+    class _Proc:
+        returncode: int | None = None
+        stdout = object()
+
+        async def wait(self) -> int:
+            await reaped.wait()
+            self.returncode = -9
+            return -9
+
+    proc = _Proc()
+
+    async def spawn(*_args: Any, **_kwargs: Any) -> _Proc:
+        return proc
+
+    async def lines(_stream: Any) -> Any:
+        raise asyncio.CancelledError
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.create_subprocess_exec", spawn
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.iter_lines_with_progress", lines
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.logs.kill_quietly", lambda _p: None
+    )
+
+    task = asyncio.create_task(ctrl._stream_subprocess(["x"], client, "s-1"))
+    await asyncio.sleep(0.05)
+    assert not task.done()  # the swallowed cancel left the task reaping
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    reaped.set()
+    await asyncio.sleep(0)
+    assert proc.returncode == -9

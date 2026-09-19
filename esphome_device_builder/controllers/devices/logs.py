@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 from collections.abc import Callable
@@ -166,7 +165,7 @@ async def _run_streaming(
         return None
     finally:
         if proc is not None and proc.returncode is None:
-            # Reap so the transport closes cleanly; shielded so an
-            # additional cancellation doesn't strand the subprocess.
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.shield(proc.wait())
+            # Reap so the transport closes cleanly; shielded so a
+            # cancellation landing here keeps the reap running while
+            # it propagates.
+            await asyncio.shield(proc.wait())
