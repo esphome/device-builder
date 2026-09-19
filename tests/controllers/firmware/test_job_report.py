@@ -60,7 +60,7 @@ async def test_job_report_cleans_concealed_values_and_colour() -> None:
     [(["built\n"], ["built"], True), (None, [], False)],
     ids=["sidecar", "unreadable"],
 )
-async def test_job_report_reads_a_terminal_jobs_sidecar(
+async def test_job_report_reads_a_terminal_job_sidecar(
     sidecar: list[str] | None, output: list[str], available: bool
 ) -> None:
     job = make_job(status=JobStatus.COMPLETED, exit_code=0)
