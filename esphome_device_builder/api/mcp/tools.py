@@ -35,7 +35,7 @@ _MESSAGE_ID = "mcp"
 _DEFAULT_TAIL_LINES = 50
 _MAX_TAIL_LINES = 1000
 _MAX_SEARCH_RESULTS = 100
-# Config metadata blocks that are not components and have no catalog entry.
+# Metadata blocks, not components.
 _NON_COMPONENT_KEYS = frozenset({CONF_SUBSTITUTIONS, CONF_PACKAGES, CONF_EXTERNAL_COMPONENTS})
 
 
@@ -90,12 +90,7 @@ async def _call(
 
 
 def _prune(value: Any, *, include_advanced: bool = False) -> Any:
-    """
-    Drop ``None`` / ``False`` / empty values from a serialised catalog model, recursively.
-
-    Nested ``config_entries`` lose ``hidden`` entries, and ``advanced`` ones
-    unless *include_advanced*. ``0`` is kept.
-    """
+    """Drop empty values recursively; also hidden entries and, unless asked, advanced ones."""
     if isinstance(value, list):
         return [_prune(item, include_advanced=include_advanced) for item in value]
     if not isinstance(value, dict):
@@ -124,14 +119,14 @@ def _tail(lines: list[str], count: int) -> list[str]:
 
 
 def _device_configuration(configuration: str) -> str:
-    """Refuse the shared secrets file: its contents must never reach a model."""
+    """Refuse ``secrets.yaml``."""
     if is_secrets_file(configuration):
         raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
     return configuration
 
 
 def _load_strict(settings: DashboardSettings, configuration: str) -> dict:
-    """Executor half of ``get_config_components``; ``rel_path`` walks the filesystem."""
+    """Locate and strictly load *configuration*; runs in the executor (``rel_path`` stats)."""
     path: Path = settings.rel_path(configuration)
     if not path.is_file():
         raise FileNotFoundError(configuration)

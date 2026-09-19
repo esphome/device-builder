@@ -25,7 +25,7 @@ def create_mcp_routes() -> web.RouteTableDef:
     routes = web.RouteTableDef()
     routes.post(MCP_PATH)(handle_post)
 
-    # Without this the GET falls through to the SPA catch-all and serves index.html.
+    # The SPA catch-all would otherwise serve index.html for GET.
     @routes.get(MCP_PATH)
     async def mcp_get(_request: web.Request) -> web.Response:
         return web.Response(status=405, headers={"Allow": "POST"})
@@ -34,7 +34,7 @@ def create_mcp_routes() -> web.RouteTableDef:
 
 
 async def handle_post(request: web.Request) -> web.Response:
-    """Gate a browser-originated POST like the ``/ws`` handshake, then answer the JSON-RPC."""
+    """Apply the ``/ws`` Origin/Host gate, then answer the JSON-RPC request."""
     db: DeviceBuilder = request.app["device_builder"]
     # cors_middleware runs after the handler, so it cannot stop a cross-origin write.
     origin = request.headers.get("Origin")
