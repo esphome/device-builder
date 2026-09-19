@@ -264,6 +264,18 @@ async def test_validate_config_withholds_output_when_secrets_are_unreadable(
     assert text == f"unavailable: secrets.yaml could not be {problem}; validation output withheld"
 
 
+async def test_validate_config_propagates_a_foreign_timeout(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    async def validate(**_kwargs: Any) -> None:
+        raise TimeoutError("socket")
+
+    mcp_db.command_handlers["devices/validate"] = validate
+    is_error, text = await mcp_call(mcp_client, "validate_config", {"configuration": "k.yaml"})
+    assert is_error
+    assert text == "internal_error: Tool failed: validate_config"
+
+
 @pytest.mark.parametrize(
     "frames",
     [[(StreamEvent.OUTPUT, "partial\n")], [(StreamEvent.RESULT, {"success": True})]],
@@ -553,6 +565,17 @@ async def test_get_config_components_unknown_device_is_refused(
     )
     assert is_error
     assert text.startswith(f"{code}: ")
+
+
+async def test_get_config_components_without_devices_is_unavailable(
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
+) -> None:
+    mcp_catalog_db.devices = None
+    is_error, text = await mcp_call(
+        mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
+    )
+    assert is_error
+    assert text == "unavailable: Devices are not loaded"
 
 
 async def test_get_config_components_without_catalog_is_unavailable(mcp_client: Any) -> None:
