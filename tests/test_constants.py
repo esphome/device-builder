@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from esphome.const import SECRETS_FILES
 
-from esphome_device_builder.constants import SECRETS_FILENAME, SECRETS_FILENAMES, is_secrets_file
+from esphome_device_builder.constants import (
+    SECRETS_FILENAME,
+    SECRETS_FILENAMES,
+    is_device_config_name,
+    is_secrets_file,
+)
 
 
 def test_is_secrets_file_matches_by_basename() -> None:
@@ -25,3 +31,25 @@ def test_is_secrets_file_matches_by_basename() -> None:
 
 def test_secrets_filenames_match_esphome() -> None:
     assert set(SECRETS_FILENAMES) == set(SECRETS_FILES)
+
+
+@pytest.mark.parametrize(
+    "name", ["kitchen.yaml", "sub/Kitchen.YML", "porch (1).yaml", "kitchen.yaml."]
+)
+def test_is_device_config_name_accepts_yaml_names(name: str) -> None:
+    assert is_device_config_name(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "secrets.yaml",
+        "SECRETS.YML",
+        "secrets.yaml::$DATA",
+        "SECRET~1.YAM",
+        "notes.txt",
+        "../../etc/passwd",
+    ],
+)
+def test_is_device_config_name_refuses_secrets_aliases_and_other_files(name: str) -> None:
+    assert not is_device_config_name(name)
