@@ -812,6 +812,19 @@ async def test_add_component_without_draft_reads_disk_and_persists(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n# added\n"
 
 
+async def test_add_component_to_a_missing_config_is_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+
+    with pytest.raises(CommandError) as err:
+        await controller.add_component(configuration="ghost.yaml", component_id="i2c", fields={})
+
+    assert err.value.code == ErrorCode.NOT_FOUND
+    assert not (tmp_path / "ghost.yaml").exists()
+
+
 async def test_add_component_refuses_when_the_file_changed_during_the_merge(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -823,14 +836,13 @@ async def test_add_component_refuses_when_the_file_changed_during_the_merge(
     path = tmp_path / "kitchen.yaml"
     path.write_text("DISK\n", encoding="utf-8")
 
-    real_read = controller._read_yaml_async
+    real_persist = add_component_mod.persist_if_unchanged
 
-    async def _read_then_a_save_lands(read_path: Path) -> str:
-        text = await real_read(read_path)
+    async def _a_save_lands_first(*args: Any, **kwargs: Any) -> None:
         await controller.update_config(configuration="kitchen.yaml", content="SAVED MEANWHILE\n")
-        return text
+        await real_persist(*args, **kwargs)
 
-    monkeypatch.setattr(controller, "_read_yaml_async", _read_then_a_save_lands)
+    monkeypatch.setattr(add_component_mod, "persist_if_unchanged", _a_save_lands_first)
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
         lambda existing, component, fields: f"{existing}# added\n",

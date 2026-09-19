@@ -26,6 +26,7 @@ from .helpers import (
     clean_friendly_name,
     friendly_name_slugify,
     raise_device_name_exists,
+    read_device_config,
     write_new_file_exclusive,
 )
 
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 
-async def clone_device(  # noqa: C901
+async def clone_device(
     controller: DevicesController,
     *,
     configuration: str,
@@ -80,21 +81,13 @@ async def clone_device(  # noqa: C901
     # Source YAML read on the executor; shared-sidecar read goes
     # through the client's sync path inside the same hop so the
     # identity carry-forward piggy-backs.
-    def _gather() -> tuple[str | None, dict[str, Any], bool]:
+    def _gather() -> tuple[str, dict[str, Any]]:
         if new_path.exists():
-            return None, {}, True
-        if not source_path.exists():
-            return None, {}, False
-        content = source_path.read_text(encoding="utf-8")
-        meta = controller._shared_sidecar.get_sync(configuration)
-        return content, meta, False
+            raise_device_name_exists(new_filename)
+        content = read_device_config(source_path, configuration)
+        return content, controller._shared_sidecar.get_sync(configuration)
 
-    source_content, source_meta, target_existed = await run_in_executor(_gather)
-    if target_existed:
-        raise_device_name_exists(new_filename)
-    if source_content is None:
-        msg = f"Source device {configuration} not found"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    source_content, source_meta = await run_in_executor(_gather)
 
     # Validate the source before rewrite work; the leaf rewrites are
     # structure-preserving or refuse (see rewrite_api_encryption_key), so a

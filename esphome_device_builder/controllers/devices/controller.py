@@ -88,7 +88,12 @@ from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
-from .helpers import _build_address_cache_args, read_device_config
+from .helpers import (
+    _build_address_cache_args,
+    read_device_config,
+    read_device_config_async,
+    refuse_empty_write,
+)
 from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
 
@@ -839,8 +844,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @api_command("devices/get_config")
     async def get_config(self, *, configuration: str, **kwargs: Any) -> str:
         """Read device config YAML; a missing file is NOT_FOUND, not internal_error."""
-        path = self._db.settings.rel_path(configuration)
-        return await run_in_executor(read_device_config, path, configuration)
+        return await read_device_config_async(self, configuration)
 
     @api_command("devices/update_config")
     async def update_config(
@@ -879,11 +883,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 )
             return
         if is_empty:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"refusing to write empty content to {configuration!r} to prevent "
-                "accidental data loss; use the delete action to remove a file",
-            )
+            refuse_empty_write(configuration)
         await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
     async def apply_restored_yaml(
@@ -897,15 +897,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def rewrite_yaml[T](
         self, configuration: str, rewrite: Callable[[str], tuple[str, T]], *, message: str
     ) -> T:
-        """
-        Read, rewrite and save *configuration* as one executor job under its write lock.
-
-        For device YAML: ``update_config``'s empty-content and secrets-file guards do not run.
-        """
+        """Read, rewrite and save a device *configuration* as one job under its write lock."""
+        if is_secrets_file(configuration):
+            raise CommandError(ErrorCode.INVALID_ARGS, f"{configuration} is not a device config")
 
         def _rewrite() -> T:
             path = self._db.settings.rel_path(configuration)
             new_text, result = rewrite(read_device_config(path, configuration))
+            if not new_text.strip():
+                refuse_empty_write(configuration)
             write_user_yaml(path, new_text)
             return result
 
@@ -1203,11 +1203,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             await self._scanner.scan()
         except OSError:
             _LOGGER.exception("Scan after writing %s failed", configuration)
-
-    @staticmethod
-    async def _read_yaml_async(path: Path) -> str:
-        """Read *path* as UTF-8 text off the executor."""
-        return await run_in_executor(path.read_text, "utf-8")
 
     async def _load_ignored_devices(self) -> None:
         """Seed ``state.ignored_devices`` from disk, in place."""

@@ -1,9 +1,11 @@
-"""Firmware-job WS streaming endpoints: follow_job + follow_jobs."""
+"""Firmware-job WS streaming endpoints (follow_job, follow_jobs) and the one-shot job_report."""
 
 from __future__ import annotations
 
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from ...helpers.ansi import plain_lines
 from ...helpers.api import registered_stream
 from ...helpers.async_ import run_in_executor
 from ...helpers.event_bus import StreamControls, stream_events
@@ -13,6 +15,7 @@ from ...models import (
     FirmwareJob,
     StreamEvent,
 )
+from .constants import _OUTPUT_TRIM_NOTICE_PREFIX
 from .persistence import job_dict_without_output, read_job_output
 
 if TYPE_CHECKING:
@@ -123,6 +126,25 @@ async def follow_jobs(
         handle_event=_handle_event,
         send_initial=_send_initial,
     )
+
+
+async def job_report(job: FirmwareJob, *, tail_lines: int) -> dict[str, Any]:
+    """
+    Return *job*'s fields with the last *tail_lines* cleaned output lines.
+
+    ``truncated`` covers the retention trim too; ``output_available`` is false
+    when a terminal job's log could not be read.
+    """
+    snapshot = await initial_snapshot(job, job.job_id)
+    lines = snapshot or []
+    output = list(deque(lines, maxlen=tail_lines))
+    trimmed = bool(lines) and lines[0].startswith(_OUTPUT_TRIM_NOTICE_PREFIX)
+    return job_dict_without_output(job) | {
+        "queued_update_armed": job.is_queued_update_armed,
+        "output": plain_lines(output),
+        "truncated": trimmed or len(lines) > len(output),
+        "output_available": snapshot is not None,
+    }
 
 
 async def initial_snapshot(job: FirmwareJob, job_id: str) -> list[str] | None:

@@ -68,7 +68,7 @@ async def begin_rename(
 
     new_path, content = await run_in_executor(_read)
     if content is None:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"Device {configuration} not found")
+        raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
 
     if new_content is None:
         new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)

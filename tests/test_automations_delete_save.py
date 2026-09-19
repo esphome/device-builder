@@ -19,6 +19,13 @@ pytestmark = pytest.mark.xdist_group("automations")
 
 _YAML = "esphome:\n  name: d\n  on_boot:\n    then:\n      - delay: 1s\n"
 _LOCATION = {"kind": "device_on", "trigger": "on_boot"}
+_AUTOMATION = {
+    "trigger_id": "on_boot",
+    "trigger_params": {},
+    "actions": [
+        {"action_id": "delay", "params": {"id": "1s"}, "children": {}, "conditions": []},
+    ],
+}
 
 
 class _Devices:
@@ -102,6 +109,7 @@ async def test_a_config_read_and_its_processing_share_one_executor_job(
     [
         ("get_available", {}),
         ("parse", {}),
+        ("upsert", {"location": _LOCATION, "automation": _AUTOMATION}),
         ("delete", {"location": _LOCATION}),
     ],
 )
