@@ -31,7 +31,7 @@ from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
 from ..firmware.rename_flow import RENAME_REMEDY
 from . import archive
-from .firmware_sync import migrate_metadata_then_scan
+from .firmware_sync import migrate_metadata, rescan_renamed
 from .helpers import (
     persist_if_unchanged,
     raise_device_name_exists,
@@ -220,7 +220,19 @@ async def rename_device(
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
-    content = await _read_device_yaml_or_raise(controller, configuration)
+    # When the slugified target filename is the device's own file, the rename
+    # changes ``esphome.name`` without moving the file — the OTA chain needs
+    # a distinct new filename to compile against, so route it in place.
+    # Compare lexically-normalized paths so a configuration with redundant
+    # segments (``./x.yaml``) still reads as the same file, without the
+    # blocking filesystem access ``Path.resolve()`` would do in this async
+    # path.
+    in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
+
+    def _read_and_probe() -> tuple[str, bool]:
+        return read_device_config(old_path, configuration), not in_place and new_path.exists()
+
+    content, target_taken = await run_in_executor(_read_and_probe)
     old_meta = parse_esphome_meta(content)
 
     # Reject same-name renames up-front. Compare against the device's real
@@ -234,15 +246,6 @@ async def rename_device(
             ErrorCode.INVALID_ARGS,
             "new_name must differ from the current device name",
         )
-
-    # When the slugified target filename is the device's own file, the rename
-    # changes ``esphome.name`` without moving the file — the OTA chain needs
-    # a distinct new filename to compile against, so route it in place.
-    # Compare lexically-normalized paths so a configuration with redundant
-    # segments (``./x.yaml``) still reads as the same file, without the
-    # blocking filesystem access ``Path.resolve()`` would do in this async
-    # path.
-    in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
 
     # Single rewrite + refusal point: offline, in-place, and the OTA chain
     # all retarget the name the same way.
@@ -261,7 +264,7 @@ async def rename_device(
         # Reject if another file owns the target; the chain path's own
         # collision check (with its active-retry exemption) lives in
         # ``firmware.rename_chain``.
-        if not in_place and await run_in_executor(new_path.exists):
+        if target_taken:
             raise_device_name_exists(new_filename)
         return await _config_only_rename(
             controller,
@@ -351,8 +354,8 @@ async def _config_only_rename(
         for name in sorted({configuration, new_filename}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
-        # The shared metadata-migrate-then-scan always rescans.
-        await migrate_metadata_then_scan(controller, configuration, new_filename)
+        await migrate_metadata(controller, configuration, new_filename)
+    await rescan_renamed(controller, new_filename)
     return {"configuration": new_filename, "job": None}
 
 

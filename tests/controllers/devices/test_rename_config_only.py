@@ -125,27 +125,33 @@ async def test_config_only_rename_never_replaces_a_target_created_during_validat
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == _YAML
 
 
-async def test_config_only_rename_holds_both_filenames_until_the_metadata_moved(
+async def test_config_only_rename_holds_both_filenames_only_while_the_metadata_moves(
     tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     controller = make_controller(tmp_path)
     (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
-    held: list[tuple[bool, bool]] = []
+    held: dict[str, tuple[bool, bool]] = {}
 
-    async def _migrate(_controller: object, old: str, new: str) -> None:
-        held.append(
-            (controller._yaml_write_lock(old).locked(), controller._yaml_write_lock(new).locked())
+    def _locks() -> tuple[bool, bool]:
+        return (
+            controller._yaml_write_lock("kitchen.yaml").locked(),
+            controller._yaml_write_lock("livingroom.yaml").locked(),
         )
 
-    monkeypatch.setattr(mutations_simple, "migrate_metadata_then_scan", _migrate)
+    async def _migrate(_controller: object, _old: str, _new: str) -> None:
+        held["migrate"] = _locks()
+
+    async def _rescan(_controller: object, _new: str) -> None:
+        held["rescan"] = _locks()
+
+    monkeypatch.setattr(mutations_simple, "migrate_metadata", _migrate)
+    monkeypatch.setattr(mutations_simple, "rescan_renamed", _rescan)
 
     await controller.rename_device(
         configuration="kitchen.yaml", new_name="livingroom", config_only=True
     )
 
-    assert held == [(True, True)]
-    assert not controller._yaml_write_lock("kitchen.yaml").locked()
-    assert not controller._yaml_write_lock("livingroom.yaml").locked()
+    assert held == {"migrate": (True, True), "rescan": (False, False)}
 
 
 async def test_config_only_rename_lands_as_one_executor_job(
@@ -162,8 +168,7 @@ async def test_config_only_rename_lands_as_one_executor_job(
         )
 
     jobs = [call.args[0].__name__ for call in spy.await_args_list]
-    assert jobs.count("_land") == 1
-    assert "_migrate_storage_json" not in jobs
+    assert jobs == ["_read_and_probe", "_land"]
 
 
 async def test_config_only_rename_retargets_name_labelled_ap_ssid(
@@ -423,7 +428,7 @@ async def test_config_only_rename_missing_file_raises(
             configuration="kitchen.yaml", new_name="livingroom", config_only=True
         )
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
 
 
 async def test_config_only_rename_still_rejects_collision(
