@@ -1,4 +1,4 @@
-"""``secret_redaction`` loads every secrets file and removes their values from output."""
+"""``redact_secret_values`` removes every secrets value from the lines it is given."""
 
 from __future__ import annotations
 
@@ -36,3 +36,8 @@ def test_a_longer_value_is_removed_before_its_prefix() -> None:
 def test_equal_length_values_are_removed_in_a_stable_order() -> None:
     mappings = [{"a": "abcdef", "b": "defghi"}]
     assert redact_secret_values(["abcdefghi"], mappings) == ["<removed>ghi"]
+
+
+def test_a_blank_value_is_not_a_redaction_target() -> None:
+    lines = ["sensor:", "        - platform: dht"]
+    assert redact_secret_values(lines, [{"padding": "        "}]) == lines

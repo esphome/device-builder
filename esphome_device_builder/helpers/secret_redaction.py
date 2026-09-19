@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 REDACTED_MARKER = "<removed>"
-# Shorter values (ports, small ids) would shred unrelated output.
+# Shorter values and line fragments (ports, small ids, a PEM tail) would shred unrelated output.
 _MIN_REDACTED_SECRET_LEN = 6
 
 
@@ -16,11 +17,14 @@ def redact_secret_values(lines: list[str], mappings: list[dict]) -> list[str]:
         part
         for text in _scalar_leaves(mappings)
         for part in text.splitlines()
-        if len(part) >= _MIN_REDACTED_SECRET_LEN
+        if len(part) >= _MIN_REDACTED_SECRET_LEN and part.strip()
     }
-    for value in sorted(values, key=lambda v: (-len(v), v)):
-        lines = [line.replace(value, REDACTED_MARKER) for line in lines]
-    return lines
+    if not values:
+        return lines
+    # Longest first: alternation takes the first branch that matches.
+    longest_first = sorted(values, key=lambda v: (-len(v), v))
+    pattern = re.compile("|".join(map(re.escape, longest_first)))
+    return [pattern.sub(REDACTED_MARKER, line) for line in lines]
 
 
 def _scalar_leaves(value: Any) -> list[str]:

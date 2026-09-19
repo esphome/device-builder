@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from .secret_redaction import REDACTED_MARKER
+
 # The escape byte, or the literal spelling ``--dashboard`` output uses.
 ANSI_ESC = r"(?:\x1b|\\033)"
 ANSI_CSI_RE = re.compile(rf"{ANSI_ESC}\[[0-9;?]*[A-Za-z]")
@@ -36,7 +38,7 @@ ANSI_CONCEALED_RE = re.compile(rf"{ANSI_ESC}\[8m.*?{ANSI_ESC}\[28m")
 
 def redact_concealed(line: str) -> str:
     """Replace ANSI-conceal-wrapped secret runs with ``<removed>``."""
-    return ANSI_CONCEALED_RE.sub("<removed>", line)
+    return ANSI_CONCEALED_RE.sub(REDACTED_MARKER, line)
 
 
 def plain_lines(lines: list[str]) -> list[str]:
