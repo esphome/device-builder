@@ -23,6 +23,7 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     rewrite_rename_content,
     upsert_yaml_leaf_under_top_block,
+    write_user_yaml,
 )
 from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
@@ -258,6 +259,7 @@ async def rename_device(
             controller,
             configuration=configuration,
             new_name=new_name,
+            content=content,
             new_content=new_content,
             in_place=in_place,
         )
@@ -299,6 +301,7 @@ async def _config_only_rename(
     *,
     configuration: str,
     new_name: str,
+    content: str,
     new_content: str,
     in_place: bool,
 ) -> dict[str, Any]:
@@ -307,7 +310,8 @@ async def _config_only_rename(
 
     Validates *new_content* before touching disk, writes the new file
     atomically, removes the old, and migrates the StorageJSON + sidecar
-    metadata. Returns ``job: None`` (nothing is queued). When *in_place*
+    metadata. Refuses with ``PRECONDITION_FAILED`` when the file no longer
+    holds *content*. Returns ``job: None`` (nothing is queued). When *in_place*
     the target filename is the device's own file: the rewrite lands on it
     and the old-file / old-sidecar removals are skipped so the just-written
     file isn't deleted.
@@ -319,12 +323,23 @@ async def _config_only_rename(
     # Validate before any disk change so a bad rewrite never lands on disk.
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")
 
-    await controller._write_yaml_atomic_async(new_path, new_content)
-    if not in_place:
-        await run_in_executor(lambda: old_path.unlink(missing_ok=True))
-    # The YAML is already renamed; storage migration is best-effort (logs on
-    # failure) and the shared metadata-migrate-then-scan always rescans.
-    await run_in_executor(_migrate_storage_json, configuration, new_filename, new_name)
+    def _land() -> None:
+        try:
+            current: str | None = old_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            current = None
+        if current != content:
+            msg = f"{configuration} changed while it was being renamed; nothing was renamed, retry"
+            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+        write_user_yaml(new_path, new_content)
+        if not in_place:
+            old_path.unlink(missing_ok=True)
+        # The YAML is already renamed; storage migration is best-effort (logs on failure).
+        _migrate_storage_json(configuration, new_filename, new_name)
+
+    async with controller._yaml_write_lock(configuration):
+        await run_in_executor(_land)
+    # The shared metadata-migrate-then-scan always rescans.
     await migrate_metadata_then_scan(controller, configuration, new_filename)
     return {"configuration": new_filename, "job": None}
 
