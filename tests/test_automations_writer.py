@@ -54,7 +54,7 @@ from esphome_device_builder.models.automations import (
     ScriptLocation,
     YamlDiff,
 )
-from tests.conftest import apply_yaml_diff
+from tests.conftest import apply_yaml_diff_like_frontend
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
@@ -64,7 +64,7 @@ def _load(name: str) -> str:
 
 
 def _apply_diff(text: str, diff: YamlDiff) -> str:
-    return apply_yaml_diff(text, diff.fromLine, diff.toLine, diff.replacement)
+    return apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
 
 
 # ---------------------------------------------------------------------------

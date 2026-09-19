@@ -1359,7 +1359,7 @@ def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
 
 
-def apply_yaml_diff(text: str, from_line: int, to_line: int, replacement: str) -> str:
+def apply_yaml_diff_like_frontend(text: str, from_line: int, to_line: int, replacement: str) -> str:
     """Apply a YamlDiff splice exactly as the frontend ``applyYamlDiff`` does."""
     lines = text.split("\n")
     start = from_line - 1
