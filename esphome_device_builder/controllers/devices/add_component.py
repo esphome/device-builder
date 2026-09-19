@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
@@ -27,7 +28,12 @@ from ...helpers.yaml import (
 )
 from ...models import AddComponentResponse, ErrorCode
 from ...models.boards import normalize_platform
-from .helpers import _apply_featured_presets, _drop_unconfigured_dependent_fields, require_catalog
+from .helpers import (
+    _apply_featured_presets,
+    _drop_unconfigured_dependent_fields,
+    replace_if_unchanged,
+    require_catalog,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -125,8 +131,15 @@ async def add_component(
     if yaml is None:
         # Atomic write; wizard-driven add-component should not be able
         # to corrupt the source YAML on a mid-write crash.
-        await controller._persist_yaml_mutation(
-            configuration, new_yaml, message=f"Add {component.id} to {configuration}"
+        await controller.rewrite_yaml(
+            configuration,
+            partial(
+                replace_if_unchanged,
+                expected=existing,
+                content=new_yaml,
+                configuration=configuration,
+            ),
+            message=f"Add {component.id} to {configuration}",
         )
 
     return AddComponentResponse(yaml=new_yaml)

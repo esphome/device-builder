@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -799,8 +799,7 @@ async def test_add_component_without_draft_reads_disk_and_persists(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
         lambda existing, component, fields: f"{existing}# added\n",
     )
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    monkeypatch.setattr(controller, "_schedule_storage_regenerate", lambda _configuration: None)
     (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
 
     resp = await controller.add_component(
@@ -810,7 +809,7 @@ async def test_add_component_without_draft_reads_disk_and_persists(
     )
 
     assert resp.yaml == "DISK\n# added\n"
-    persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n", message=ANY)
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n# added\n"
 
 
 async def test_add_component_into_broken_draft_appends_through_real_merge(

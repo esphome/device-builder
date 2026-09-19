@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +24,7 @@ from ...helpers.yaml import (
 )
 from ...models import ErrorCode
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
+from .helpers import replace_if_unchanged
 from .mutations_simple import _read_device_yaml_or_raise
 from .resolve import resolve_config_subprocess
 
@@ -157,8 +159,15 @@ async def _apply_to_device(
             f"unavailable); {_KEPT_FOR_LATER}"
         )
         return KeyHandoffResult.NOT_WRITABLE, reason
-    await controller._persist_yaml_mutation(
-        configuration, new_content, message=f"Update API encryption key in {configuration}"
+    await controller.rewrite_yaml(
+        configuration,
+        partial(
+            replace_if_unchanged,
+            expected=content,
+            content=new_content,
+            configuration=configuration,
+        ),
+        message=f"Update API encryption key in {configuration}",
     )
     return KeyHandoffResult.UPDATED, ""
 

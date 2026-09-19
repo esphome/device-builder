@@ -76,6 +76,26 @@ async def test_edit_friendly_name_rewrites_literal_leaf_and_scans(
     assert ctrl._scanner.calls == [("request", "kitchen.yaml")]
 
 
+async def test_edit_friendly_name_refuses_when_the_file_changed_during_validation(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    path = tmp_path / "kitchen.yaml"
+    path.write_text(SOURCE_YAML, "utf-8")
+    concurrent = SOURCE_YAML + "logger:\n"
+
+    async def _save_lands_meanwhile(*_args: object, **_kwargs: object) -> None:
+        await ctrl.update_config(configuration="kitchen.yaml", content=concurrent)
+
+    monkeypatch.setattr(ctrl, "_validate_rewritten_yaml_or_raise", _save_lands_meanwhile)
+
+    with pytest.raises(CommandError) as err:
+        await ctrl.edit_friendly_name(configuration="kitchen.yaml", new_friendly_name="Lamp")
+
+    assert err.value.code == ErrorCode.PRECONDITION_FAILED
+    assert path.read_text("utf-8") == concurrent
+
+
 async def test_edit_friendly_name_schedules_storage_regenerate(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

@@ -42,6 +42,7 @@ __all__ = [
     "friendly_name_slugify",
     "raise_device_name_exists",
     "raise_device_not_found",
+    "replace_if_unchanged",
     "require_catalog",
     "require_file_exists",
     "slugify_hostname",
@@ -116,6 +117,16 @@ def read_device_config(path: Path, configuration: str) -> str:
         return path.read_text("utf-8")
     except FileNotFoundError as err:
         raise_device_not_found(configuration, from_exc=err)
+
+
+def replace_if_unchanged(
+    current: str, *, expected: str, content: str, configuration: str
+) -> tuple[str, None]:
+    """Return *content* as the rewrite of *current*; refuse unless it is still *expected*."""
+    if current != expected:
+        msg = f"{configuration} changed while it was being edited; nothing was written, retry"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    return content, None
 
 
 def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:
