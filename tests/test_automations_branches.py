@@ -945,7 +945,7 @@ def test_upsert_inline_handler_replace_with_sibling_below() -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 99s" in new_text
     # Sibling ``on_release`` survived.
     assert "on_release:" in new_text
@@ -966,7 +966,7 @@ def test_upsert_inline_handler_locates_quoted_id(quote: str) -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 99s" in new_text
 
 
@@ -985,7 +985,7 @@ def test_upsert_inline_handler_locates_quoted_dash_line_id(quote: str) -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 99s" in new_text
 
 
@@ -1002,7 +1002,7 @@ def test_remove_inline_handler_locates_quoted_id() -> None:
         handler_key="on_press",
     )
     assert res is not None
-    new_text, _from, _to = res
+    new_text, _diff = res
     assert "on_press" not in new_text
 
 
@@ -1021,7 +1021,7 @@ def test_upsert_inline_handler_insert_with_trailing_blanks_in_instance() -> None
         rendered_yaml="on_press:\n  then:\n    - delay: 1s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     # The switch block is intact below the new on_press handler.
     on_press_idx = new_text.index("on_press:")
     switch_idx = new_text.index("switch:")
@@ -1042,7 +1042,7 @@ def test_remove_inline_handler_with_sibling_below() -> None:
         handler_key="on_press",
     )
     assert res is not None
-    new_text, _from, _to = res
+    new_text, _diff = res
     assert "on_press" not in new_text
     assert "on_release" in new_text
 
@@ -1088,7 +1088,7 @@ def test_locate_component_instance_stops_at_next_top_level_block() -> None:
         rendered_yaml="on_press: {}\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     btn_idx = new_text.index("id: btn")
     on_press_idx = new_text.index("on_press:")
     switch_idx = new_text.index("switch:")
@@ -1406,7 +1406,7 @@ def test_upsert_inline_handler_replace_skips_blank_in_walk() -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 9s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 9s" in new_text
     assert "on_release" in new_text
 
@@ -1425,6 +1425,6 @@ def test_remove_inline_handler_walk_skips_blank() -> None:
         handler_key="on_press",
     )
     assert res is not None
-    new_text, _from, _to = res
+    new_text, _diff = res
     assert "on_press" not in new_text
     assert "on_release" in new_text

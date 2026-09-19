@@ -6,6 +6,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ...models.automations import YamlDiff
 from .diff import splice_lines
 from .scalar import ESPHOME_YAML_INDENT, YamlUpsertNotSupportedError, block_body_is_list
 from .scan import (
@@ -54,31 +55,16 @@ def upsert_inline_handler(
     component_id: str,
     handler_key: str,
     rendered_yaml: str,
-) -> tuple[str, int, int, str] | None:
+) -> tuple[str, YamlDiff] | None:
     """
     Insert or replace ``<handler_key>:`` inline under a configured component.
 
     Used by the automation writer for inline ``on_*:`` triggers under
     component instances (``binary_sensor[i].on_press``, ``light[i].on_turn_on``,
-    ...) and for ``effects:`` entries under a light. Returns
-    ``(new_yaml_text, from_line, to_line, replacement)``:
-
-      * ``from_line`` / ``to_line`` match the
-        :class:`automations.YamlDiff` convention — ``from_line <= to_line``
-        for a replace (the OLD line range in the pre-splice YAML),
-        ``to_line == from_line - 1`` for a pure insert.
-      * ``replacement`` is the indented rendered text spliced into
-        the YAML — callers feed it straight into ``YamlDiff.replacement``
-        rather than re-deriving from the new YAML (which is broken for
-        the pure-insert case because the slice ends up empty).
-
-    ``None`` when the component instance can't be located (no
-    ``id:`` match under ``<component_domain>:``).
-
-    Adjacent siblings are preserved: this only touches the lines
-    spanning ``<handler_key>:`` and its indented children. The
-    *rendered_yaml* string is emitted at the same indent as the
-    sibling fields.
+    ...) and for ``effects:`` entries under a light. Returns the new
+    text and its :class:`automations.YamlDiff`, or ``None`` when the
+    component instance can't be located (no ``id:`` match under
+    ``<component_domain>:``).
     """
     lines = yaml_text.splitlines(keepends=True)
     span = _locate_component_instance(lines, component_domain, component_id)
@@ -93,7 +79,7 @@ def upsert_subentity_handler(
     *,
     handler_key: str,
     rendered_yaml: str,
-) -> tuple[str, int, int, str] | None:
+) -> tuple[str, YamlDiff] | None:
     """
     Insert or replace ``<handler_key>:`` under a nested sub-entity block.
 
@@ -117,7 +103,7 @@ def upsert_nested_handler(
     component_id: str,
     field_segments: Sequence[str],
     rendered_yaml: str,
-) -> tuple[str, int, int, str] | None:
+) -> tuple[str, YamlDiff] | None:
     """
     Insert or replace a nested field block addressed by *field_segments*.
 
@@ -153,13 +139,13 @@ def remove_nested_handler(
     component_domain: str,
     component_id: str,
     field_segments: Sequence[str],
-) -> tuple[str, int, int, str] | None:
+) -> tuple[str, YamlDiff] | None:
     """
     Delete a nested field block addressed by *field_segments*.
 
     Inverse of :func:`upsert_nested_handler`; also prunes intermediate
     mappings the removal empties (never a list item or the instance).
-    Returns ``(new_text, from_line, to_line, replacement)`` — the
+    Returns the new text and its diff — the
     replacement is empty except when the pruned mapping headed its
     item's dash line, which is rewritten to a bare dash so the item
     survives. ``None`` when any path step or the leaf is absent.
@@ -206,8 +192,7 @@ def remove_nested_handler(
             break
         rm_start = frame.start
         rm_end = max(rm_end, frame.end)
-    new_text, _ = splice_lines(lines, start=rm_start, end=rm_end, replacement=replacement)
-    return new_text, rm_start + 1, rm_end, replacement
+    return splice_lines(lines, start=rm_start, end=rm_end, replacement=replacement)
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,7 +298,7 @@ def _apply_handler_upsert(
     span: tuple[int, int, str],
     handler_key: str,
     rendered_yaml: str,
-) -> tuple[str, int, int, str]:
+) -> tuple[str, YamlDiff]:
     """Splice ``<handler_key>:`` into the located *span*; the shared upsert tail."""
     instance_start, instance_end, child_indent = span
 
@@ -334,17 +319,11 @@ def _apply_handler_upsert(
 
     if handler_start is not None and handler_end is not None:
         # Replace the existing handler block.
-        new_text, _ = splice_lines(
-            lines, start=handler_start, end=handler_end, replacement=rendered_text
-        )
-        return new_text, handler_start + 1, handler_end, rendered_text
+        return splice_lines(lines, start=handler_start, end=handler_end, replacement=rendered_text)
     # Insert a new handler at the end of the instance, before any
     # trailing blank lines.
     insert_at = trim_trailing_blanks(lines, instance_start, instance_end)
-    new_text = splice_lines(lines, start=insert_at, end=insert_at, replacement=rendered_text)[0]
-    # Pure-insert: ``toLine == fromLine - 1`` flags the empty
-    # replaced range. See :class:`automations.YamlDiff`.
-    return new_text, insert_at + 1, insert_at, rendered_text
+    return splice_lines(lines, start=insert_at, end=insert_at, replacement=rendered_text)
 
 
 def remove_inline_handler(
@@ -353,13 +332,11 @@ def remove_inline_handler(
     component_domain: str,
     component_id: str,
     handler_key: str,
-) -> tuple[str, int, int] | None:
+) -> tuple[str, YamlDiff] | None:
     """
     Delete an inline handler under a configured component.
 
-    Returns ``(new_yaml_text, from_line, to_line)`` matching the
-    same :class:`automations.YamlDiff` shape ``upsert_inline_handler``
-    emits, or ``None`` when the handler isn't there.
+    Returns the new text and its diff, or ``None`` when the handler isn't there.
     """
     lines = yaml_text.splitlines(keepends=True)
     span = _locate_component_instance(lines, component_domain, component_id)
@@ -373,7 +350,7 @@ def remove_subentity_handler(
     ref: SubEntityRef,
     *,
     handler_key: str,
-) -> tuple[str, int, int] | None:
+) -> tuple[str, YamlDiff] | None:
     """
     Delete ``<handler_key>:`` from a nested sub-entity block (inverse of upsert).
 
@@ -391,13 +368,13 @@ def _apply_handler_remove(
     lines: list[str],
     span: tuple[int, int, str],
     handler_key: str,
-) -> tuple[str, int, int] | None:
+) -> tuple[str, YamlDiff] | None:
     """Drop ``<handler_key>:`` from the located *span*; the shared remove tail."""
     located = _locate_handler_range(lines, span, handler_key)
     if located is None:
         return None
     start, end = located
-    return splice_lines(lines, start=start, end=end, replacement="")[0], start + 1, end
+    return splice_lines(lines, start=start, end=end, replacement="")
 
 
 def _locate_handler_range(

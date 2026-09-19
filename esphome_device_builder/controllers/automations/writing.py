@@ -275,12 +275,7 @@ def _upsert_component_on(
             f"under {instance_domain!r}; can't splice handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    new_text, from_line, to_line, replacement = res
-    return new_text, YamlDiff(
-        fromLine=from_line,
-        toLine=to_line,
-        replacement=replacement,
-    )
+    return res
 
 
 def _upsert_subentity_on(
@@ -315,8 +310,7 @@ def _upsert_subentity_on(
             f"{ref.parent_domain!r}; can't splice handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    new_text, from_line, to_line, replacement = res
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+    return res
 
 
 _FIELD_SEGMENT_RE = re.compile(r"^[a-z0-9_]+$")
@@ -391,8 +385,7 @@ def _upsert_component_action(
             f"can't take action field {location.field!r} (instance or list item missing)"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    new_text, from_line, to_line, replacement = res
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+    return res
 
 
 def _canonicalized_api_block(
@@ -458,7 +451,9 @@ def _upsert_api_action(
     if existing is not None:
         item_start, item_end = existing
         rendered_text = api_actions.indent_for_list(rendered, item_indent)
-        new_text, diff = api_actions.render_replacement(lines, item_start, item_end, rendered_text)
+        new_text, diff = splice_lines(
+            lines, start=item_start, end=item_end, replacement=rendered_text
+        )
     else:
         new_text, diff = api_actions.render_append(lines, actions_end, item_indent, rendered)
     if block_key == api_actions.BLOCK_KEYS[0]:
@@ -692,8 +687,7 @@ def _delete_component_on(
             f"under {instance_domain!r}; can't delete handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    new_text, from_line, to_line = res
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+    return res
 
 
 def _delete_subentity_on(
@@ -722,8 +716,7 @@ def _delete_subentity_on(
             f"{ref.parent_domain!r}; can't delete handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    new_text, from_line, to_line = res
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+    return res
 
 
 def _delete_component_action(
@@ -755,8 +748,7 @@ def _delete_component_action(
             f"has no action field {location.field!r}; nothing to delete"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    new_text, from_line, to_line, replacement = res
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+    return res
 
 
 def _delete_api_action(
@@ -802,9 +794,9 @@ def _delete_api_action(
     if siblings == 0:
         # Last sibling — drop the entire block key as well so the file
         # doesn't grow ``actions: []`` noise.
-        return api_actions.render_delete_actions_key(lines, actions_start, actions_end)
+        return splice_lines(lines, start=actions_start, end=actions_end, replacement="")
     lines = _canonicalized_api_block(lines, actions_span)
-    new_text, diff = api_actions.render_delete_item(lines, item_start, item_end)
+    new_text, diff = splice_lines(lines, start=item_start, end=item_end, replacement="")
     if block_key == api_actions.BLOCK_KEYS[0]:
         return new_text, diff
     return _widen_diff_to_block(lines, actions_start, actions_end, new_text)

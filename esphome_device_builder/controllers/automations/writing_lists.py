@@ -85,8 +85,8 @@ def _resplice_handler_block(
     handler_key: str,
     entries: list,
     *,
-    upsert: Callable[..., tuple[str, int, int, str] | None],
-    remove: Callable[..., tuple[str, int, int] | None],
+    upsert: Callable[..., tuple[str, YamlDiff] | None],
+    remove: Callable[..., tuple[str, YamlDiff] | None],
     subject: str,
 ) -> tuple[str, YamlDiff]:
     """
@@ -102,14 +102,12 @@ def _resplice_handler_block(
         if res is None:  # pragma: no cover — container located by the caller
             msg = f"{subject} not found"
             raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-        new_text, from_line, to_line, replacement = res
-        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+        return res
     removed = remove(yaml_text, handler_key=handler_key)
     if removed is None:  # pragma: no cover — container located by the caller
         msg = f"{handler_key}: not found on {subject}"
         raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-    new_text, from_line, to_line = removed
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+    return removed
 
 
 def apply_list_entry_upsert(entries: list, item: Any, index: int, *, label: str) -> None:

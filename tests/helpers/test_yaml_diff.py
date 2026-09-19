@@ -57,6 +57,11 @@ def test_form_feed_inside_a_scalar_is_not_a_boundary_to_repair() -> None:
 
 def test_append_after_an_unterminated_last_line_keeps_the_boundary() -> None:
     assert apply_yaml_diff("a: 1", _diff(2, 1, "b: 2\n")) == "a: 1\nb: 2"
+
+
+def test_a_splice_reaching_an_unterminated_last_line_leaves_it_unterminated() -> None:
+    assert apply_yaml_diff("a: 1\nb: 2", _diff(2, 2, "c: 3\n")) == "a: 1\nc: 3"
+    assert apply_yaml_diff("a: 1\nb: 2", _diff(2, 2, "")) == "a: 1"
     assert apply_yaml_diff("a: 1\r\nb: 2", _diff(3, 2, "c: 3\r\n")) == "a: 1\r\nb: 2\r\nc: 3"
 
 
@@ -84,9 +89,17 @@ def test_splice_lines_insert_is_the_pure_insert_diff() -> None:
     assert diff == _diff(2, 1, "b: 2\n")
 
 
-@pytest.mark.parametrize("text", ["a: 1", "a: 1\n", "a: 1\nb: 2", "a: 1\r\nb: 2"])
-def test_an_append_matches_the_frontend_splice(text: str) -> None:
+@pytest.mark.parametrize("replacement", ["", "z: 9\n"])
+@pytest.mark.parametrize(
+    "text", ["", "a: 1", "a: 1\n", "a: 1\nb: 2", "a: 1\n\nb: 2\n", "a: 1\r\nb: 2"]
+)
+def test_every_splice_matches_the_frontend_splice(text: str, replacement: str) -> None:
     lines = text.splitlines(keepends=True)
-    new_text, diff = splice_lines(lines, start=len(lines), end=len(lines), replacement="z: 9\n")
-    frontend = apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
-    assert new_text.replace("\r\n", "\n") == frontend.replace("\r\n", "\n")
+    for start in range(len(lines) + 1):
+        for end in range(start, len(lines) + 1):
+            new_text, diff = splice_lines(lines, start=start, end=end, replacement=replacement)
+            frontend = apply_yaml_diff_like_frontend(
+                text, diff.fromLine, diff.toLine, diff.replacement
+            )
+            # The frontend splits on "\n" alone, so it can strand a "\r" the core drops.
+            assert new_text.replace("\r", "") == frontend.replace("\r", ""), (start, end)

@@ -9,13 +9,16 @@ def splice_lines(
     lines: list[str], *, start: int, end: int, replacement: str
 ) -> tuple[str, YamlDiff]:
     """Replace ``lines[start:end]`` with *replacement*; return the new text and its diff."""
-    head, body = "".join(lines[:start]), replacement
-    # Only the text's last line can lack a terminator. An append after it starts a new line
-    # and, as in the frontend's splice, leaves the text unterminated.
-    if replacement and head and not _ends_line(head[-1]):
-        head += "\r\n" if "\r\n" in head else "\n"
-        body = replacement.removesuffix("\n").removesuffix("\r")
-    new_text = head + body + "".join(lines[end:])
+    head, body, tail = "".join(lines[:start]), replacement, "".join(lines[end:])
+    # Only the text's last line can lack a terminator; a splice that reaches it leaves the
+    # text unterminated, as the frontend's splice does.
+    if not tail and lines and not _ends_line(lines[-1][-1]):
+        body = _without_terminator(replacement)
+        if not body:
+            head = _without_terminator(head)
+        elif head and not _ends_line(head[-1]):
+            head += "\r\n" if "\r\n" in head else "\n"
+    new_text = head + body + tail
     return new_text, YamlDiff(fromLine=start + 1, toLine=end, replacement=replacement)
 
 
@@ -34,3 +37,8 @@ def apply_yaml_diff(text: str, diff: YamlDiff) -> str:
 def _ends_line(char: str) -> bool:
     """Return True when *char* is a line boundary to ``str.splitlines``."""
     return len(f"{char}x".splitlines()) == 2
+
+
+def _without_terminator(text: str) -> str:
+    """Return *text* without its final line terminator."""
+    return text.removesuffix("\n").removesuffix("\r")

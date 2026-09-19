@@ -183,16 +183,6 @@ def indent_for_list(rendered_item: str, item_indent: str) -> str:
     return "\n".join(out_lines)
 
 
-def render_replacement(
-    lines: list[str],
-    item_start: int,
-    item_end: int,
-    rendered_text: str,
-) -> tuple[str, YamlDiff]:
-    """Splice *rendered_text* over the lines spanning an existing item."""
-    return splice_lines(lines, start=item_start, end=item_end, replacement=rendered_text)
-
-
 def render_create_block(yaml_text: str, rendered: str) -> tuple[str, str]:
     """Return ``(new_yaml, block_text)`` for a fresh ``api:`` block at EOF."""
     item_indent = "    "
@@ -234,24 +224,6 @@ def render_append(
         end=actions_end,
         replacement=indent_for_list(rendered, item_indent),
     )
-
-
-def render_delete_item(
-    lines: list[str],
-    item_start: int,
-    item_end: int,
-) -> tuple[str, YamlDiff]:
-    """Remove the line range covering a single api-action list item."""
-    return splice_lines(lines, start=item_start, end=item_end, replacement="")
-
-
-def render_delete_actions_key(
-    lines: list[str],
-    actions_start: int,
-    actions_end: int,
-) -> tuple[str, YamlDiff]:
-    """Remove the entire ``actions:`` key when its last item is being dropped."""
-    return splice_lines(lines, start=actions_start, end=actions_end, replacement="")
 
 
 # ---------------------------------------------------------------------------
