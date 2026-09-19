@@ -5900,11 +5900,7 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
                         count,
                     )
                 slim_src = {**entry, "form_editable": form_editable}
-            slim_dict = slim_cls.from_dict(slim_src).to_dict()
-            # Omit the flag when True so only non-editable actions carry it.
-            if type_key == "actions" and slim_dict.get("form_editable", True):
-                slim_dict.pop("form_editable", None)
-            slim_entries.append(slim_dict)
+            slim_entries.append(slim_cls.from_dict(slim_src).to_dict())
         index_payload[type_key] = slim_entries
 
     swap_split_catalog_in(
