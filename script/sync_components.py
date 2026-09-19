@@ -6087,11 +6087,12 @@ def _same_path_branches(node: Any) -> list[Any]:
     # no path segment) so the collectors reach variant-only fields
     # like ethernet's ``clock_speed``.
     branches = _typed_branch_schemas(node)
-    if branches is not None:
-        return list(branches.values())
-    # ``cv.ensure_list(...)`` is also a closure, not a ``vol.*`` wrapper.
+    out = list(branches.values()) if branches else []
+    # ``cv.ensure_list(...)`` is also a closure, not a ``vol.*`` wrapper. The
+    # typed search is transitive, so the item wrapper it reaches through still
+    # needs its own visit.
     item = _list_item_schema(node)
-    return [] if item is None else [item]
+    return out if item is None else [*out, item]
 
 
 def _walk_schema_keys(

@@ -275,6 +275,21 @@ def test_collect_required_groups_descends_typed_schema_branches() -> None:
     assert _collect_required_groups(_FakeManifest(nested)) == {("bus",): expected}
 
 
+def test_collect_required_groups_reads_the_list_item_wrapping_a_typed_schema() -> None:
+    """A constraint on the ``cv.ensure_list`` item around a typed schema is still collected."""
+    typed = cv.typed_schema(
+        {
+            "a": cv.Schema({cv.Optional("x"): cv.string}),
+            "b": cv.Schema({cv.Optional("y"): cv.string}),
+        }
+    )
+    item = vol.All(typed, cv.has_at_least_one_key("x", "y"))
+    schema = cv.Schema({cv.Optional("bus"): cv.ensure_list(item)})
+    assert _collect_required_groups(_FakeManifest(schema)) == {
+        ("bus",): [{"kind": "at_least_one", "keys": ["x", "y"]}],
+    }
+
+
 def test_collect_required_groups_dedupes_a_group_shared_by_typed_branches() -> None:
     """Two typed branches carrying the same constraint emit one group."""
     typed = cv.typed_schema({"a": _pin_branch(), "b": _pin_branch()})
