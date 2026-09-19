@@ -12,14 +12,10 @@ from typing import TYPE_CHECKING, Any
 from esphome.const import SECRETS_FILES
 
 from ...controllers.automations.catalog import AUTOMATION_TYPES
-from ...controllers.devices.helpers import (
-    _redact_concealed_secrets,
-    raise_device_not_found,
-    require_catalog,
-)
+from ...controllers.devices.helpers import raise_device_not_found, require_catalog
 from ...controllers.firmware.follow import initial_snapshot
 from ...controllers.firmware.persistence import job_dict_without_output
-from ...helpers.ansi import ANSI_CSI_RE
+from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
@@ -209,12 +205,6 @@ def _redact_secret_values(lines: list[str], secrets: list[dict[Any, Any]]) -> li
     return lines
 
 
-def _strip_lines(lines: list[str]) -> list[str]:
-    """Output lines with concealed secrets, ANSI colour and line terminators removed."""
-    # Redact first: stripping the conceal escapes alone would expose what they wrap.
-    return [ANSI_CSI_RE.sub("", _redact_concealed_secrets(line)).rstrip("\r\n") for line in lines]
-
-
 @_tool(
     "list_devices",
     "List configured ESPHome devices with their online state, address and deployed "
@@ -295,7 +285,7 @@ async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str,
         if not deadline.expired():
             raise
     secrets = await run_in_executor(_load_secrets_for, db.settings, args["configuration"])
-    output = _redact_secret_values(_strip_lines(list(client.output)), secrets)
+    output = _redact_secret_values(plain_lines(list(client.output)), secrets)
     if deadline.expired():
         return {
             "success": False,
@@ -379,7 +369,7 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     output = lines[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
-        "output": _redact_secret_values(_strip_lines(output), secrets),
+        "output": _redact_secret_values(plain_lines(output), secrets),
         "truncated": len(lines) > len(output),
         "output_available": snapshot is not None,
     }
