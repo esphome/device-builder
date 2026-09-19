@@ -41,6 +41,11 @@ async def get_jobs(
     return sorted(jobs, key=attrgetter("created_at"), reverse=True)
 
 
+def dependent_job(controller: FirmwareController, job_id: str) -> FirmwareJob | None:
+    """Return the job held on *job_id* (an install's upload behind its compile), or None."""
+    return next((j for j in controller.state.jobs.values() if j.depends_on == job_id), None)
+
+
 async def get_job(controller: FirmwareController, *, job_id: str) -> FirmwareJob | None:
     """Get a specific job. Terminal-job ``output`` is empty here; stream it via follow_job."""
     return controller.state.jobs.get(job_id)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from ...helpers.ansi import plain_lines
 from ...helpers.api import registered_stream
 from ...helpers.async_ import run_in_executor
 from ...helpers.event_bus import StreamControls, stream_events
@@ -123,6 +125,24 @@ async def follow_jobs(
         handle_event=_handle_event,
         send_initial=_send_initial,
     )
+
+
+async def job_report(job: FirmwareJob, *, tail_lines: int) -> dict[str, Any]:
+    """
+    Return *job*'s fields with the last *tail_lines* cleaned output lines.
+
+    ``truncated`` says earlier lines were dropped; ``output_available`` is false
+    when a terminal job's log could not be read.
+    """
+    snapshot = await initial_snapshot(job, job.job_id)
+    lines = snapshot or []
+    output = list(deque(lines, maxlen=tail_lines))
+    return job_dict_without_output(job) | {
+        "queued_update_armed": job.is_queued_update_armed,
+        "output": plain_lines(output),
+        "truncated": len(lines) > len(output),
+        "output_available": snapshot is not None,
+    }
 
 
 async def initial_snapshot(job: FirmwareJob, job_id: str) -> list[str] | None:
