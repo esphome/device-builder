@@ -206,7 +206,8 @@ def remove_nested_handler(
             break
         rm_start = frame.start
         rm_end = max(rm_end, frame.end)
-    return splice_lines(lines, rm_start, rm_end, replacement)[0], rm_start + 1, rm_end, replacement
+    new_text, _ = splice_lines(lines, start=rm_start, end=rm_end, replacement=replacement)
+    return new_text, rm_start + 1, rm_end, replacement
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,12 +334,14 @@ def _apply_handler_upsert(
 
     if handler_start is not None and handler_end is not None:
         # Replace the existing handler block.
-        new_text = splice_lines(lines, handler_start, handler_end, rendered_text)[0]
+        new_text, _ = splice_lines(
+            lines, start=handler_start, end=handler_end, replacement=rendered_text
+        )
         return new_text, handler_start + 1, handler_end, rendered_text
     # Insert a new handler at the end of the instance, before any
     # trailing blank lines.
     insert_at = trim_trailing_blanks(lines, instance_start, instance_end)
-    new_text = splice_lines(lines, insert_at, insert_at, rendered_text)[0]
+    new_text = splice_lines(lines, start=insert_at, end=insert_at, replacement=rendered_text)[0]
     # Pure-insert: ``toLine == fromLine - 1`` flags the empty
     # replaced range. See :class:`automations.YamlDiff`.
     return new_text, insert_at + 1, insert_at, rendered_text
@@ -394,7 +397,7 @@ def _apply_handler_remove(
     if located is None:
         return None
     start, end = located
-    return splice_lines(lines, start, end, "")[0], start + 1, end
+    return splice_lines(lines, start=start, end=end, replacement="")[0], start + 1, end
 
 
 def _locate_handler_range(

@@ -5,7 +5,9 @@ from __future__ import annotations
 from ...models.automations import YamlDiff
 
 
-def splice_lines(lines: list[str], start: int, end: int, replacement: str) -> tuple[str, YamlDiff]:
+def splice_lines(
+    lines: list[str], *, start: int, end: int, replacement: str
+) -> tuple[str, YamlDiff]:
     """Replace ``lines[start:end]`` with *replacement*; return the new text and its diff."""
     head, body = "".join(lines[:start]), replacement
     # Only the text's last line can lack a terminator. An append after it starts a new line
@@ -26,7 +28,7 @@ def apply_yaml_diff(text: str, diff: YamlDiff) -> str:
         raise ValueError(f"YamlDiff {from_line}..{to_line} is inverted")
     if from_line < 1 or to_line > len(lines):
         raise ValueError(f"YamlDiff {from_line}..{to_line} is outside {len(lines)} lines")
-    return splice_lines(lines, from_line - 1, to_line, diff.replacement)[0]
+    return splice_lines(lines, start=from_line - 1, end=to_line, replacement=diff.replacement)[0]
 
 
 def _ends_line(char: str) -> bool:

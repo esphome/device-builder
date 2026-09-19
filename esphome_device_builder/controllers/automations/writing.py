@@ -534,7 +534,9 @@ def _replace_top_level_list_item(
     """Replace the *index*'th list item under ``<domain>:`` with rendered_item."""
     lines = yaml_text.splitlines(keepends=True)
     start, end = _locate_top_list_item(lines, domain, index)
-    return splice_lines(lines, start, end, _indent_for_top_list(rendered_item))
+    return splice_lines(
+        lines, start=start, end=end, replacement=_indent_for_top_list(rendered_item)
+    )
 
 
 def _upsert_under_top_key(
@@ -567,14 +569,14 @@ def _upsert_under_top_key(
             break
     rendered_text = "\n".join(_indent_block(rendered_yaml, indent)) + "\n"
     if handler_start is not None and handler_end is not None:
-        return splice_lines(lines, handler_start, handler_end, rendered_text)
+        return splice_lines(lines, start=handler_start, end=handler_end, replacement=rendered_text)
     insert_at = end
     while insert_at > start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
     # Pure-insert convention: ``toLine == fromLine - 1`` encodes
     # "no lines replaced; insert before fromLine". See
     # :class:`YamlDiff`'s docstring.
-    return splice_lines(lines, insert_at, insert_at, rendered_text)
+    return splice_lines(lines, start=insert_at, end=insert_at, replacement=rendered_text)
 
 
 # ---------------------------------------------------------------------------
@@ -636,7 +638,7 @@ def _delete_top_level_list_by_index(
     """Remove the *index*'th list item under ``<domain>:``."""
     lines = yaml_text.splitlines(keepends=True)
     start, end = _locate_top_list_item(lines, domain, index)
-    return splice_lines(lines, start, end, "")
+    return splice_lines(lines, start=start, end=end, replacement="")
 
 
 def _delete_under_top_key(
@@ -656,7 +658,7 @@ def _delete_under_top_key(
         text = lines[idx].rstrip("\n\r")
         if text == handler_prefix or text.startswith(handler_prefix + " "):
             handler_end = child_block_end(lines, idx, end, indent)
-            return splice_lines(lines, idx, handler_end, "")
+            return splice_lines(lines, start=idx, end=handler_end, replacement="")
     msg = f"{block_key}.{handler_key} not present"
     raise CommandError(ErrorCode.NOT_FOUND, msg)
 

@@ -190,7 +190,7 @@ def render_replacement(
     rendered_text: str,
 ) -> tuple[str, YamlDiff]:
     """Splice *rendered_text* over the lines spanning an existing item."""
-    return splice_lines(lines, item_start, item_end, rendered_text)
+    return splice_lines(lines, start=item_start, end=item_end, replacement=rendered_text)
 
 
 def render_create_block(yaml_text: str, rendered: str) -> tuple[str, str]:
@@ -218,7 +218,7 @@ def render_insert_actions_key(
     insert_at = api_end
     while insert_at > api_start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
-    return splice_lines(lines, insert_at, insert_at, block)
+    return splice_lines(lines, start=insert_at, end=insert_at, replacement=block)
 
 
 def render_append(
@@ -228,7 +228,12 @@ def render_append(
     rendered: str,
 ) -> tuple[str, YamlDiff]:
     """Append a new list item at the pre-trimmed *actions_end* of ``api.actions:``."""
-    return splice_lines(lines, actions_end, actions_end, indent_for_list(rendered, item_indent))
+    return splice_lines(
+        lines,
+        start=actions_end,
+        end=actions_end,
+        replacement=indent_for_list(rendered, item_indent),
+    )
 
 
 def render_delete_item(
@@ -237,7 +242,7 @@ def render_delete_item(
     item_end: int,
 ) -> tuple[str, YamlDiff]:
     """Remove the line range covering a single api-action list item."""
-    return splice_lines(lines, item_start, item_end, "")
+    return splice_lines(lines, start=item_start, end=item_end, replacement="")
 
 
 def render_delete_actions_key(
@@ -246,7 +251,7 @@ def render_delete_actions_key(
     actions_end: int,
 ) -> tuple[str, YamlDiff]:
     """Remove the entire ``actions:`` key when its last item is being dropped."""
-    return splice_lines(lines, actions_start, actions_end, "")
+    return splice_lines(lines, start=actions_start, end=actions_end, replacement="")
 
 
 # ---------------------------------------------------------------------------

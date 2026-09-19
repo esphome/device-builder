@@ -72,14 +72,14 @@ def test_deleting_the_only_line_leaves_nothing() -> None:
 
 def test_splice_lines_returns_the_text_and_the_matching_diff() -> None:
     lines = _TEXT.splitlines(keepends=True)
-    new_text, diff = splice_lines(lines, 1, 2, "x: 9\n")
+    new_text, diff = splice_lines(lines, start=1, end=2, replacement="x: 9\n")
     assert new_text == "a: 1\nx: 9\nc: 3\n"
     assert diff == _diff(2, 2, "x: 9\n")
     assert apply_yaml_diff(_TEXT, diff) == new_text
 
 
 def test_splice_lines_insert_is_the_pure_insert_diff() -> None:
-    new_text, diff = splice_lines(["a: 1"], 1, 1, "b: 2\n")
+    new_text, diff = splice_lines(["a: 1"], start=1, end=1, replacement="b: 2\n")
     assert new_text == "a: 1\nb: 2"
     assert diff == _diff(2, 1, "b: 2\n")
 
@@ -87,6 +87,6 @@ def test_splice_lines_insert_is_the_pure_insert_diff() -> None:
 @pytest.mark.parametrize("text", ["a: 1", "a: 1\n", "a: 1\nb: 2", "a: 1\r\nb: 2"])
 def test_an_append_matches_the_frontend_splice(text: str) -> None:
     lines = text.splitlines(keepends=True)
-    new_text, diff = splice_lines(lines, len(lines), len(lines), "z: 9\n")
+    new_text, diff = splice_lines(lines, start=len(lines), end=len(lines), replacement="z: 9\n")
     frontend = apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
     assert new_text.replace("\r\n", "\n") == frontend.replace("\r\n", "\n")
