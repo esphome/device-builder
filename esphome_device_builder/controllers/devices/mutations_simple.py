@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
     configuration_filename,
     parse_esphome_meta,
@@ -23,13 +25,20 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     rewrite_rename_content,
     upsert_yaml_leaf_under_top_block,
+    write_user_yaml,
 )
 from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
 from ..firmware.rename_flow import RENAME_REMEDY
 from . import archive
-from .firmware_sync import migrate_metadata_then_scan
-from .helpers import persist_if_unchanged, raise_device_name_exists, raise_device_not_found
+from .firmware_sync import migrate_metadata, rescan_renamed
+from .helpers import (
+    persist_if_unchanged,
+    raise_device_name_exists,
+    raise_device_not_found,
+    read_device_config,
+    require_unchanged,
+)
 from .mutations_create import save_device_storage
 
 if TYPE_CHECKING:
@@ -211,7 +220,19 @@ async def rename_device(
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
-    content = await _read_device_yaml_or_raise(controller, configuration)
+    # When the slugified target filename is the device's own file, the rename
+    # changes ``esphome.name`` without moving the file — the OTA chain needs
+    # a distinct new filename to compile against, so route it in place.
+    # Compare lexically-normalized paths so a configuration with redundant
+    # segments (``./x.yaml``) still reads as the same file, without the
+    # blocking filesystem access ``Path.resolve()`` would do in this async
+    # path.
+    in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
+
+    def _read_and_probe() -> tuple[str, bool]:
+        return read_device_config(old_path, configuration), not in_place and new_path.exists()
+
+    content, target_taken = await run_in_executor(_read_and_probe)
     old_meta = parse_esphome_meta(content)
 
     # Reject same-name renames up-front. Compare against the device's real
@@ -225,15 +246,6 @@ async def rename_device(
             ErrorCode.INVALID_ARGS,
             "new_name must differ from the current device name",
         )
-
-    # When the slugified target filename is the device's own file, the rename
-    # changes ``esphome.name`` without moving the file — the OTA chain needs
-    # a distinct new filename to compile against, so route it in place.
-    # Compare lexically-normalized paths so a configuration with redundant
-    # segments (``./x.yaml``) still reads as the same file, without the
-    # blocking filesystem access ``Path.resolve()`` would do in this async
-    # path.
-    in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
 
     # Single rewrite + refusal point: offline, in-place, and the OTA chain
     # all retarget the name the same way.
@@ -252,12 +264,13 @@ async def rename_device(
         # Reject if another file owns the target; the chain path's own
         # collision check (with its active-retry exemption) lives in
         # ``firmware.rename_chain``.
-        if not in_place and await run_in_executor(new_path.exists):
+        if target_taken:
             raise_device_name_exists(new_filename)
         return await _config_only_rename(
             controller,
             configuration=configuration,
             new_name=new_name,
+            content=content,
             new_content=new_content,
             in_place=in_place,
         )
@@ -299,6 +312,7 @@ async def _config_only_rename(
     *,
     configuration: str,
     new_name: str,
+    content: str,
     new_content: str,
     in_place: bool,
 ) -> dict[str, Any]:
@@ -307,7 +321,9 @@ async def _config_only_rename(
 
     Validates *new_content* before touching disk, writes the new file
     atomically, removes the old, and migrates the StorageJSON + sidecar
-    metadata. Returns ``job: None`` (nothing is queued). When *in_place*
+    metadata. Refuses with ``PRECONDITION_FAILED`` when the file no longer
+    holds *content*, and never replaces a target another writer created.
+    Returns ``job: None`` (nothing is queued). When *in_place*
     the target filename is the device's own file: the rewrite lands on it
     and the old-file / old-sidecar removals are skipped so the just-written
     file isn't deleted.
@@ -319,13 +335,27 @@ async def _config_only_rename(
     # Validate before any disk change so a bad rewrite never lands on disk.
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")
 
-    await controller._write_yaml_atomic_async(new_path, new_content)
-    if not in_place:
-        await run_in_executor(lambda: old_path.unlink(missing_ok=True))
-    # The YAML is already renamed; storage migration is best-effort (logs on
-    # failure) and the shared metadata-migrate-then-scan always rescans.
-    await run_in_executor(_migrate_storage_json, configuration, new_filename, new_name)
-    await migrate_metadata_then_scan(controller, configuration, new_filename)
+    def _land() -> None:
+        require_unchanged(read_device_config(old_path, configuration), content, configuration)
+        if in_place:
+            write_user_yaml(new_path, new_content)
+        else:
+            try:
+                atomic_write_exclusive(new_path, new_content.encode())
+            except FileExistsError as err:
+                raise_device_name_exists(new_filename, from_exc=err)
+            old_path.unlink(missing_ok=True)
+        # The YAML is already renamed; storage migration is best-effort (logs on failure).
+        _migrate_storage_json(configuration, new_filename, new_name)
+
+    async with AsyncExitStack() as locks:
+        # Both filenames, in a stable order, until the metadata has moved: a rename of the
+        # new name must not run between the file landing and its metadata following it.
+        for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
+            await locks.enter_async_context(controller._yaml_write_lock(name))
+        await run_in_executor(_land)
+        await migrate_metadata(controller, configuration, new_filename)
+    await rescan_renamed(controller, new_filename)
     return {"configuration": new_filename, "job": None}
 
 

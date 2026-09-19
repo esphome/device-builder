@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1144,9 +1145,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _yaml_write_lock(self, configuration: str) -> asyncio.Lock:
         """Return the per-file lock guarding a YAML write + its history commit."""
-        lock = self._yaml_write_locks.get(configuration)
+        # Lexical, so every spelling of one path (``foo/../kitchen.yaml``) shares a lock.
+        key = os.path.normpath(configuration)
+        lock = self._yaml_write_locks.get(key)
         if lock is None:
-            lock = self._yaml_write_locks[configuration] = asyncio.Lock()
+            lock = self._yaml_write_locks[key] = asyncio.Lock()
         return lock
 
     async def _commit_history(self, configuration: str, message: str) -> None:
