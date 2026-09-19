@@ -273,7 +273,8 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "validate_config",
     "Validate a device config with esphome and return the last output lines (truncated "
     "says whether earlier lines were dropped; secret values are removed). Bounded to one "
-    "minute; a timed out run reports timed_out.",
+    "minute including any wait for a free slot (the output then starts with a waiting "
+    "line); a timed out run reports timed_out.",
     {"configuration": _CONFIGURATION, "tail_lines": _TAIL_LINES},
     ("configuration",),
 )
