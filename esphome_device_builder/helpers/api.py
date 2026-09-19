@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable, Coroutine, Iterator
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
-from ..models import ErrorCode
+from ..models import ErrorCode, StreamEvent
 
 # Type alias for command handler functions. ``CommandHandler`` is the
 # erased shape used by the registry side (``collect_api_commands``);
@@ -32,6 +33,26 @@ class CommandError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class CollectingClient:
+    """Stream client keeping the last *tail* output lines (all if ``None``) and the result."""
+
+    def __init__(self, tail: int | None = None) -> None:
+        self.output: deque[str] = deque(maxlen=tail)
+        self.truncated = False
+        self.result: dict[str, Any] | None = None
+
+    async def send_event(self, _message_id: str, event: str, data: Any = None) -> None:
+        if event == StreamEvent.OUTPUT:
+            self.truncated = self.truncated or len(self.output) == self.output.maxlen
+            self.output.append(data)
+        elif event == StreamEvent.RESULT:
+            self.result = data
+
+    def register_stream(self, message_id: str, task: Any) -> None: ...
+
+    def unregister_stream(self, message_id: str) -> None: ...
 
 
 @contextmanager

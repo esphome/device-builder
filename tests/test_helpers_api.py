@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import asyncio
 
-from esphome_device_builder.helpers.api import api_command, collect_api_commands
+from esphome_device_builder.helpers.api import CollectingClient, api_command, collect_api_commands
+from esphome_device_builder.models import StreamEvent
 
 
 def test_collect_api_commands_picks_up_decorated_methods() -> None:
@@ -157,3 +158,21 @@ async def test_collect_api_commands_returns_callable_bound_methods() -> None:
     handlers = collect_api_commands(controller)
 
     assert await handlers["ns/get"]() == 42
+
+
+async def test_collecting_client_keeps_the_tail_and_the_result() -> None:
+    client = CollectingClient(tail=2)
+    for line in ("a", "b", "c"):
+        await client.send_event("m", StreamEvent.OUTPUT, line)
+    await client.send_event("m", StreamEvent.RESULT, {"success": True, "code": 0})
+    assert list(client.output) == ["b", "c"]
+    assert client.truncated is True
+    assert client.result == {"success": True, "code": 0}
+    client.register_stream("m", None)
+    client.unregister_stream("m")
+
+    unbounded = CollectingClient()
+    for line in ("a", "b", "c"):
+        await unbounded.send_event("m", StreamEvent.OUTPUT, line)
+    assert list(unbounded.output) == ["a", "b", "c"]
+    assert unbounded.truncated is False
