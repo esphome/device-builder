@@ -6079,6 +6079,21 @@ def _list_item_schema(node: Any) -> Any | None:
     return _ensure_list_item_validator(_templatable_inner(node) or node)
 
 
+def _same_path_branches(node: Any) -> list[Any]:
+    """Return the sub-schemas a dict-less *node* holds at its own path."""
+    # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
+    # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
+    # branch at the same path (typed variants flatten in YAML and add
+    # no path segment) so the collectors reach variant-only fields
+    # like ethernet's ``clock_speed``.
+    branches = _typed_branch_schemas(node)
+    if branches is not None:
+        return list(branches.values())
+    # ``cv.ensure_list(...)`` is also a closure, not a ``vol.*`` wrapper.
+    item = _list_item_schema(node)
+    return [] if item is None else [item]
+
+
 def _walk_schema_keys(
     schema: Any,
     visit: Callable[[Any, str, Any, tuple[str, ...]], None],
@@ -6117,18 +6132,7 @@ def _walk_schema_keys(
             return
         candidate = _unwrap_schema_to_dict(node)
         if candidate is None:
-            # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
-            # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
-            # branch at the same path (typed variants flatten in YAML and add
-            # no path segment) so the collectors reach variant-only fields
-            # like ethernet's ``clock_speed``.
-            branches = _typed_branch_schemas(node)
-            if branches is None:
-                # ``cv.ensure_list(...)`` is also a closure, not a
-                # ``vol.*`` wrapper.
-                item = _list_item_schema(node)
-                branches = {"": item} if item is not None else None
-            for branch in (branches or {}).values():
+            for branch in _same_path_branches(node):
                 walk(branch, path, depth + 1)
             return
         marker = (id(candidate), path)
@@ -8434,14 +8438,15 @@ def _collect_required_groups(
         if depth > 6:
             return
         if groups := _groups_in_all_chain(node):
-            out.setdefault(path, []).extend(groups)
+            bucket = out.setdefault(path, [])
+            bucket.extend(group for group in groups if group not in bucket)
         target = _unwrap_schema_to_dict(node)
         if target is None:
-            # A constraint on a ``cv.ensure_list`` item schema lands at the
-            # list field's own path, matching the catalog's nesting.
-            item = _list_item_schema(node)
-            if item is not None:
-                walk(item, path, depth + 1)
+            # A constraint on a ``cv.typed_schema`` branch or a ``cv.ensure_list``
+            # item schema lands at the field's own path, matching the catalog's
+            # nesting.
+            for branch in _same_path_branches(node):
+                walk(branch, path, depth + 1)
             return
         if id(target) in visited:
             return
