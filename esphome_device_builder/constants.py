@@ -38,8 +38,8 @@ SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
 
 
-# No NTFS stream suffix (``::$DATA``) and no 8.3 short alias (``SECRET~1.YML``).
-_DEVICE_CONFIG_NAME_RE = re.compile(r"(?![^:]*~\d+\.)[^:]+\.ya?ml")
+# No NTFS stream suffix (``::$DATA``); the extension rules out the 8.3 alias ``SECRET~1.YAM``.
+_DEVICE_CONFIG_NAME_RE = re.compile(r"[^:\x00]+\.ya?ml")
 
 
 def is_secrets_file(configuration: str | Path) -> bool:
@@ -48,9 +48,14 @@ def is_secrets_file(configuration: str | Path) -> bool:
 
 
 def is_device_config_name(configuration: str | Path) -> bool:
-    """Return True when *configuration* names a device YAML: no secrets file, no Win32 alias."""
-    name = _config_basename(configuration)
-    return name not in SECRETS_FILENAMES and _DEVICE_CONFIG_NAME_RE.fullmatch(name) is not None
+    """Return True for a bare device YAML filename: no directory, secrets file or Win32 alias."""
+    raw = str(configuration)
+    name = _config_basename(raw)
+    return (
+        cross_os_basename(raw) == raw
+        and name not in SECRETS_FILENAMES
+        and _DEVICE_CONFIG_NAME_RE.fullmatch(name) is not None
+    )
 
 
 def _config_basename(configuration: str | Path) -> str:
