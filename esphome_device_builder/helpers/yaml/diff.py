@@ -8,16 +8,25 @@ from ...models.automations import YamlDiff
 def splice_lines(
     lines: list[str], *, start: int, end: int, replacement: str
 ) -> tuple[str, YamlDiff]:
-    """Replace ``lines[start:end]`` with *replacement*; return the new text and its diff."""
-    head, body, tail = "".join(lines[:start]), replacement, "".join(lines[end:])
+    """
+    Replace ``lines[start:end]`` with *replacement*; return the new text and its diff.
+
+    *lines* is ``splitlines(keepends=True)`` output. *replacement* is whole lines, as in the
+    frontend's splice: its final terminator is implied, and dropped at an unterminated end.
+    """
+    head, tail = "".join(lines[:start]), "".join(lines[end:])
+    newline = "\r\n" if lines and lines[0].endswith("\r\n") else "\n"
+    body = _without_terminator(replacement)
     # Only the text's last line can lack a terminator; a splice that reaches it leaves the
-    # text unterminated, as the frontend's splice does.
-    if not tail and lines and not _ends_line(lines[-1][-1]):
-        body = _without_terminator(replacement)
-        if not body:
-            head = _without_terminator(head)
-        elif head and not _ends_line(head[-1]):
-            head += "\r\n" if "\r\n" in head else "\n"
+    # text unterminated.
+    open_ended = not tail and bool(lines) and not _ends_line(lines[-1][-1])
+    if not body:
+        head = _without_terminator(head) if open_ended else head
+    else:
+        if head and not _ends_line(head[-1]):
+            head += newline
+        if not open_ended:
+            body += replacement[len(body) :] or newline
     new_text = head + body + tail
     return new_text, YamlDiff(fromLine=start + 1, toLine=end, replacement=replacement)
 

@@ -89,7 +89,7 @@ def test_splice_lines_insert_is_the_pure_insert_diff() -> None:
     assert diff == _diff(2, 1, "b: 2\n")
 
 
-@pytest.mark.parametrize("replacement", ["", "z: 9\n"])
+@pytest.mark.parametrize("replacement", ["", "z: 9\n", "z: 9", "y: 8\nz: 9\n"])
 @pytest.mark.parametrize(
     "text", ["", "a: 1", "a: 1\n", "a: 1\nb: 2", "a: 1\n\nb: 2\n", "a: 1\r\nb: 2"]
 )
