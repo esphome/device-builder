@@ -118,6 +118,7 @@ def test_delete_device_on_boot_drops_the_block() -> None:
     )
     assert "on_boot:" not in new_text
     assert diff.replacement == ""
+    assert apply_yaml_diff(text, diff) == new_text
 
 
 _LIST_ON_BOOT = (

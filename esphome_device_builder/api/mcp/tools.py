@@ -23,6 +23,7 @@ from ...helpers.secrets_state import validate_secrets_content
 from ...helpers.yaml import apply_yaml_diff
 from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
 from ...models import ErrorCode
+from ...models.automations import YamlDiff
 
 if TYPE_CHECKING:
     from ...controllers.config import DashboardSettings
@@ -586,7 +587,7 @@ async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
     configuration = args["configuration"]
     text = await _call(db, "devices/get_config", configuration=configuration)
     splice = await _call(db, "automations/delete", yaml=text, **args)
-    new_text = apply_yaml_diff(text, splice["yaml_diff"])
+    new_text = apply_yaml_diff(text, YamlDiff.from_dict(splice["yaml_diff"]))
     if new_text == text:
         _LOGGER.error("MCP delete_automation left %s unchanged: %r", configuration, splice)
         raise McpToolError(INTERNAL_ERROR, "Delete produced no change")
