@@ -23,6 +23,7 @@ from esphome.const import __version__ as esphome_version
 from ._remote_build_lifecycle import RemoteBuildLifecycle
 from ._remote_build_only import run_remote_build_only
 from .api.legacy import create_legacy_routes
+from .api.mcp import create_mcp_routes
 from .api.ws import create_ws_routes, init_ws_app
 from .constants import __version__ as server_version
 from .controllers.auth import AuthController
@@ -920,6 +921,9 @@ class DeviceBuilder:
 
         # Legacy REST endpoints (HA backward compat)
         app.router.add_routes(create_legacy_routes())
+
+        # MCP endpoint (registered before the SPA catch-all)
+        app.router.add_routes(create_mcp_routes())
 
         # HTTP firmware-artifact download. Registered before the SPA catch-all
         # so it isn't swallowed; gated by auth_middleware (or the supervisor on

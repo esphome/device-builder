@@ -532,6 +532,47 @@ Right after a client subscribes (and before any live events arrive), the server 
 
 ---
 
+## MCP endpoint (`POST /api/mcp`)
+
+A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM agent (Home Assistant's `mcp` integration, Claude Code, Claude Desktop through a local bridge) can read and change device configs, start builds and installs, and read the component catalog. The protocol lives in the generic `mcp/` package (JSON-RPC envelope, tool registry); `api/mcp/` adds the route and the Device Builder tools. Same aiohttp app as everything else; no extra dependency.
+
+**Transport.** Stateless streamable HTTP: one JSON-RPC 2.0 request per `POST /api/mcp` with a JSON reply, no session id, no server-initiated stream. The body must be `Content-Type: application/json` (415 otherwise). `GET` and `DELETE` answer 405. A notification (a message without `id`) answers 202 with an empty body. Batches (a JSON array body) are rejected, so the batching-era revisions are not offered: `2025-06-18` and `2025-11-25` are echoed back and any other request negotiates down to `2025-06-18`.
+
+| Method | Result |
+|---|---|
+| `initialize` | `{protocolVersion, capabilities: {tools: {}}, serverInfo: {name, version}}` |
+| `ping` | `{}` |
+| `tools/list` | `{tools: [{name, description, inputSchema}]}` |
+| `tools/call` | `{content: [{type: "text", text}], isError}`. A tool failure is a result with `isError: true` whose text starts with the `ErrorCode` (`not_found: ...`, `invalid_args: ...`), not a JSON-RPC error. An unknown tool name is JSON-RPC `-32602`. |
+
+**Tools.** Each wraps one WS command through the same dispatcher, so validation and error codes match the WS surface. Every tool answers within Home Assistant's 10 second per-call budget except `validate_config`, which runs `esphome config` (bounded to `ESPHOME_CONFIG_TIMEOUT`, one minute; a timed out run kills the subprocess and reports `timed_out`) and is best effort there. Long work is start-then-poll.
+
+| Tool | Wraps | Notes |
+|---|---|---|
+| `list_devices` | `devices/list` | Flat rows (`runtime_state` merged in) without the integration lists |
+| `get_config {configuration}` | `devices/get_config` | Returns the YAML text |
+| `update_config {configuration, content}` | `devices/update_config` | |
+| `add_component {configuration, component_id, fields?}` | `devices/add_component` | |
+| `validate_config {configuration}` | `devices/validate` | `{success, exit_code, output}`, or `{success: false, timed_out: true, output}` after the one minute bound; a run that ends without a result frame is an `internal_error` |
+| `compile {configuration}` | `firmware/compile` | `{job_id, status}` |
+| `install {configuration, port?}` | `firmware/install` | `{job_id, status, upload_job_id, deferred}`; `upload_job_id` is null only when `deferred` (an offline device whose update was queued), otherwise a missing upload job is an `internal_error` |
+| `get_job {job_id, tail_lines?}` | `firmware/get_job` | Job fields plus the terminal result payload and the last output lines (ANSI stripped); terminal jobs read the output sidecar |
+| `cancel_job {job_id}` | `firmware/cancel` | |
+| `search_components {query, limit?}` | `components/get_components` | Slim index rows |
+| `get_component {component_id, platform?, include_advanced?}` | `components/get_component_bodies` | The catalog body with `hidden` entries removed and `advanced` entries removed unless asked for; empty and false fields are omitted |
+| `get_config_components {configuration}` | (loader + slim index) | The catalog ids a device YAML uses (`key` and `key.platform`), each with name, description and docs URL; an unparsable YAML answers `invalid_args` with the parser's diagnostic |
+
+**Auth.** The route mirrors `/ws` on each site: nothing on the trusted ingress site; on the public site the REST `Authorization` gate (`Basic` or a `Bearer` session token) whenever a password is set, plus the WebSocket handshake's `Origin` / `Host` check for any request carrying an `Origin` header (same-origin or `--trusted-domains`, 403 otherwise). Non-browser clients send no `Origin`. Home Assistant's `mcp` integration cannot send a static credential (a 401 sends it into OAuth discovery, which this server does not offer), so from HA the server must be reachable without a password: the add-on ingress site, or a standalone install with no password.
+
+**Connecting.**
+
+- Home Assistant add-on: the add-on announces `http://127.0.0.1:<ingress_port>/api/mcp` through supervisor discovery; confirm the `mcp` integration when it appears.
+- Home Assistant, standalone backend: Settings → Integrations → Model Context Protocol, URL `http://<host>:6052/api/mcp`.
+- Claude Code: `claude mcp add --transport http device-builder http://127.0.0.1:6052/api/mcp`, adding `--header "Authorization: Basic <base64 user:password>"` when a password is set.
+- Claude Desktop: a stdio bridge such as `npx mcp-remote http://127.0.0.1:6052/api/mcp` in its MCP config.
+
+---
+
 ## Legacy REST Endpoints (Deprecated)
 
 For Home Assistant ESPHome integration backward compat only.
