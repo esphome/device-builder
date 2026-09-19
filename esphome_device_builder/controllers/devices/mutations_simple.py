@@ -11,6 +11,7 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import (
     configuration_filename,
     parse_esphome_meta,
@@ -30,7 +31,13 @@ from ..config import set_device_labels
 from ..firmware.rename_flow import RENAME_REMEDY
 from . import archive
 from .firmware_sync import migrate_metadata_then_scan
-from .helpers import persist_if_unchanged, raise_device_name_exists, raise_device_not_found
+from .helpers import (
+    persist_if_unchanged,
+    raise_device_name_exists,
+    raise_device_not_found,
+    read_device_config,
+    require_unchanged,
+)
 from .mutations_create import save_device_storage
 
 if TYPE_CHECKING:
@@ -311,7 +318,8 @@ async def _config_only_rename(
     Validates *new_content* before touching disk, writes the new file
     atomically, removes the old, and migrates the StorageJSON + sidecar
     metadata. Refuses with ``PRECONDITION_FAILED`` when the file no longer
-    holds *content*. Returns ``job: None`` (nothing is queued). When *in_place*
+    holds *content*, and never replaces a target another writer created.
+    Returns ``job: None`` (nothing is queued). When *in_place*
     the target filename is the device's own file: the rewrite lands on it
     and the old-file / old-sidecar removals are skipped so the just-written
     file isn't deleted.
@@ -324,15 +332,14 @@ async def _config_only_rename(
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")
 
     def _land() -> None:
-        try:
-            current: str | None = old_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            current = None
-        if current != content:
-            msg = f"{configuration} changed while it was being renamed; nothing was renamed, retry"
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-        write_user_yaml(new_path, new_content)
-        if not in_place:
+        require_unchanged(read_device_config(old_path, configuration), content, configuration)
+        if in_place:
+            write_user_yaml(new_path, new_content)
+        else:
+            try:
+                atomic_write_exclusive(new_path, new_content.encode())
+            except FileExistsError as err:
+                raise_device_name_exists(new_filename, from_exc=err)
             old_path.unlink(missing_ok=True)
         # The YAML is already renamed; storage migration is best-effort (logs on failure).
         _migrate_storage_json(configuration, new_filename, new_name)

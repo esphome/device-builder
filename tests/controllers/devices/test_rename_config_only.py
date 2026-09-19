@@ -51,11 +51,20 @@ _UNDERSCORE_YAML = _YAML.replace("name: kitchen", "name: test_1")
 
 
 @pytest.mark.parametrize(
-    ("configuration", "text", "new_name", "saved_meanwhile"),
+    ("configuration", "text", "new_name", "saved_meanwhile", "code"),
     [
-        pytest.param("kitchen.yaml", _YAML, "livingroom", True, id="saved_meanwhile"),
-        pytest.param("kitchen.yaml", _YAML, "livingroom", False, id="deleted_meanwhile"),
-        pytest.param("test-1.yaml", _UNDERSCORE_YAML, "test-1", True, id="in_place"),
+        pytest.param(
+            "kitchen.yaml", _YAML, "livingroom", True, ErrorCode.PRECONDITION_FAILED, id="saved"
+        ),
+        pytest.param("kitchen.yaml", _YAML, "livingroom", False, ErrorCode.NOT_FOUND, id="deleted"),
+        pytest.param(
+            "test-1.yaml",
+            _UNDERSCORE_YAML,
+            "test-1",
+            True,
+            ErrorCode.PRECONDITION_FAILED,
+            id="in_place",
+        ),
     ],
 )
 async def test_config_only_rename_refuses_when_the_file_changed_during_validation(
@@ -66,6 +75,7 @@ async def test_config_only_rename_refuses_when_the_file_changed_during_validatio
     text: str,
     new_name: str,
     saved_meanwhile: bool,
+    code: ErrorCode,
 ) -> None:
     controller = make_controller(tmp_path)
     old = tmp_path / configuration
@@ -86,9 +96,33 @@ async def test_config_only_rename_refuses_when_the_file_changed_during_validatio
             configuration=configuration, new_name=new_name, config_only=True
         )
 
-    assert err.value.code == ErrorCode.PRECONDITION_FAILED
+    assert err.value.code == code
     assert not (tmp_path / "livingroom.yaml").exists()
     assert (old.read_text(encoding="utf-8") if old.exists() else None) == on_disk
+
+
+async def test_config_only_rename_never_replaces_a_target_created_during_validation(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    other = _YAML.replace("name: kitchen", "name: livingroom")
+
+    async def _another_device_takes_the_name(*_args: object, **_kwargs: object) -> None:
+        await asyncio.to_thread((tmp_path / "livingroom.yaml").write_text, other, "utf-8")
+
+    monkeypatch.setattr(
+        controller, "_validate_rewritten_yaml_or_raise", _another_device_takes_the_name
+    )
+
+    with pytest.raises(CommandError) as err:
+        await controller.rename_device(
+            configuration="kitchen.yaml", new_name="livingroom", config_only=True
+        )
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "livingroom.yaml").read_text(encoding="utf-8") == other
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == _YAML
 
 
 async def test_config_only_rename_lands_as_one_executor_job(
