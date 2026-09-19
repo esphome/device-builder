@@ -238,18 +238,22 @@ async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
 
 @_tool(
     "search_components",
-    "Search the ESPHome component catalog by name or keyword.",
+    "Search the ESPHome component catalog by name or keyword. total above the number of "
+    "rows returned means the query was capped; narrow it.",
     {
         "query": _prop("string", "Search text."),
         "limit": _LIMIT,
     },
     ("query",),
 )
-async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
+async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     response = await _call(
         db, "components/get_components", query=args["query"], limit=args["limit"]
     )
-    return [_prune(entry.to_dict()) for entry in response.components]
+    return {
+        "total": response.total,
+        "components": [_prune(entry.to_dict()) for entry in response.components],
+    }
 
 
 @_tool(
@@ -297,16 +301,17 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
 
 @_tool(
     "search_boards",
-    "Search the board catalog by name or chip; returns board ids for create_device.",
+    "Search the board catalog by name or chip; returns board ids for create_device. total "
+    "above the number of rows returned means the query was capped; narrow it.",
     {
         "query": _prop("string", "Search text, e.g. 'esp32-c3' or 'nodemcu'."),
         "limit": _LIMIT,
     },
     ("query",),
 )
-async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
+async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     response = await _call(db, "boards/get_boards", query=args["query"], limit=args["limit"])
-    return [_prune(board.to_dict()) for board in response.boards]
+    return {"total": response.total, "boards": [_prune(b.to_dict()) for b in response.boards]}
 
 
 @_tool(
@@ -373,7 +378,7 @@ async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "get_available_automations",
     "The triggers, actions, conditions, scripts and component instances this device's "
-    "config makes available for automations, by id.",
+    "config makes available for automations, by id. An omitted list is empty.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
@@ -385,7 +390,8 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     "get_automation_docs",
     "Documentation for automation building blocks: each ref is {type, id} with type one of "
     + ", ".join(AUTOMATION_TYPES)
-    + " and id from get_available_automations, e.g. {type: 'actions', id: 'light.turn_on'}.",
+    + " and id from get_available_automations, e.g. {type: 'actions', id: 'light.turn_on'}."
+    " An omitted flag is false; advanced fields are omitted unless include_advanced is true.",
     {
         "refs": _prop("array", "List of {type, id} refs."),
         "include_advanced": _prop("boolean", "Include advanced fields."),

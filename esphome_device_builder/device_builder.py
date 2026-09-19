@@ -916,10 +916,14 @@ class DeviceBuilder:
         # latency cost on shutdown.
         init_ws_app(app)
 
-        # WebSocket API, legacy REST endpoints (HA backward compat) and the MCP
-        # endpoint, all registered before the SPA catch-all.
-        for create_routes in (create_ws_routes, create_legacy_routes, create_mcp_routes):
-            app.router.add_routes(create_routes())
+        # WebSocket API
+        app.router.add_routes(create_ws_routes())
+
+        # Legacy REST endpoints (HA backward compat)
+        app.router.add_routes(create_legacy_routes())
+
+        # MCP endpoint. Registered before the SPA catch-all so GET isn't swallowed.
+        app.router.add_routes(create_mcp_routes())
 
         # HTTP firmware-artifact download. Registered before the SPA catch-all
         # so it isn't swallowed; gated by auth_middleware (or the supervisor on

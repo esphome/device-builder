@@ -246,17 +246,20 @@ async def test_search_components_projects_index_rows(
         category=ComponentCategory.SENSOR,
         docs_url="https://esphome.io/components/sensor/dht",
     )
-    handler = AsyncMock(return_value=PagedComponentsResponse(components=[entry]))
+    handler = AsyncMock(return_value=PagedComponentsResponse(components=[entry], total=7))
     mcp_db.command_handlers["components/get_components"] = handler
-    assert await mcp_call_json(mcp_client, "search_components", {"query": "dht"}) == [
-        {
-            "id": "sensor.dht",
-            "name": "DHT",
-            "description": "Temperature",
-            "category": "sensor",
-            "docs_url": "https://esphome.io/components/sensor/dht",
-        }
-    ]
+    assert await mcp_call_json(mcp_client, "search_components", {"query": "dht"}) == {
+        "total": 7,
+        "components": [
+            {
+                "id": "sensor.dht",
+                "name": "DHT",
+                "description": "Temperature",
+                "category": "sensor",
+                "docs_url": "https://esphome.io/components/sensor/dht",
+            }
+        ],
+    }
     assert handler.await_args.kwargs["limit"] == 20
 
 
@@ -332,7 +335,9 @@ async def test_search_boards_projects_index_rows(
 ) -> None:
     handler = AsyncMock(side_effect=session_board_catalog.get_boards)
     mcp_db.command_handlers["boards/get_boards"] = handler
-    rows = await mcp_call_json(mcp_client, "search_boards", {"query": "esp32dev", "limit": 100})
+    data = await mcp_call_json(mcp_client, "search_boards", {"query": "esp32dev", "limit": 100})
+    rows = data["boards"]
+    assert data["total"] == len(rows)
     assert any(row["id"] == "esp32dev" for row in rows)
     assert all({"id", "name"} <= set(row) for row in rows)
     assert handler.await_args.kwargs["limit"] == 100
