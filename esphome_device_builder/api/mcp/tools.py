@@ -344,7 +344,11 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     upload = next((j for j in siblings if j.depends_on == job.job_id), None)
     if upload is None and not job.is_deferred_install:
         _LOGGER.error("MCP install chain for %s has no upload job", job.job_id)
-        raise McpToolError(INTERNAL_ERROR, f"Install chain for {job.job_id} has no upload job")
+        msg = (
+            f"Compile job {job.job_id} is queued but its install chain has no upload job; "
+            "poll it with get_job instead of retrying install"
+        )
+        raise McpToolError(INTERNAL_ERROR, msg)
     return {
         "job_id": job.job_id,
         "status": job.status,

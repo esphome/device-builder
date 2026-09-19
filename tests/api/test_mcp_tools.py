@@ -384,7 +384,10 @@ async def test_install_without_upload_and_not_deferred_is_an_error(
     mcp_db.command_handlers["firmware/get_jobs"] = AsyncMock(return_value=[compile_job])
     is_error, text = await mcp_call(mcp_client, "install", {"configuration": "kitchen.yaml"})
     assert is_error
-    assert text == "internal_error: Install chain for c1 has no upload job"
+    assert text == (
+        "internal_error: Compile job c1 is queued but its install chain has no upload job; "
+        "poll it with get_job instead of retrying install"
+    )
 
 
 async def test_get_job_unknown_is_not_found(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
