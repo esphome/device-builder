@@ -59,6 +59,19 @@ VALID_FILE_CONTENT = (
 )
 
 
+async def test_create_device_refuses_the_secrets_filename(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="secrets", file_content=VALID_FILE_CONTENT)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "secrets.yaml").exists()
+
+
 async def test_create_device_translates_file_exists_to_command_error(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
