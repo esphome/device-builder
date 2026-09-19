@@ -76,7 +76,12 @@ from ._parsing import (
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
-from ._resolve import ESPHOME_CONFIG_TIMEOUT, EsphomeConfigUnavailableError, run_esphome_config
+from ._resolve import (
+    ESPHOME_CONFIG_TIMEOUT,
+    EsphomeConfigUnavailableError,
+    config_semaphore,
+    run_esphome_config,
+)
 
 __all__ = [
     "CAPTIVE_PORTAL_PLATFORMS",
@@ -99,6 +104,7 @@ __all__ = [
     "build_mqtt_extract",
     "compute_has_pending_changes",
     "config_has_top_level_block",
+    "config_semaphore",
     "configuration_filename",
     "configuration_stem",
     "content_fingerprint_is_current",

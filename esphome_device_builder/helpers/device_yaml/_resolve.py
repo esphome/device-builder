@@ -26,7 +26,7 @@ ESPHOME_CONFIG_TIMEOUT = 60.0
 # The process runs a single event loop for its lifetime, so one module-level
 # semaphore gates every call site.
 _MAX_CONCURRENT_CONFIG = 3
-_config_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_CONFIG)
+config_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_CONFIG)
 
 
 class EsphomeConfigUnavailableError(Exception):
@@ -76,7 +76,7 @@ async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[
     cmd = [*esphome_cmd, "--dashboard", "config", str(config_path), "--show-secrets"]
     # Hold the gate only across the subprocess (where the RAM lives); the
     # parse below runs once it's released.
-    async with _config_semaphore:
+    async with config_semaphore:
         try:
             proc = await create_subprocess_exec(
                 *cmd,

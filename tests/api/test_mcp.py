@@ -103,7 +103,12 @@ async def _call_json(client: Any, name: str, arguments: dict[str, Any] | None = 
 def _validate_stub(
     frames: list[tuple[str, Any]], *, sleep: float = 0, swallow_cancel: bool = False
 ) -> Any:
-    """Build a ``devices/validate`` stand-in that emits *frames*, then optionally stalls."""
+    """
+    Build a ``devices/validate`` stand-in that emits *frames*, then optionally stalls.
+
+    A stalled stub re-raises the cancel like ``stream_subprocess`` under
+    ``asyncio.timeout``, or swallows it when ``swallow_cancel`` is set.
+    """
 
     async def validate(*, client: Any, message_id: str, configuration: str) -> None:
         for event, data in frames:
@@ -286,7 +291,17 @@ async def test_missing_command_is_unavailable(client: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["secrets.yaml", "SECRETS.YAML", "./Secrets.yaml", "secrets.yml"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "secrets.yaml",
+        "SECRETS.YAML",
+        "./Secrets.yaml",
+        "secrets.yml",
+        "secrets.yaml.",
+        "secrets.yaml ",
+    ],
+)
 def test_refuse_secrets_matches_every_spelling(name: str) -> None:
     with pytest.raises(CommandError) as excinfo:
         _refuse_secrets(name)
@@ -417,6 +432,12 @@ async def test_validate_config_reports_truncation(client: Any, db: _StubDeviceBu
     assert data["truncated"] is True
     assert data["output"][0] == "10"
     assert len(data["output"]) == 50
+
+    more = await _call_json(
+        client, "validate_config", {"configuration": "kitchen.yaml", "tail_lines": 5000}
+    )
+    assert more["truncated"] is False
+    assert len(more["output"]) == 60
 
 
 # ---------------------------------------------------------------------------

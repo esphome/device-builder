@@ -140,7 +140,7 @@ async def test_caps_concurrent_subprocesses(monkeypatch: pytest.MonkeyPatch) -> 
     # A contended ``asyncio.Semaphore`` binds to its loop; give this test its
     # own gate so it doesn't bind the shared module-level one to a test loop.
     monkeypatch.setattr(
-        resolve_mod, "_config_semaphore", asyncio.Semaphore(resolve_mod._MAX_CONCURRENT_CONFIG)
+        resolve_mod, "config_semaphore", asyncio.Semaphore(resolve_mod._MAX_CONCURRENT_CONFIG)
     )
     gate = asyncio.Event()
     active = 0

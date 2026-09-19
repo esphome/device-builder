@@ -553,7 +553,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 | `get_config {configuration}` | `devices/get_config` | Returns the YAML text |
 | `update_config {configuration, content}` | `devices/update_config` | |
 | `add_component {configuration, component_id, fields?}` | `devices/add_component` | |
-| `validate_config {configuration}` | `devices/validate` | `{success, exit_code, output, truncated}` (the last 50 lines; `truncated` says earlier lines were dropped), or `{success: false, timed_out: true, output, truncated}` after the one minute bound; a run that ends without a result frame is an `internal_error` |
+| `validate_config {configuration, tail_lines?}` | `devices/validate` | `{success, exit_code, output, truncated}` (the last `tail_lines` lines, default 50, max 1000; `truncated` says earlier lines were dropped), or `{success: false, timed_out: true, output, truncated}` after the one minute bound; a run that ends without a result frame is an `internal_error` |
 | `compile {configuration}` | `firmware/compile` | `{job_id, status}` |
 | `install {configuration, port?}` | `firmware/install` | `{job_id, status, upload_job_id, deferred}`; `upload_job_id` is null only when `deferred` (an offline device whose update was queued), otherwise a missing upload job is an `internal_error` |
 | `get_job {job_id, tail_lines?}` | `firmware/get_job` | Job fields plus `queued_update_armed` and the last output lines (ANSI stripped, `tail_lines` capped at 1000); terminal jobs read the output sidecar |

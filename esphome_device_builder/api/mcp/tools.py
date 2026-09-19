@@ -69,6 +69,9 @@ _CONFIGURATION = _prop(
 )
 _COMPONENT_ID = _prop("string", "Catalog id, e.g. 'sensor.dht' or 'wifi'.")
 _JOB_ID = _prop("string", "Firmware job id returned by compile or install.")
+_TAIL_LINES = _prop(
+    "integer", f"Output lines to keep from the end (default 50, max {_MAX_TAIL_LINES})."
+)
 
 
 class _CollectingClient:
@@ -103,7 +106,10 @@ async def _call(
 
 def _refuse_secrets(configuration: Any) -> None:
     """Refuse the secrets file in any spelling: its contents never reach a model."""
-    if isinstance(configuration, str) and Path(configuration).name.lower() in SECRETS_FILES:
+    if (
+        isinstance(configuration, str)
+        and Path(configuration).name.rstrip(". ").lower() in SECRETS_FILES
+    ):
         raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
 
 
@@ -127,6 +133,12 @@ def _prune(value: Any, *, include_advanced: bool = False) -> Any:
 
 def _is_empty(value: Any) -> bool:
     return value is None or value is False or (isinstance(value, (str, list, dict)) and not value)
+
+
+def _tail_lines(args: dict[str, Any]) -> int:
+    """Return the clamped ``tail_lines`` argument."""
+    tail_lines: int = args.get("tail_lines", _DEFAULT_TAIL_LINES)
+    return max(0, min(tail_lines, _MAX_TAIL_LINES))
 
 
 def _strip_lines(lines: list[str]) -> list[str]:
@@ -195,19 +207,20 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 
 @_tool(
     "validate_config",
-    "Validate a device config with esphome and return the last 50 output lines "
-    "(truncated says whether earlier lines were dropped). Bounded to one minute; a timed "
-    "out run reports timed_out.",
-    {"configuration": _CONFIGURATION},
+    "Validate a device config with esphome and return the last output lines (truncated "
+    "says whether earlier lines were dropped). Bounded to one minute; a timed out run "
+    "reports timed_out.",
+    {"configuration": _CONFIGURATION, "tail_lines": _TAIL_LINES},
     ("configuration",),
 )
 async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    client = _CollectingClient()
-    # The stream helper swallows the cancel and returns, so the deadline is read explicitly.
+    client = _CollectingClient(tail=_tail_lines(args))
+    # Under asyncio.timeout the stream helper re-raises the cancel (TimeoutError below);
+    # a handler that swallows it instead still reports through the expired deadline.
     deadline = asyncio.timeout(ESPHOME_CONFIG_TIMEOUT)
     try:
         async with deadline:
-            await _call(db, "devices/validate", client=client, **args)
+            await _call(db, "devices/validate", client=client, configuration=args["configuration"])
     except TimeoutError:
         pass
     output = _strip_lines(list(client.output))
@@ -267,19 +280,14 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
 @_tool(
     "get_job",
     "Get a firmware job's status, progress, exit code and the last output lines.",
-    {
-        "job_id": _JOB_ID,
-        "tail_lines": _prop(
-            "integer", f"Output lines to return from the end (default 50, max {_MAX_TAIL_LINES})."
-        ),
-    },
+    {"job_id": _JOB_ID, "tail_lines": _TAIL_LINES},
     ("job_id",),
 )
 async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
-    tail_lines = min(args.get("tail_lines", _DEFAULT_TAIL_LINES), _MAX_TAIL_LINES)
+    tail_lines = _tail_lines(args)
     output = (await initial_snapshot(job, job.job_id))[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
