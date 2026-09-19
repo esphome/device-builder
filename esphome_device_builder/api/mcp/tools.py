@@ -247,9 +247,9 @@ async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> list[di
 @_tool(
     "get_component",
     "Get a component's documentation: description, docs URL and every config field with "
-    "type, description, default, required flag and allowed values. Omitted booleans are "
-    "false and omitted values are empty. Advanced fields are omitted unless "
-    "include_advanced is true.",
+    "type, description, required flag and allowed values. default_value is what ESPHome "
+    "uses when the key is absent; an omitted flag is false. Advanced fields are omitted "
+    "unless include_advanced is true.",
     {
         "component_id": _COMPONENT_ID,
         "platform": _prop(
@@ -470,7 +470,8 @@ def _prune(value: Any, *, include_advanced: bool = False) -> Any:
 
 
 def _is_empty(value: Any) -> bool:
-    return value is None or value is False or (isinstance(value, (str, list, dict)) and not value)
+    # Not ``False``: a default of false is a fact the model needs.
+    return value is None or (isinstance(value, (str, list, dict)) and not value)
 
 
 def _bounded(args: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:

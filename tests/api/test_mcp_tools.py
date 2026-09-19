@@ -284,6 +284,17 @@ async def test_get_component_include_advanced(
     assert len(json.dumps(full)) > len(json.dumps(slim))
 
 
+async def test_get_component_keeps_a_default_of_false(
+    mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
+) -> None:
+    body = await mcp_call_json(
+        mcp_client, "get_component", {"component_id": "wifi", "include_advanced": True}
+    )
+    fast_connect = next(e for e in body["config_entries"] if e["key"] == "fast_connect")
+    assert fast_connect["default_value"] is False
+    assert "required" not in fast_connect
+
+
 async def test_get_component_unknown_is_not_found(
     mcp_client: Any, mcp_catalog_db: McpStubDeviceBuilder
 ) -> None:
