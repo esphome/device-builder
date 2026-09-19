@@ -12,12 +12,9 @@ from pytest_aiohttp.plugin import AiohttpClient
 from esphome_device_builder.mcp import McpServer, ToolRegistry
 from esphome_device_builder.mcp.transport import (
     DEFAULT_PROTOCOL_VERSION,
-    INVALID_PARAMS,
-    INVALID_REQUEST,
-    METHOD_NOT_FOUND,
-    PARSE_ERROR,
     PROTOCOL_VERSION_HEADER,
     SUPPORTED_PROTOCOL_VERSIONS,
+    JsonRpcErrorCode,
 )
 
 from ..conftest import rpc_post
@@ -71,7 +68,7 @@ async def test_parse_error(client: Any) -> None:
     assert await resp.json() == {
         "jsonrpc": "2.0",
         "id": None,
-        "error": {"code": PARSE_ERROR, "message": "Parse error"},
+        "error": {"code": JsonRpcErrorCode.PARSE_ERROR, "message": "Parse error"},
     }
 
 
@@ -93,7 +90,7 @@ async def test_invalid_request_answers_with_null_id(client: Any, body: Any) -> N
     assert await resp.json() == {
         "jsonrpc": "2.0",
         "id": None,
-        "error": {"code": INVALID_REQUEST, "message": "Invalid request"},
+        "error": {"code": JsonRpcErrorCode.INVALID_REQUEST, "message": "Invalid request"},
     }
 
 
@@ -115,7 +112,7 @@ async def test_ping_echoes_id(client: Any, msg_id: Any) -> None:
 async def test_unknown_method(client: Any) -> None:
     reply = await _rpc(client, method="server/discover")
     assert reply["error"] == {
-        "code": METHOD_NOT_FOUND,
+        "code": JsonRpcErrorCode.METHOD_NOT_FOUND,
         "message": "Method not found: server/discover",
     }
 
@@ -124,7 +121,7 @@ async def test_unknown_method(client: Any) -> None:
 async def test_params_must_be_an_object_when_present(client: Any, params: Any) -> None:
     body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": params}
     resp = await client.post(_PATH, json=body)
-    assert (await resp.json())["error"]["code"] == INVALID_PARAMS
+    assert (await resp.json())["error"]["code"] == JsonRpcErrorCode.INVALID_PARAMS
 
 
 @pytest.mark.parametrize("version", sorted(SUPPORTED_PROTOCOL_VERSIONS))
@@ -155,7 +152,7 @@ async def test_initialize_counter_offers_the_newest_supported_version(
 )
 async def test_initialize_rejects_malformed_params(client: Any, params: dict[str, Any]) -> None:
     reply = await _rpc(client, method="initialize", params=params)
-    assert reply["error"]["code"] == INVALID_PARAMS
+    assert reply["error"]["code"] == JsonRpcErrorCode.INVALID_PARAMS
 
 
 async def test_initialize_advertises_tools_and_server_info(client: Any) -> None:
@@ -204,7 +201,7 @@ async def test_tools_call_passes_context_and_arguments(client: Any) -> None:
 async def test_tools_call_invalid_params(client: Any, params: dict[str, Any]) -> None:
     assert (await _rpc(client, method="tools/call", params=params))["error"][
         "code"
-    ] == INVALID_PARAMS
+    ] == JsonRpcErrorCode.INVALID_PARAMS
 
 
 async def test_tools_call_arguments_default_to_empty_when_omitted(client: Any) -> None:
