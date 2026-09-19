@@ -125,8 +125,10 @@ async def follow_jobs(
     )
 
 
-async def initial_snapshot(job: FirmwareJob, job_id: str) -> list[str]:
+async def initial_snapshot(job: FirmwareJob, job_id: str) -> list[str] | None:
     """Output lines to replay before tailing live: RAM while present, else the sidecar.
+
+    ``None`` means a terminal job's sidecar exists but could not be read.
 
     A live job's RAM buffer is frozen synchronously so the listener
     ``follow_job`` attaches next can't slip lines between freeze and
@@ -164,7 +166,7 @@ async def _stream_job(
     """Replay history then tail live output for one job until it ends or is cancelled."""
     # Capture snapshot before ``stream_events`` attaches listeners.
     is_terminal = job.is_terminal
-    snapshot = await initial_snapshot(job, job_id)
+    snapshot = await initial_snapshot(job, job_id) or []
     terminal_result = _terminal_result_payload(job) if is_terminal else None
 
     async def _send_initial(controls: StreamControls) -> None:
