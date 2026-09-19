@@ -26,9 +26,17 @@ def test_delete_range() -> None:
     assert apply_yaml_diff(_TEXT, _diff(1, 2, "")) == "c: 3\n"
 
 
-@pytest.mark.parametrize(("from_line", "to_line"), [(0, 1), (5, 4), (1, 4), (3, 1)])
-def test_out_of_range_splice_raises(from_line: int, to_line: int) -> None:
-    with pytest.raises(ValueError, match="outside 3 lines"):
+@pytest.mark.parametrize(
+    ("from_line", "to_line", "problem"),
+    [
+        (0, 1, "outside 3 lines"),
+        (5, 4, "outside 3 lines"),
+        (1, 4, "outside 3 lines"),
+        (3, 1, "inverted"),
+    ],
+)
+def test_malformed_splice_raises(from_line: int, to_line: int, problem: str) -> None:
+    with pytest.raises(ValueError, match=problem):
         apply_yaml_diff(_TEXT, _diff(from_line, to_line, ""))
 
 
@@ -48,6 +56,7 @@ def test_form_feed_inside_a_scalar_is_not_a_boundary_to_repair() -> None:
 
 def test_append_after_an_unterminated_last_line_keeps_the_boundary() -> None:
     assert apply_yaml_diff("a: 1", _diff(2, 1, "b: 2\n")) == "a: 1\nb: 2\n"
+    assert apply_yaml_diff("a: 1\r\nb: 2", _diff(3, 2, "c: 3\r\n")) == "a: 1\r\nb: 2\r\nc: 3\r\n"
 
 
 @pytest.mark.parametrize("boundary", ["\n", "\r", "\r\n", "\x0c", "\x85", "\u2028"])

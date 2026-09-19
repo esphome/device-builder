@@ -13,12 +13,14 @@ def apply_yaml_diff(text: str, diff: YamlDiff) -> str:
     # splitlines, not split("\n"): the diff's line numbers come from splitlines.
     lines = text.splitlines(keepends=True)
     from_line, to_line = diff.fromLine, diff.toLine
-    if not 1 <= from_line <= to_line + 1 <= len(lines) + 1:
+    if to_line < from_line - 1:
+        raise ValueError(f"YamlDiff {from_line}..{to_line} is inverted")
+    if from_line < 1 or to_line > len(lines):
         raise ValueError(f"YamlDiff {from_line}..{to_line} is outside {len(lines)} lines")
     head = "".join(lines[: from_line - 1])
     # Only the text's last line can lack a terminator; an append after it starts a new line.
     if diff.replacement and head and not _ends_line(head[-1]):
-        head += "\n"
+        head += "\r\n" if "\r\n" in head else "\n"
     return head + diff.replacement + "".join(lines[to_line:])
 
 
