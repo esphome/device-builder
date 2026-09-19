@@ -63,12 +63,18 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
         properties: dict[str, dict[str, Any]] | None = None,
         required: tuple[str, ...] = (),
     ) -> Callable[[ToolHandler[ContextT]], ToolHandler[ContextT]]:
-        """Register the decorated coroutine as tool *name*; every property type must be known."""
+        """Register the decorated coroutine as tool *name*; the declaration is checked here."""
         properties = properties or {}
+        if name in self:
+            msg = f"Tool {name} is already registered"
+            raise ValueError(msg)
         for key, prop in properties.items():
             if prop.get("type") not in _JSON_TYPES:
                 msg = f"Tool {name}: property {key} needs a type from {sorted(_JSON_TYPES)}"
                 raise ValueError(msg)
+        if missing := set(required) - set(properties):
+            msg = f"Tool {name}: required names not in properties: {sorted(missing)}"
+            raise ValueError(msg)
         schema = {
             "type": "object",
             "properties": properties,
@@ -104,7 +110,7 @@ class ToolRegistry[ContextT](dict[str, McpTool[ContextT]]):
 
 
 def validate_args(schema: dict[str, Any], arguments: dict[str, Any]) -> None:
-    """Check *arguments* against the top level of a tool's JSON Schema."""
+    """Enforce a tool schema's ``required`` names and top-level ``type``s; nothing deeper."""
     properties: dict[str, Any] = schema["properties"]
     for key in schema["required"]:
         if key not in arguments:

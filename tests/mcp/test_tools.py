@@ -127,3 +127,16 @@ async def test_call_shapes_results_and_errors(
     result = await tools.call(None, name, {})
     assert (result["isError"], result["content"][0]["text"]) == expected
     assert result["content"][0]["type"] == "text"
+
+
+def test_registration_rejects_unknown_required_names_and_duplicates() -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    with pytest.raises(ValueError, match=r"required names not in properties: \['b'\]"):
+        tools.tool("t", "desc", {"a": {"type": "string"}}, ("a", "b"))
+
+    @tools.tool("t", "desc")
+    async def _first(_context: None, _args: dict[str, Any]) -> str:
+        return "one"
+
+    with pytest.raises(ValueError, match="already registered"):
+        tools.tool("t", "desc")
