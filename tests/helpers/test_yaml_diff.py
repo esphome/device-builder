@@ -45,17 +45,6 @@ def test_append_after_the_last_line() -> None:
     assert apply_yaml_diff(_TEXT, _diff(4, 3, "d: 4\n")) == "a: 1\nb: 2\nc: 3\nd: 4\n"
 
 
-@pytest.mark.parametrize(("from_line", "to_line"), [(0, 1), (5, 4), (1, 4), (3, 1)])
-def test_out_of_range_splice_raises(from_line: int, to_line: int) -> None:
-    with pytest.raises(ValueError, match="outside 3 lines"):
-        apply_yaml_diff(_TEXT, {"fromLine": from_line, "toLine": to_line, "replacement": ""})
-
-
-def test_append_after_the_last_line() -> None:
-    diff = {"fromLine": 4, "toLine": 3, "replacement": "d: 4\n"}
-    assert apply_yaml_diff(_TEXT, diff) == "a: 1\nb: 2\nc: 3\nd: 4\n"
-
-
 def test_counts_lines_like_the_producer() -> None:
     text = "a: 'x\x0cy'\nb: 2\nc: 3\n"
     assert apply_yaml_diff(text, _diff(3, 3, "")) == "a: 'x\x0cy'\nc: 3\n"
@@ -74,12 +63,6 @@ def test_a_splice_reaching_an_unterminated_last_line_leaves_it_unterminated() ->
     assert apply_yaml_diff("a: 1\nb: 2", _diff(2, 2, "c: 3\n")) == "a: 1\nc: 3"
     assert apply_yaml_diff("a: 1\nb: 2", _diff(2, 2, "")) == "a: 1"
     assert apply_yaml_diff("a: 1\r\nb: 2", _diff(3, 2, "c: 3\r\n")) == "a: 1\r\nb: 2\r\nc: 3"
-
-
-@pytest.mark.parametrize("boundary", ["\n", "\r", "\r\n", "\x0c", "\x85", "\u2028"])
-def test_append_after_any_splitlines_boundary_adds_nothing(boundary: str) -> None:
-    text = f"a: 1{boundary}"
-    assert apply_yaml_diff(text, _diff(2, 1, "b: 2\n")) == f"{text}b: 2\n"
 
 
 @pytest.mark.parametrize("boundary", ["\n", "\r", "\r\n", "\x0c", "\x85", "\u2028"])
