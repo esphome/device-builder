@@ -48,4 +48,7 @@ def test_form_feed_inside_a_scalar_is_not_a_boundary_to_repair() -> None:
 
 def test_append_after_an_unterminated_last_line_keeps_the_boundary() -> None:
     assert apply_yaml_diff("a: 1", _diff(2, 1, "b: 2\n")) == "a: 1\nb: 2\n"
+
+
+def test_deleting_the_only_line_leaves_nothing() -> None:
     assert apply_yaml_diff("a: 1", _diff(1, 1, "")) == ""

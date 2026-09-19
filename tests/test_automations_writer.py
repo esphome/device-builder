@@ -65,7 +65,9 @@ def _load(name: str) -> str:
 
 
 def _apply_diff(text: str, diff: YamlDiff) -> str:
-    return apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
+    result = apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
+    assert apply_yaml_diff(text, diff) == result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +118,6 @@ def test_delete_device_on_boot_drops_the_block() -> None:
     )
     assert "on_boot:" not in new_text
     assert diff.replacement == ""
-    assert apply_yaml_diff(text, diff) == new_text
 
 
 _LIST_ON_BOOT = (
