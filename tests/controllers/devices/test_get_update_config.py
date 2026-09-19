@@ -224,6 +224,16 @@ async def test_rewrite_yaml_of_a_missing_config_is_not_found(
     assert not (tmp_path / "ghost.yaml").exists()
 
 
+def test_every_spelling_of_a_path_shares_one_write_lock(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    lock = controller._yaml_write_lock("kitchen.yaml")
+    assert controller._yaml_write_lock("foo/../kitchen.yaml") is lock
+    assert controller._yaml_write_lock("./kitchen.yaml") is lock
+    assert controller._yaml_write_lock("porch.yaml") is not lock
+
+
 async def test_update_config_overwrites_existing_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

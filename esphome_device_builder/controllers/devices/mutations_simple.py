@@ -351,7 +351,7 @@ async def _config_only_rename(
     async with AsyncExitStack() as locks:
         # Both filenames, in a stable order, until the metadata has moved: a rename of the
         # new name must not run between the file landing and its metadata following it.
-        for name in sorted({configuration, new_filename}):
+        for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
         await migrate_metadata(controller, configuration, new_filename)
