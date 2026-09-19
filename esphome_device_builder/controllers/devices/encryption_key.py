@@ -23,6 +23,7 @@ from ...helpers.yaml import (
 )
 from ...models import ErrorCode
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
+from .helpers import persist_if_unchanged
 from .mutations_simple import _read_device_yaml_or_raise
 from .resolve import resolve_config_subprocess
 
@@ -68,6 +69,8 @@ async def set_encryption_key(
             # must not unwind the loop: the key-retention policy and
             # the other devices' outcomes still apply.
             outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
+            if err.code is ErrorCode.PRECONDITION_FAILED:
+                why = f"{why}; {_KEPT_FOR_LATER}"
         outcomes.add(outcome)
         reason = reason or why
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
@@ -157,8 +160,12 @@ async def _apply_to_device(
             f"unavailable); {_KEPT_FOR_LATER}"
         )
         return KeyHandoffResult.NOT_WRITABLE, reason
-    await controller._persist_yaml_mutation(
-        configuration, new_content, message=f"Update API encryption key in {configuration}"
+    await persist_if_unchanged(
+        controller,
+        configuration,
+        new_content,
+        expected=content,
+        message=f"Update API encryption key in {configuration}",
     )
     return KeyHandoffResult.UPDATED, ""
 

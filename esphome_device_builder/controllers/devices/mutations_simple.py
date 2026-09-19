@@ -29,7 +29,7 @@ from ..config import set_device_labels
 from ..firmware.rename_flow import RENAME_REMEDY
 from . import archive
 from .firmware_sync import migrate_metadata_then_scan
-from .helpers import raise_device_name_exists, raise_device_not_found
+from .helpers import persist_if_unchanged, raise_device_name_exists, raise_device_not_found
 from .mutations_create import save_device_storage
 
 if TYPE_CHECKING:
@@ -445,7 +445,11 @@ async def edit_friendly_name(
     await controller._validate_rewritten_yaml_or_raise(
         configuration, new_content, action="update friendly name"
     )
-    await controller._persist_yaml_mutation(
-        configuration, new_content, message=f"Update friendly name in {configuration}"
+    await persist_if_unchanged(
+        controller,
+        configuration,
+        new_content,
+        expected=content,
+        message=f"Update friendly name in {configuration}",
     )
     return {"configuration": configuration, "rewritten": True}

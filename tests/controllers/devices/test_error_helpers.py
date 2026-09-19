@@ -14,6 +14,7 @@ from esphome_device_builder.controllers.devices.helpers import (
     raise_device_not_found,
     require_catalog,
     require_file_exists,
+    require_unchanged,
     scanned_component_entries,
     write_new_file_exclusive,
 )
@@ -158,3 +159,14 @@ async def test_write_new_file_exclusive_reraises_when_on_exists_returns(tmp_path
 
     assert len(seen) == 1
     assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_require_unchanged_passes_the_text_it_started_from() -> None:
+    require_unchanged("a: 1\n", "a: 1\n", "k.yaml")
+
+
+def test_require_unchanged_refuses_a_text_that_moved_on() -> None:
+    with pytest.raises(CommandError) as excinfo:
+        require_unchanged("a: 9\n", "a: 1\n", "k.yaml")
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "k.yaml changed" in excinfo.value.message
