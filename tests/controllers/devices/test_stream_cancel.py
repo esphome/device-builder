@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -747,6 +748,7 @@ async def test_stream_subprocess_waits_for_a_slot_then_runs() -> None:
     )
     await asyncio.sleep(0.2)
     assert not waiter.done()
+    assert ("s-2", "output", "Waiting for a free slot…") in events
 
     assert client.cancel_stream("s-1") is True
     await asyncio.gather(holder, return_exceptions=True)
@@ -840,6 +842,7 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
     reaped = asyncio.Event()
 
     class _Proc:
+        pid = 4242
         returncode: int | None = None
         stdout = object()
 
@@ -872,12 +875,20 @@ async def test_cancel_during_the_reap_propagates_after_a_swallowed_cancel(
         lambda proc, win_job=None: killed.append(proc),
     )
 
+    closed: list[int] = []
+    monkeypatch.setattr(
+        logs.WindowsJobObject,
+        "create_for_pid",
+        lambda pid: SimpleNamespace(terminate=lambda: False, close=lambda: closed.append(pid)),
+    )
+
     task = asyncio.create_task(ctrl._stream_subprocess(["x"], client, "s-1"))
     await asyncio.sleep(0.05)
     assert not task.done()  # the swallowed cancel left the task reaping
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert closed == [proc.pid]  # the job handle is released even when the reap is cancelled
     reaped.set()
     await asyncio.sleep(0)
     assert proc.returncode == -9

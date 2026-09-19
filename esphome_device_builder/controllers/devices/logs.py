@@ -98,6 +98,8 @@ async def stream_subprocess(
     # finds and cancels this task.
     with registered_stream(client, message_id):
         if slot is not None:
+            if slot.locked():
+                await client.send_event(message_id, StreamEvent.OUTPUT, "Waiting for a free slot…")
             try:
                 async with asyncio.timeout(slot_timeout):
                     await slot.acquire()
@@ -181,13 +183,15 @@ async def _run_streaming(
             _LOGGER.warning("Stream %s failed with its child alive; killing it", message_id)
         raise
     finally:
-        if proc is not None and proc.returncode is None:
-            # Synchronous kill before the only await; the shield keeps the
-            # reap running while a cancellation landing here propagates.
-            kill_subtree_quietly(proc, win_job=win_job)
-            await asyncio.shield(proc.wait())
-        if win_job is not None:
-            win_job.close()
+        try:
+            if proc is not None and proc.returncode is None:
+                # Synchronous kill before the only await; the shield keeps the
+                # reap running while a cancellation landing here propagates.
+                kill_subtree_quietly(proc, win_job=win_job)
+                await asyncio.shield(proc.wait())
+        finally:
+            if win_job is not None:
+                win_job.close()
 
 
 def _extend_idle_deadline(deadline: asyncio.Timeout, now: float, idle_timeout: float) -> None:
