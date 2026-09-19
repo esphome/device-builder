@@ -279,6 +279,22 @@ async def test_update_config_refuses_blank_secrets_without_allow_wipe(
     assert controller._scanner.calls == []
 
 
+async def test_update_config_names_the_matched_secrets_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "secrets.yml").write_text("wifi_password: hunter2\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yml", content="")
+    assert "from secrets.yml without" in excinfo.value.message
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yml", content="- not\n- a mapping\n")
+    assert "invalid secrets.yml: secrets.yml must be a top-level mapping" in excinfo.value.message
+
+
 @pytest.mark.parametrize("content", ["", "   \n\n"])
 async def test_update_config_wipes_secrets_with_allow_wipe(
     tmp_path: Path, make_controller: MakeControllerFactory, content: str

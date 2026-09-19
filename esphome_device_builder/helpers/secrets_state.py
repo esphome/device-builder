@@ -132,12 +132,12 @@ def validate_secrets_content(content: str, path: Path) -> dict:
         # A self-referential ``!secret`` inside secrets.yaml recurses in the
         # loader (it crashes the real reader too); reject instead of 500ing.
         # Nothing derived from the file: the loader's message can quote a secret.
-        _LOGGER.warning("secrets.yaml could not be parsed by the esphome loader; rejecting")
+        _LOGGER.warning("%s could not be parsed by the esphome loader; rejecting", path.name)
         detail = trim_marks(f"could not be parsed: {err}")
-        raise SecretsContentError(f"secrets.yaml {detail}", problem=detail) from err
+        raise SecretsContentError(f"{path.name} {detail}", problem=detail) from err
     if data is not None and not isinstance(data, dict):
         problem = "must be a top-level mapping of name: value entries"
-        raise SecretsContentError(f"secrets.yaml {problem}", problem=problem)
+        raise SecretsContentError(f"{path.name} {problem}", problem=problem)
     return data or {}
 
 
