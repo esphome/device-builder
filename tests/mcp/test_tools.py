@@ -112,6 +112,9 @@ def tools() -> ToolRegistry[None]:
     return registry
 
 
+_UNSERIALISABLE = "Tool weird ran but its result could not be serialised; do not retry"
+
+
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
@@ -120,7 +123,7 @@ def tools() -> ToolRegistry[None]:
         pytest.param("fail", (True, "not_found: gone"), id="tool_error"),
         pytest.param("busy", (True, "busy: try later"), id="translated"),
         pytest.param("crash", (True, f"{INTERNAL_ERROR}: Tool failed: crash"), id="untranslated"),
-        pytest.param("weird", (True, f"{INTERNAL_ERROR}: Tool failed: weird"), id="unserialisable"),
+        pytest.param("weird", (True, f"{INTERNAL_ERROR}: {_UNSERIALISABLE}"), id="unserialisable"),
     ],
 )
 async def test_call_shapes_results_and_errors(
