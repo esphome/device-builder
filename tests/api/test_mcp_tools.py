@@ -224,7 +224,7 @@ async def test_validate_config_reports_truncation(
     assert len(data["output"]) == 50
 
     more = await mcp_call_json(
-        mcp_client, "validate_config", {"configuration": "kitchen.yaml", "tail_lines": 5000}
+        mcp_client, "validate_config", {"configuration": "kitchen.yaml", "tail_lines": 1000}
     )
     assert more["truncated"] is False
     assert len(more["output"]) == 60
@@ -331,7 +331,7 @@ async def test_search_boards_projects_index_rows(
 ) -> None:
     handler = AsyncMock(side_effect=session_board_catalog.get_boards)
     mcp_db.command_handlers["boards/get_boards"] = handler
-    rows = await mcp_call_json(mcp_client, "search_boards", {"query": "esp32dev", "limit": 5000})
+    rows = await mcp_call_json(mcp_client, "search_boards", {"query": "esp32dev", "limit": 100})
     assert any(row["id"] == "esp32dev" for row in rows)
     assert all({"id", "name"} <= set(row) for row in rows)
     assert handler.await_args.kwargs["limit"] == 100

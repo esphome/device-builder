@@ -24,10 +24,6 @@ if TYPE_CHECKING:
 _MESSAGE_ID = "mcp"
 _LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_TAIL_LINES = 50
-_MAX_TAIL_LINES = 1000
-_MAX_SEARCH_RESULTS = 100
-
 
 def _translate(err: Exception) -> McpToolError | None:
     """Map a user-facing WS command error onto ``McpToolError``; anything else is internal."""
@@ -69,9 +65,20 @@ _CONFIGURATION = _prop(
 )
 _COMPONENT_ID = _prop("string", "Catalog id, e.g. 'sensor.dht' or 'wifi'.")
 _JOB_ID = _prop("string", "Firmware job id returned by compile or install.")
-_TAIL_LINES = _prop(
-    "integer", f"Output lines to keep from the end (default 50, max {_MAX_TAIL_LINES})."
-)
+_TAIL_LINES = {
+    "type": "integer",
+    "description": "Output lines to keep from the end.",
+    "minimum": 0,
+    "maximum": 1000,
+    "default": 50,
+}
+_LIMIT = {
+    "type": "integer",
+    "description": "Max results.",
+    "minimum": 1,
+    "maximum": 100,
+    "default": 20,
+}
 
 
 @_tool(
@@ -142,7 +149,7 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    client = CollectingClient(tail=_tail_lines(args))
+    client = CollectingClient(tail=args["tail_lines"])
     await _call(db, "devices/validate", client=client, configuration=args["configuration"])
     if (result := client.result) is None:
         _LOGGER.error("MCP validate of %s produced no result frame", args["configuration"])
@@ -203,7 +210,7 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     ("job_id",),
 )
 async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    tail_lines = _tail_lines(args)
+    tail_lines = args["tail_lines"]
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
@@ -234,13 +241,14 @@ async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
     "Search the ESPHome component catalog by name or keyword.",
     {
         "query": _prop("string", "Search text."),
-        "limit": _prop("integer", f"Max results (default 20, max {_MAX_SEARCH_RESULTS})."),
+        "limit": _LIMIT,
     },
     ("query",),
 )
 async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
-    limit = _search_limit(args)
-    response = await _call(db, "components/get_components", query=args["query"], limit=limit)
+    response = await _call(
+        db, "components/get_components", query=args["query"], limit=args["limit"]
+    )
     return [_prune(entry.to_dict()) for entry in response.components]
 
 
@@ -292,13 +300,12 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
     "Search the board catalog by name or chip; returns board ids for create_device.",
     {
         "query": _prop("string", "Search text, e.g. 'esp32-c3' or 'nodemcu'."),
-        "limit": _prop("integer", f"Max results (default 20, max {_MAX_SEARCH_RESULTS})."),
+        "limit": _LIMIT,
     },
     ("query",),
 )
 async def _search_boards(db: DeviceBuilder, args: dict[str, Any]) -> list[dict[str, Any]]:
-    limit = _search_limit(args)
-    response = await _call(db, "boards/get_boards", query=args["query"], limit=limit)
+    response = await _call(db, "boards/get_boards", query=args["query"], limit=args["limit"])
     return [_prune(board.to_dict()) for board in response.boards]
 
 
@@ -472,19 +479,3 @@ def _prune(value: Any, *, include_advanced: bool = False) -> Any:
 def _is_empty(value: Any) -> bool:
     # Not ``False``: a default of false is a fact the model needs.
     return value is None or (isinstance(value, (str, list, dict)) and not value)
-
-
-def _bounded(args: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
-    """Return integer argument *key*: below *minimum* is invalid, above *maximum* clamps."""
-    value: int = args.get(key, default)
-    if value < minimum:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"{key} must be at least {minimum}")
-    return min(value, maximum)
-
-
-def _tail_lines(args: dict[str, Any]) -> int:
-    return _bounded(args, "tail_lines", _DEFAULT_TAIL_LINES, 0, _MAX_TAIL_LINES)
-
-
-def _search_limit(args: dict[str, Any]) -> int:
-    return _bounded(args, "limit", 20, 1, _MAX_SEARCH_RESULTS)

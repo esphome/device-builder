@@ -171,18 +171,41 @@ async def test_negative_bounds_are_invalid_args(
     assert text.startswith("invalid_args: ")
 
 
-async def test_tail_lines_and_limit_are_clamped(
+async def test_tail_lines_and_limit_accept_their_maximum_and_refuse_more(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
     mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
         return_value=make_job(output=[f"{i}\n" for i in range(1500)])
     )
-    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 5000})
+    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 1000})
     assert len(data["output"]) == 1000
     search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
     mcp_db.command_handlers["components/get_components"] = search
-    await mcp_call(mcp_client, "search_components", {"query": "x", "limit": 5000})
+    await mcp_call(mcp_client, "search_components", {"query": "x", "limit": 100})
     assert search.await_args.kwargs["limit"] == 100
+
+    assert await mcp_call(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 1001}) == (
+        True,
+        "invalid_args: Argument tail_lines must be at most 1000",
+    )
+    assert await mcp_call(mcp_client, "search_components", {"query": "x", "limit": 101}) == (
+        True,
+        "invalid_args: Argument limit must be at most 100",
+    )
+
+
+async def test_tail_lines_and_limit_default_from_the_schema(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
+        return_value=make_job(output=[f"{i}\n" for i in range(80)])
+    )
+    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
+    assert len(data["output"]) == 50
+    search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
+    mcp_db.command_handlers["components/get_components"] = search
+    await mcp_call(mcp_client, "search_components", {"query": "x"})
+    assert search.await_args.kwargs["limit"] == 20
 
 
 async def test_cancel_job(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
