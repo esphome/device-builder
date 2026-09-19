@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 
 from ...models.automations import YamlDiff
+from .diff import splice_lines
 from .scan import child_block_end, is_list_item_line
 
 #: Accepted spellings, canonical first — esphome's ``cv.rename_key``
@@ -189,12 +190,7 @@ def render_replacement(
     rendered_text: str,
 ) -> tuple[str, YamlDiff]:
     """Splice *rendered_text* over the lines spanning an existing item."""
-    new_lines = [*lines[:item_start], rendered_text, *lines[item_end:]]
-    return "".join(new_lines), YamlDiff(
-        fromLine=item_start + 1,
-        toLine=item_end,
-        replacement=rendered_text,
-    )
+    return splice_lines(lines, item_start, item_end, rendered_text)
 
 
 def render_create_block(yaml_text: str, rendered: str) -> tuple[str, str]:
@@ -222,13 +218,7 @@ def render_insert_actions_key(
     insert_at = api_end
     while insert_at > api_start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
-    new_lines = [*lines[:insert_at], block, *lines[insert_at:]]
-    new_text = "".join(new_lines)
-    return new_text, YamlDiff(
-        fromLine=insert_at + 1,
-        toLine=insert_at,
-        replacement=block,
-    )
+    return splice_lines(lines, insert_at, insert_at, block)
 
 
 def render_append(
@@ -238,15 +228,7 @@ def render_append(
     rendered: str,
 ) -> tuple[str, YamlDiff]:
     """Append a new list item at the pre-trimmed *actions_end* of ``api.actions:``."""
-    item_text = indent_for_list(rendered, item_indent)
-    insert_at = actions_end
-    new_lines = [*lines[:insert_at], item_text, *lines[insert_at:]]
-    new_text = "".join(new_lines)
-    return new_text, YamlDiff(
-        fromLine=insert_at + 1,
-        toLine=insert_at,
-        replacement=item_text,
-    )
+    return splice_lines(lines, actions_end, actions_end, indent_for_list(rendered, item_indent))
 
 
 def render_delete_item(
@@ -255,12 +237,7 @@ def render_delete_item(
     item_end: int,
 ) -> tuple[str, YamlDiff]:
     """Remove the line range covering a single api-action list item."""
-    new_lines = [*lines[:item_start], *lines[item_end:]]
-    return "".join(new_lines), YamlDiff(
-        fromLine=item_start + 1,
-        toLine=item_end,
-        replacement="",
-    )
+    return splice_lines(lines, item_start, item_end, "")
 
 
 def render_delete_actions_key(
@@ -269,12 +246,7 @@ def render_delete_actions_key(
     actions_end: int,
 ) -> tuple[str, YamlDiff]:
     """Remove the entire ``actions:`` key when its last item is being dropped."""
-    new_lines = [*lines[:actions_start], *lines[actions_end:]]
-    return "".join(new_lines), YamlDiff(
-        fromLine=actions_start + 1,
-        toLine=actions_end,
-        replacement="",
-    )
+    return splice_lines(lines, actions_start, actions_end, "")
 
 
 # ---------------------------------------------------------------------------

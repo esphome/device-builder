@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.helpers.yaml import apply_yaml_diff
+from esphome_device_builder.helpers.yaml import apply_yaml_diff, splice_lines
 from esphome_device_builder.models.automations import YamlDiff
 
 _TEXT = "a: 1\nb: 2\nc: 3\n"
@@ -67,3 +67,17 @@ def test_append_after_any_splitlines_boundary_adds_nothing(boundary: str) -> Non
 
 def test_deleting_the_only_line_leaves_nothing() -> None:
     assert apply_yaml_diff("a: 1", _diff(1, 1, "")) == ""
+
+
+def test_splice_lines_returns_the_text_and_the_matching_diff() -> None:
+    lines = _TEXT.splitlines(keepends=True)
+    new_text, diff = splice_lines(lines, 1, 2, "x: 9\n")
+    assert new_text == "a: 1\nx: 9\nc: 3\n"
+    assert diff == _diff(2, 2, "x: 9\n")
+    assert apply_yaml_diff(_TEXT, diff) == new_text
+
+
+def test_splice_lines_insert_is_the_pure_insert_diff() -> None:
+    new_text, diff = splice_lines(["a: 1"], 1, 1, "b: 2\n")
+    assert new_text == "a: 1\nb: 2\n"
+    assert diff == _diff(2, 1, "b: 2\n")

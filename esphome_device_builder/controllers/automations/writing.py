@@ -29,6 +29,7 @@ from ...helpers.yaml import (
     remove_inline_handler,
     remove_nested_handler,
     remove_subentity_handler,
+    splice_lines,
     upsert_inline_handler,
     upsert_nested_handler,
     upsert_subentity_handler,
@@ -533,14 +534,7 @@ def _replace_top_level_list_item(
     """Replace the *index*'th list item under ``<domain>:`` with rendered_item."""
     lines = yaml_text.splitlines(keepends=True)
     start, end = _locate_top_list_item(lines, domain, index)
-    indented = _indent_for_top_list(rendered_item)
-    new_lines = [*lines[:start], indented, *lines[end:]]
-    new_text = "".join(new_lines)
-    return new_text, YamlDiff(
-        fromLine=start + 1,
-        toLine=end,
-        replacement=indented,
-    )
+    return splice_lines(lines, start, end, _indent_for_top_list(rendered_item))
 
 
 def _upsert_under_top_key(
@@ -573,26 +567,14 @@ def _upsert_under_top_key(
             break
     rendered_text = "\n".join(_indent_block(rendered_yaml, indent)) + "\n"
     if handler_start is not None and handler_end is not None:
-        new_lines = [*lines[:handler_start], rendered_text, *lines[handler_end:]]
-        new_text = "".join(new_lines)
-        return new_text, YamlDiff(
-            fromLine=handler_start + 1,
-            toLine=handler_end,
-            replacement=rendered_text,
-        )
+        return splice_lines(lines, handler_start, handler_end, rendered_text)
     insert_at = end
     while insert_at > start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
-    new_lines = [*lines[:insert_at], rendered_text, *lines[insert_at:]]
-    new_text = "".join(new_lines)
     # Pure-insert convention: ``toLine == fromLine - 1`` encodes
     # "no lines replaced; insert before fromLine". See
     # :class:`YamlDiff`'s docstring.
-    return new_text, YamlDiff(
-        fromLine=insert_at + 1,
-        toLine=insert_at,
-        replacement=rendered_text,
-    )
+    return splice_lines(lines, insert_at, insert_at, rendered_text)
 
 
 # ---------------------------------------------------------------------------
@@ -654,13 +636,7 @@ def _delete_top_level_list_by_index(
     """Remove the *index*'th list item under ``<domain>:``."""
     lines = yaml_text.splitlines(keepends=True)
     start, end = _locate_top_list_item(lines, domain, index)
-    new_lines = [*lines[:start], *lines[end:]]
-    new_text = "".join(new_lines)
-    return new_text, YamlDiff(
-        fromLine=start + 1,
-        toLine=end,
-        replacement="",
-    )
+    return splice_lines(lines, start, end, "")
 
 
 def _delete_under_top_key(
@@ -680,12 +656,7 @@ def _delete_under_top_key(
         text = lines[idx].rstrip("\n\r")
         if text == handler_prefix or text.startswith(handler_prefix + " "):
             handler_end = child_block_end(lines, idx, end, indent)
-            new_lines = [*lines[:idx], *lines[handler_end:]]
-            return "".join(new_lines), YamlDiff(
-                fromLine=idx + 1,
-                toLine=handler_end,
-                replacement="",
-            )
+            return splice_lines(lines, idx, handler_end, "")
     msg = f"{block_key}.{handler_key} not present"
     raise CommandError(ErrorCode.NOT_FOUND, msg)
 

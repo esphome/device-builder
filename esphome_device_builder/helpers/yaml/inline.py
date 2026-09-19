@@ -6,6 +6,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from .diff import splice_lines
 from .scalar import ESPHOME_YAML_INDENT, YamlUpsertNotSupportedError, block_body_is_list
 from .scan import (
     DASH_KEY_PREFIX,
@@ -205,8 +206,7 @@ def remove_nested_handler(
             break
         rm_start = frame.start
         rm_end = max(rm_end, frame.end)
-    new_lines = [*lines[:rm_start], replacement, *lines[rm_end:]]
-    return "".join(new_lines), rm_start + 1, rm_end, replacement
+    return splice_lines(lines, rm_start, rm_end, replacement)[0], rm_start + 1, rm_end, replacement
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,14 +333,12 @@ def _apply_handler_upsert(
 
     if handler_start is not None and handler_end is not None:
         # Replace the existing handler block.
-        new_lines = [*lines[:handler_start], rendered_text, *lines[handler_end:]]
-        new_text = "".join(new_lines)
+        new_text = splice_lines(lines, handler_start, handler_end, rendered_text)[0]
         return new_text, handler_start + 1, handler_end, rendered_text
     # Insert a new handler at the end of the instance, before any
     # trailing blank lines.
     insert_at = trim_trailing_blanks(lines, instance_start, instance_end)
-    new_lines = [*lines[:insert_at], rendered_text, *lines[insert_at:]]
-    new_text = "".join(new_lines)
+    new_text = splice_lines(lines, insert_at, insert_at, rendered_text)[0]
     # Pure-insert: ``toLine == fromLine - 1`` flags the empty
     # replaced range. See :class:`automations.YamlDiff`.
     return new_text, insert_at + 1, insert_at, rendered_text
@@ -396,7 +394,7 @@ def _apply_handler_remove(
     if located is None:
         return None
     start, end = located
-    return "".join([*lines[:start], *lines[end:]]), start + 1, end
+    return splice_lines(lines, start, end, "")[0], start + 1, end
 
 
 def _locate_handler_range(
