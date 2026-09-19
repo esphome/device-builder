@@ -950,8 +950,10 @@ async def test_reap_is_bounded_when_the_kill_does_not_take(
         stdout = object()
 
         async def wait(self) -> int:
-            await asyncio.sleep(3600)
+            await exited.wait()
             return 0
+
+    exited = asyncio.Event()
 
     async def spawn(*_args: Any, **_kwargs: Any) -> _Proc:
         return _Proc()
@@ -975,5 +977,8 @@ async def test_reap_is_bounded_when_the_kill_does_not_take(
     with caplog.at_level(logging.WARNING):
         await asyncio.wait_for(ctrl._stream_subprocess(["x"], client, "s-1", slot=slot), timeout=5)
     assert "child 4343 did not exit" in caplog.text
-    assert not slot.locked()
     assert not any(ev == "result" for _, ev, _ in events)
+    assert slot.locked()  # the child is still resident, so its slot is not handed on
+    exited.set()
+    await asyncio.sleep(0.01)
+    assert not slot.locked()

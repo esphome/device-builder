@@ -359,9 +359,7 @@ async def test_terminate_subtree_with_grace_without_job_object_uses_taskkill(
 @posix_only
 def test_kill_subtree_quietly_signals_the_group(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[int, int]] = []
-    monkeypatch.setattr(
-        process, "_signal_process_group", lambda pid, sig: calls.append((pid, sig)) or True
-    )
+    monkeypatch.setattr(process.os, "killpg", lambda pid, sig: calls.append((pid, sig)))
     monkeypatch.setattr(
         process, "kill_quietly", lambda _p: pytest.fail("group kill must not fall back")
     )
@@ -369,13 +367,27 @@ def test_kill_subtree_quietly_signals_the_group(monkeypatch: pytest.MonkeyPatch)
     assert calls == [(4242, signal.SIGKILL)]
 
 
-def test_kill_subtree_quietly_falls_back_to_the_child(monkeypatch: pytest.MonkeyPatch) -> None:
+@posix_only
+@pytest.mark.parametrize(
+    ("error", "warns"), [(ProcessLookupError(), False), (PermissionError("denied"), True)]
+)
+def test_kill_subtree_quietly_falls_back_to_the_child(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    error: OSError,
+    warns: bool,
+) -> None:
     killed: list[Any] = []
-    monkeypatch.setattr(process, "_signal_process_group", lambda _pid, _sig: False)
+
+    def killpg(_pid: int, _sig: int) -> None:
+        raise error
+
+    monkeypatch.setattr(process.os, "killpg", killpg)
     monkeypatch.setattr(process, "kill_quietly", killed.append)
     proc = SimpleNamespace(pid=4242)
     process.kill_subtree_quietly(proc)  # type: ignore[arg-type]
     assert killed == [proc]
+    assert ("Could not kill process group 4242" in caplog.text) is warns
 
 
 def test_kill_subtree_quietly_terminates_the_windows_job(
@@ -384,7 +396,7 @@ def test_kill_subtree_quietly_terminates_the_windows_job(
     killed: list[Any] = []
     monkeypatch.setattr(process, "kill_quietly", killed.append)
     monkeypatch.setattr(
-        process, "_signal_process_group", lambda *_a: pytest.fail("no groups on Windows")
+        process, "_kill_led_group", lambda _pid: pytest.fail("no groups on Windows")
     )
     proc = SimpleNamespace(pid=7)
     process.kill_subtree_quietly(proc, win_job=SimpleNamespace(terminate=lambda: True))  # type: ignore[arg-type]

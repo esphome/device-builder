@@ -75,9 +75,22 @@ def kill_subtree_quietly(
     """Kill *proc*'s tree synchronously (POSIX group or Windows job); spawn with a new session."""
     if win_job is not None and win_job.terminate():
         return
-    if sys.platform != "win32" and _signal_process_group(proc.pid, signal.SIGKILL):
+    if sys.platform != "win32" and _kill_led_group(proc.pid):
         return
     kill_quietly(proc)
+
+
+def _kill_led_group(pid: int) -> bool:
+    """SIGKILL the process group *pid* leads; False when there is none left or the kill failed."""
+    # A new-session child leads its group, so its pid names the group even after it exits.
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return False
+    except OSError as err:
+        _LOGGER.warning("Could not kill process group %d, killing the child only: %s", pid, err)
+        return False
+    return True
 
 
 def _signal_process_group(pid: int, sig: int) -> bool:

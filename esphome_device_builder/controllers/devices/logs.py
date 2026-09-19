@@ -115,10 +115,11 @@ async def stream_subprocess(
                 )
                 msg = "Too many concurrent runs; retry shortly"
                 raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
+        lingering: list[asyncio.Future[int]] = []
         try:
             async with asyncio.timeout(idle_timeout) as deadline:
                 exit_code = await _run_streaming(
-                    cmd, client, message_id, line_transform, deadline, idle_timeout
+                    cmd, client, message_id, line_transform, deadline, idle_timeout, lingering
                 )
         except TimeoutError as err:
             if not deadline.expired():
@@ -130,7 +131,7 @@ async def stream_subprocess(
             raise CommandError(ErrorCode.UNAVAILABLE, msg) from err
         finally:
             if slot is not None:
-                slot.release()
+                _release_slot(slot, lingering)
         if exit_code is None:
             # Swallowed cancel: the stop_stream reply is the client's terminal signal.
             return
@@ -146,6 +147,7 @@ async def _run_streaming(
     line_transform: Callable[[str], str] | None,
     deadline: asyncio.Timeout,
     idle_timeout: float | None,
+    lingering: list[asyncio.Future[int]],
 ) -> int | None:
     """Spawn *cmd* and forward its lines; ``None`` when a swallowed cancel ended the run."""
     env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
@@ -191,23 +193,35 @@ async def _run_streaming(
                 # Synchronous kill before the only await; the shield keeps the
                 # reap running while a cancellation landing here propagates.
                 kill_subtree_quietly(proc, win_job=win_job)
-                await _reap(proc, message_id)
+                await _reap(proc, message_id, lingering)
         finally:
             if win_job is not None:
                 win_job.close()
 
 
-async def _reap(proc: asyncio.subprocess.Process, message_id: str) -> None:
-    """Wait for a killed *proc* to exit; warn and move on after ``_REAP_TIMEOUT``."""
+async def _reap(
+    proc: asyncio.subprocess.Process, message_id: str, lingering: list[asyncio.Future[int]]
+) -> None:
+    """Wait up to ``_REAP_TIMEOUT`` for a killed *proc*; a survivor stays in *lingering*."""
+    waiter = asyncio.ensure_future(proc.wait())
+    lingering.append(waiter)
     try:
-        await asyncio.wait_for(asyncio.shield(proc.wait()), timeout=_REAP_TIMEOUT)
+        await asyncio.wait_for(asyncio.shield(waiter), timeout=_REAP_TIMEOUT)
     except TimeoutError:
         _LOGGER.warning(
-            "Stream %s child %d did not exit %ss after the kill",
+            "Stream %s child %d did not exit %ss after the kill; its slot stays held until it does",
             message_id,
             proc.pid,
             _REAP_TIMEOUT,
         )
+
+
+def _release_slot(slot: asyncio.Semaphore, lingering: list[asyncio.Future[int]]) -> None:
+    """Release *slot* now, or when a child that outlived its reap finally exits."""
+    if lingering and not lingering[0].done():
+        lingering[0].add_done_callback(lambda _waiter: slot.release())
+    else:
+        slot.release()
 
 
 def _extend_idle_deadline(deadline: asyncio.Timeout, now: float, idle_timeout: float) -> None:
