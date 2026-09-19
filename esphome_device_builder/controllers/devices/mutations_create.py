@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, NoReturn
 from esphome.const import ALLOWED_NAME_CHARS
 from esphome.storage_json import StorageJSON
 
+from ...constants import is_secrets_file
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import parse_platform_from_yaml
@@ -97,6 +98,8 @@ async def create_device(  # noqa: C901, PLR0912
                 )
 
     filename = f"{name}.yaml"
+    if is_secrets_file(filename):
+        raise CommandError(ErrorCode.INVALID_ARGS, f"{filename} is reserved for secrets")
     config_path = controller._db.settings.rel_path(filename)
 
     # Fast collision check before the (~hundreds of ms) validator

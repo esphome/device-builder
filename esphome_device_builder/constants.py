@@ -35,7 +35,8 @@ SECRETS_FILENAME = "secrets.yaml"
 
 def is_secrets_file(configuration: str | Path) -> bool:
     """Return True when *configuration* names the shared secrets.yaml (by basename)."""
-    return Path(configuration).name == SECRETS_FILENAME
+    # Win32 opens ``secrets.yaml.`` and ``secrets.yaml `` as the real file.
+    return Path(configuration).name.rstrip(". ").lower() == SECRETS_FILENAME
 
 
 # Trusted TCP site for HA Ingress. Bound only when ``--ha-addon`` is set,
