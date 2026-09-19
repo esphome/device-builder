@@ -364,12 +364,15 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
     if job is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Job not found: {args['job_id']}")
-    lines = await initial_snapshot(job, job.job_id)
+    snapshot = await initial_snapshot(job, job.job_id)
+    lines = snapshot or []
     output = lines[-tail_lines:] if tail_lines > 0 else []
     return job_dict_without_output(job) | {
         "queued_update_armed": job.is_queued_update_armed,
         "output": _strip_lines(output),
         "truncated": len(lines) > len(output),
+        # None is an unreadable log, not an empty one.
+        "output_available": snapshot is not None,
     }
 
 

@@ -447,6 +447,20 @@ async def test_get_job_zero_tail_still_reports_withheld_output(
         data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 0})
     assert data["output"] == []
     assert data["truncated"] is True
+    assert data["output_available"] is True
+
+
+async def test_get_job_flags_an_unreadable_log(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    job = make_job(status=JobStatus.COMPLETED, exit_code=0)
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
+    with patch(
+        "esphome_device_builder.controllers.firmware.follow.read_job_output", return_value=None
+    ):
+        data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
+    assert data["output"] == []
+    assert data["output_available"] is False
 
 
 @pytest.mark.parametrize(
