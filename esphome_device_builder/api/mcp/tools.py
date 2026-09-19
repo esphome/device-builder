@@ -101,7 +101,7 @@ def _refuse_secrets(configuration: Any) -> None:
         return
     if not isinstance(configuration, str):
         raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a string")
-    name = Path(configuration).name.rstrip(". ").lower()
+    name = Path(configuration).name.rstrip(". ").casefold()
     if name in SECRETS_FILES:
         raise CommandError(ErrorCode.INVALID_ARGS, "secrets.yaml is not available over MCP")
     if not _CONFIG_NAME_RE.fullmatch(name):
@@ -429,7 +429,7 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
         raise_device_not_found(configuration)
     # A resolved config always carries ``esphome``; an empty list means the scan could not load it.
     if not device.component_ids:
-        msg = f"{configuration} has not been resolved since its last change; run validate_config"
+        msg = f"{configuration} could not be loaded at its last scan; fix and save it, then retry"
         raise CommandError(ErrorCode.UNAVAILABLE, msg)
     # Only catalog ids are echoed: a resolved ``platform:`` value may be a ``!secret``.
     entries = (catalog.index_entry(cid) for cid in device.component_ids)

@@ -79,6 +79,7 @@ _CONFIG_COMMANDS = (
         "secrets.yaml ",
         "secrets.yaml::$DATA",
         "SECRET~1.YAM",
+        "\u017fecrets.yaml",
         "notes.txt",
         7,
     ],
@@ -578,7 +579,7 @@ async def test_get_config_components_unresolved_config_is_unavailable(
         mcp_client, "get_config_components", {"configuration": "kitchen.yaml"}
     )
     assert is_error
-    assert text.startswith("unavailable: kitchen.yaml has not been resolved")
+    assert text.startswith("unavailable: kitchen.yaml could not be loaded at its last scan")
 
 
 async def test_get_config_components_without_devices_is_unavailable(
