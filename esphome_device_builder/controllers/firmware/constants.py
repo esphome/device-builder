@@ -167,11 +167,7 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
 # the live per-second timer before the stamped fields land over the stream —
 # keep the two in sync (word markers, bracket-percent, ninja counter, end
 # banner).
-#
-# Lines are ANSI-stripped before compile-phase matching: PlatformIO colourises
-# and repaints, so escapes land not only as a leading reset but *inside* tokens
-# — the summary banner is ``[<green><bold>SUCCESS<reset>] Took`` — which an
-# anchored/literal match would miss.
+
 # Compile-phase word markers for stamping ``compile_started_at``. ``Compiling
 # <path>`` is emitted by PlatformIO for every framework (esp32-arduino, esp8266,
 # libretiny, esp-idf-via-pio); ``Reading CMake configuration`` opens an esp-idf

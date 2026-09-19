@@ -44,6 +44,7 @@ __all__ = [
     "friendly_name_slugify",
     "raise_device_name_exists",
     "raise_device_not_found",
+    "require_catalog",
     "require_file_exists",
     "slugify_hostname",
     "write_new_file_exclusive",
