@@ -37,7 +37,9 @@ def test_registered_schema_is_valid_json_schema() -> None:
 
 
 @pytest.mark.parametrize(
-    "prop", [{}, {"type": "enum"}, {"oneOf": []}], ids=["none", "enum", "oneOf"]
+    "prop",
+    [{}, {"type": "enum"}, {"oneOf": []}, {"type": ["string", "null"]}],
+    ids=["none", "enum", "oneOf", "type_list"],
 )
 def test_registration_rejects_types_the_validator_cannot_check(prop: dict[str, Any]) -> None:
     tools: ToolRegistry[None] = ToolRegistry()
