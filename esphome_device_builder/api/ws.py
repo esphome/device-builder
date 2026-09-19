@@ -30,6 +30,7 @@ from ..models import (
     ResultMessage,
     ServerInfoMessage,
 )
+from ..models.common import DashboardModel
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -151,10 +152,8 @@ class WebSocketClient:
             await self._ws.close()
 
     async def send_result(self, message_id: str, result: Any = None) -> None:
-        """Send a success result, serializing dataclass results automatically."""
-        if hasattr(result, "to_dict"):
-            result = result.to_dict()
-        msg = ResultMessage(message_id=message_id, result=result)
+        """Send a success result; models serialise at the top level or one container down."""
+        msg = ResultMessage(message_id=message_id, result=DashboardModel.to_wire(result))
         await self.send(msg.to_dict())
 
     async def send_error(self, message_id: str, error_code: ErrorCode, details: str = "") -> None:

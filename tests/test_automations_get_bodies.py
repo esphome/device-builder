@@ -167,5 +167,5 @@ async def test_get_bodies_serves_sensor_in_range_required_group() -> None:
     body = result["conditions/sensor.in_range"]
     assert body["required_groups"] == [{"kind": "at_least_one", "keys": ["above", "below"]}]
     by_key = {e["key"]: e for e in body["config_entries"]}
-    assert by_key["above"]["advanced"] is False
-    assert by_key["below"]["advanced"] is False
+    assert "advanced" not in by_key["above"]
+    assert "advanced" not in by_key["below"]

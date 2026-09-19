@@ -36,6 +36,19 @@ class DashboardModel(DataClassORJSONMixin):
 
         lazy_compilation = True
 
+    @staticmethod
+    def to_wire(value: Any) -> Any:
+        """Apply ``to_dict`` to a model, or to the models directly inside a dict or list."""
+        if isinstance(value, DashboardModel):
+            return value.to_dict()
+        if isinstance(value, dict):
+            return {
+                k: v.to_dict() if isinstance(v, DashboardModel) else v for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [v.to_dict() if isinstance(v, DashboardModel) else v for v in value]
+        return value
+
 
 # ---------------------------------------------------------------------------
 # Paged response base
@@ -621,6 +634,9 @@ class ConfigEntry(DashboardModel):
     # device_class, ...) on top of `config_entries` for these. None
     # means a plain structured group.
     platform_type: str | None = None
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 # ---------------------------------------------------------------------------
