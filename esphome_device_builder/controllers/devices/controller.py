@@ -860,10 +860,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             raise CommandError(ErrorCode.INVALID_ARGS, "allow_wipe must be a boolean")
         is_empty = not content.strip()
         if is_secrets_file(configuration):
+            secrets_name = Path(configuration).name
             if is_empty and not allow_wipe:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
-                    "refusing to clear all secrets from secrets.yaml without "
+                    f"refusing to clear all secrets from {secrets_name} without "
                     "confirmation; pass allow_wipe to confirm",
                 )
             try:
@@ -871,7 +872,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             except SecretsContentError as err:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
-                    f"refusing to save invalid secrets.yaml: {err}",
+                    f"refusing to save invalid {secrets_name}: {err}",
                 ) from err
             # Hold the shared lock so a whole-file save can't interleave with a
             # per-key config/set_secret. A full save still replaces the document

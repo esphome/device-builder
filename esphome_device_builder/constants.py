@@ -30,13 +30,15 @@ DEFAULT_HOST = "0.0.0.0"
 # Shared credentials file in the config dir. It's not a buildable device
 # config (no build dir / build_info.json) and is kept out of version
 # history, so callers special-case it via ``is_secrets_file``.
-SECRETS_FILENAME = "secrets.yaml"
+SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
+# Both spellings esphome accepts, for guards; pinned against esphome.const in tests.
+SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
 
 
 def is_secrets_file(configuration: str | Path) -> bool:
-    """Return True when *configuration* names the shared secrets.yaml (by basename)."""
+    """Return True when *configuration* names a secrets file (``secrets.yaml`` or ``.yml``)."""
     # Win32 opens ``secrets.yaml.`` and ``secrets.yaml `` as the real file.
-    return Path(configuration).name.rstrip(". ").casefold() == SECRETS_FILENAME
+    return Path(configuration).name.rstrip(". ").casefold() in SECRETS_FILENAMES
 
 
 # Trusted TCP site for HA Ingress. Bound only when ``--ha-addon`` is set,
