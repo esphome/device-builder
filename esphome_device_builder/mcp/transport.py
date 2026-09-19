@@ -75,12 +75,12 @@ class McpServer[ContextT]:
             return _error_response(msg["id"], JsonRpcErrorCode.METHOD_NOT_FOUND, message)
         try:
             result = await handler(context, _object_param(msg, "params"))
+            return json_response({"jsonrpc": "2.0", "id": msg["id"], "result": result})
         except _RpcError as err:
             return _error_response(msg["id"], err.code, str(err))
         except Exception:
             _LOGGER.exception("MCP method %s failed", msg["method"])
             return _error_response(msg["id"], JsonRpcErrorCode.INTERNAL_ERROR, "Internal error")
-        return json_response({"jsonrpc": "2.0", "id": msg["id"], "result": result})
 
     async def _initialize(self, _context: ContextT, params: dict[str, Any]) -> dict[str, Any]:
         requested = params.get("protocolVersion")

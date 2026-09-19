@@ -135,15 +135,20 @@ async def test_a_crashing_method_answers_a_json_rpc_internal_error(
     async def crash(_context: Any, _params: dict[str, Any]) -> None:
         raise RuntimeError("boom")
 
+    async def unserialisable(_context: Any, _params: dict[str, Any]) -> object:
+        return object()
+
     server = _make_server()
     server._methods["ping"] = crash
+    server._methods["initialize"] = unserialisable
     client = await aiohttp_client(_make_app(server))
-    reply = await _rpc(client, method="ping", msg_id=9)
-    assert reply == {
-        "jsonrpc": "2.0",
-        "id": 9,
-        "error": {"code": JsonRpcErrorCode.INTERNAL_ERROR, "message": "Internal error"},
-    }
+    for method in ("ping", "initialize"):
+        reply = await _rpc(client, method=method, msg_id=9)
+        assert reply == {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "error": {"code": JsonRpcErrorCode.INTERNAL_ERROR, "message": "Internal error"},
+        }
 
 
 async def test_unknown_method(client: Any) -> None:
