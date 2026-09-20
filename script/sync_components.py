@@ -1758,11 +1758,13 @@ def _prune_automation_reference_classes(
 
 
 def _default_variant(hub: dict, typed_key: str) -> Any:
-    """Return the default of *hub*'s *typed_key* discriminator entry, or None."""
+    """Return the default of *hub*'s *typed_key* discriminator entry, None when it has none."""
     discriminator = next(
         (e for e in hub.get("config_entries") or [] if e.get("key") == typed_key), None
     )
-    return discriminator.get("default_value") if discriminator else None
+    if discriminator is None:
+        raise SystemExit(f"{hub['id']}: no config entry for its discriminator {typed_key!r}")
+    return discriminator.get("default_value")
 
 
 def _apply_hub_variant_constraints(
@@ -1811,10 +1813,11 @@ def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | Non
         config_vars = node.get("config_vars") if isinstance(node, dict) else None
         id_type = (config_vars or {}).get("id", {}).get("id_type")
         # A variant the bundle can't type would be judged on a partial set.
-        if not isinstance(id_type, dict) or not isinstance(id_type.get("class"), str):
+        cls = id_type.get("class") if isinstance(id_type, dict) else None
+        if not isinstance(cls, str) or "::" not in cls:
             return None
         parents = [p for p in id_type.get("parents") or [] if isinstance(p, str) and "::" in p]
-        out[name] = [id_type["class"], *parents]
+        out[name] = [cls, *parents]
     return (typed_key, out) if out else None
 
 

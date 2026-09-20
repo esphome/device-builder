@@ -179,8 +179,28 @@ def test_variant_id_classes_reads_each_typed_branch() -> None:
     )
     assert _variant_id_classes({"schemas": {"CONFIG_SCHEMA": {"schema": {}}}}) is None
     # A variant with no readable id class makes the whole hub unjudgeable.
-    section["schemas"]["CONFIG_SCHEMA"]["types"]["octal"] = {"config_vars": {}}
+    types = section["schemas"]["CONFIG_SCHEMA"]["types"]
+    types["octal"] = {"config_vars": {}}
     assert _variant_id_classes(section) is None
+    types["octal"] = {"config_vars": {"id": {"id_type": {"class": "Component"}}}}
+    assert _variant_id_classes(section) is None
+
+
+def test_typed_hub_with_no_discriminator_entry_fails_the_sync() -> None:
+    hub = _declarer(
+        "modbus",
+        ["modbus::Modbus"],
+        _variant_id_classes=(
+            "role",
+            {"client": ["modbus::ModbusClientHub"], "server": ["modbus::ModbusServerHub"]},
+        ),
+    )
+    cover = {
+        "id": "hoermann_hcp",
+        "config_entries": [_reference("modbus_id", "modbus", "modbus::ModbusServerHub")],
+    }
+    with pytest.raises(SystemExit, match="discriminator 'role'"):
+        _resolve([hub, cover])
 
 
 def test_hub_variant_constraint_conflicting_with_a_collected_one_fails_the_sync() -> None:
