@@ -32,13 +32,14 @@ _AUTOMATION = {
 class _Devices:
     """Stand-in for the devices controller's locked read-rewrite-save."""
 
-    def __init__(self) -> None:
+    def __init__(self, text: str = _YAML) -> None:
+        self.text = text
         self.saved: list[tuple[str, str, str]] = []
 
     async def rewrite_yaml(
         self, configuration: str, rewrite: Callable[[str], tuple[str, YamlDiff]], *, message: str
     ) -> YamlDiff:
-        new_text, diff = await asyncio.to_thread(rewrite, _YAML)
+        new_text, diff = await asyncio.to_thread(rewrite, self.text)
         self.saved.append((configuration, new_text, message))
         return diff
 
@@ -96,6 +97,28 @@ async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
     with pytest.raises(CommandError) as excinfo:
         await controller.delete(
             configuration="d.yaml", location=location, save=True, expected=expected
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert devices.saved == []
+
+
+async def test_delete_with_expected_refuses_a_positional_index_that_shifted(
+    tmp_path: Path,
+) -> None:
+    item = "  - interval: {n}s\n    then:\n      - delay: {n}s\n"
+    listed = "interval:\n" + item.format(n=1)
+    on_disk = "interval:\n" + item.format(n=9) + item.format(n=1)
+    devices = _Devices(on_disk)
+    controller = _make_controller(tmp_path, devices=devices)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, listed))[0].raw_yaml
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml",
+            location={"kind": "interval", "index": 0},
+            save=True,
+            expected=shown,
         )
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
