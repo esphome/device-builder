@@ -89,7 +89,7 @@ from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
-from .helpers import _build_address_cache_args, refuse_empty_write
+from .helpers import _build_address_cache_args, persist_if_unchanged, refuse_empty_write
 from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
 
@@ -844,18 +844,31 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     @api_command("devices/update_config")
     async def update_config(
-        self, *, configuration: str, content: str, allow_wipe: bool = False, **kwargs: Any
+        self,
+        *,
+        configuration: str,
+        content: str,
+        allow_wipe: bool = False,
+        expected: str | None = None,
+        **kwargs: Any,
     ) -> None:
         """
         Write device config YAML.
 
         ``allow_wipe`` permits clearing secrets.yaml to empty; without it an
         empty secrets save is refused. An empty device YAML is always refused.
+        With ``expected``, a device YAML is written only while it still holds
+        that text (``PRECONDITION_FAILED`` otherwise); secrets.yaml refuses it.
         """
         if not isinstance(allow_wipe, bool):
             raise CommandError(ErrorCode.INVALID_ARGS, "allow_wipe must be a boolean")
+        if expected is not None and not isinstance(expected, str):
+            raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
         is_empty = not content.strip()
         if is_secrets_file(configuration):
+            if expected is not None:
+                msg = f"expected is not supported for {Path(configuration).name}"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
             secrets_name = Path(configuration).name
             if is_empty and not allow_wipe:
                 raise CommandError(
@@ -880,7 +893,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             return
         if is_empty:
             refuse_empty_write(configuration)
-        await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
+        message = f"Edit {configuration}"
+        if expected is not None:
+            await persist_if_unchanged(
+                self, configuration, content, expected=expected, message=message
+            )
+            return
+        await self._persist_yaml_mutation(configuration, content, message=message)
 
     async def apply_restored_yaml(
         self, configuration: str, content: str, *, restored_from: str
