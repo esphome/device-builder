@@ -281,8 +281,38 @@ async def test_upsert_with_save_refuses_to_replace_without_expected(tmp_path: Pa
         )
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert "already holds an automation" in excinfo.value.message
+    assert "already holds YAML" in excinfo.value.message
     assert devices.saved == []
+
+
+async def test_upsert_with_save_refuses_to_replace_a_list_shaped_handler(tmp_path: Path) -> None:
+    handlers = "    - then:\n        - delay: 9s\n    - then:\n        - delay: 8s\n"
+    listed = "esphome:\n  name: d\n  on_boot:\n" + handlers
+    devices = _Devices(listed)
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml", automation=_REPLACEMENT, location=_LOCATION, save=True
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert devices.saved == []
+
+
+async def test_upsert_with_save_appends_to_a_list_without_expected(tmp_path: Path) -> None:
+    devices = _Devices("interval:\n  - interval: 1s\n    then:\n      - delay: 1s\n")
+    controller = _make_controller(tmp_path, devices=devices)
+
+    result = await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION | {"trigger_id": None, "trigger_params": {"interval": "5s"}},
+        location={"kind": "interval", "index": 1},
+        save=True,
+    )
+
+    assert result["yaml_diff"]["toLine"] == result["yaml_diff"]["fromLine"] - 1
+    assert devices.saved[0][1].count("- interval:") == 2
 
 
 async def test_upsert_with_expected_replaces_the_automation_it_was_shown(tmp_path: Path) -> None:
