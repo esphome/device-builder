@@ -323,11 +323,13 @@ requires `command` while the catalog lists only `id`, and 54 automation
 registry entries could not be compared at all). The editor makes that fatal:
 `automations/parse` copies every YAML key into `params` and the visual editor
 auto-applies the whole tree through `automations/upsert`, so one gap makes an
-existing valid automation impossible to edit. Structural guards on a write
-(an occupied location, a parser-skipped list entry, a stale `expected`) are
-fine; field semantics come from `esphome config`, and an agent repairs from
-esphome's own error (PR #2793 was closed on this; issue #2797 has the MCP
-follow-up).
+existing valid automation impossible to edit. Guards that protect the
+dashboard's own round trip stay: an occupied location, a parser-skipped list
+entry, a stale `expected`, and the parser's refusal to decompose a misrouted
+mapping (`_uncatalogued_action`), which keeps a save from restructuring what
+it cannot read back. Field semantics come from `esphome config`, and an agent
+repairs from esphome's own error (PR #2793 was closed on this; issue #2797
+has the MCP follow-up).
 
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)

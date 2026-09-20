@@ -845,21 +845,17 @@ against legacy behaviour before assuming the simpler version suffices.
 ## Design principles
 
 - **esphome owns config validation; never pre-validate fields against
-  the catalog.** The component and automation catalogs are a lossy
-  snapshot of esphome's schemas (custom validators, `maybe_simple_value`,
-  keys the sync cannot express), so a catalog-derived "is this field
-  allowed" check refuses valid configs whenever the two differ (measured
-  against esphome 2026.9.0: `emontx.send_command` requires `command`, the
-  catalog lists only `id`; 54 registry entries could not be compared at
-  all). It also breaks the editor: `automations/parse` copies every YAML
-  key into `params` and the visual editor auto-applies the whole tree
-  through `automations/upsert`, so one gap makes an existing valid
-  automation impossible to edit. Structural guards are fine (an occupied
-  location, a parser-skipped list entry, a stale `expected`); field and
-  value semantics are checked by running `esphome config`
+  the catalog.** The catalogs are a lossy snapshot of esphome's schemas,
+  and the visual editor round-trips every parsed key through
+  `automations/upsert`, so a catalog-derived "is this field allowed"
+  check refuses valid configs and makes untouched automations impossible
+  to edit. Guards that protect the dashboard's own round trip stay (an
+  occupied location, a parser-skipped list entry, a stale `expected`,
+  the parser's refusal to decompose a misrouted mapping); field and
+  value semantics come from running `esphome config`
   (`devices/validate`, the MCP `validate_config` tool), and an agent
-  repairs from esphome's own error. PR #2793 tried the catalog check and
-  was closed on this; the writeup is in issue #2797.
+  repairs from esphome's own error. Evidence and history:
+  docs/ARCHITECTURE.md, "Component Catalog".
 - **Never generate invalid configs; fix the source, not the consumer.**
   When a downstream path hits an invalid YAML (`esphome config` exits
   non-zero, schema rejects, compile fails), fix the *generator* (wizard,
