@@ -1,4 +1,4 @@
-"""Tests for the ``save`` option of ``automations/delete`` and the one-job config reads."""
+"""Tests for the ``save`` and ``expected`` options of ``automations/delete`` and ``upsert``."""
 
 from __future__ import annotations
 
@@ -243,3 +243,121 @@ async def test_a_missing_config_is_not_found(
         await getattr(controller, command)(configuration="ghost.yaml", **args)
 
     assert err.value.code == ErrorCode.NOT_FOUND
+
+
+_REPLACEMENT = {
+    "trigger_id": "on_boot",
+    "trigger_params": {},
+    "actions": [
+        {"action_id": "delay", "params": {"id": "2s"}, "children": {}, "conditions": []},
+    ],
+}
+
+
+async def test_upsert_with_save_inserts_at_an_empty_location(tmp_path: Path) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+
+    result = await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION,
+        location={"kind": "device_on", "trigger": "on_shutdown"},
+        save=True,
+    )
+
+    assert "on_shutdown" in result["yaml_diff"]["replacement"]
+    (configuration, new_text, message) = devices.saved[0]
+    assert (configuration, message) == ("d.yaml", "Save an automation to d.yaml")
+    assert "on_shutdown:" in new_text and "on_boot:" in new_text
+
+
+async def test_upsert_with_save_refuses_to_replace_without_expected(tmp_path: Path) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml", automation=_REPLACEMENT, location=_LOCATION, save=True
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "already holds an automation" in excinfo.value.message
+    assert devices.saved == []
+
+
+async def test_upsert_with_expected_replaces_the_automation_it_was_shown(tmp_path: Path) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, _YAML))[0].raw_yaml
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_REPLACEMENT,
+        location=_LOCATION,
+        save=True,
+        expected=shown,
+    )
+
+    assert "delay: 2s" in devices.saved[0][1]
+
+
+@pytest.mark.parametrize(
+    ("location", "expected", "fragment"),
+    [
+        (_LOCATION, "on_boot:\n  then:\n    - delay: 9s\n", "differs from the expected text"),
+        (
+            {"kind": "device_on", "trigger": "on_shutdown"},
+            "on_shutdown: {}\n",
+            "no automation at that location any more",
+        ),
+    ],
+    ids=["changed", "gone"],
+)
+async def test_upsert_with_expected_refuses_a_changed_or_missing_automation(
+    tmp_path: Path, location: dict[str, Any], expected: str, fragment: str
+) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_REPLACEMENT,
+            location=location,
+            save=True,
+            expected=expected,
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert fragment in excinfo.value.message
+    assert devices.saved == []
+
+
+async def test_upsert_with_expected_guards_a_draft_computation_too(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path, devices=_Devices())
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_REPLACEMENT,
+            location=_LOCATION,
+            yaml=_YAML,
+            expected="on_boot:\n  then:\n    - delay: 9s\n",
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+
+
+async def test_upsert_refuses_save_beside_yaml(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path, devices=_Devices())
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION,
+            location=_LOCATION,
+            yaml=_YAML,
+            save=True,
+        )
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS

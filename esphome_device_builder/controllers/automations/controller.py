@@ -35,6 +35,7 @@ from ...models.automations import (
     DeviceOnLocation,
     IntervalLocation,
     LightEffectLocation,
+    ParsedAutomation,
     ScriptLocation,
     UpsertResponse,
     YamlDiff,
@@ -210,9 +211,18 @@ class AutomationsController:
         automation: dict,
         location: dict,
         yaml: str | None = None,
+        save: bool = False,
+        expected: str | None = None,
         **_kwargs: Any,
     ) -> dict:
         """Insert or replace one automation at *location*.
+
+        ``save`` writes the on-disk config instead of only returning the
+        diff, so it is refused alongside ``yaml``. ``expected`` is the
+        ``raw_yaml`` a parse returned for the automation being replaced;
+        with it, or with ``save``, the write is guarded: a replace needs
+        ``expected`` to still match and an insert needs the location to be
+        empty, else ``PRECONDITION_FAILED`` with nothing written.
 
         The frontend has an in-memory draft buffer that may already
         contain an earlier auto-applied version of this automation
@@ -229,11 +239,22 @@ class AutomationsController:
         from disk — convenient for tooling that doesn't track its
         own buffer.
         """
+        _check_save_args(save=save, yaml=yaml, expected=expected)
         tree = AutomationTree.from_dict(automation)
         loc = _decode_location(location)
-        _new_text, diff = await self._run_on_config(
-            configuration, yaml, partial(writing.render_upsert, tree=tree, location=loc)
-        )
+        render: Callable[[str], tuple[str, YamlDiff]]
+        if save or expected is not None:
+            render = partial(
+                _render_upsert_if_unchanged, tree=tree, location=loc, expected=expected
+            )
+        else:
+            render = partial(writing.render_upsert, tree=tree, location=loc)
+        if not save:
+            _new_text, diff = await self._run_on_config(configuration, yaml, render)
+        else:
+            diff = await self._rewrite_on_disk(
+                configuration, render, message=f"Save an automation to {configuration}"
+            )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
     @api_command("automations/delete")
@@ -257,12 +278,7 @@ class AutomationsController:
         automation, the delete happens only while the automation at
         *location* still reads that way (``PRECONDITION_FAILED``).
         """
-        if not isinstance(save, bool):
-            raise CommandError(ErrorCode.INVALID_ARGS, "save must be a boolean")
-        if save and yaml is not None:
-            raise CommandError(ErrorCode.INVALID_ARGS, "save writes the config on disk; omit yaml")
-        if expected is not None and not isinstance(expected, str):
-            raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
+        _check_save_args(save=save, yaml=yaml, expected=expected)
         loc = _decode_location(location)
         render: Callable[[str], tuple[str, YamlDiff]]
         if expected is None:
@@ -271,10 +287,8 @@ class AutomationsController:
             render = partial(_render_delete_if_unchanged, location=loc, expected=expected)
         if not save:
             _new_text, diff = await self._run_on_config(configuration, yaml, render)
-        elif (devices := self._db.devices) is None:
-            raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
         else:
-            diff = await devices.rewrite_yaml(
+            diff = await self._rewrite_on_disk(
                 configuration, render, message=f"Delete an automation from {configuration}"
             )
         return UpsertResponse(yaml_diff=diff).to_dict()
@@ -282,6 +296,14 @@ class AutomationsController:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    async def _rewrite_on_disk(
+        self, configuration: str, render: Callable[[str], tuple[str, YamlDiff]], *, message: str
+    ) -> YamlDiff:
+        """Apply *render* to the on-disk config under the devices controller's write lock."""
+        if (devices := self._db.devices) is None:
+            raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
+        return await devices.rewrite_yaml(configuration, render, message=message)
 
     async def _run_on_config[T](
         self, configuration: str, yaml: str | None, func: Callable[[str], T]
@@ -479,25 +501,61 @@ def _decode_location(raw: dict) -> AutomationLocation:
         raise CommandError(ErrorCode.INVALID_ARGS, f"Invalid {kind} location: {err}") from err
 
 
-def _render_delete_if_unchanged(
-    yaml_text: str, *, location: AutomationLocation, expected: str
-) -> tuple[str, YamlDiff]:
-    """Delete the automation at *location* only while its text still equals *expected*."""
+def _check_save_args(*, save: bool, yaml: str | None, expected: str | None) -> None:
+    """Refuse a non-boolean ``save``, ``save`` beside ``yaml``, or a non-string ``expected``."""
+    if not isinstance(save, bool):
+        raise CommandError(ErrorCode.INVALID_ARGS, "save must be a boolean")
+    if save and yaml is not None:
+        raise CommandError(ErrorCode.INVALID_ARGS, "save writes the config on disk; omit yaml")
+    if expected is not None and not isinstance(expected, str):
+        raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
+
+
+def _row_at(yaml_text: str, location: AutomationLocation, verb: str) -> ParsedAutomation | None:
+    """Return the parsed automation at *location*; an unloadable file fails the precondition."""
     try:
         rows = parsing.parse_device_yaml(yaml_text)
     except CommandError as err:
         if err.code is not ErrorCode.INVALID_ARGS:
             raise
-        msg = f"the config no longer loads, nothing was deleted: {err.message}"
+        msg = f"the config no longer loads, nothing was {verb}: {err.message}"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg) from err
-    row = next((p for p in rows if p.location == location), None)
+    return next((p for p in rows if p.location == location), None)
+
+
+def _require_expected(row: ParsedAutomation | None, expected: str, verb: str) -> None:
+    """Raise ``PRECONDITION_FAILED`` unless *row* exists and still reads as *expected*."""
     if row is None:
-        msg = "no automation at that location any more; list again before deleting"
+        msg = f"no automation at that location any more; list again before {verb}"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     if not same_text(row.raw_yaml, expected):
         msg = (
             "the automation at that location differs from the expected text; nothing was "
-            f"deleted, list again before deleting\n{diff_excerpt(expected, row.raw_yaml)}"
+            f"{verb}, list again\n{diff_excerpt(expected, row.raw_yaml)}"
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+
+
+def _render_delete_if_unchanged(
+    yaml_text: str, *, location: AutomationLocation, expected: str
+) -> tuple[str, YamlDiff]:
+    """Delete the automation at *location* only while its text still equals *expected*."""
+    _require_expected(_row_at(yaml_text, location, "deleted"), expected, "deleting")
     return writing.render_delete(yaml_text, location=location)
+
+
+def _render_upsert_if_unchanged(
+    yaml_text: str, *, tree: AutomationTree, location: AutomationLocation, expected: str | None
+) -> tuple[str, YamlDiff]:
+    """Insert at an empty *location*, or replace only while its text still equals *expected*."""
+    row = _row_at(yaml_text, location, "written")
+    if expected is None:
+        if row is not None:
+            msg = (
+                "that location already holds an automation; pass its raw_yaml as expected to "
+                "replace it"
+            )
+            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    else:
+        _require_expected(row, expected, "replacing")
+    return writing.render_upsert(yaml_text, tree=tree, location=location)
