@@ -349,6 +349,47 @@ async def test_upsert_with_save_appends_after_an_entry_the_parser_skips(tmp_path
     assert saved.count("- interval:") == 2 and "!include more.yaml" in saved
 
 
+async def test_upsert_with_save_refuses_an_index_past_the_end(tmp_path: Path) -> None:
+    controller, devices = _setup(tmp_path, _INTERVAL)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_TIMED,
+            location={"kind": "interval", "index": 5},
+            save=True,
+        )
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert excinfo.value.message.startswith("no automation landed at that location")
+    assert devices.saved == []
+
+
+async def test_upsert_with_save_reports_a_rewrite_that_no_longer_loads_as_its_own_fault(
+    tmp_path: Path,
+) -> None:
+    controller, devices = _setup(tmp_path)
+
+    with (
+        patch.object(
+            automations_controller.writing,
+            "render_upsert",
+            return_value=("esphome: [\n", YamlDiff(fromLine=1, toLine=1, replacement="")),
+        ),
+        pytest.raises(CommandError) as excinfo,
+    ):
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION,
+            location={"kind": "device_on", "trigger": "on_shutdown"},
+            save=True,
+        )
+
+    assert excinfo.value.code is ErrorCode.INTERNAL_ERROR
+    assert excinfo.value.message.startswith("the rewrite produced a config that does not load")
+    assert devices.saved == []
+
+
 async def test_upsert_with_save_refuses_to_overwrite_an_entry_the_parser_skips(
     tmp_path: Path,
 ) -> None:
@@ -375,9 +416,6 @@ async def test_upsert_with_save_refuses_to_overwrite_an_entry_the_parser_skips(
         pytest.param(_YAML, _REPLACEMENT, _LOCATION, "already holds YAML", id="occupied"),
         pytest.param(
             _LIST_SHAPED, _REPLACEMENT, _LOCATION, "already holds YAML", id="list_shaped_handler"
-        ),
-        pytest.param(
-            _INTERVAL, _TIMED, {"kind": "interval", "index": 5}, "already holds", id="bad_index"
         ),
         pytest.param(
             "esphome: [\n",

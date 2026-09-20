@@ -518,13 +518,27 @@ def _check_save_args(*, save: bool, yaml: str | None, expected: str | None) -> N
 
 def _rows(yaml_text: str) -> list[ParsedAutomation]:
     """Parse *yaml_text*'s automations; an unloadable file fails the precondition."""
+    return _parse_or_fail(
+        yaml_text, ErrorCode.PRECONDITION_FAILED, "the config no longer loads, nothing was written"
+    )
+
+
+def _rendered_rows(new_text: str) -> list[ParsedAutomation]:
+    """Parse the writer's output; a result that no longer loads is a writer fault."""
+    return _parse_or_fail(
+        new_text,
+        ErrorCode.INTERNAL_ERROR,
+        "the rewrite produced a config that does not load, nothing was written",
+    )
+
+
+def _parse_or_fail(text: str, code: ErrorCode, prefix: str) -> list[ParsedAutomation]:
     try:
-        return parsing.parse_device_yaml(yaml_text)
+        return parsing.parse_device_yaml(text)
     except CommandError as err:
         if err.code is not ErrorCode.INVALID_ARGS:
             raise
-        msg = f"the config no longer loads, nothing was written: {err.message}"
-        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg) from err
+        raise CommandError(code, f"{prefix}: {err.message}") from err
 
 
 def _require_expected(
@@ -551,6 +565,11 @@ def _render_delete_if_unchanged(
     return writing.render_delete(yaml_text, location=location)
 
 
+def _content(row: ParsedAutomation) -> tuple[AutomationTree | None, str | None, bool]:
+    """Return what a surviving row must keep across a rewrite."""
+    return row.automation, row.error, row.unsupported
+
+
 def _render_upsert_if_unchanged(
     yaml_text: str, *, tree: AutomationTree, location: AutomationLocation, expected: str | None
 ) -> tuple[str, YamlDiff]:
@@ -559,12 +578,18 @@ def _render_upsert_if_unchanged(
     if expected is not None:
         _require_expected(before, location, expected)
     new_text, diff = writing.render_upsert(yaml_text, tree=tree, location=location)
-    after = parsing.parse_device_yaml(new_text)
+    after = _rendered_rows(new_text)
     landed = next((p for p in after if p.location == location), None)
+    if landed is None:
+        msg = (
+            "no automation landed at that location, nothing was written; for a list, index "
+            "must not exceed the current length"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     # Compared by content: an insert may turn a bare action list into then:
     # entries, which renumbers the surviving rows.
-    kept = [p.automation for p in before if expected is None or p.location != location]
-    if landed is None or [p.automation for p in after if p is not landed] != kept:
+    kept = [_content(p) for p in before if expected is None or p.location != location]
+    if [_content(p) for p in after if p is not landed] != kept:
         msg = (
             "the automation at that location could not be replaced in place; nothing was written"
             if expected is not None
