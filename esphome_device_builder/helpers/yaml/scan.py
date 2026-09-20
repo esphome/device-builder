@@ -147,3 +147,13 @@ def trim_trailing_blanks(lines: list[str], block_start: int, insert_at: int) -> 
     while insert_at > block_start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
     return insert_at
+
+
+def trim_trailing_gap(lines: list[str], start: int, end: int) -> int:
+    """Pull *end* back over the trailing blank and column-0 comment lines before the next block."""
+    while end - 1 > start:
+        line = lines[end - 1]
+        if line.strip() and not line.startswith("#"):
+            break
+        end -= 1
+    return end

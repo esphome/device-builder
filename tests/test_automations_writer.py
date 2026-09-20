@@ -3958,8 +3958,21 @@ def test_list_append_lands_above_a_trailing_banner() -> None:
     assert _apply_diff(text, diff) == new_text
 
 
-def test_upsert_expands_a_flow_block_holding_a_quoted_hash() -> None:
-    text = 'interval: {interval: 60s, then: [{logger.log: "a # b"}]}\n'
+@pytest.mark.parametrize(
+    "scalar",
+    ['"a # b"', '"a \\" # b"', "'it''s # x'"],
+    ids=["double_quoted", "escaped_double_quote", "doubled_single_quote"],
+)
+def test_upsert_expands_a_flow_block_holding_a_quoted_hash(scalar: str) -> None:
+    text = f"interval: {{interval: 60s, then: [{{logger.log: {scalar}}}]}}\n"
     new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
-    assert 'logger.log: "a # b"' in new_text and new_text.count("- interval:") == 2
+    assert new_text.count("- interval:") == 2 and "# b" not in new_text.split("logger.log")[1][:1]
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_list_append_lands_directly_after_the_last_item_past_a_blank_of_spaces() -> None:
+    text = "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n   \nlogger:\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert "      - delay: 1s\n  - interval: 10s\n" in new_text
     assert _apply_diff(text, diff) == new_text

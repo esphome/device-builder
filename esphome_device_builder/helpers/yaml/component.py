@@ -15,7 +15,7 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
-from .scan import block_end_index, find_block_header, leading_ws
+from .scan import block_end_index, find_block_header, leading_ws, trim_trailing_gap
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -289,17 +289,7 @@ def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, 
         return None
 
     block_end = block_end_index(file_lines, block_start)
-    return block_start, _trim_trailing_gap(file_lines, block_start, block_end)
-
-
-def _trim_trailing_gap(lines: list[str], start: int, end: int) -> int:
-    """Pull *end* back over the trailing blank and column-0 comment lines before the next block."""
-    while end - 1 > start:
-        stripped = lines[end - 1].rstrip("\n\r")
-        if stripped and stripped[0] != "#":
-            break
-        end -= 1
-    return end
+    return block_start, trim_trailing_gap(file_lines, block_start, block_end)
 
 
 def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> str:

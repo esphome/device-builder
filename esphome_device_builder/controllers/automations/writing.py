@@ -505,33 +505,36 @@ def _expand_flow_block(yaml_text: str, domain: str) -> str:
     idx = _inline_header_index(lines, domain)
     if idx is None:
         return yaml_text
-    value, comment = _split_flow_comment(lines[idx].rstrip("\n\r")[len(domain) + 1 :])
     try:
-        loaded = make_yaml().load(f"{domain}:{value}")
+        loaded = make_yaml().load(lines[idx])
     except YAMLError:
         return yaml_text  # a flow value spanning lines is left for _require_block_style
     block = loaded.get(domain) if isinstance(loaded, dict) else None
     if not isinstance(block, (dict, list)):
         return yaml_text
+    comment = _pop_trailing_comment(loaded, domain)
     items = block if isinstance(block, list) else [block]
     _set_block_style(items)
     body = dump(items) if items else ""
-    header_line = f"{domain}:" + (f"  {comment.strip()}" if comment.strip() else "") + "\n"
+    header_line = f"{domain}:" + (f"  {comment}" if comment else "") + "\n"
     return "".join(lines[:idx]) + header_line + body + "".join(lines[idx + 1 :])
 
 
-def _split_flow_comment(rest: str) -> tuple[str, str]:
-    """Split *rest* at the first ``#`` outside quotes; a flow value may quote one anywhere."""
-    quote: str | None = None
-    for i, ch in enumerate(rest):
-        if quote:
-            if ch == quote:
-                quote = None
-        elif ch in "\"'":
-            quote = ch
-        elif ch == "#" and (i == 0 or rest[i - 1].isspace()):
-            return rest[:i], rest[i:]
-    return rest, ""
+def _pop_trailing_comment(loaded: CommentedMap, key: str) -> str:
+    """Detach and return the end-of-line comment ruamel kept on ``loaded[key]``, or ``""``."""
+    tokens = loaded.ca.items.pop(key, None) or []
+    found = [
+        token.value.strip()
+        for slot in tokens
+        for token in (slot if isinstance(slot, list) else [slot])
+        if token is not None and getattr(token, "value", "").strip()
+    ]
+    block = loaded[key]
+    for node in (block, *(block if isinstance(block, list) else [])):
+        if hasattr(node, "ca"):
+            node.ca.items.clear()
+            node.ca.comment = None
+    return found[0] if found else ""
 
 
 def _inline_header_index(lines: list[str], domain: str) -> int | None:
