@@ -4,8 +4,8 @@ Automations controller — the eight WS commands the frontend speaks.
 See ``docs/API.md`` for the per-command contract. ``upsert`` /
 ``delete`` return a :class:`YamlDiff` the frontend applies in
 place; the backend does not persist the YAML — the existing
-config-write debounce on the device editor handles that. The one
-exception is ``delete`` with ``save``, for callers with no editor.
+config-write debounce on the device editor handles that. ``save``
+on either rewrites the file instead, for callers with no editor.
 """
 
 from __future__ import annotations
@@ -217,12 +217,11 @@ class AutomationsController:
     ) -> dict:
         """Insert or replace one automation at *location*.
 
-        ``save`` writes the on-disk config instead of only returning the
-        diff, so it is refused alongside ``yaml``. ``expected`` is the
-        ``raw_yaml`` a parse returned for the automation being replaced;
-        with it, or with ``save``, the write is guarded: a replace needs
-        ``expected`` to still match and an insert needs the location to be
-        empty, else ``PRECONDITION_FAILED`` with nothing written.
+        ``save`` rewrites the on-disk config, so it is refused beside ``yaml``.
+        With ``save`` or ``expected`` (the ``raw_yaml`` a parse returned for the
+        automation being replaced) the write is guarded: a replace needs
+        ``expected`` to still match and an insert must keep every other
+        automation, else ``PRECONDITION_FAILED`` with nothing written.
 
         The frontend has an in-memory draft buffer that may already
         contain an earlier auto-applied version of this automation
@@ -252,13 +251,9 @@ class AutomationsController:
             )
         else:
             render = partial(writing.render_upsert, tree=tree, location=loc)
-        if not save:
-            _new_text, diff = await self._run_on_config(configuration, yaml, render)
-        else:
-            diff = await self._rewrite_on_disk(
-                configuration, render, message=f"Save an automation to {configuration}"
-            )
-        return UpsertResponse(yaml_diff=diff).to_dict()
+        return await self._apply(
+            configuration, yaml, render, save=save, message=f"Save an automation to {configuration}"
+        )
 
     @api_command("automations/delete")
     async def delete(
@@ -273,13 +268,10 @@ class AutomationsController:
     ) -> dict:
         """Delete the automation at *location*.
 
-        Accepts the same optional ``yaml`` override as ``upsert``
-        so the delete is computed against the frontend's current
-        draft buffer when one exists. ``save`` writes the on-disk
-        config instead, so it is refused alongside ``yaml``. With
-        ``expected``, the ``raw_yaml`` a parse returned for the
-        automation, the delete happens only while the automation at
-        *location* still reads that way (``PRECONDITION_FAILED``).
+        Accepts the same ``yaml`` draft override and ``save`` as ``upsert``.
+        With ``expected``, the ``raw_yaml`` a parse returned for the automation,
+        the delete happens only while it still reads that way
+        (``PRECONDITION_FAILED``).
         """
         _check_save_args(save=save, yaml=yaml, expected=expected)
         loc = _decode_location(location)
@@ -288,25 +280,35 @@ class AutomationsController:
             render = partial(writing.render_delete, location=loc)
         else:
             render = partial(_render_delete_if_unchanged, location=loc, expected=expected)
-        if not save:
-            _new_text, diff = await self._run_on_config(configuration, yaml, render)
-        else:
-            diff = await self._rewrite_on_disk(
-                configuration, render, message=f"Delete an automation from {configuration}"
-            )
-        return UpsertResponse(yaml_diff=diff).to_dict()
+        return await self._apply(
+            configuration,
+            yaml,
+            render,
+            save=save,
+            message=f"Delete an automation from {configuration}",
+        )
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    async def _rewrite_on_disk(
-        self, configuration: str, render: Callable[[str], tuple[str, YamlDiff]], *, message: str
-    ) -> YamlDiff:
-        """Apply *render* to the on-disk config under the devices controller's write lock."""
-        if (devices := self._db.devices) is None:
+    async def _apply(
+        self,
+        configuration: str,
+        yaml: str | None,
+        render: Callable[[str], tuple[str, YamlDiff]],
+        *,
+        save: bool,
+        message: str,
+    ) -> dict:
+        """Run *render* over the draft or the file, or with *save* rewrite the file in place."""
+        if not save:
+            _new_text, diff = await self._run_on_config(configuration, yaml, render)
+        elif (devices := self._db.devices) is None:
             raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
-        return await devices.rewrite_yaml(configuration, render, message=message)
+        else:
+            diff = await devices.rewrite_yaml(configuration, render, message=message)
+        return UpsertResponse(yaml_diff=diff).to_dict()
 
     async def _run_on_config[T](
         self, configuration: str, yaml: str | None, func: Callable[[str], T]
@@ -505,7 +507,7 @@ def _decode_location(raw: dict) -> AutomationLocation:
 
 
 def _check_save_args(*, save: bool, yaml: str | None, expected: str | None) -> None:
-    """Refuse a non-boolean ``save``, ``save`` beside ``yaml``, or a non-string ``expected``."""
+    """Validate the ``save`` / ``expected`` wire args."""
     if not isinstance(save, bool):
         raise CommandError(ErrorCode.INVALID_ARGS, "save must be a boolean")
     if save and yaml is not None:
@@ -514,33 +516,29 @@ def _check_save_args(*, save: bool, yaml: str | None, expected: str | None) -> N
         raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
 
 
-def _rows(yaml_text: str, verb: str) -> list[ParsedAutomation]:
+def _rows(yaml_text: str) -> list[ParsedAutomation]:
     """Parse *yaml_text*'s automations; an unloadable file fails the precondition."""
     try:
         return parsing.parse_device_yaml(yaml_text)
     except CommandError as err:
         if err.code is not ErrorCode.INVALID_ARGS:
             raise
-        msg = f"the config no longer loads, nothing was {verb}: {err.message}"
+        msg = f"the config no longer loads, nothing was written: {err.message}"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg) from err
 
 
-def _row_at(yaml_text: str, location: AutomationLocation, verb: str) -> ParsedAutomation | None:
-    """Return the parsed automation at *location*; an unloadable file fails the precondition."""
-    return next((p for p in _rows(yaml_text, verb) if p.location == location), None)
-
-
 def _require_expected(
-    row: ParsedAutomation | None, expected: str, *, done: str, doing: str
+    rows: list[ParsedAutomation], location: AutomationLocation, expected: str
 ) -> None:
-    """Raise ``PRECONDITION_FAILED`` unless *row* exists and still reads as *expected*."""
+    """Raise ``PRECONDITION_FAILED`` unless the row at *location* still reads as *expected*."""
+    row = next((p for p in rows if p.location == location), None)
     if row is None:
-        msg = f"no automation at that location any more; list again before {doing}"
+        msg = "no automation at that location any more; list again and retry"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     if not same_text(row.raw_yaml, expected):
         msg = (
             "the automation at that location differs from the expected text; nothing was "
-            f"{done}, list again before {doing}\n{diff_excerpt(expected, row.raw_yaml)}"
+            f"written, list again and retry\n{diff_excerpt(expected, row.raw_yaml)}"
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
@@ -549,9 +547,7 @@ def _render_delete_if_unchanged(
     yaml_text: str, *, location: AutomationLocation, expected: str
 ) -> tuple[str, YamlDiff]:
     """Delete the automation at *location* only while its text still equals *expected*."""
-    _require_expected(
-        _row_at(yaml_text, location, "deleted"), expected, done="deleted", doing="deleting"
-    )
+    _require_expected(_rows(yaml_text), location, expected)
     return writing.render_delete(yaml_text, location=location)
 
 
@@ -559,34 +555,21 @@ def _render_upsert_if_unchanged(
     yaml_text: str, *, tree: AutomationTree, location: AutomationLocation, expected: str | None
 ) -> tuple[str, YamlDiff]:
     """Insert one automation and keep every other, or replace only the one matching *expected*."""
-    before = _rows(yaml_text, "written")
-    replacing = expected is not None
+    before = _rows(yaml_text)
     if expected is not None:
-        row = next((p for p in before if p.location == location), None)
-        _require_expected(row, expected, done="replaced", doing="replacing")
+        _require_expected(before, location, expected)
     new_text, diff = writing.render_upsert(yaml_text, tree=tree, location=location)
-    after = _rows(new_text, "written")
-    # Content, not location: a legitimate insert may canonicalise its container
-    # (a bare action list becomes a then: list), which renumbers the rows.
-    kept = [p.automation for p in before if not (replacing and p.location == location)]
-    remaining = [p.automation for p in after]
-    intact = all(_take(remaining, automation) for automation in kept)
-    landed = location in [p.location for p in after]
-    if not (intact and landed and len(after) == len(before) + (0 if replacing else 1)):
+    after = parsing.parse_device_yaml(new_text)
+    landed = next((p for p in after if p.location == location), None)
+    # Compared by content: an insert may turn a bare action list into then:
+    # entries, which renumbers the surviving rows.
+    kept = [p.automation for p in before if expected is None or p.location != location]
+    if landed is None or [p.automation for p in after if p is not landed] != kept:
         msg = (
             "the automation at that location could not be replaced in place; nothing was written"
-            if replacing
+            if expected is not None
             else "that location already holds YAML; pass the automation's raw_yaml from a "
             "listing as expected to replace it"
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     return new_text, diff
-
-
-def _take(pool: list[AutomationTree], item: AutomationTree) -> bool:
-    """Remove one *item* from *pool*; False when it is not there."""
-    try:
-        pool.remove(item)
-    except ValueError:
-        return False
-    return True
