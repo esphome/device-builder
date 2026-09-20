@@ -560,19 +560,33 @@ def _render_upsert_if_unchanged(
 ) -> tuple[str, YamlDiff]:
     """Insert one automation and keep every other, or replace only the one matching *expected*."""
     before = _rows(yaml_text, "written")
+    replacing = expected is not None
     if expected is not None:
         row = next((p for p in before if p.location == location), None)
         _require_expected(row, expected, done="replaced", doing="replacing")
     new_text, diff = writing.render_upsert(yaml_text, tree=tree, location=location)
-    after = [p.location for p in parsing.parse_device_yaml(new_text)]
-    if expected is None:
-        if len(after) != len(before) + 1 or any(p.location not in after for p in before):
-            msg = (
-                "that location already holds YAML; pass the automation's raw_yaml from a "
-                "listing as expected to replace it"
-            )
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-    elif len(after) != len(before) or location not in after:
-        msg = "the automation at that location could not be replaced in place; nothing was written"
+    after = _rows(new_text, "written")
+    # Content, not location: a legitimate insert may canonicalise its container
+    # (a bare action list becomes a then: list), which renumbers the rows.
+    kept = [p.automation for p in before if not (replacing and p.location == location)]
+    remaining = [p.automation for p in after]
+    intact = all(_take(remaining, automation) for automation in kept)
+    landed = location in [p.location for p in after]
+    if not (intact and landed and len(after) == len(before) + (0 if replacing else 1)):
+        msg = (
+            "the automation at that location could not be replaced in place; nothing was written"
+            if replacing
+            else "that location already holds YAML; pass the automation's raw_yaml from a "
+            "listing as expected to replace it"
+        )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     return new_text, diff
+
+
+def _take(pool: list[AutomationTree], item: AutomationTree) -> bool:
+    """Remove one *item* from *pool*; False when it is not there."""
+    try:
+        pool.remove(item)
+    except ValueError:
+        return False
+    return True
