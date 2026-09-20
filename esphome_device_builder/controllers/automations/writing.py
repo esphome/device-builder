@@ -226,7 +226,7 @@ def _upsert_device_on_entry(
         index=index,
         strategy=_DEVICE_STRATEGY,
         trigger=catalog.trigger_by_id(trigger),
-        replaceable=None,
+        replaceable=is_mapping_entry,
     )
 
 

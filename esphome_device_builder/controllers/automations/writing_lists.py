@@ -36,7 +36,7 @@ from ...models.automations import (
 )
 from . import catalog
 from .emitter import dump, emit_effect_item, emit_trigger_list_item
-from .parsing import is_effect_item, is_trigger_entry, make_yaml
+from .parsing import is_effect_item, is_mapping_entry, is_trigger_entry, make_yaml
 
 # The YAML field naming a component instance's id.
 _ID_KEY = "id"
@@ -173,9 +173,7 @@ def upsert_list_entry(
 
     ``index == len(entries)`` appends; an in-range index replaces. Refuses
     when the existing handler is a single mapping rather than a list — the
-    user picked that shape, so don't silently rewrite it. *replaceable* is
-    ``None`` for a trigger list because the parser lists every entry of one,
-    so the caller's content guard already covers an overwrite.
+    user picked that shape, so don't silently rewrite it.
 
     When *trigger* is given and the existing list body is the bare
     action-list shorthand (one handler whose items aren't trigger
@@ -255,7 +253,7 @@ def upsert_component_on_entry(
         index=index,
         strategy=_component_strategy(domain, component_id),
         trigger=trigger,
-        replaceable=None,
+        replaceable=is_mapping_entry,
     )
 
 
@@ -326,7 +324,7 @@ def upsert_subentity_on_entry(
         index=index,
         strategy=_subentity_strategy(ref, component_id),
         trigger=trigger,
-        replaceable=None,
+        replaceable=is_mapping_entry,
     )
 
 

@@ -375,7 +375,7 @@ async def test_upsert_with_save_refuses_an_index_past_the_end(tmp_path: Path) ->
 
 
 async def test_upsert_with_save_reports_a_rewrite_that_no_longer_loads_as_its_own_fault(
-    tmp_path: Path,
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     controller, devices = _setup(tmp_path)
 
@@ -396,6 +396,7 @@ async def test_upsert_with_save_reports_a_rewrite_that_no_longer_loads_as_its_ow
 
     assert excinfo.value.code is ErrorCode.INTERNAL_ERROR
     assert excinfo.value.message.startswith("the rewrite produced a config that does not load")
+    assert "Automation rewrite produced a config that does not load" in caplog.text
     assert devices.saved == []
 
 
@@ -412,9 +413,7 @@ async def test_upsert_with_save_keeps_working_beside_a_nan_survivor(tmp_path: Pa
     assert devices.saved[0][1].count("- interval:") == 2
 
 
-async def test_upsert_with_save_logs_a_rewrite_that_no_longer_loads(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+async def test_upsert_with_save_passes_other_parser_errors_through(tmp_path: Path) -> None:
     controller, devices = _setup(tmp_path)
     other = CommandError(ErrorCode.UNAVAILABLE, "catalog not loaded")
     before = await asyncio.to_thread(automations_controller.parsing.parse_device_yaml, _YAML)
