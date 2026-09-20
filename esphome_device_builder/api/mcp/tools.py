@@ -96,7 +96,8 @@ async def _list_devices(db: DeviceBuilder, _args: dict[str, Any]) -> list[dict[s
 
 @_tool(
     "get_config",
-    "Read a device's YAML configuration, or secrets.yaml.",
+    "Read a device's YAML configuration, or secrets.yaml (its values then enter this "
+    "conversation).",
     {"configuration": _CONFIGURATION},
     ("configuration",),
     reads_secrets=True,
@@ -108,7 +109,8 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "update_config",
     "Replace a device's YAML configuration with new content. Read it with get_config "
-    "first and change only what is needed; run validate_config or compile afterwards.",
+    "first and change only what is needed; run validate_config or compile afterwards. "
+    "The previous text stays in the dashboard's version history.",
     {
         "configuration": _CONFIGURATION,
         "content": _prop("string", "The complete new YAML."),
@@ -176,7 +178,8 @@ async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     "install",
     "Compile and install firmware on a device. Returns the compile job id and the "
     "dependent upload job id; poll both with get_job. An offline device gets the update "
-    "queued for its next wake (deferred, no upload job).",
+    "queued for its next wake (deferred, no upload job). A flash has no undo: the device "
+    "runs whatever compiles, so read and validate the config first.",
     {
         "configuration": _CONFIGURATION,
         "port": _prop("string", "'OTA' (default), a serial port, or an IP/hostname."),
@@ -250,6 +253,11 @@ async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
         "platform": _prop(
             "string", "Target platform (esp32, esp8266, ...) to resolve platform defaults."
         ),
+        "board_id": _prop(
+            "string",
+            "Board id from search_boards; resolves the chip variant's defaults, which "
+            "platform alone cannot.",
+        ),
         "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
         | {"default": False},
     },
@@ -262,6 +270,7 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
         "components/get_component_bodies",
         component_ids=[component_id],
         platform=args.get("platform"),
+        board_id=args.get("board_id"),
     )
     if component_id not in bodies:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown component: {component_id}")

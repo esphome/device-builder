@@ -14,6 +14,7 @@ from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     AddComponentResponse,
+    ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
     ComponentCategory,
     DevicesResponse,
@@ -293,6 +294,23 @@ async def test_get_component_projects_the_catalog_body(
     assert {option["value"] for option in entries["model"]["options"]} >= {"DHT11", "DHT22"}
     assert not any("hidden" in entry or entry.get("advanced") for entry in entries.values())
     assert "null" not in json.dumps(body)
+
+
+async def test_get_component_forwards_platform_and_board_id(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    entry = ComponentCatalogEntry(
+        id="wifi", name="Wi-Fi", description="", category=ComponentCategory.CORE
+    )
+    handler = AsyncMock(return_value={"wifi": entry})
+    mcp_db.command_handlers["components/get_component_bodies"] = handler
+    await mcp_call_json(
+        mcp_client,
+        "get_component",
+        {"component_id": "wifi", "platform": "esp32", "board_id": "esp32-c3-devkitm-1"},
+    )
+    assert handler.await_args.kwargs["platform"] == "esp32"
+    assert handler.await_args.kwargs["board_id"] == "esp32-c3-devkitm-1"
 
 
 async def test_get_component_include_advanced(
