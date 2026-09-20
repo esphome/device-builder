@@ -1692,7 +1692,7 @@ def _declared_id_classes(entries: list[dict]) -> tuple[dict[str, list[set[str]]]
         # Own-domain ids that are all nested: the picker never offers the root id.
         if not classes or (own and not any(len(path) == 1 for path in own)):
             continue
-        if variant and len({tuple(v) for v in variant[1].values()}) > 1:
+        if variant and len({frozenset(v) for v in variant[1].values()}) > 1:
             variants[entry["id"]] = variant
             provided[entry["id"]] = [set(v) for v in variant[1].values()]
         else:
@@ -1740,9 +1740,11 @@ def _prune_reference_classes(config_entries: list[dict], restrictive: set[tuple[
 
 
 def _prune_automation_reference_classes(
-    automations: dict[str, list[dict]], restrictive: set[tuple[str, str]]
+    automations: dict[str, list[dict]], restrictive: set[tuple[str, str]] | None
 ) -> None:
-    """Apply the components' restrictive set to every automation reference."""
+    """Apply the components' restrictive set to every automation reference; None prunes nothing."""
+    if restrictive is None:
+        return
     for group in automations.values():
         for item in group:
             _prune_reference_classes(item.get("config_entries") or [], restrictive)
@@ -1767,8 +1769,14 @@ def _apply_hub_variant_constraints(
             return
         typed_key, per_variant = variants[hub]
         qualifying = [name for name, classes in per_variant.items() if cls in classes]
-        if len(qualifying) == 1 and qualifying[0] != _default_variant(by_id[hub], typed_key):
-            entry.setdefault("bus_constraints", {}).setdefault(hub, {})[typed_key] = qualifying[0]
+        if len(qualifying) != 1 or qualifying[0] == _default_variant(by_id[hub], typed_key):
+            return
+        constraints = entry.setdefault("bus_constraints", {}).setdefault(hub, {})
+        if constraints.setdefault(typed_key, qualifying[0]) != qualifying[0]:
+            raise SystemExit(
+                f"{entry['id']}: bus_constraints[{hub}][{typed_key}] is "
+                f"{constraints[typed_key]!r} but {cls} needs {qualifying[0]!r}"
+            )
 
     _walk_catalog_entries(entry.get("config_entries") or [], visit)
 
@@ -1795,9 +1803,11 @@ def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | Non
     for name, node in config_schema["types"].items():
         config_vars = node.get("config_vars") if isinstance(node, dict) else None
         id_type = (config_vars or {}).get("id", {}).get("id_type")
-        if isinstance(id_type, dict) and isinstance(id_type.get("class"), str):
-            parents = [p for p in id_type.get("parents") or [] if isinstance(p, str) and "::" in p]
-            out[name] = [id_type["class"], *parents]
+        # A variant the bundle can't type would be judged on a partial set.
+        if not isinstance(id_type, dict) or not isinstance(id_type.get("class"), str):
+            return None
+        parents = [p for p in id_type.get("parents") or [] if isinstance(p, str) and "::" in p]
+        out[name] = [id_type["class"], *parents]
     return (typed_key, out) if out else None
 
 
@@ -10160,7 +10170,7 @@ def build_automations(  # noqa: C901
         "light_effects": _dedupe_by_id(effects),
         "filters": _dedupe_filters(filters),
     }
-    _prune_automation_reference_classes(automations, restrictive_references or set())
+    _prune_automation_reference_classes(automations, restrictive_references)
     return automations
 
 

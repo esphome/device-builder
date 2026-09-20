@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from script.sync_components import (  # type: ignore[import-not-found]
     _prune_automation_reference_classes,
     _resolve_reference_classes,
@@ -158,6 +160,28 @@ def test_variant_id_classes_reads_each_typed_branch() -> None:
         {"single": ["spi::SPIComponent"], "quad": ["spi::QuadSPIComponent", "spi::SPIBase"]},
     )
     assert _variant_id_classes({"schemas": {"CONFIG_SCHEMA": {"schema": {}}}}) is None
+    # A variant with no readable id class makes the whole hub unjudgeable.
+    section["schemas"]["CONFIG_SCHEMA"]["types"]["octal"] = {"config_vars": {}}
+    assert _variant_id_classes(section) is None
+
+
+def test_hub_variant_constraint_conflicting_with_a_collected_one_fails_the_sync() -> None:
+    hub = _declarer(
+        "modbus",
+        ["modbus::Modbus"],
+        _variant_id_classes=(
+            "role",
+            {"client": ["modbus::ModbusClientHub"], "server": ["modbus::ModbusServerHub"]},
+        ),
+    )
+    hub["config_entries"] = [{"key": "role", "default_value": "client"}]
+    cover = {
+        "id": "hoermann_hcp",
+        "bus_constraints": {"modbus": {"role": "client"}},
+        "config_entries": [_reference("modbus_id", "modbus", "modbus::ModbusServerHub")],
+    }
+    with pytest.raises(SystemExit, match="hoermann_hcp"):
+        _resolve([hub, cover])
 
 
 def test_reference_no_declarer_can_satisfy_stays_unfiltered() -> None:
@@ -225,6 +249,13 @@ def test_shipped_i2c_bus_is_never_filtered() -> None:
     assert "id_classes" not in _body("i2c")
     camera = next(e for e in _body("esp32_camera")["config_entries"] if e["key"] == "i2c_id")
     assert "references_class" not in camera
+
+
+def test_shipped_nested_provider_ids_are_outside_its_id_classes() -> None:
+    """``id_classes`` is the light's own id; its sensors are reached by ``provides_id_paths``."""
+    dimmer = _body("light.shelly_dimmer")
+    assert not any(cls.startswith("sensor::") for cls in dimmer["id_classes"])
+    assert all(len(path) > 1 for path in dimmer["provides_id_paths"]["sensor"])
 
 
 def test_shipped_index_carries_the_declarer_classes() -> None:
