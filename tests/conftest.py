@@ -20,7 +20,6 @@ import asyncio
 import itertools
 import json
 import logging
-import os
 import re
 import ssl
 import sys
@@ -175,6 +174,11 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 # tests that override ``CORE.config_path`` (e.g. ``make_settings(
 # with_core_path=True)``) still take precedence, and sibling xdist
 # workers don't see leaked process-globals.
+#
+# Only a test that already uses ``tmp_path`` (directly or through a
+# fixture) gets that directory; everything else gets a unique path that
+# is never created, since a directory per test is slow on Windows
+# runners. A test that writes storage must request ``tmp_path``.
 # ---------------------------------------------------------------------------
 
 
@@ -187,7 +191,7 @@ def _core_config_path_in_tmp(
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    if "tmp_path" in request.fixturenames or not os.environ.get("PROBE_LAZY_TMP"):
+    if "tmp_path" in request.fixturenames:
         config_dir: Path = request.getfixturevalue("tmp_path")
     else:
         config_dir = tmp_path_factory.getbasetemp() / f"no-tmp-path-{next(_lazy_config_dirs)}"

@@ -183,6 +183,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
           install-args: -c esphome-constraints.txt -e .[esphome,test]
 
+      - name: Move TEMP to the work disk (Windows)
+        # Windows runners keep ``%TEMP%`` on ``C:``, which is about twice
+        # as slow for small file I/O as the ``D:`` work disk, and pytest's
+        # ``tmp_path`` lives under it.
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Run pytest
         # ``uv run --no-sync`` uses the .venv created above as-is.
         # Without ``--no-sync``, ``uv run`` re-locks the project
@@ -627,85 +637,3 @@ jobs:
           # single bench is visible in the CI log without having
           # to dig into the CodSpeed dashboard.
           run: pytest tests/benchmarks --codspeed --no-cov --timeout=600 --durations 10
-
-  windows-perf-probe:
-    # TEMPORARY: measures where the Windows pytest time goes. Each leg runs
-    # the ``test`` job's pytest command with one change; removed before this
-    # PR leaves draft.
-    name: Perf probe (${{ matrix.variant }})
-    runs-on: ${{ matrix.os }}
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - variant: linux-lazy-tmp
-            os: ubuntu-latest
-            lazy: "1"
-          - variant: temp-on-d-durations
-            os: windows-latest
-            temp: d
-            extra-args: --durations=0 --durations-min=0.02
-          - variant: temp-on-d-repeat
-            os: windows-latest
-            temp: d
-          - variant: lazy-tmp
-            os: windows-latest
-            lazy: "1"
-          - variant: temp-on-d-lazy-tmp
-            os: windows-latest
-            temp: d
-            lazy: "1"
-          - variant: temp-on-refs-lazy-tmp
-            os: windows-latest
-            temp: refs
-            lazy: "1"
-    steps:
-      - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-
-      - name: Set up Python 3.14 + cached venv
-        uses: ./.github/actions/restore-or-build-venv
-        with:
-          python-version: "3.14"
-          install-args: -c esphome-constraints.txt -e .[esphome,test]
-
-      - name: Report Defender state
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,OnAccessProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled | Format-List
-          Get-MpPreference | Select-Object DisableRealtimeMonitoring,ExclusionPath,ExclusionProcess | Format-List
-
-      - name: Create a ReFS virtual disk for TEMP
-        if: matrix.temp == 'refs'
-        shell: pwsh
-        run: |
-          $script = Join-Path $env:RUNNER_TEMP 'refs.diskpart'
-          Set-Content -Path $script -Value @('create vdisk file="D:\probe-temp.vhdx" maximum=8192 type=expandable', 'attach vdisk', 'create partition primary', 'format fs=refs quick', 'assign letter=V')
-          diskpart /s $script
-          New-Item -ItemType Directory -Path 'V:\t' | Out-Null
-          "TEMP=V:\t" >> $env:GITHUB_ENV
-          "TMP=V:\t" >> $env:GITHUB_ENV
-
-      - name: Point TEMP at the runner temp dir
-        if: matrix.temp == 'd'
-        shell: bash
-        run: |
-          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
-          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
-
-      - name: Ask conftest for lazy tmp_path
-        if: matrix.lazy == '1'
-        shell: bash
-        run: echo "PROBE_LAZY_TMP=1" >> "$GITHUB_ENV"
-
-      - name: Time OS primitives
-        run: uv run --no-sync python script/_perf_probe.py
-
-      - name: Run pytest
-        timeout-minutes: 8
-        run: uv run --no-sync pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term ${{ matrix.extra-args }}
