@@ -238,6 +238,14 @@ def test_closed_object_registers_as_valid_json_schema() -> None:
         pytest.param({"type": "array"}, "a needs items", id="bare_array"),
         pytest.param({"type": "object"}, "a needs a shape", id="bare_object"),
         pytest.param(
+            closed_object({}) | {"properties": "x"}, "needs a properties mapping", id="props_type"
+        ),
+        pytest.param(
+            {"type": "object", "additionalProperties": True, "required": ["a"]},
+            "required names but no properties",
+            id="required_on_open_object",
+        ),
+        pytest.param(
             {"type": "object", "additionalProperties": False},
             "additionalProperties true",
             id="closed_without_properties",
