@@ -459,12 +459,13 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "the trigger, so a trigger_id is ignored. trigger_params holds the block's own keys "
     "(a trigger's fields; for interval its interval period; for script its mode and "
     "parameters; for api_action its variables; for light_effect exactly one key, the "
-    "effect id mapped to its params). Each action is {action_id, params, children, "
+    "effect id mapped to its params; for component_action nothing, it is ignored). Each "
+    "action is {action_id, params, children, "
     "conditions}, children maps a branch name such as then or else to a list of actions, "
     "and each condition is {condition_id, params, children} with children a list of "
     "conditions; ids from get_available_automations, fields from get_automation_docs. An "
     "insert must not replace existing YAML; to replace, pass the automation's raw_yaml from "
-    "list_automations as expected.",
+    "list_automations as expected. Run validate_config afterwards.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "Where the automation lives; see the description."),
