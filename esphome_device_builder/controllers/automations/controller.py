@@ -550,15 +550,14 @@ def _render_delete_if_unchanged(
 def _render_upsert_if_unchanged(
     yaml_text: str, *, tree: AutomationTree, location: AutomationLocation, expected: str | None
 ) -> tuple[str, YamlDiff]:
-    """Insert at an empty *location*, or replace only while its text still equals *expected*."""
-    row = _row_at(yaml_text, location, "written")
-    if expected is None:
-        if row is not None:
-            msg = (
-                "that location already holds an automation; pass its raw_yaml as expected to "
-                "replace it"
-            )
-            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-    else:
-        _require_expected(row, expected, "replacing")
-    return writing.render_upsert(yaml_text, tree=tree, location=location)
+    """Insert without replacing any line, or replace only while the text still equals *expected*."""
+    if expected is not None:
+        _require_expected(_row_at(yaml_text, location, "written"), expected, "replacing")
+    new_text, diff = writing.render_upsert(yaml_text, tree=tree, location=location)
+    if expected is None and diff.toLine >= diff.fromLine:
+        msg = (
+            "that location already holds YAML; pass the automation's raw_yaml from a listing "
+            "as expected to replace it"
+        )
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    return new_text, diff
