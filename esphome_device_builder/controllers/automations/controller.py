@@ -19,6 +19,7 @@ from ruamel.yaml import YAMLError
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import run_in_executor
+from ...helpers.device_config import read_device_config
 from ...models.api import ErrorCode
 from ...models.automations import (
     ApiActionLocation,
@@ -36,7 +37,6 @@ from ...models.automations import (
     ScriptLocation,
     UpsertResponse,
 )
-from ..devices.helpers import read_device_config
 from . import catalog, parsing, writing
 from .catalog import AutomationBodyRef
 

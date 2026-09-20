@@ -13,6 +13,11 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.device_config import (
+    raise_device_not_found,
+    read_device_config,
+    read_device_config_async,
+)
 from ...helpers.device_yaml import (
     configuration_filename,
     parse_esphome_meta,
@@ -35,9 +40,6 @@ from .firmware_sync import migrate_metadata, rescan_renamed
 from .helpers import (
     persist_if_unchanged,
     raise_device_name_exists,
-    raise_device_not_found,
-    read_device_config,
-    read_device_config_async,
     require_unchanged,
 )
 from .mutations_create import save_device_storage
@@ -407,7 +409,7 @@ async def edit_friendly_name(
     if not new_friendly_name:
         raise CommandError(ErrorCode.INVALID_ARGS, "new_friendly_name is required")
 
-    content = await read_device_config_async(controller, configuration)
+    content = await read_device_config_async(controller._db.settings, configuration)
 
     try:
         new_content = upsert_yaml_leaf_under_top_block(
