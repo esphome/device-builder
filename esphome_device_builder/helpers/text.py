@@ -19,7 +19,7 @@ def summarise(messages: Iterable[str]) -> str:
 
 
 def same_text(current: str, expected: str) -> bool:
-    """Whether *expected* is *current* up to trailing newlines, which a caller may drop."""
+    """Whether *expected* equals *current* ignoring trailing newlines."""
     return current.rstrip("\n") == expected.rstrip("\n")
 
 

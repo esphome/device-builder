@@ -148,7 +148,7 @@ async def test_write_new_file_exclusive_reraises_when_on_exists_returns(tmp_path
 
 def test_require_unchanged_passes_the_text_it_started_from() -> None:
     require_unchanged("a: 1\n", "a: 1\n", "k.yaml")
-    require_unchanged("a: 1\n", "a: 1", "k.yaml")  # a dropped trailing newline is not a change
+    require_unchanged("a: 1\n", "a: 1", "k.yaml")
 
 
 def test_require_unchanged_refuses_a_text_that_moved_on() -> None:

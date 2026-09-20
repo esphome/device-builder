@@ -89,6 +89,7 @@ async def test_set_encryption_key_keeps_the_key_when_the_file_changed_during_val
     assert result["result"] == "not_writable"
     assert "differs from the expected text" in result["reason"]
     assert "\n" not in result["reason"]
+    assert ":;" not in result["reason"]
     assert result["reason"].endswith("the key was kept for a later attempt")
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == concurrent
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
