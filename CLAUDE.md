@@ -851,11 +851,11 @@ against legacy behaviour before assuming the simpler version suffices.
   check refuses valid configs and makes untouched automations impossible
   to edit. Guards that protect the dashboard's own round trip stay (an
   occupied location, a parser-skipped list entry, a stale `expected`,
-  the parser's refusal to decompose a misrouted mapping); field and
-  value semantics come from running `esphome config`
-  (`devices/validate`, the MCP `validate_config` tool), and an agent
-  repairs from esphome's own error. Evidence and history:
-  docs/ARCHITECTURE.md, "Component Catalog".
+  the parser's refusal to decompose an uncatalogued id that shares a
+  mapping with other keys); field and value semantics come from running
+  `esphome config` (`devices/validate`, the MCP `validate_config` tool),
+  and an agent repairs from esphome's own error. Evidence and history:
+  docs/ARCHITECTURE.md "Component Catalog".
 - **Never generate invalid configs; fix the source, not the consumer.**
   When a downstream path hits an invalid YAML (`esphome config` exits
   non-zero, schema rejects, compile fails), fix the *generator* (wizard,
