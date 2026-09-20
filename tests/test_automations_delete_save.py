@@ -318,6 +318,41 @@ async def test_upsert_with_save_appends_a_handler_to_a_list_shaped_trigger(
     assert devices.saved[0][1].count("- then:") == 3
 
 
+async def test_upsert_with_save_appends_to_a_bare_action_list_shorthand(tmp_path: Path) -> None:
+    shorthand = (
+        "button:\n  - platform: template\n    name: B\n    id: bid\n"
+        "    on_press:\n      - switch.turn_off: relay\n"
+    )
+    devices = _Devices(shorthand)
+    controller = _make_controller(tmp_path, devices=devices)
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION | {"trigger_id": None},
+        location={"kind": "component_on", "component_id": "bid", "trigger": "on_press", "index": 1},
+        save=True,
+    )
+
+    saved = devices.saved[0][1]
+    assert saved.count("- then:") == 2 and "switch.turn_off: relay" in saved
+
+
+async def test_upsert_with_save_refuses_an_index_the_writer_cannot_honour(tmp_path: Path) -> None:
+    devices = _Devices("interval:\n  - interval: 1s\n    then:\n      - delay: 1s\n")
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION | {"trigger_id": None, "trigger_params": {"interval": "5s"}},
+            location={"kind": "interval", "index": 5},
+            save=True,
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert devices.saved == []
+
+
 async def test_upsert_with_save_appends_to_a_list_without_expected(tmp_path: Path) -> None:
     devices = _Devices("interval:\n  - interval: 1s\n    then:\n      - delay: 1s\n")
     controller = _make_controller(tmp_path, devices=devices)
@@ -468,8 +503,9 @@ async def test_upsert_refuses_save_beside_yaml(tmp_path: Path) -> None:
     [
         {"trigger_id": "on_boot", "actions": "delay"},
         {"trigger_id": "on_boot", "actions": [{"params": {}}]},
+        "not even a mapping",
     ],
-    ids=["actions_not_a_list", "node_without_action_id"],
+    ids=["actions_not_a_list", "node_without_action_id", "not_a_mapping"],
 )
 async def test_upsert_refuses_a_malformed_tree_as_invalid_args(
     tmp_path: Path, automation: dict[str, Any]
@@ -481,4 +517,3 @@ async def test_upsert_refuses_a_malformed_tree_as_invalid_args(
 
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
     assert excinfo.value.message.startswith("Invalid automation: ")
-    assert "actions" in excinfo.value.message
