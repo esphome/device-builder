@@ -321,12 +321,14 @@ async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> Any:
 
 @_tool(
     "set_secret",
-    "Create or update one secret in secrets.yaml, the only way to change that file. "
-    "Reference the secret in YAML as '!secret <name>'.",
+    "Create one secret in secrets.yaml, the only way to change that file, or replace one "
+    "with overwrite. Replacing is not recoverable: secrets.yaml is kept out of version "
+    "history. Reference the secret in YAML as '!secret <name>'.",
     {
         "name": _prop("string", "Secret name, e.g. 'wifi_password'."),
         "value": _prop("string", "The secret value."),
-        "overwrite": _prop("boolean", "Replace an existing value.") | {"default": True},
+        "overwrite": _prop("boolean", "Replace an existing value; the old one is lost.")
+        | {"default": False},
     },
     ("name", "value"),
 )
@@ -423,16 +425,19 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "delete_automation",
     "Remove one automation from a device config and save it; pass the location from "
-    "list_automations.",
+    "list_automations. Check the returned yaml_diff line range against that automation's "
+    "from_line and to_line: a location is positional and shifts after an edit.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "The automation's location as returned by list_automations."),
     },
     ("configuration", "location"),
 )
-async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    await _call(db, "automations/delete", save=True, **_only(args, "configuration", "location"))
-    return f"Removed the automation and saved {args['configuration']}"
+async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
+    result = await _call(
+        db, "automations/delete", save=True, **_only(args, "configuration", "location")
+    )
+    return {"configuration": args["configuration"], "yaml_diff": result["yaml_diff"]}
 
 
 async def _call(

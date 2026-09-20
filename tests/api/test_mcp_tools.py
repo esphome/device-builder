@@ -437,7 +437,7 @@ async def test_set_secret_forwards_the_key_and_value(
         "message_id": "mcp",
         "key": "wifi_password",
         "value": "hunter2",
-        "overwrite": True,
+        "overwrite": False,
     }
 
 
@@ -558,9 +558,12 @@ async def test_automation_tools_wrap_the_automation_commands(
     docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": refs})
     assert docs == {"actions/light.turn_on": {"id": "light.turn_on"}}
     assert bodies.await_args.kwargs["refs"] == refs
-    assert await mcp_call(
+    assert await mcp_call_json(
         mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
-    ) == (False, "Removed the automation and saved kitchen.yaml")
+    ) == {
+        "configuration": "kitchen.yaml",
+        "yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""},
+    }
     assert delete.await_args.kwargs == {
         "client": ANY,
         "message_id": ANY,

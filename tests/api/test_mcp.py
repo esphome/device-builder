@@ -61,7 +61,7 @@ async def test_route_wins_over_spa_catch_all(
 @pytest.mark.parametrize(
     ("tool", "arg", "default"),
     [
-        ("set_secret", "overwrite", True),
+        ("set_secret", "overwrite", False),
         ("get_component", "include_advanced", False),
         ("get_automation_docs", "include_advanced", False),
     ],
