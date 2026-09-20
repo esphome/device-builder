@@ -196,13 +196,9 @@ def _items_check(prop: dict[str, Any]) -> str | None:
 
 
 def _properties_check(prop: dict[str, Any]) -> str | None:
-    if not isinstance(prop["properties"], dict) or not isinstance(prop.get("required"), list):
-        return "needs a properties mapping and a required list; see closed_object"
-    if len(set(prop["required"])) != len(prop["required"]):
-        return "has duplicate required names"
-    if missing := set(prop["required"]) - set(prop["properties"]):
-        return f"has required names not in properties: {sorted(missing)}"
-    return None
+    if isinstance(prop["properties"], dict):
+        return None
+    return "needs a properties mapping; see closed_object"
 
 
 def _items_apply(prop: dict[str, Any], values: Any) -> str | None:
@@ -345,13 +341,24 @@ def _container_problem(prop: dict[str, Any]) -> str | None:
 def _object_shape_problem(prop: dict[str, Any]) -> str | None:
     """Return why an object *prop* is neither a closed object nor a declared open one, or None."""
     if "properties" in prop:
-        if prop.get("additionalProperties") is not False:
-            return "needs additionalProperties false beside properties; see closed_object"
-        return None
+        return _closed_object_problem(prop)
     if prop.get("additionalProperties") is not True:
         return "needs a shape: closed_object, or additionalProperties true for an open object"
     if "required" in prop:
         return "has required names but no properties; see closed_object"
+    return None
+
+
+def _closed_object_problem(prop: dict[str, Any]) -> str | None:
+    """Return why a *prop* with ``properties`` is not a well-formed closed object, or None."""
+    if not isinstance(prop.get("required"), list):
+        return "needs a required list beside properties; see closed_object"
+    if len(set(prop["required"])) != len(prop["required"]):
+        return "has duplicate required names"
+    if missing := set(prop["required"]) - set(prop["properties"]):
+        return f"has required names not in properties: {sorted(missing)}"
+    if prop.get("additionalProperties") is not False:
+        return "needs additionalProperties false beside properties; see closed_object"
     return None
 
 
