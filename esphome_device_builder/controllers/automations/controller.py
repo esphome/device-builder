@@ -530,15 +530,17 @@ def _row_at(yaml_text: str, location: AutomationLocation, verb: str) -> ParsedAu
     return next((p for p in _rows(yaml_text, verb) if p.location == location), None)
 
 
-def _require_expected(row: ParsedAutomation | None, expected: str, verb: str) -> None:
+def _require_expected(
+    row: ParsedAutomation | None, expected: str, *, done: str, doing: str
+) -> None:
     """Raise ``PRECONDITION_FAILED`` unless *row* exists and still reads as *expected*."""
     if row is None:
-        msg = f"no automation at that location any more; list again before {verb}"
+        msg = f"no automation at that location any more; list again before {doing}"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     if not same_text(row.raw_yaml, expected):
         msg = (
             "the automation at that location differs from the expected text; nothing was "
-            f"{verb}, list again\n{diff_excerpt(expected, row.raw_yaml)}"
+            f"{done}, list again before {doing}\n{diff_excerpt(expected, row.raw_yaml)}"
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
@@ -547,7 +549,9 @@ def _render_delete_if_unchanged(
     yaml_text: str, *, location: AutomationLocation, expected: str
 ) -> tuple[str, YamlDiff]:
     """Delete the automation at *location* only while its text still equals *expected*."""
-    _require_expected(_row_at(yaml_text, location, "deleted"), expected, "deleting")
+    _require_expected(
+        _row_at(yaml_text, location, "deleted"), expected, done="deleted", doing="deleting"
+    )
     return writing.render_delete(yaml_text, location=location)
 
 
@@ -558,7 +562,7 @@ def _render_upsert_if_unchanged(
     before = _rows(yaml_text, "written")
     if expected is not None:
         row = next((p for p in before if p.location == location), None)
-        _require_expected(row, expected, "replacing")
+        _require_expected(row, expected, done="replaced", doing="replacing")
     new_text, diff = writing.render_upsert(yaml_text, tree=tree, location=location)
     after = [p.location for p in parsing.parse_device_yaml(new_text)]
     if expected is None:
