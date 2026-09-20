@@ -20,6 +20,7 @@ from ruamel.yaml import YAMLError
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config
+from ...helpers.text import diff_excerpt, same_text
 from ...models.api import ErrorCode
 from ...models.automations import (
     ApiActionLocation,
@@ -490,7 +491,13 @@ def _render_delete_if_unchanged(
         msg = f"the config no longer loads, nothing was deleted: {err.message}"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg) from err
     row = next((p for p in rows if p.location == location), None)
-    if row is None or row.raw_yaml != expected:
-        msg = "the automation at that location changed or moved; list again before deleting"
+    if row is None:
+        msg = "no automation at that location any more; list again before deleting"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    if not same_text(row.raw_yaml, expected):
+        msg = (
+            "the automation at that location differs from the expected text; nothing was "
+            f"deleted. List again before deleting:\n{diff_excerpt(expected, row.raw_yaml)}"
+        )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     return writing.render_delete(yaml_text, location=location)

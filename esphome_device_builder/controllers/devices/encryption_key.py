@@ -70,7 +70,8 @@ async def set_encryption_key(
             # the other devices' outcomes still apply.
             outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
             if err.code is ErrorCode.PRECONDITION_FAILED:
-                why = f"{why}{_KEPT_SUFFIX}"
+                # The first line only: the diff excerpt is for a caller that can retry.
+                why = f"{why.partition(chr(10))[0].rstrip(':')}{_KEPT_SUFFIX}"
         outcomes.add(outcome)
         reason = reason or why
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
