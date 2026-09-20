@@ -1821,7 +1821,8 @@ def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | Non
     out: dict[str, list[str]] = {}
     for name, node in config_schema["types"].items():
         config_vars = node.get("config_vars") if isinstance(node, dict) else None
-        id_type = (config_vars or {}).get("id", {}).get("id_type")
+        id_entry = (config_vars or {}).get("id")
+        id_type = id_entry.get("id_type") if isinstance(id_entry, dict) else None
         # A variant the bundle can't type would be judged on a partial set.
         cls = id_type.get("class") if isinstance(id_type, dict) else None
         if not isinstance(cls, str) or "::" not in cls:
