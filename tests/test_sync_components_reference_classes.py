@@ -113,6 +113,28 @@ def test_typed_hub_default_that_names_no_variant_fails_the_sync() -> None:
         _resolve([hub, cover])
 
 
+def test_several_non_default_variants_constrain_the_dependent_to_a_choice_set() -> None:
+    hub = _declarer(
+        "spi",
+        ["spi::SPIComponent"],
+        _variant_id_classes=(
+            "type",
+            {
+                "single": ["spi::SPIComponent"],
+                "quad": ["spi::QuadSPIComponent", "spi::WideBus"],
+                "octal": ["spi::OctalSPIComponent", "spi::WideBus"],
+            },
+        ),
+    )
+    hub["config_entries"] = [{"key": "type", "default_value": "single"}]
+    display = {
+        "id": "display.wide",
+        "config_entries": [_reference("spi_id", "spi", "spi::WideBus")],
+    }
+    _resolve([hub, display])
+    assert display["bus_constraints"] == {"spi": {"type": ["octal", "quad"]}}
+
+
 def test_platform_whose_own_domain_ids_are_nested_is_not_a_candidate() -> None:
     """The ``dht`` shape: the picker descends to the nested ids and skips the root."""
     dht = _declarer(

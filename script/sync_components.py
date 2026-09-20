@@ -1778,13 +1778,17 @@ def _apply_hub_variant_constraints(
             return
         typed_key, per_variant = variants[hub]
         qualifying = [name for name, classes in per_variant.items() if cls in classes]
-        if len(qualifying) != 1 or qualifying[0] == _default_variant(by_id[hub], typed_key):
+        # Nothing to seed when no variant provides the class (another declarer
+        # does) or the default one already does.
+        if not qualifying or _default_variant(by_id[hub], typed_key) in qualifying:
             return
+        # One variant is an exact match; several are a choice set, first = default.
+        needed: Any = qualifying[0] if len(qualifying) == 1 else sorted(qualifying)
         constraints = entry.setdefault("bus_constraints", {}).setdefault(hub, {})
-        if constraints.setdefault(typed_key, qualifying[0]) != qualifying[0]:
+        if constraints.setdefault(typed_key, needed) != needed:
             raise SystemExit(
                 f"{entry['id']}: bus_constraints[{hub}][{typed_key}] is "
-                f"{constraints[typed_key]!r} but {cls} needs {qualifying[0]!r}"
+                f"{constraints[typed_key]!r} but {cls} needs {needed!r}"
             )
 
     _walk_catalog_entries(entry.get("config_entries") or [], visit)

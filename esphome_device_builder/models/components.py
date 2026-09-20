@@ -188,8 +188,8 @@ class ComponentCatalogEntry(DashboardModel):
     multi_conf: bool = False
 
     # Requirements this component imposes on the bus it attaches to, keyed by
-    # bus id ("i2c" / "spi" / "uart"). A value is an exact-match scalar
-    # (``parity``), a list of choices (first = default; narrows the field's
+    # bus id ("i2c" / "spi" / "uart", or a typed hub such as "modbus"). A value
+    # is an exact-match scalar (``parity``), a list of choices (first = default; narrows the field's
     # dropdown, e.g. baud ``[2400, 9600]``), or a range bound (``min_frequency``
     # / ``max_frequency``, Hz). ``require_tx`` / ... mark required pins.
     # Frontend pre-fills dep-added buses.
