@@ -224,7 +224,7 @@ def _parse_automation_list(
 
 def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
     """Parse top-level ``script:`` list blocks."""
-    listed = _listed_block(root, "script")
+    listed = listed_block(root, "script")
     if listed is None:
         return []
     scripts, range_of = listed
@@ -243,7 +243,7 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
 
 def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
     """Parse top-level ``interval:`` list blocks."""
-    listed = _listed_block(root, "interval")
+    listed = listed_block(root, "interval")
     if listed is None:
         return []
     intervals, range_of = listed
@@ -261,7 +261,7 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
     )
 
 
-def _listed_block(root: Any, key: str) -> tuple[list[Any], Callable[[int], tuple[int, int]]] | None:
+def listed_block(root: Any, key: str) -> tuple[list[Any], Callable[[int], tuple[int, int]]] | None:
     """Return a top-level block as a list plus its per-index line range; a mapping is one entry."""
     if not isinstance(root, dict):
         return None

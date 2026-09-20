@@ -3988,3 +3988,18 @@ def test_list_append_lands_directly_after_the_last_item_past_a_blank_of_spaces()
     new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
     assert "      - delay: 1s\n  - interval: 10s\n" in new_text
     assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\n",
+        "interval: &shared\n  interval: 60s\n  then:\n    - delay: 1s\n",
+    ],
+    ids=["anchored_list", "anchored_mapping"],
+)
+def test_an_anchored_header_is_a_block_header(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith("interval: &shared\n  - interval: 60s\n")
+    assert new_text.count("- interval:") == 2
+    assert _apply_diff(text, diff) == new_text

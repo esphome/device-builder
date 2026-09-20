@@ -24,10 +24,10 @@ def key_header_re(key: str, *, indent: str = "") -> re.Pattern[str]:
 
 
 def key_line_res(key: str, *, prefix: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
-    """``(block header, inline scalar)`` patterns for ``<key>:`` after regex *prefix*."""
+    """``(block header, inline scalar)`` patterns for ``<key>:``; a header may carry an anchor."""
     escaped = re.escape(key)
     return (
-        re.compile(rf"{prefix}{escaped}:\s*(?:#.*)?$"),
+        re.compile(rf"{prefix}{escaped}:\s*(?:&\S+\s*)?(?:#.*)?$"),
         re.compile(rf"{prefix}{escaped}:\s*[^\s#]"),
     )
 

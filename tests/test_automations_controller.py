@@ -281,6 +281,17 @@ async def test_get_available_offers_hub_triggers_inherited_through_extends(
     assert "pn532_i2c.on_tag" not in {t["id"] for t in result["triggers"]}
 
 
+async def test_get_available_offers_a_mapping_form_script(tmp_path: Path) -> None:
+    config = tmp_path / "alarm.yaml"
+    config.write_text(
+        "esphome:\n  name: a\nscript:\n  id: blink\n  then:\n    - delay: 1s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="alarm.yaml")
+    assert [s["id"] for s in result["scripts"]] == ["blink"]
+
+
 async def test_get_available_returns_configured_scripts_with_parameters(
     tmp_path: Path,
 ) -> None:

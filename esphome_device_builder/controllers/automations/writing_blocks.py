@@ -30,7 +30,7 @@ def in_list_form[**P](
         listed = _normalize_multi_conf_block(expanded, domain) or expanded
         _require_block_style(listed, domain)
         new_text, diff = op(listed, domain, *args, **kwargs)
-        if listed is yaml_text:
+        if listed == yaml_text:
             return new_text, diff
         if not yaml_text.endswith("\n") and new_text.endswith("\n"):
             # The editor's splice cannot add a final newline the file never had.
