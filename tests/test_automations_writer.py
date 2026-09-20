@@ -4041,6 +4041,29 @@ def test_a_nested_aliased_anchor_is_named_in_the_refusal() -> None:
     )
 
 
+def test_a_nested_anchor_survives_the_mapping_normalisation() -> None:
+    text = "interval:\n  interval: 60s\n  then:\n    - delay: &d 1s\nother: *d\n"
+    new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert "      - delay: &d 1s\n" in new_text
+    assert new_text.endswith("other: *d\n")
+
+
+def test_a_scalar_valued_like_the_domain_does_not_hide_the_header_anchor() -> None:
+    text = "comment: interval\ninterval: &shared\n  interval: 60s\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+
+
+def test_an_alias_as_the_whole_value_is_named_in_the_refusal() -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert("interval: *tick\n", tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == "interval: is an alias; rewrite it as a block first"
+
+
 def test_a_quoted_or_commented_star_is_not_an_alias() -> None:
     text = 'interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: "*shared"  # *shared\n'
     new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))

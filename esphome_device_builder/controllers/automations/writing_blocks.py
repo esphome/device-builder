@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, Concatenate
@@ -38,7 +39,7 @@ def in_list_form[**P](
         expanded = _expand_flow_block(yaml_text, domain)
         listed = _normalize_multi_conf_block(expanded, domain) or expanded
         if listed != yaml_text:
-            _require_unaliased(yaml_text, domain)
+            _require_unaliased(yaml_text, domain, nested=expanded != yaml_text)
         _require_block_style(listed, domain)
         new_text, diff = op(listed, domain, *args, **kwargs)
         if listed == yaml_text:
@@ -104,10 +105,12 @@ def _set_block_style(node: Any) -> None:
         _set_block_style(child)
 
 
-def _require_unaliased(yaml_text: str, domain: str) -> None:
-    """Refuse to rewrite a block declaring an anchor that is aliased; the alias would break."""
+def _require_unaliased(yaml_text: str, domain: str, *, nested: bool) -> None:
+    """Refuse to rewrite a block whose anchor (any anchor under it when *nested*) is aliased."""
     events = list(make_yaml().parse(yaml_text))
     anchors = _block_anchors(events, domain)
+    if not nested:
+        anchors = anchors[:1]
     aliased = {event.anchor for event in events if isinstance(event, AliasEvent)}
     hit = next((name for name in anchors if name in aliased), None)
     if hit is None:
@@ -131,7 +134,8 @@ def _block_anchors(events: list[Event], domain: str) -> list[str | None]:
             continue
         if depth == 1:
             node += 1
-            if key_node is None and isinstance(event, ScalarEvent) and event.value == domain:
+            is_key = node % 2 == 0 and isinstance(event, ScalarEvent) and event.value == domain
+            if key_node is None and is_key:
                 key_node = node
         in_value = key_node is not None and node == key_node + 1
         if in_value and isinstance(event, NodeEvent) and not isinstance(event, AliasEvent):
@@ -150,7 +154,11 @@ def _require_block_style(yaml_text: str, domain: str) -> None:
     try:
         value = make_yaml().load(lines[idx])[domain]
     except ComposerError:
-        msg = f"{domain}: holds an alias inside a flow value; rewrite it as a block first"
+        msg = (
+            f"{domain}: is an alias; rewrite it as a block first"
+            if re.match(rf"{re.escape(domain)}:\s*\*", lines[idx])
+            else f"{domain}: holds an alias inside a flow value; rewrite it as a block first"
+        )
     except YAMLError:
         msg = (
             f"{domain}: is written in flow style across several lines; rewrite it as a block first"
