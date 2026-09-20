@@ -190,6 +190,9 @@ def _in_list_form[**P](
         new_text, diff = op(listed, domain, *args, **kwargs)
         if listed is yaml_text:
             return new_text, diff
+        if not yaml_text.endswith("\n") and new_text.endswith("\n"):
+            # The editor's splice cannot add a final newline the file never had.
+            new_text = new_text[:-1]
         return new_text, _build_diff_for_append(yaml_text, new_text)
 
     return run
@@ -688,6 +691,7 @@ def _delete_top_level_list_by_id(
     yaml = make_yaml()
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
+    _require_block_style(yaml_text, domain, items)
     if not isinstance(items, list):
         msg = f"Block {domain!r} not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
@@ -705,6 +709,8 @@ def _delete_top_level_list_by_index(
     index: int,
 ) -> tuple[str, YamlDiff]:
     """Remove the *index*'th list item under ``<domain>:``."""
+    data = make_yaml().load(yaml_text) or {}
+    _require_block_style(yaml_text, domain, data.get(domain) if isinstance(data, dict) else None)
     lines = yaml_text.splitlines(keepends=True)
     start, end = _locate_top_list_item(lines, domain, index)
     return splice_lines(lines, start=start, end=end, replacement="")

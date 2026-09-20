@@ -3898,3 +3898,33 @@ def test_upsert_refuses_a_flow_block_it_cannot_expand(text: str) -> None:
         render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
     assert err.value.code == ErrorCode.INVALID_ARGS
     assert err.value.message == "interval: is written in flow style; rewrite it as a block first"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "logger:\ninterval:\n  interval: 60s\n  then:\n    - delay: 1s",
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}",
+    ],
+    ids=["mapping", "flow"],
+)
+def test_a_rewritten_file_without_a_final_newline_matches_the_splice(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert not new_text.endswith("\n")
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "location",
+    [ScriptLocation(id="s1"), IntervalLocation(index=0)],
+    ids=["script_by_id", "interval_by_index"],
+)
+def test_delete_refuses_a_flow_block_it_cannot_expand(
+    location: ScriptLocation | IntervalLocation,
+) -> None:
+    domain = "script" if isinstance(location, ScriptLocation) else "interval"
+    text = f"{domain}: {{id: s1, interval: 60s,\n  then: [{{delay: 1s}}]}}\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=location)
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == f"{domain}: is written in flow style; rewrite it as a block first"
