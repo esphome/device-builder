@@ -332,6 +332,43 @@ async def test_upsert_with_save_appends_beside_existing_automations(
         assert "switch.turn_off: relay" in devices.saved[0][1]
 
 
+_WITH_INCLUDE = _INTERVAL + "  - !include more.yaml\n"
+
+
+async def test_upsert_with_save_appends_after_an_entry_the_parser_skips(tmp_path: Path) -> None:
+    controller, devices = _setup(tmp_path, _WITH_INCLUDE)
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_TIMED,
+        location={"kind": "interval", "index": 2},
+        save=True,
+    )
+
+    saved = devices.saved[0][1]
+    assert saved.count("- interval:") == 2 and "!include more.yaml" in saved
+
+
+async def test_upsert_with_save_refuses_to_overwrite_an_entry_the_parser_skips(
+    tmp_path: Path,
+) -> None:
+    controller, devices = _setup(tmp_path, _WITH_INCLUDE)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_TIMED,
+            location={"kind": "interval", "index": 1},
+            save=True,
+        )
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert (
+        excinfo.value.message == "interval[1] is not an entry the parser lists; append at 2 instead"
+    )
+    assert devices.saved == []
+
+
 @pytest.mark.parametrize(
     ("text", "automation", "location", "fragment"),
     [

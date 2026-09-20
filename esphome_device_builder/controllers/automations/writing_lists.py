@@ -36,7 +36,7 @@ from ...models.automations import (
 )
 from . import catalog
 from .emitter import dump, emit_effect_item, emit_trigger_list_item
-from .parsing import is_trigger_entry, make_yaml
+from .parsing import is_effect_item, is_trigger_entry, make_yaml
 
 # The YAML field naming a component instance's id.
 _ID_KEY = "id"
@@ -110,7 +110,14 @@ def _resplice_handler_block(
     return removed
 
 
-def apply_list_entry_upsert(entries: list, item: Any, index: int, *, label: str) -> None:
+def apply_list_entry_upsert(
+    entries: list,
+    item: Any,
+    index: int,
+    *,
+    label: str,
+    replaceable: Callable[[Any], bool] | None = None,
+) -> None:
     """Append (``index == len``), replace (in range), or raise (out of range).
 
     The shared insert-or-replace-at-index step for every list-shaped handler
@@ -119,9 +126,19 @@ def apply_list_entry_upsert(entries: list, item: Any, index: int, *, label: str)
     if index == len(entries):
         entries.append(item)
     elif 0 <= index < len(entries):
+        require_replaceable(entries, index, label=label, replaceable=replaceable)
         entries[index] = item
     else:
         msg = f"{label}[{index}] out of range (have {len(entries)})"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
+def require_replaceable(
+    entries: list, index: int, *, label: str, replaceable: Callable[[Any], bool] | None
+) -> None:
+    """Refuse to overwrite ``entries[index]`` when the parser never lists it (an ``!include``)."""
+    if replaceable is not None and not replaceable(entries[index]):
+        msg = f"{label}[{index}] is not an entry the parser lists; append at {len(entries)} instead"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
@@ -149,6 +166,7 @@ def upsert_list_entry(
     index: int,
     strategy: ListContainerStrategy,
     trigger: AutomationTrigger | None = None,
+    replaceable: Callable[[Any], bool] | None = None,
 ) -> tuple[str, YamlDiff]:
     """
     Insert or replace one entry of a list-shaped handler at *index*.
@@ -173,7 +191,7 @@ def upsert_list_entry(
         wrapped = CommentedMap()
         wrapped["then"] = entries
         entries = [wrapped]
-    apply_list_entry_upsert(entries, item, index, label=key)
+    apply_list_entry_upsert(entries, item, index, label=key, replaceable=replaceable)
     return strategy.resplice(yaml_text, key, entries)
 
 
@@ -382,6 +400,7 @@ def upsert_light_effect(
         item=item,
         index=location.index,
         strategy=_component_strategy("light", location.component_id),
+        replaceable=is_effect_item,
     )
 
 

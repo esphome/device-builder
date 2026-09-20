@@ -67,6 +67,7 @@ from .emitter import (
 from .parsing import (
     ComponentTarget,
     component_action_field_paths,
+    is_listed_automation,
     make_yaml,
     resolve_action_field_target,
     resolve_component_domain,
@@ -78,6 +79,7 @@ from .writing_lists import (
     delete_list_entry,
     delete_list_entry_for,
     delete_subentity_list_entry,
+    require_replaceable,
     upsert_component_on_entry,
     upsert_light_effect,
     upsert_list_entry,
@@ -499,6 +501,7 @@ def _upsert_top_level_list_indexed(
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
     if isinstance(items, list) and 0 <= index < len(items):
+        require_replaceable(items, index, label=domain, replaceable=is_listed_automation)
         return _replace_top_level_list_item(yaml_text, domain, index, rendered_item)
     return _append_top_level_list(yaml_text, domain, rendered_item)
 
