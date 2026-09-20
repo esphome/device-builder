@@ -183,6 +183,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           install-args: -c esphome-constraints.txt -e .[esphome,test]
 
+      - name: Move TEMP to the work disk (Windows)
+        # The default ``%TEMP%`` sits on the slow OS disk; pytest's
+        # ``tmp_path`` lives under it.
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Run pytest
         # ``uv run --no-sync`` uses the .venv created above as-is.
         # Without ``--no-sync``, ``uv run`` re-locks the project

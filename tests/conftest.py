@@ -17,6 +17,7 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import re
@@ -173,12 +174,26 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 # tests that override ``CORE.config_path`` (e.g. ``make_settings(
 # with_core_path=True)``) still take precedence, and sibling xdist
 # workers don't see leaked process-globals.
+#
+# A test that writes storage must request ``tmp_path``; without it the
+# sentinel's directory is never created (a dir per test is slow on Windows).
 # ---------------------------------------------------------------------------
 
 
+_lazy_config_dirs = itertools.count()
+
+
 @pytest.fixture(autouse=True)
-def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+def _core_config_path_in_tmp(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if "tmp_path" in request.fixturenames:
+        config_dir: Path = request.getfixturevalue("tmp_path")
+    else:
+        config_dir = tmp_path_factory.getbasetemp() / f"no-tmp-path-{next(_lazy_config_dirs)}"
+    monkeypatch.setattr(CORE, "config_path", config_dir / "___DASHBOARD_SENTINEL___.yaml")
 
 
 @pytest.fixture(autouse=True)
