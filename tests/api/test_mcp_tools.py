@@ -422,6 +422,19 @@ async def test_get_automation_docs_example_resolves_against_the_catalog(
         assert text.startswith("invalid_args: each ref needs a type of triggers, actions")
 
 
+async def test_get_automation_docs_caps_the_refs_per_call(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    bodies = AsyncMock(return_value={})
+    mcp_db.command_handlers["automations/get_bodies"] = bodies
+    refs = [{"type": "actions", "id": f"a{i}"} for i in range(51)]
+    assert await mcp_call(mcp_client, "get_automation_docs", {"refs": refs}) == (
+        True,
+        "invalid_args: at most 50 refs per call",
+    )
+    bodies.assert_not_awaited()
+
+
 async def test_get_automation_docs_hides_advanced_fields_unless_asked(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:

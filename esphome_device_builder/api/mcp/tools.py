@@ -58,6 +58,7 @@ def _prop(json_type: str, description: str) -> dict[str, str]:
     return {"type": json_type, "description": description}
 
 
+_MAX_REFS = 50
 _CONFIGURATION = _prop(
     "string", "Device YAML filename, e.g. 'living-room.yaml' (from list_devices)."
 )
@@ -378,13 +379,15 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     " An omitted flag is false; advanced and YAML-only fields are omitted unless "
     "include_advanced is true.",
     {
-        "refs": _prop("array", "List of {type, id} refs."),
+        "refs": _prop("array", "List of {type, id} refs, at most 50 per call."),
         "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
         | {"default": False},
     },
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
+    if len(args["refs"]) > _MAX_REFS:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"at most {_MAX_REFS} refs per call")
     keys = []
     for ref in args["refs"]:
         if (
