@@ -17,7 +17,7 @@ parser accepts both shapes, so the choice is purely cosmetic):
   A bare-scalar action with no named field (``delay: 1s``) collapses
   the same way via its synthetic ``id`` param. An entry whose sole
   field is a genuine ``id`` mapping (``time.has_time``) has no scalar
-  form and always renders as a mapping. See :func:`_shorthand_key`.
+  form and always renders as a mapping. See :func:`shorthand_key`.
 - A condition list of length one collapses to the single condition
   mapping.
 """

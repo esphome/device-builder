@@ -24,6 +24,7 @@ from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     AutomationAction,
+    AutomationCondition,
     AutomationTree,
     ConditionNode,
 )
@@ -40,6 +41,28 @@ _CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 # Fallback shorthand key when a catalog entry has no ``scalar_shorthand_key``
 # (id-reference actions / conditions). Shared with the emitter's collapse check.
 DEFAULT_SHORTHAND_KEY = "id"
+
+
+def accepted_param_keys(
+    entry: AutomationAction | AutomationCondition,
+) -> frozenset[str] | None:
+    """
+    Keys ``params`` may carry for *entry*, or ``None`` when any key may (script parameters).
+
+    The union of the entry's fields, its scalar shorthand, the condition gate keys,
+    the synthetic ``id`` a bare scalar parses to, and an action's branch names.
+    """
+    if any(
+        e.key == DEFAULT_SHORTHAND_KEY and e.references_component == "script"
+        for e in entry.config_entries
+    ):
+        return None
+    keys = {e.key for e in entry.config_entries} | _CONDITION_GATE_KEYS | {DEFAULT_SHORTHAND_KEY}
+    if entry.scalar_shorthand_key:
+        keys.add(entry.scalar_shorthand_key)
+    if isinstance(entry, AutomationAction):
+        keys |= set(entry.accepts_action_list)
+    return frozenset(keys)
 
 
 def _safe_tree(

@@ -50,7 +50,10 @@ async def test_a_field_the_catalog_does_not_list_is_refused_naming_the_real_ones
         )
 
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
-    assert excinfo.value.message == "'switch.turn_off' has no field ['switch_id']; it takes ['id']"
+    assert excinfo.value.message.startswith(
+        "'switch.turn_off' has no field ['switch_id']; it takes ["
+    )
+    assert "'id'" in excinfo.value.message
 
 
 @pytest.mark.parametrize(
@@ -162,3 +165,31 @@ async def test_a_valid_tree_with_shorthand_branches_and_conditions_renders(tmp_p
     result = await controller.upsert(configuration="d.yaml", automation=tree, location=_LOCATION)
 
     assert "switch.turn_off: relay" in result["yaml_diff"]["replacement"]
+
+
+@pytest.mark.parametrize(
+    "actions",
+    [
+        [
+            _action(
+                "if",
+                {},
+                conditions=[_cond("for", {"time": "5s", "condition": {"switch.is_on": "r"}})],
+            )
+        ],
+        [_action("wait_until", {"id": "x"})],
+        [_action("script.execute", {"id": "blink", "times": 3, "colour": "red"})],
+        [_action("lvgl.label.update", {"id": "lbl", "text": "hi"})],
+    ],
+    ids=["for_condition_gate", "wait_until_scalar", "script_parameters", "known_not_editable"],
+)
+async def test_what_the_parser_produces_is_accepted(
+    tmp_path: Path, actions: list[dict[str, Any]]
+) -> None:
+    controller = _controller(tmp_path)
+
+    result = await controller.upsert(
+        configuration="d.yaml", automation=_tree(*actions), location=_LOCATION
+    )
+
+    assert result["yaml_diff"]["replacement"]
