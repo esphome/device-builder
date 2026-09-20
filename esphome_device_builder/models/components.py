@@ -128,6 +128,16 @@ class ComponentCatalogIndexEntry(DashboardModel):
     # component's own id is itself an entity (``sensor.pulse_counter``).
     provides_id_paths: dict[str, list[list[str]]] = field(default_factory=dict)
 
+    # C++ classes this component's own top-level ``id`` inherits, set only
+    # when some ``references_class`` rejects it; empty = unknown, so the
+    # frontend keeps the candidate.
+    id_classes: list[str] = field(default_factory=list)
+
+    # The same, per variant of a typed hub whose variants declare different
+    # classes (``modbus``: ``{"role": {"client": [...], "server": [...]}}``).
+    # The frontend reads the block's discriminator value, default when unset.
+    id_classes_by_variant: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+
     # Real catalog category behind a ``featured`` entry (``bus`` for a
     # featured ``spi``), so the card can chip its type alongside its
     # recommendation status. ``None`` on regular entries.
@@ -178,8 +188,8 @@ class ComponentCatalogEntry(DashboardModel):
     multi_conf: bool = False
 
     # Requirements this component imposes on the bus it attaches to, keyed by
-    # bus id ("i2c" / "spi" / "uart"). A value is an exact-match scalar
-    # (``parity``), a list of choices (first = default; narrows the field's
+    # bus id ("i2c" / "spi" / "uart", or a typed hub such as "modbus"). A value
+    # is an exact-match scalar (``parity``), a list of choices (first = default; narrows the field's
     # dropdown, e.g. baud ``[2400, 9600]``), or a range bound (``min_frequency``
     # / ``max_frequency``, Hz). ``require_tx`` / ... mark required pins.
     # Frontend pre-fills dep-added buses.
@@ -207,6 +217,16 @@ class ComponentCatalogEntry(DashboardModel):
     # may include the root path ``["id"]`` for hybrid platforms whose own
     # id is also an entity (``sensor.pulse_counter``).
     provides_id_paths: dict[str, list[list[str]]] = field(default_factory=dict)
+
+    # C++ classes this component's own top-level ``id`` inherits, set only
+    # when some ``references_class`` rejects it; empty = unknown, so the
+    # frontend keeps the candidate.
+    id_classes: list[str] = field(default_factory=list)
+
+    # The same, per variant of a typed hub whose variants declare different
+    # classes (``modbus``: ``{"role": {"client": [...], "server": [...]}}``).
+    # The frontend reads the block's discriminator value, default when unset.
+    id_classes_by_variant: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
     # The component's own configuration fields. Nested config blocks
     # (e.g. ``esp32_ble_tracker.scan_parameters``) and entity
