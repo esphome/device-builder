@@ -68,7 +68,7 @@ async def test_delete_with_expected_removes_only_the_automation_it_was_shown(
 ) -> None:
     devices = _Devices()
     controller = _make_controller(tmp_path, devices=devices)
-    shown = parsing.parse_device_yaml(_YAML)[0].raw_yaml
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, _YAML))[0].raw_yaml
 
     result = await controller.delete(
         configuration="d.yaml", location=_LOCATION, save=True, expected=shown
