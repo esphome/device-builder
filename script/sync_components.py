@@ -5319,7 +5319,10 @@ def _auto_loaded_dependencies(
             if isinstance(name, str)
         )
     # A dep that is itself auto-loaded is always present — never a dependency.
-    return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in seen))
+    # Nor is the component its own: modbus auto-loads modbus_client, which
+    # depends back on modbus. A platform entry's stem names its hub, a real dep.
+    present = seen if domain else seen | {stem_or_key}
+    return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in present))
 
 
 def _upgrade_stamp_only_refinements(
