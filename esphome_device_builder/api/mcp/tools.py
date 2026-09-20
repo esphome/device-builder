@@ -470,8 +470,10 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "replacing the automation with expected.",
     {
         "configuration": _CONFIGURATION,
-        "location": _prop("object", "Where the automation lives; see the description."),
-        "automation": _prop("object", "The automation tree; see the description."),
+        "location": _prop("object", "Where the automation lives; see the description.")
+        | {"additionalProperties": True},
+        "automation": _prop("object", "The automation tree; see the description.")
+        | {"additionalProperties": True},
         "expected": _prop(
             "string",
             "When replacing: the automation's raw_yaml exactly as list_automations returned it.",
