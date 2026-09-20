@@ -1010,10 +1010,10 @@ def main() -> int:
         automations = build_automations(
             schema_dir=schema_dir,
             component_ids=component_ids,
+            restrictive_references=_restrictive_references(catalog),
             registry_groups=_collect_automation_registry_groups(),
             registry_refined=registry_refined,
             registry_ranges=_collect_automation_field_ranges(),
-            restrictive_references=_restrictive_references(catalog),
         )
         _LOGGER.info(
             "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
@@ -1695,13 +1695,14 @@ def _declared_id_classes(entries: list[dict]) -> tuple[dict[str, list[set[str]]]
     for entry in entries:
         classes = entry.pop("_root_id_classes", None)
         variant = entry.pop("_variant_id_classes", None)
-        untyped = next((n for n, c in (variant[1] if variant else {}).items() if not c), None)
-        if untyped is not None:
+        if isinstance(variant, _UntypedVariant):
             # A typed hub with an untyped variant cannot be judged per variant, and its
             # root set is the union over the typed ones: leave it out of the pool. That
             # also drops it as evidence, so a class only this hub declares stops
             # filtering its siblings; fail open for the whole domain, on purpose.
-            _LOGGER.warning("%s: variant %r has no id class; left unfiltered", entry["id"], untyped)
+            _LOGGER.warning(
+                "%s: variant %r has no id class; left unfiltered", entry["id"], variant.name
+            )
             continue
         own = (entry.get("provides_id_paths") or {}).get(entry["id"].split(".", 1)[0])
         # Own-domain ids that are all nested: the picker never offers the root id.
@@ -1818,8 +1819,18 @@ def _id_class_scratch(section: dict, impl_paths: dict[str, list[list[str]]]) -> 
     }
 
 
-def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | None:
-    """``(typed_key, {variant: id classes})`` for a typed hub, or None; an untyped variant maps to []."""
+@dataclass(frozen=True, slots=True)
+class _UntypedVariant:
+    """A typed hub the bundle cannot judge: *name* is the first variant with no id class."""
+
+    typed_key: str
+    name: str
+
+
+def _variant_id_classes(
+    section: dict,
+) -> tuple[str, dict[str, list[str]]] | _UntypedVariant | None:
+    """``(typed_key, {variant: id classes})`` for a typed hub, its ``_UntypedVariant``, or None."""
     config_schema = _config_schema(section)
     typed_key = config_schema.get("typed_key")
     if not _is_typed_node(config_schema) or not isinstance(typed_key, str):
@@ -1831,7 +1842,7 @@ def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | Non
         id_type = id_entry.get("id_type") if isinstance(id_entry, dict) else None
         cls = id_type.get("class") if isinstance(id_type, dict) else None
         if not isinstance(cls, str) or "::" not in cls:
-            return typed_key, {name: []}
+            return _UntypedVariant(typed_key, name)
         parents = [p for p in id_type.get("parents") or [] if isinstance(p, str) and "::" in p]
         out[name] = [cls, *parents]
     return typed_key, out
