@@ -26,9 +26,10 @@ def test_diff_excerpt_shows_the_changed_lines() -> None:
     assert excerpt.splitlines() == ["--- expected", "+++ current", "@@ -2 +2 @@", "-b: 2", "+b: 3"]
 
 
-def test_diff_excerpt_is_cut_with_a_marker() -> None:
+def test_diff_excerpt_shows_both_sides_of_a_wholesale_rewrite() -> None:
     expected = "".join(f"k{i}: {i}\n" for i in range(30))
     current = "".join(f"k{i}: x\n" for i in range(30))
     lines = diff_excerpt(expected, current).splitlines()
-    assert len(lines) == 13
+    assert sum(line.startswith("-") and not line.startswith("---") for line in lines) == 6
+    assert sum(line.startswith("+") and not line.startswith("+++") for line in lines) == 6
     assert lines[-1].startswith("... ") and lines[-1].endswith(" more diff lines")

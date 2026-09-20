@@ -82,15 +82,23 @@ async def test_delete_with_expected_removes_only_the_automation_it_was_shown(
 
 
 @pytest.mark.parametrize(
-    ("location", "expected"),
+    ("location", "expected", "fragment"),
     [
-        (_LOCATION, "on_boot:\n  then:\n    - delay: 2s\n"),
-        ({"kind": "device_on", "trigger": "on_shutdown"}, "on_shutdown: {}\n"),
+        (
+            _LOCATION,
+            "on_boot:\n  then:\n    - delay: 2s\n",
+            "differs from the expected text",
+        ),
+        (
+            {"kind": "device_on", "trigger": "on_shutdown"},
+            "on_shutdown: {}\n",
+            "no automation at that location any more",
+        ),
     ],
     ids=["changed", "moved"],
 )
 async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
-    tmp_path: Path, location: dict[str, Any], expected: str
+    tmp_path: Path, location: dict[str, Any], expected: str, fragment: str
 ) -> None:
     devices = _Devices()
     controller = _make_controller(tmp_path, devices=devices)
@@ -101,6 +109,9 @@ async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
         )
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert fragment in excinfo.value.message
+    if fragment.startswith("differs"):
+        assert "-    - delay: 2s\n+    - delay: 1s\n" in excinfo.value.message
     assert devices.saved == []
 
 

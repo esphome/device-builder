@@ -497,7 +497,7 @@ def _render_delete_if_unchanged(
     if not same_text(row.raw_yaml, expected):
         msg = (
             "the automation at that location differs from the expected text; nothing was "
-            f"deleted. List again before deleting:\n{diff_excerpt(expected, row.raw_yaml)}"
+            f"deleted, list again before deleting\n{diff_excerpt(expected, row.raw_yaml)}"
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     return writing.render_delete(yaml_text, location=location)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from difflib import unified_diff
 
-_DIFF_EXCERPT_LINES = 12
+_DIFF_EXCERPT_LINES = 6  # per side
 
 
 def summarise(messages: Iterable[str]) -> str:
@@ -24,7 +24,7 @@ def same_text(current: str, expected: str) -> bool:
 
 
 def diff_excerpt(expected: str, current: str) -> str:
-    """Return the first lines of a unified diff from *expected* to *current*, cut with a marker."""
+    """Return a unified diff from *expected* to *current* cut to a few lines of each side."""
     lines = list(
         unified_diff(
             expected.splitlines(keepends=True),
@@ -34,8 +34,14 @@ def diff_excerpt(expected: str, current: str) -> str:
             n=0,
         )
     )
-    shown = lines[:_DIFF_EXCERPT_LINES]
-    excerpt = "".join(line if line.endswith("\n") else line + "\n" for line in shown)
-    if len(lines) > _DIFF_EXCERPT_LINES:
-        excerpt += f"... {len(lines) - _DIFF_EXCERPT_LINES} more diff lines\n"
-    return excerpt
+    budget = {"-": _DIFF_EXCERPT_LINES, "+": _DIFF_EXCERPT_LINES}
+    shown: list[str] = []
+    for line in lines:
+        side = line[:1] if line[:1] in budget and not line.startswith(("---", "+++")) else ""
+        if side and budget[side] == 0:
+            continue
+        if side:
+            budget[side] -= 1
+        shown.append(line if line.endswith("\n") else line + "\n")
+    hidden = len(lines) - len(shown)
+    return "".join(shown) + (f"... {hidden} more diff lines\n" if hidden else "")
