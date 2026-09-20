@@ -73,7 +73,7 @@ async def test_install_without_its_upload_job_is_a_server_fault(
 ) -> None:
     compile_job = make_job("c1", status=JobStatus.QUEUED)
     mcp_db.command_handlers["firmware/install"] = AsyncMock(return_value=compile_job)
-    mcp_db.firmware = None
+    mcp_db.firmware.state.jobs["c1"] = compile_job  # the head alone, no dependent upload
     assert await mcp_call(mcp_client, "install", {"configuration": "kitchen.yaml"}) == (
         True,
         "internal_error: install c1 was queued without its upload job",
