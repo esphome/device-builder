@@ -465,7 +465,9 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "and each condition is {condition_id, params, children} with children a list of "
     "conditions; ids from get_available_automations, fields from get_automation_docs. An "
     "insert must not replace existing YAML; to replace, pass the automation's raw_yaml from "
-    "list_automations as expected. Run validate_config afterwards.",
+    "list_automations as expected. The tool checks the shape, not the fields: esphome does "
+    "that, so run validate_config after every write and repair what it reports by "
+    "replacing the automation with expected.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "Where the automation lives; see the description."),
