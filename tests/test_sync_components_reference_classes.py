@@ -11,6 +11,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _prune_automation_reference_classes,
     _resolve_reference_classes,
     _restrictive_references,
+    _UntypedVariant,
     _variant_id_classes,
 )
 
@@ -228,9 +229,9 @@ def test_variant_id_classes_reads_each_typed_branch() -> None:
     # A variant with no readable id class makes the whole hub unjudgeable.
     types = section["schemas"]["CONFIG_SCHEMA"]["types"]
     types["octal"] = {"config_vars": {}}
-    assert _variant_id_classes(section) == ("type", {"octal": []})
+    assert _variant_id_classes(section) == _UntypedVariant("type", "octal")
     types["octal"] = {"config_vars": {"id": {"id_type": {"class": "Component"}}}}
-    assert _variant_id_classes(section) == ("type", {"octal": []})
+    assert _variant_id_classes(section) == _UntypedVariant("type", "octal")
 
 
 def test_typed_hub_with_an_untyped_variant_is_left_unfiltered(
@@ -239,7 +240,7 @@ def test_typed_hub_with_an_untyped_variant_is_left_unfiltered(
     hub = _declarer(
         "modbus",
         ["modbus::ModbusServerHub", "modbus::Modbus"],
-        _variant_id_classes=("role", {"gateway": []}),
+        _variant_id_classes=_UntypedVariant("role", "gateway"),
     )
     other = _declarer("modbus_lite", ["modbus::Modbus"])
     cover = {
