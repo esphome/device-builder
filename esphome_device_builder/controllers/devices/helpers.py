@@ -119,8 +119,8 @@ def require_unchanged(current: str, expected: str, configuration: str) -> None:
     """Raise ``PRECONDITION_FAILED`` unless *configuration*'s *current* text is still *expected*."""
     if not same_text(current, expected):
         msg = (
-            f"{configuration} differs from the expected text; nothing was written. "
-            f"Re-read it and retry:\n{diff_excerpt(expected, current)}"
+            f"{configuration} differs from the expected text; nothing was written, "
+            f"re-read it and retry\n{diff_excerpt(expected, current)}"
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
