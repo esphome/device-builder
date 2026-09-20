@@ -140,7 +140,8 @@ async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
         "component_id": _COMPONENT_ID,
         "fields": _prop(
             "object", "Config values keyed by field name; nested blocks are nested objects."
-        ),
+        )
+        | {"additionalProperties": True},
     },
     ("configuration", "component_id"),
 )
@@ -450,7 +451,8 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "precondition_failed if the automation changed or moved since it was listed.",
     {
         "configuration": _CONFIGURATION,
-        "location": _prop("object", "The automation's location as returned by list_automations."),
+        "location": _prop("object", "The automation's location as returned by list_automations.")
+        | {"additionalProperties": True},
         "expected": _prop(
             "string", "The automation's raw_yaml exactly as list_automations returned it."
         ),

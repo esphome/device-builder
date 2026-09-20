@@ -235,6 +235,13 @@ def test_closed_object_registers_as_valid_json_schema() -> None:
         ),
         pytest.param({"type": "array", "items": "x"}, "property schema as its items", id="items"),
         pytest.param(_REF | {"type": "array"}, "properties on a non-object type", id="arr_props"),
+        pytest.param({"type": "array"}, "a needs items", id="bare_array"),
+        pytest.param({"type": "object"}, "a needs a shape", id="bare_object"),
+        pytest.param(
+            {"type": "object", "additionalProperties": False},
+            "additionalProperties true",
+            id="closed_without_properties",
+        ),
         pytest.param(
             {"type": "object", "properties": {}},
             "see closed_object",
@@ -281,15 +288,48 @@ def test_validate_args_rejects_nested_shapes(arguments: dict[str, Any], fragment
         validate_args(_NESTED, arguments)
 
 
-@pytest.mark.parametrize("arguments", [*_NESTED_ACCEPTED, *(p.values[0] for p in _NESTED_REJECTED)])
-def test_validate_args_agrees_with_a_json_schema_validator(arguments: dict[str, Any]) -> None:
+_BOUNDED_SCHEMA = closed_object({"limit": {"type": "integer", "minimum": 1, "maximum": 10}})
+
+
+@pytest.mark.parametrize(
+    ("schema", "arguments"),
+    [
+        *((_NESTED, a) for a in _NESTED_ACCEPTED),
+        *((_NESTED, p.values[0]) for p in _NESTED_REJECTED),
+        *((_BOUNDED_SCHEMA, {"limit": v}) for v in (5, 5.0, 11, "5", True, 0.5)),
+    ],
+)
+def test_validate_args_agrees_with_a_json_schema_validator(
+    schema: dict[str, Any], arguments: dict[str, Any]
+) -> None:
     try:
-        validate_args(_NESTED, arguments)
+        validate_args(schema, arguments)
     except McpToolError:
         accepted = False
     else:
         accepted = True
-    assert jsonschema.Draft202012Validator(_NESTED).is_valid(arguments) is accepted
+    assert jsonschema.Draft202012Validator(schema).is_valid(arguments) is accepted
+
+
+def test_validate_args_reads_integral_floats_back_as_integers() -> None:
+    schema = closed_object(
+        {"limit": {"type": "integer"}, "rows": {"type": "array", "items": _BOUNDED_SCHEMA}}
+    )
+    assert validate_args(schema, {"limit": 5.0, "rows": [{"limit": 2.0}, {"limit": 3}]}) == {
+        "limit": 5,
+        "rows": [{"limit": 2}, {"limit": 3}],
+    }
+
+
+def test_registration_accepts_a_declared_open_object() -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+
+    @tools.tool("t", "desc", {"fields": {"type": "object", "additionalProperties": True}})
+    async def _t(_context: None, _args: dict[str, Any]) -> str:
+        return "ok"
+
+    (definition,) = tools.definitions()
+    jsonschema.Draft202012Validator.check_schema(definition["inputSchema"])
 
 
 _BOUNDED = {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}
