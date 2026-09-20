@@ -373,6 +373,15 @@ async def test_set_secret_forwards_the_key_and_value(
     }
 
 
+async def test_set_secret_refuses_to_skip_an_existing_name_silently(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["config/set_secret"] = AsyncMock(return_value={"created": False})
+    assert await mcp_call(
+        mcp_client, "set_secret", {"name": "wifi_password", "value": "x", "overwrite": False}
+    ) == (True, "invalid_args: wifi_password already exists; pass overwrite to replace it")
+
+
 async def test_create_device_forwards_only_its_named_arguments(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:

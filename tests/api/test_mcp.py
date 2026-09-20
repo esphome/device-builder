@@ -54,7 +54,22 @@ async def test_route_wins_over_spa_catch_all(
     real_db = DeviceBuilder(make_settings())
     mcp_client = await aiohttp_client(real_db.create_app(with_lifecycle=False))
     assert (await mcp_rpc(mcp_client, method="ping"))["result"] == {}
+    assert (await mcp_client.get(MCP_PATH)).status == 405
     assert (await mcp_client.get("/some/deep/link")).status == 200
+
+
+@pytest.mark.parametrize(
+    ("tool", "arg", "default"),
+    [
+        ("set_secret", "overwrite", True),
+        ("get_component", "include_advanced", False),
+        ("get_automation_docs", "include_advanced", False),
+    ],
+)
+def test_boolean_options_declare_their_default_in_the_schema(
+    tool: str, arg: str, default: bool
+) -> None:
+    assert TOOLS[tool].schema["properties"][arg]["default"] is default
 
 
 async def test_cross_origin_post_is_rejected_before_the_tool_runs(

@@ -249,7 +249,8 @@ async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
         "platform": _prop(
             "string", "Target platform (esp32, esp8266, ...) to resolve platform defaults."
         ),
-        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields."),
+        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
+        | {"default": False},
     },
     ("component_id",),
 )
@@ -263,9 +264,7 @@ async def _get_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     )
     if component_id not in bodies:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown component: {component_id}")
-    return _visible(
-        bodies[component_id].to_dict(), include_advanced=args.get("include_advanced", False)
-    )
+    return _visible(bodies[component_id].to_dict(), include_advanced=args["include_advanced"])
 
 
 @_tool(
@@ -311,7 +310,7 @@ async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> Any:
     {
         "name": _prop("string", "Secret name, e.g. 'wifi_password'."),
         "value": _prop("string", "The secret value."),
-        "overwrite": _prop("boolean", "Replace an existing value (default true)."),
+        "overwrite": _prop("boolean", "Replace an existing value.") | {"default": True},
     },
     ("name", "value"),
 )
@@ -321,8 +320,11 @@ async def _set_secret(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]
         "config/set_secret",
         key=args["name"],
         value=args["value"],
-        overwrite=args.get("overwrite", True),
+        overwrite=args["overwrite"],
     )
+    if not result["created"] and not args["overwrite"]:
+        msg = f"{args['name']} already exists; pass overwrite to replace it"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return {"name": args["name"], "created": result["created"]}
 
 
@@ -377,7 +379,8 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     "include_advanced is true.",
     {
         "refs": _prop("array", "List of {type, id} refs."),
-        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields."),
+        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
+        | {"default": False},
     },
     ("refs",),
 )
@@ -396,7 +399,7 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     bodies = await _call(db, "automations/get_bodies", refs=args["refs"])
     if missing := [key for key in keys if key not in bodies]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
-    return _visible(bodies, include_advanced=args.get("include_advanced", False))
+    return _visible(bodies, include_advanced=args["include_advanced"])
 
 
 @_tool(
