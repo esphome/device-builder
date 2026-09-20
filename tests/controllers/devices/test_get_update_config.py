@@ -460,7 +460,7 @@ async def test_update_config_with_expected_writes_while_the_text_still_matches(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     controller = make_controller(tmp_path)
-    _stub_regenerate(controller)
+    regenerated = _stub_regenerate(controller)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     await controller.update_config(
@@ -470,13 +470,15 @@ async def test_update_config_with_expected_writes_while_the_text_still_matches(
     )
 
     assert "friendly_name" in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert regenerated == ["kitchen.yaml"]
+    assert controller._scanner.calls == [("request", "kitchen.yaml")]
 
 
 async def test_update_config_with_expected_refuses_a_file_that_moved_on(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     controller = make_controller(tmp_path)
-    _stub_regenerate(controller)
+    regenerated = _stub_regenerate(controller)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     with pytest.raises(CommandError) as excinfo:
@@ -486,6 +488,8 @@ async def test_update_config_with_expected_refuses_a_file_that_moved_on(
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: kitchen\n"
+    assert regenerated == []
+    assert controller._scanner.calls == []
 
 
 @pytest.mark.parametrize(

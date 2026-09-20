@@ -866,10 +866,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
         is_empty = not content.strip()
         if is_secrets_file(configuration):
-            if expected is not None:
-                msg = f"expected is not supported for {Path(configuration).name}"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg)
             secrets_name = Path(configuration).name
+            if expected is not None:
+                msg = f"expected is not supported for {secrets_name}"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
             if is_empty and not allow_wipe:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
