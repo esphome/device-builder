@@ -4019,3 +4019,26 @@ def test_an_aliased_anchor_blocks_the_mapping_rewrite_but_not_a_list() -> None:
     as_list = "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\nother: *shared\n"
     new_text, _diff = render_upsert(as_list, tree=_TICK, location=IntervalLocation(index=1))
     assert new_text.count("- interval:") == 2 and "other: *shared" in new_text
+
+
+def test_an_aliased_anchor_blocks_the_flow_expansion_too() -> None:
+    text = "interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+
+
+def test_an_alias_inside_a_flow_value_is_named_in_the_refusal() -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            "interval: {interval: 60s, then: *common}\n",
+            tree=_TICK,
+            location=IntervalLocation(index=1),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: holds an alias inside a flow value; rewrite it as a block first"
+    )

@@ -173,7 +173,10 @@ def upsert_list_entry(
 
     ``index == len(entries)`` appends; an in-range index replaces. Refuses
     when the existing handler is a single mapping rather than a list — the
-    user picked that shape, so don't silently rewrite it.
+    user picked that shape, so don't silently rewrite it. (A top-level
+    ``script:`` / ``interval:`` mapping is listified instead, in
+    ``writing_blocks``: there a mapping is one entry, while a handler
+    mapping is one automation whose list form is a different structure.)
 
     When *trigger* is given and the existing list body is the bare
     action-list shorthand (one handler whose items aren't trigger

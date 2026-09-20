@@ -9,6 +9,7 @@ from typing import Any, Concatenate
 
 from ruamel.yaml import YAMLError
 from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
+from ruamel.yaml.composer import ComposerError
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import _normalize_multi_conf_block
@@ -29,8 +30,8 @@ def in_list_form[**P](
     def run(yaml_text: str, domain: str, *args: P.args, **kwargs: P.kwargs) -> tuple[str, YamlDiff]:
         expanded = _expand_flow_block(yaml_text, domain)
         listed = _normalize_multi_conf_block(expanded, domain) or expanded
-        if listed != expanded:
-            _require_unaliased(expanded, domain)
+        if listed != yaml_text:
+            _require_unaliased(yaml_text, domain)
         _require_block_style(listed, domain)
         new_text, diff = op(listed, domain, *args, **kwargs)
         if listed == yaml_text:
@@ -97,9 +98,11 @@ def _set_block_style(node: Any) -> None:
 
 
 def _require_unaliased(yaml_text: str, domain: str) -> None:
-    """Refuse to rewrite a mapping whose header anchor is aliased; the alias would change shape."""
+    """Refuse to rewrite a block whose header anchor is aliased; the alias would break."""
     lines = yaml_text.splitlines()
     idx = find_block_header(lines, domain)
+    if idx is None:
+        idx = _inline_header_index(lines, domain)
     anchor = re.search(r":\s*&(\S+)", lines[idx]) if idx is not None else None
     if anchor and re.search(rf"\*{re.escape(anchor.group(1))}\b", yaml_text):
         msg = f"{domain}: is anchored as &{anchor.group(1)} and aliased; rewrite it as a list first"
@@ -114,6 +117,8 @@ def _require_block_style(yaml_text: str, domain: str) -> None:
         return
     try:
         value = make_yaml().load(lines[idx])[domain]
+    except ComposerError:
+        msg = f"{domain}: holds an alias inside a flow value; rewrite it as a block first"
     except YAMLError:
         msg = (
             f"{domain}: is written in flow style across several lines; rewrite it as a block first"
