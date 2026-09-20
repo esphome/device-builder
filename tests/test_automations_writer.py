@@ -3837,6 +3837,16 @@ def test_delete_on_a_mapping_form_block_removes_its_one_entry() -> None:
     assert _apply_diff(_MAPPED_SCRIPT, diff) == new_text
 
 
+def test_listify_keeps_a_column_zero_comment_inside_the_block() -> None:
+    text = "interval:\n  interval: 60s\n# a column-zero note\n  then:\n    - delay: 1s\nlogger:\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith(
+        "interval:\n  - interval: 60s\n    # a column-zero note\n    then:\n      - delay: 1s\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
 def test_listify_keeps_comments_and_blank_lines_inside_the_block() -> None:
     text = "interval:\n  # every minute\n  interval: 60s\n\n  then:\n    - delay: 1s\n"
     new_text, _diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
