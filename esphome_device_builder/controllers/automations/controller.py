@@ -36,6 +36,7 @@ from ...models.automations import (
     LightEffectLocation,
     ScriptLocation,
     UpsertResponse,
+    YamlDiff,
 )
 from . import catalog, parsing, writing
 from .catalog import AutomationBodyRef
@@ -242,6 +243,7 @@ class AutomationsController:
         location: dict,
         yaml: str | None = None,
         save: bool = False,
+        expected: str | None = None,
         **_kwargs: Any,
     ) -> dict:
         """Delete the automation at *location*.
@@ -249,14 +251,23 @@ class AutomationsController:
         Accepts the same optional ``yaml`` override as ``upsert``
         so the delete is computed against the frontend's current
         draft buffer when one exists. ``save`` writes the on-disk
-        config instead, so it is refused alongside ``yaml``.
+        config instead, so it is refused alongside ``yaml``. With
+        ``expected``, the ``raw_yaml`` a parse returned for the
+        automation, the delete happens only while the automation at
+        *location* still reads that way (``PRECONDITION_FAILED``).
         """
         if not isinstance(save, bool):
             raise CommandError(ErrorCode.INVALID_ARGS, "save must be a boolean")
         if save and yaml is not None:
             raise CommandError(ErrorCode.INVALID_ARGS, "save writes the config on disk; omit yaml")
+        if expected is not None and not isinstance(expected, str):
+            raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
         loc = _decode_location(location)
-        render = partial(writing.render_delete, location=loc)
+        render: Callable[[str], tuple[str, YamlDiff]]
+        if expected is None:
+            render = partial(writing.render_delete, location=loc)
+        else:
+            render = partial(_render_delete_if_unchanged, location=loc, expected=expected)
         if not save:
             _new_text, diff = await self._run_on_config(configuration, yaml, render)
         elif (devices := self._db.devices) is None:
@@ -465,3 +476,15 @@ def _decode_location(raw: dict) -> AutomationLocation:
         return loc_type.from_dict(raw)
     except (LookupError, ValueError, TypeError) as err:
         raise CommandError(ErrorCode.INVALID_ARGS, f"Invalid {kind} location: {err}") from err
+
+
+def _render_delete_if_unchanged(
+    yaml_text: str, *, location: AutomationLocation, expected: str
+) -> tuple[str, YamlDiff]:
+    """Delete the automation at *location* only while its text still equals *expected*."""
+    rows = parsing.parse_device_yaml(yaml_text)
+    row = next((p for p in rows if p.location == location), None)
+    if row is None or row.raw_yaml != expected:
+        msg = "the automation at that location changed or moved; list again before deleting"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    return writing.render_delete(yaml_text, location=location)

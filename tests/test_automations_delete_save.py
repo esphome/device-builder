@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from esphome_device_builder.controllers.automations import AutomationsController
+from esphome_device_builder.controllers.automations import AutomationsController, parsing
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
@@ -60,6 +60,59 @@ async def test_delete_writes_the_spliced_config_only_with_save(tmp_path: Path, s
     assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
     saved = [("d.yaml", "esphome:\n  name: d\n", "Delete an automation from d.yaml")]
     assert devices.saved == (saved if save else [])
+
+
+async def test_delete_with_expected_removes_only_the_automation_it_was_shown(
+    tmp_path: Path,
+) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+    shown = parsing.parse_device_yaml(_YAML)[0].raw_yaml
+
+    result = await controller.delete(
+        configuration="d.yaml", location=_LOCATION, save=True, expected=shown
+    )
+
+    assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
+    saved = [("d.yaml", "esphome:\n  name: d\n", "Delete an automation from d.yaml")]
+    assert devices.saved == saved
+
+
+@pytest.mark.parametrize(
+    ("location", "expected"),
+    [
+        (_LOCATION, "on_boot:\n  then:\n    - delay: 2s\n"),
+        ({"kind": "device_on", "trigger": "on_shutdown"}, "on_shutdown: {}\n"),
+    ],
+    ids=["changed", "moved"],
+)
+async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
+    tmp_path: Path, location: dict[str, Any], expected: str
+) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml", location=location, save=True, expected=expected
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert devices.saved == []
+
+
+async def test_delete_refuses_a_non_string_expected(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path, devices=_Devices())
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml",
+            location=_LOCATION,
+            expected=7,  # type: ignore[arg-type]
+        )
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "expected must be a string" in excinfo.value.message
 
 
 @pytest.mark.parametrize(
