@@ -42,3 +42,13 @@ def test_diff_excerpt_budgets_a_line_that_starts_like_a_header() -> None:
     assert lines[:2] == ["--- expected", "+++ current"]
     assert sum(line.startswith("---") for line in lines[2:]) == 6
     assert sum(line.startswith("+++") for line in lines[2:]) == 6
+
+
+def test_diff_excerpt_drops_the_hunk_headers_of_hidden_changes() -> None:
+    expected = "".join(f"k{i}: {i}\n" for i in range(40))
+    current = "".join(f"k{i}: {'x' if i % 2 else i}\n" for i in range(40))
+    lines = diff_excerpt(expected, current).splitlines()
+    assert lines[:2] == ["--- expected", "+++ current"]
+    assert sum(line.startswith("@@") for line in lines) == 6
+    assert all(not line.startswith("@@") for line in lines[-2:])
+    assert lines[-1].endswith(" more diff lines")
