@@ -497,13 +497,20 @@ def _upsert_top_level_list_indexed(
     rendered_item: str,
     index: int,
 ) -> tuple[str, YamlDiff]:
-    """Insert (at the end) or replace a list item by positional index."""
+    """Append (``index == len``), replace (in range), or raise (out of range or not a list)."""
     yaml = make_yaml()
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
-    if isinstance(items, list) and 0 <= index < len(items):
-        require_replaceable(items, index, label=domain, replaceable=is_mapping_entry)
+    if items is not None and not isinstance(items, list):
+        msg = f"{domain}: is a single mapping, not a list; convert it to a list first"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    entries = items or []
+    if 0 <= index < len(entries):
+        require_replaceable(entries, index, label=domain, replaceable=is_mapping_entry)
         return _replace_top_level_list_item(yaml_text, domain, index, rendered_item)
+    if index != len(entries):
+        msg = f"{domain}[{index}] out of range (have {len(entries)})"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return _append_top_level_list(yaml_text, domain, rendered_item)
 
 

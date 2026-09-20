@@ -20,6 +20,7 @@ from ruamel.yaml import YAMLError
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config
+from ...helpers.json import dumps_str
 from ...helpers.text import diff_excerpt, same_text
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -518,27 +519,27 @@ def _check_save_args(*, save: bool, yaml: str | None, expected: str | None) -> N
 
 def _rows(yaml_text: str) -> list[ParsedAutomation]:
     """Parse *yaml_text*'s automations; an unloadable file fails the precondition."""
-    return _parse_or_fail(
-        yaml_text, ErrorCode.PRECONDITION_FAILED, "the config no longer loads, nothing was written"
-    )
-
-
-def _rendered_rows(new_text: str) -> list[ParsedAutomation]:
-    """Parse the writer's output; a result that no longer loads is a writer fault."""
-    return _parse_or_fail(
-        new_text,
-        ErrorCode.INTERNAL_ERROR,
-        "the rewrite produced a config that does not load, nothing was written",
-    )
-
-
-def _parse_or_fail(text: str, code: ErrorCode, prefix: str) -> list[ParsedAutomation]:
     try:
-        return parsing.parse_device_yaml(text)
+        return parsing.parse_device_yaml(yaml_text)
     except CommandError as err:
         if err.code is not ErrorCode.INVALID_ARGS:
             raise
-        raise CommandError(code, f"{prefix}: {err.message}") from err
+        msg = f"the config no longer loads, nothing was written: {err.message}"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg) from err
+
+
+def _rendered_rows(new_text: str) -> list[ParsedAutomation]:
+    """Parse the writer's output; a result that no longer loads is a logged writer fault."""
+    try:
+        return parsing.parse_device_yaml(new_text)
+    except CommandError as err:
+        if err.code is not ErrorCode.INVALID_ARGS:
+            raise
+        _LOGGER.exception("Automation rewrite produced a config that does not load")
+        msg = (
+            f"the rewrite produced a config that does not load, nothing was written: {err.message}"
+        )
+        raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from err
 
 
 def _require_expected(
@@ -565,9 +566,10 @@ def _render_delete_if_unchanged(
     return writing.render_delete(yaml_text, location=location)
 
 
-def _content(row: ParsedAutomation) -> tuple[AutomationTree | None, str | None, bool]:
-    """Return what a surviving row must keep across a rewrite."""
-    return row.automation, row.error, row.unsupported
+def _content(row: ParsedAutomation) -> tuple[str | None, str | None, bool]:
+    """Return what a surviving row must keep across a rewrite, serialised so NaN compares equal."""
+    tree = dumps_str(row.automation.to_dict()) if row.automation is not None else None
+    return tree, row.error, row.unsupported
 
 
 def _render_upsert_if_unchanged(
@@ -580,7 +582,7 @@ def _render_upsert_if_unchanged(
     new_text, diff = writing.render_upsert(yaml_text, tree=tree, location=location)
     after = _rendered_rows(new_text)
     landed = next((p for p in after if p.location == location), None)
-    if landed is None:
+    if landed is None:  # pragma: no cover — every writer path raises for an index it cannot honour
         msg = (
             "no automation landed at that location, nothing was written; for a list, index "
             "must not exceed the current length"

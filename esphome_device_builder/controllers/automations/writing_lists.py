@@ -173,7 +173,9 @@ def upsert_list_entry(
 
     ``index == len(entries)`` appends; an in-range index replaces. Refuses
     when the existing handler is a single mapping rather than a list — the
-    user picked that shape, so don't silently rewrite it.
+    user picked that shape, so don't silently rewrite it. *replaceable* is
+    ``None`` for a trigger list because the parser lists every entry of one,
+    so the caller's content guard already covers an overwrite.
 
     When *trigger* is given and the existing list body is the bare
     action-list shorthand (one handler whose items aren't trigger

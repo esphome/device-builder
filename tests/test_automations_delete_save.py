@@ -282,7 +282,7 @@ async def test_upsert_with_save_inserts_at_an_empty_location(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize(
-    ("text", "automation", "location", "needle", "count"),
+    ("text", "automation", "location", "needle", "count", "also_contains"),
     [
         pytest.param(
             _LIST_SHAPED,
@@ -290,6 +290,7 @@ async def test_upsert_with_save_inserts_at_an_empty_location(tmp_path: Path) -> 
             {"kind": "device_on", "trigger": "on_boot", "index": 2},
             "- then:",
             3,
+            None,
             id="list_shaped_handler",
         ),
         pytest.param(
@@ -298,10 +299,17 @@ async def test_upsert_with_save_inserts_at_an_empty_location(tmp_path: Path) -> 
             {"kind": "component_on", "component_id": "bid", "trigger": "on_press", "index": 1},
             "- then:",
             2,
+            "switch.turn_off: relay",
             id="bare_action_list_shorthand",
         ),
         pytest.param(
-            _INTERVAL, _TIMED, {"kind": "interval", "index": 1}, "- interval:", 2, id="interval"
+            _INTERVAL,
+            _TIMED,
+            {"kind": "interval", "index": 1},
+            "- interval:",
+            2,
+            None,
+            id="interval",
         ),
         pytest.param(
             "api:\n  services:\n    - service: ping\n      then:\n        - delay: 1s\n",
@@ -309,6 +317,7 @@ async def test_upsert_with_save_inserts_at_an_empty_location(tmp_path: Path) -> 
             {"kind": "api_action", "action_name": "pong"},
             "- action:",
             2,
+            None,
             id="legacy_api_services",
         ),
     ],
@@ -320,6 +329,7 @@ async def test_upsert_with_save_appends_beside_existing_automations(
     location: dict[str, Any],
     needle: str,
     count: int,
+    also_contains: str | None,
 ) -> None:
     controller, devices = _setup(tmp_path, text)
 
@@ -328,8 +338,7 @@ async def test_upsert_with_save_appends_beside_existing_automations(
     )
 
     assert devices.saved[0][1].count(needle) == count
-    if text is _SHORTHAND:
-        assert "switch.turn_off: relay" in devices.saved[0][1]
+    assert also_contains is None or also_contains in devices.saved[0][1]
 
 
 _WITH_INCLUDE = _INTERVAL + "  - !include more.yaml\n"
@@ -361,7 +370,7 @@ async def test_upsert_with_save_refuses_an_index_past_the_end(tmp_path: Path) ->
         )
 
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
-    assert excinfo.value.message.startswith("no automation landed at that location")
+    assert excinfo.value.message == "interval[5] out of range (have 1)"
     assert devices.saved == []
 
 
@@ -387,6 +396,43 @@ async def test_upsert_with_save_reports_a_rewrite_that_no_longer_loads_as_its_ow
 
     assert excinfo.value.code is ErrorCode.INTERNAL_ERROR
     assert excinfo.value.message.startswith("the rewrite produced a config that does not load")
+    assert devices.saved == []
+
+
+async def test_upsert_with_save_keeps_working_beside_a_nan_survivor(tmp_path: Path) -> None:
+    controller, devices = _setup(tmp_path, _INTERVAL.replace("delay: 1s", "delay: .nan"))
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_TIMED,
+        location={"kind": "interval", "index": 1},
+        save=True,
+    )
+
+    assert devices.saved[0][1].count("- interval:") == 2
+
+
+async def test_upsert_with_save_logs_a_rewrite_that_no_longer_loads(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    controller, devices = _setup(tmp_path)
+    other = CommandError(ErrorCode.UNAVAILABLE, "catalog not loaded")
+    before = await asyncio.to_thread(automations_controller.parsing.parse_device_yaml, _YAML)
+
+    with (
+        patch.object(
+            automations_controller.parsing, "parse_device_yaml", side_effect=[before, other]
+        ),
+        pytest.raises(CommandError) as excinfo,
+    ):
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION,
+            location={"kind": "device_on", "trigger": "on_shutdown"},
+            save=True,
+        )
+
+    assert excinfo.value is other
     assert devices.saved == []
 
 

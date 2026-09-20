@@ -1184,19 +1184,25 @@ def test_upsert_script_creates_block_when_absent() -> None:
     assert "- id: alarm" in new_text
 
 
-def test_upsert_interval_out_of_range_appends() -> None:
-    """An out-of-range interval index appends a fresh item at the end."""
+def test_upsert_interval_out_of_range_raises_invalid_args() -> None:
+    """An interval index past the append slot is refused, like a list-entry index."""
     text = "esphome:\n  name: x\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
-    new_text, _diff = render_upsert(
-        text,
-        tree=AutomationTree(
-            trigger_params={"interval": "10s"},
-            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
-        ),
-        location=IntervalLocation(index=99),
+    tree = AutomationTree(
+        trigger_params={"interval": "10s"},
+        actions=[ActionNode(action_id="delay", params={"id": "1s"})],
     )
-    assert new_text.count("- interval:") == 2
-    assert "interval: 10s" in new_text
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=tree, location=IntervalLocation(index=99))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == "interval[99] out of range (have 1)"
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            "interval:\n  interval: 60s\n  then:\n    - delay: 1s\n",
+            tree=tree,
+            location=IntervalLocation(index=0),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert "single mapping" in err.value.message
 
 
 def test_delete_interval_by_index_succeeds() -> None:
