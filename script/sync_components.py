@@ -1695,6 +1695,11 @@ def _declared_id_classes(entries: list[dict]) -> tuple[dict[str, list[set[str]]]
     for entry in entries:
         classes = entry.pop("_root_id_classes", None)
         variant = entry.pop("_variant_id_classes", None)
+        if variant is not None and not variant[1]:
+            # A typed hub with an untyped variant cannot be judged per variant, and its
+            # root set is the union over the typed ones: leave it out, unfiltered.
+            _LOGGER.warning("%s: a typed variant has no id class; left unfiltered", entry["id"])
+            continue
         own = (entry.get("provides_id_paths") or {}).get(entry["id"].split(".", 1)[0])
         # Own-domain ids that are all nested: the picker never offers the root id.
         if not classes or (own and not any(len(path) == 1 for path in own)):
@@ -1747,11 +1752,9 @@ def _prune_reference_classes(config_entries: list[dict], restrictive: set[tuple[
 
 
 def _prune_automation_reference_classes(
-    automations: dict[str, list[dict]], restrictive: set[tuple[str, str]] | None
+    automations: dict[str, list[dict]], restrictive: set[tuple[str, str]]
 ) -> None:
-    """Apply the components' restrictive set to every automation reference; None prunes nothing."""
-    if restrictive is None:
-        return
+    """Apply the components' restrictive set to every automation reference."""
     for group in automations.values():
         for item in group:
             _prune_reference_classes(item.get("config_entries") or [], restrictive)
@@ -1813,7 +1816,7 @@ def _id_class_scratch(section: dict, impl_paths: dict[str, list[list[str]]]) -> 
 
 
 def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | None:
-    """``(typed_key, {variant: id classes})`` for a typed hub, or None."""
+    """``(typed_key, {variant: id classes})`` for a typed hub, empty when a variant is untyped, or None."""
     config_schema = _config_schema(section)
     typed_key = config_schema.get("typed_key")
     if not _is_typed_node(config_schema) or not isinstance(typed_key, str):
@@ -1823,13 +1826,12 @@ def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | Non
         config_vars = node.get("config_vars") if isinstance(node, dict) else None
         id_entry = (config_vars or {}).get("id")
         id_type = id_entry.get("id_type") if isinstance(id_entry, dict) else None
-        # A variant the bundle can't type would be judged on a partial set.
         cls = id_type.get("class") if isinstance(id_type, dict) else None
         if not isinstance(cls, str) or "::" not in cls:
-            return None
+            return typed_key, {}
         parents = [p for p in id_type.get("parents") or [] if isinstance(p, str) and "::" in p]
         out[name] = [cls, *parents]
-    return (typed_key, out) if out else None
+    return typed_key, out
 
 
 def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
@@ -10055,7 +10057,7 @@ def build_automations(  # noqa: C901
     registry_refined: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] | None = None,
     registry_ranges: dict[str, dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]]]
     | None = None,
-    restrictive_references: set[tuple[str, str]] | None = None,
+    restrictive_references: set[tuple[str, str]],
 ) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.

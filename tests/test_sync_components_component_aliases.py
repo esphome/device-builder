@@ -70,7 +70,9 @@ def test_build_entries_skips_an_alias_section(tmp_path: Path) -> None:
 
 def test_build_automations_skips_alias_sections(tmp_path: Path) -> None:
     schema_dir = _write_schema_dir(tmp_path)
-    catalog = sync_components.build_automations(schema_dir=schema_dir, component_ids={"improv_ble"})
+    catalog = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids={"improv_ble"}
+    )
     assert [t["id"] for t in catalog["triggers"]] == ["improv_ble.on_state"]
     assert catalog["triggers"][0]["applies_to"] == ["improv_ble"]
 

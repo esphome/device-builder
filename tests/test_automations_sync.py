@@ -62,7 +62,9 @@ def test_build_automations_extracts_component_action(tmp_path: Path) -> None:
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     actions = {a["id"]: a for a in result["actions"]}
     assert "switch.toggle" in actions
     toggle = actions["switch.toggle"]
@@ -102,9 +104,9 @@ def test_build_automations_captures_value_and_absent_shorthand_keys(tmp_path: Pa
     )
     actions = {
         a["id"]: a
-        for a in sync_components.build_automations(schema_dir=schema_dir, component_ids=set())[
-            "actions"
-        ]
+        for a in sync_components.build_automations(
+            restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+        )["actions"]
     }
     assert actions["logger.log"]["scalar_shorthand_key"] == "format"
     assert actions["logger.set_level"]["scalar_shorthand_key"] is None
@@ -156,7 +158,9 @@ def test_build_automations_inherits_shorthand_key_through_extends(tmp_path: Path
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     actions = {a["id"]: a for a in result["actions"]}
     conditions = {c["id"]: c for c in result["conditions"]}
     assert actions["switch.toggle"]["scalar_shorthand_key"] == "id"
@@ -203,7 +207,9 @@ def test_build_automations_strips_then_from_control_flow_action_params(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     if_action = next(a for a in result["actions"] if a["id"] == "if")
     assert if_action["is_control_flow"] is True
     assert if_action["has_else_branch"] is True
@@ -250,7 +256,9 @@ def test_build_automations_promotes_inline_trigger_keys_to_action_list(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     action = next(a for a in result["actions"] if a["id"] == "wifi.configure")
     assert action["accepts_action_list"] == ["on_connect", "on_error"]
     # A triggered action is not control flow; it keeps its normal form fields.
@@ -304,7 +312,9 @@ def test_build_automations_promotes_extends_inherited_trigger_keys(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     action = next(a for a in result["actions"] if a["id"] == "http_request.get")
     assert action["accepts_action_list"] == ["on_error", "on_response"]
     assert action["is_control_flow"] is False
@@ -333,7 +343,9 @@ def test_build_automations_extracts_condition_combinator(tmp_path: Path) -> None
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     and_cond = next(c for c in result["conditions"] if c["id"] == "and")
     assert and_cond["accepts_condition_list"] is True
     assert and_cond["domain"] == "core"
@@ -357,7 +369,9 @@ def test_build_automations_not_accepts_condition_list_without_is_list(tmp_path: 
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     not_cond = next(c for c in result["conditions"] if c["id"] == "not")
     assert not_cond["accepts_condition_list"] is True
 
@@ -385,7 +399,7 @@ def test_build_automations_flips_platform_scoped_action_id(tmp_path: Path) -> No
         },
     )
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids={"sensor.template"}
+        restrictive_references=set(), schema_dir=schema_dir, component_ids={"sensor.template"}
     )
     ids = {a["id"] for a in result["actions"]}
     assert "sensor.template.publish" in ids
@@ -412,7 +426,7 @@ def test_build_automations_flips_platform_scoped_condition_id(tmp_path: Path) ->
         },
     )
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids={"sensor.duty_time"}
+        restrictive_references=set(), schema_dir=schema_dir, component_ids={"sensor.duty_time"}
     )
     ids = {c["id"] for c in result["conditions"]}
     assert "sensor.duty_time.is_running" in ids
@@ -438,7 +452,9 @@ def test_build_automations_keeps_in_component_namespace_action_id_verbatim(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     ids = {a["id"] for a in result["actions"]}
     assert "espnow.peer.add" in ids
     assert "peer.espnow.add" not in ids
@@ -485,7 +501,9 @@ def test_build_automations_extracts_component_trigger_with_nested_params(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     on_click = next(t for t in result["triggers"] if t["id"] == "binary_sensor.on_click")
     assert on_click["applies_to"] == ["binary_sensor"]
     assert on_click["is_device_level"] is False
@@ -524,7 +542,9 @@ def test_build_automations_trigger_params_are_not_advanced(tmp_path: Path) -> No
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     on_time = next(t for t in result["triggers"] if t["id"] == "time.on_time")
     seconds = next(e for e in on_time["config_entries"] if e["key"] == "seconds")
     assert not seconds.get("advanced")
@@ -563,7 +583,9 @@ def test_build_automations_promotes_multi_click_timing_to_multi_value(tmp_path: 
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     trigger = next(t for t in result["triggers"] if t["id"] == "binary_sensor.on_multi_click")
     entries = {e["key"]: e for e in trigger["config_entries"]}
     assert entries["timing"]["multi_value"] is True
@@ -587,7 +609,9 @@ def test_build_automations_skips_non_dict_schema_bodies_and_non_trigger_vars(
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     assert all(t["id"] != "x.foo" for t in result["triggers"])
 
 
@@ -640,9 +664,9 @@ def test_build_automations_supports_list_from_live_single(tmp_path: Path) -> Non
     )
     triggers = {
         t["id"]: t
-        for t in sync_components.build_automations(schema_dir=schema_dir, component_ids=set())[
-            "triggers"
-        ]
+        for t in sync_components.build_automations(
+            restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+        )["triggers"]
     }
     # Device-level on_boot is single=False in core config -> list-capable.
     assert triggers["on_boot"]["is_device_level"] is True
@@ -676,7 +700,9 @@ def test_build_automations_extracts_light_effect(tmp_path: Path) -> None:
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     flicker = next(e for e in result["light_effects"] if e["id"] == "flicker")
     assert flicker["name"] == "Light → Flicker"
     cfg_keys = {e["key"] for e in flicker["config_entries"]}
@@ -712,7 +738,9 @@ def test_build_automations_dedupes_by_id(tmp_path: Path) -> None:
             },
         ),
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     matching = [a for a in result["actions"] if a["id"] == "switch.toggle"]
     assert len(matching) == 1
 
@@ -802,7 +830,9 @@ def test_build_automations_extracts_extends_inherited_hub_triggers(tmp_path: Pat
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     triggers = {t["id"]: t for t in result["triggers"]}
     assert "fakehub.on_tag" in triggers
     inherited = triggers["fakehub_i2c.on_tag"]
@@ -860,7 +890,7 @@ def test_build_automations_does_not_merge_extends_outside_hub_config_schema(
     ids = {
         t["id"]
         for t in sync_components.build_automations(
-            schema_dir=schema_dir, component_ids={"switch.template"}
+            restrictive_references=set(), schema_dir=schema_dir, component_ids={"switch.template"}
         )["triggers"]
     }
     assert "switch.on_turn_on" in ids
@@ -897,9 +927,9 @@ def test_build_automations_skips_action_schema_response_handlers(tmp_path: Path)
     )
     ids = {
         t["id"]
-        for t in sync_components.build_automations(schema_dir=schema_dir, component_ids=set())[
-            "triggers"
-        ]
+        for t in sync_components.build_automations(
+            restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+        )["triggers"]
     }
     # The component's own CONFIG_SCHEMA trigger survives.
     assert "api.on_client_connected" in ids
@@ -930,7 +960,9 @@ def test_build_automations_merged_hub_trigger_dedupes_against_base(tmp_path: Pat
             },
         },
     )
-    result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
     matching = [t for t in result["triggers"] if t["id"] == "fakehub.on_tag"]
     assert len(matching) == 1
 
@@ -955,6 +987,7 @@ def test_build_automations_drops_platform_twins_of_domain_level_triggers(
         tmp_path, "rotary_encoder.json", {"rotary_encoder.sensor": _trigger_section("on_clockwise")}
     )
     result = sync_components.build_automations(
+        restrictive_references=set(),
         schema_dir=schema_dir,
         component_ids={"touchscreen.xpt2046", "sensor.rotary_encoder"},
     )
@@ -983,7 +1016,7 @@ def test_build_automations_keeps_platform_trigger_with_its_own_params(
         },
     )
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+        restrictive_references=set(), schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
     )
     ids = {t["id"] for t in result["triggers"]}
     assert {"touchscreen.on_touch", "xpt2046.touchscreen.on_touch"} <= ids
@@ -1003,7 +1036,7 @@ def test_build_automations_keeps_platform_trigger_with_its_own_docs(
         {"xpt2046.touchscreen": _trigger_section("on_touch", "Fires on this driver.")},
     )
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+        restrictive_references=set(), schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
     )
     assert "xpt2046.touchscreen.on_touch" in {t["id"] for t in result["triggers"]}
 
@@ -1024,7 +1057,7 @@ def test_build_automations_keeps_platform_trigger_with_its_own_list_shape(
     )
     _write_schema(tmp_path, "xpt2046.json", {"xpt2046.touchscreen": _trigger_section("on_touch")})
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
+        restrictive_references=set(), schema_dir=schema_dir, component_ids={"touchscreen.xpt2046"}
     )
     kept = {t["id"]: t for t in result["triggers"]}
     assert kept["xpt2046.touchscreen.on_touch"]["supports_list"] is True
@@ -1038,7 +1071,9 @@ def test_build_automations_fails_on_two_domain_triggers_for_one_key(tmp_path: Pa
     )
     _write_schema(tmp_path, "page.json", {"page.display": _trigger_section("on_page")})
     with pytest.raises(RuntimeError, match="on_page"):
-        sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
+        sync_components.build_automations(
+            restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+        )
 
 
 def _in_range_schema_dir(tmp_path: Path) -> Path:
@@ -1072,6 +1107,7 @@ def _in_range_schema_dir(tmp_path: Path) -> Path:
 def test_build_automations_stamps_registry_required_groups(tmp_path: Path) -> None:
     """Grouped fields lose ``advanced`` and the body gains ``required_groups`` (#1905)."""
     result = sync_components.build_automations(
+        restrictive_references=set(),
         schema_dir=_in_range_schema_dir(tmp_path),
         component_ids=set(),
         registry_groups={
@@ -1113,6 +1149,7 @@ def test_build_automations_clears_required_on_group_members(tmp_path: Path) -> N
         },
     )
     result = sync_components.build_automations(
+        restrictive_references=set(),
         schema_dir=schema_dir,
         component_ids=set(),
         registry_groups={
@@ -1131,7 +1168,7 @@ def test_build_automations_without_registry_groups_keeps_optional_fields_advance
     tmp_path: Path,
 ) -> None:
     result = sync_components.build_automations(
-        schema_dir=_in_range_schema_dir(tmp_path), component_ids=set()
+        restrictive_references=set(), schema_dir=_in_range_schema_dir(tmp_path), component_ids=set()
     )
     cond = next(c for c in result["conditions"] if c["id"] == "sensor.in_range")
     assert "required_groups" not in cond
@@ -1179,6 +1216,7 @@ def test_build_automations_drops_groups_over_non_form_keys(tmp_path: Path) -> No
         },
     )
     result = sync_components.build_automations(
+        restrictive_references=set(),
         schema_dir=schema_dir,
         component_ids=set(),
         registry_groups={
@@ -1224,7 +1262,10 @@ def test_build_automations_applies_registry_refined_types(tmp_path: Path) -> Non
         },
     }
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids=set(), registry_refined=refined
+        restrictive_references=set(),
+        schema_dir=schema_dir,
+        component_ids=set(),
+        registry_refined=refined,
     )
     action = {a["id"]: a for a in result["actions"]}["http_request.send"]
     entry = {e["key"]: e for e in action["config_entries"]}["max_response_buffer_size"]
@@ -1257,7 +1298,10 @@ def test_build_automations_applies_registry_ranges(tmp_path: Path) -> None:
     )
     ranges = {"action": {"servo.write": {("level",): (-1, 1), ("id",): (0, 9)}}}
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids=set(), registry_ranges=ranges
+        restrictive_references=set(),
+        schema_dir=schema_dir,
+        component_ids=set(),
+        registry_ranges=ranges,
     )
     action = {a["id"]: a for a in result["actions"]}["servo.write"]
     entries = {e["key"]: e for e in action["config_entries"]}
@@ -1288,7 +1332,11 @@ def test_registry_range_lands_only_after_refinement(tmp_path: Path) -> None:
     }
     ranges = {"action": {"fan.set_speed": {("speed",): (0.0, 1.0)}}}
     result = sync_components.build_automations(
-        schema_dir=schema_dir, component_ids=set(), registry_refined=refined, registry_ranges=ranges
+        restrictive_references=set(),
+        schema_dir=schema_dir,
+        component_ids=set(),
+        registry_refined=refined,
+        registry_ranges=ranges,
     )
     action = {a["id"]: a for a in result["actions"]}["fan.set_speed"]
     entry = {e["key"]: e for e in action["config_entries"]}["speed"]

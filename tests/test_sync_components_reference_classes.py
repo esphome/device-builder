@@ -228,9 +228,28 @@ def test_variant_id_classes_reads_each_typed_branch() -> None:
     # A variant with no readable id class makes the whole hub unjudgeable.
     types = section["schemas"]["CONFIG_SCHEMA"]["types"]
     types["octal"] = {"config_vars": {}}
-    assert _variant_id_classes(section) is None
+    assert _variant_id_classes(section) == ("type", {})
     types["octal"] = {"config_vars": {"id": {"id_type": {"class": "Component"}}}}
-    assert _variant_id_classes(section) is None
+    assert _variant_id_classes(section) == ("type", {})
+
+
+def test_typed_hub_with_an_untyped_variant_is_left_unfiltered(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    hub = _declarer(
+        "modbus", ["modbus::ModbusServerHub", "modbus::Modbus"], _variant_id_classes=("role", {})
+    )
+    other = _declarer("modbus_lite", ["modbus::Modbus"])
+    cover = {
+        "id": "hoermann_hcp",
+        "config_entries": [_reference("modbus_id", "modbus", "modbus::ModbusServerHub")],
+    }
+    _resolve([hub, other, cover])
+    # No declarer left in the pool provides the class, so the reference stays unfiltered.
+    assert "id_classes" not in hub and "id_classes_by_variant" not in hub
+    assert "id_classes" not in other
+    assert "references_class" not in cover["config_entries"][0]
+    assert "modbus: a typed variant has no id class; left unfiltered" in caplog.text
 
 
 def test_typed_hub_with_no_discriminator_entry_fails_the_sync() -> None:
