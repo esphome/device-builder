@@ -19,7 +19,7 @@ INTERNAL_ERROR = "internal_error"
 
 # Schema keywords ``validate_args`` enforces; ``default`` only on a tool's own properties.
 _PROPERTY_KEYS = frozenset(
-    {"type", "description", "minimum", "maximum", "default", "enum", "items"}
+    {"type", "description", "minimum", "maximum", "minLength", "default", "enum", "items"}
     | {"properties", "required", "additionalProperties"}
 )
 _NESTED_KEYS = _PROPERTY_KEYS - {"default"}
@@ -180,6 +180,8 @@ def _range_problem(prop: dict[str, Any], value: Any) -> str | None:
         return f"at most {prop['maximum']}"
     if "enum" in prop and value not in prop["enum"]:
         return f"one of {prop['enum']}"
+    if "minLength" in prop and len(value) < prop["minLength"]:
+        return f"at least {prop['minLength']} characters long"
     return None
 
 
@@ -275,7 +277,7 @@ def _object_shape_problem(prop: dict[str, Any]) -> str | None:
 
 
 def _bounds_problem(prop: dict[str, Any]) -> str | None:
-    """Return why *prop*'s ``minimum`` / ``maximum`` cannot be enforced, or None."""
+    """Return why *prop*'s ``minimum`` / ``maximum`` / ``minLength`` cannot be enforced, or None."""
     bounds = [prop[k] for k in ("minimum", "maximum") if k in prop]
     if bounds and prop["type"] not in _NUMERIC_TYPES:
         return "has bounds on a non-numeric type"
@@ -283,6 +285,18 @@ def _bounds_problem(prop: dict[str, Any]) -> str | None:
         return "needs numeric bounds"
     if len(bounds) == 2 and bounds[0] > bounds[1]:
         return "has minimum above maximum"
+    return _length_problem(prop)
+
+
+def _length_problem(prop: dict[str, Any]) -> str | None:
+    """Return why *prop*'s ``minLength`` cannot be enforced, or None."""
+    if "minLength" not in prop:
+        return None
+    if prop["type"] != "string":
+        return "has minLength on a non-string type"
+    length = prop["minLength"]
+    if isinstance(length, bool) or not isinstance(length, int) or length < 0:
+        return "needs a non-negative integer minLength"
     return None
 
 

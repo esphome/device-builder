@@ -165,7 +165,8 @@ def test_registration_rejects_keywords_the_validator_does_not_enforce() -> None:
 
 
 _REF = closed_object(
-    {"kind": {"type": "string", "enum": ["a", "b"]}, "id": {"type": "string"}}, ("kind", "id")
+    {"kind": {"type": "string", "enum": ["a", "b"]}, "id": {"type": "string", "minLength": 1}},
+    ("kind", "id"),
 )
 _NESTED = closed_object({"refs": {"type": "array", "items": _REF}})
 
@@ -181,7 +182,10 @@ def test_closed_object_registers_as_valid_json_schema() -> None:
     jsonschema.Draft202012Validator.check_schema(definition["inputSchema"])
     assert definition["inputSchema"]["properties"]["refs"]["items"] == {
         "type": "object",
-        "properties": {"kind": {"type": "string", "enum": ["a", "b"]}, "id": {"type": "string"}},
+        "properties": {
+            "kind": {"type": "string", "enum": ["a", "b"]},
+            "id": {"type": "string", "minLength": 1},
+        },
         "required": ["kind", "id"],
         "additionalProperties": False,
     }
@@ -195,6 +199,9 @@ def test_closed_object_registers_as_valid_json_schema() -> None:
         pytest.param({"type": "string", "enum": ["x", 1]}, "list of strings", id="mixed"),
         pytest.param({"type": "string", "enum": ["x", "x"]}, "duplicate enum", id="dup_enum"),
         pytest.param({"type": "string", "items": _REF}, "non-array type", id="str_items"),
+        pytest.param({"type": "integer", "minLength": 1}, "on a non-string type", id="int_len"),
+        pytest.param({"type": "string", "minLength": -1}, "integer minLength", id="neg_len"),
+        pytest.param({"type": "string", "minLength": True}, "integer minLength", id="bool_len"),
         pytest.param({"type": "array", "items": "x"}, "property schema as its items", id="items"),
         pytest.param(_REF | {"type": "array"}, "properties on a non-object type", id="arr_props"),
         pytest.param(
@@ -249,6 +256,11 @@ def test_validate_args_accepts_nested_shapes(arguments: dict[str, Any]) -> None:
             {"refs": [{"kind": "a", "id": "x", "z": 1}]}, "is an object without z", id="unknown"
         ),
         pytest.param({"refs": [{"kind": "a", "id": 1}]}, "an object whose id is string", id="type"),
+        pytest.param(
+            {"refs": [{"kind": "a", "id": ""}]},
+            "an object whose id is at least 1 characters long",
+            id="empty",
+        ),
         pytest.param(
             {"refs": [{"kind": "a", "id": "x"}, {"kind": "c", "id": "x"}]},
             r"item 1 is an object whose kind is one of \['a', 'b'\]",

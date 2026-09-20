@@ -423,7 +423,8 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
                     | {"enum": list(AUTOMATION_TYPES)},
                     "id": _prop(
                         "string", "Its id from get_available_automations, e.g. 'light.turn_on'."
-                    ),
+                    )
+                    | {"minLength": 1},
                 },
                 ("type", "id"),
             )

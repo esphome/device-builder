@@ -487,6 +487,7 @@ async def test_get_automation_docs_example_resolves_against_the_catalog(
     for bad, must_be in (
         ({"type": "action", "id": "light.turn_on"}, "an object whose type is one of ['triggers'"),
         ({"type": "actions"}, "an object with id"),
+        ({"type": "actions", "id": ""}, "an object whose id is at least 1 characters long"),
         ("actions/x", "object"),
     ):
         is_error, text = await mcp_call(mcp_client, "get_automation_docs", {"refs": [bad]})
