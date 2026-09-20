@@ -41,7 +41,8 @@ async def test_sdk_client_reaches_the_device_builder_tools(server_url: str) -> N
         assert result.content[0].text == "esphome:\n  name: k\n"
 
         refused = await session.call_tool(
-            "update_config", {"configuration": "secrets.yaml", "content": "wifi_password: x\n"}
+            "update_config",
+            {"configuration": "secrets.yaml", "content": "wifi_password: x\n", "expected": ""},
         )
         assert refused.isError is True
         assert refused.content[0].text == (
