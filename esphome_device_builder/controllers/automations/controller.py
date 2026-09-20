@@ -514,16 +514,20 @@ def _check_save_args(*, save: bool, yaml: str | None, expected: str | None) -> N
         raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
 
 
-def _row_at(yaml_text: str, location: AutomationLocation, verb: str) -> ParsedAutomation | None:
-    """Return the parsed automation at *location*; an unloadable file fails the precondition."""
+def _rows(yaml_text: str, verb: str) -> list[ParsedAutomation]:
+    """Parse *yaml_text*'s automations; an unloadable file fails the precondition."""
     try:
-        rows = parsing.parse_device_yaml(yaml_text)
+        return parsing.parse_device_yaml(yaml_text)
     except CommandError as err:
         if err.code is not ErrorCode.INVALID_ARGS:
             raise
         msg = f"the config no longer loads, nothing was {verb}: {err.message}"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg) from err
-    return next((p for p in rows if p.location == location), None)
+
+
+def _row_at(yaml_text: str, location: AutomationLocation, verb: str) -> ParsedAutomation | None:
+    """Return the parsed automation at *location*; an unloadable file fails the precondition."""
+    return next((p for p in _rows(yaml_text, verb) if p.location == location), None)
 
 
 def _require_expected(row: ParsedAutomation | None, expected: str, verb: str) -> None:
@@ -550,14 +554,21 @@ def _render_delete_if_unchanged(
 def _render_upsert_if_unchanged(
     yaml_text: str, *, tree: AutomationTree, location: AutomationLocation, expected: str | None
 ) -> tuple[str, YamlDiff]:
-    """Insert without replacing any line, or replace only while the text still equals *expected*."""
+    """Insert one automation and keep every other, or replace only the one matching *expected*."""
+    before = _rows(yaml_text, "written")
     if expected is not None:
-        _require_expected(_row_at(yaml_text, location, "written"), expected, "replacing")
+        row = next((p for p in before if p.location == location), None)
+        _require_expected(row, expected, "replacing")
     new_text, diff = writing.render_upsert(yaml_text, tree=tree, location=location)
-    if expected is None and diff.toLine >= diff.fromLine:
-        msg = (
-            "that location already holds YAML; pass the automation's raw_yaml from a listing "
-            "as expected to replace it"
-        )
+    after = [p.location for p in parsing.parse_device_yaml(new_text)]
+    if expected is None:
+        if len(after) != len(before) + 1 or any(p.location not in after for p in before):
+            msg = (
+                "that location already holds YAML; pass the automation's raw_yaml from a "
+                "listing as expected to replace it"
+            )
+            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    elif len(after) != len(before) or location not in after:
+        msg = "the automation at that location could not be replaced in place; nothing was written"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     return new_text, diff
