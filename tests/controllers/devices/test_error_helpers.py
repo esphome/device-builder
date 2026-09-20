@@ -155,4 +155,5 @@ def test_require_unchanged_refuses_a_text_that_moved_on() -> None:
     with pytest.raises(CommandError) as excinfo:
         require_unchanged("a: 9\n", "a: 1\n", "k.yaml")
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert "k.yaml changed" in excinfo.value.message
+    assert excinfo.value.message.startswith("k.yaml differs from the expected text")
+    assert "-a: 1\n+a: 9\n" in excinfo.value.message

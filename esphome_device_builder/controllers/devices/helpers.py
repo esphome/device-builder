@@ -15,7 +15,7 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_config import raise_device_not_found
 from ...helpers.hostname import is_local_hostname, normalize_hostname
-from ...helpers.text import same_text
+from ...helpers.text import diff_excerpt, same_text
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
 
@@ -118,7 +118,10 @@ def refuse_empty_write(configuration: str) -> NoReturn:
 def require_unchanged(current: str, expected: str, configuration: str) -> None:
     """Raise ``PRECONDITION_FAILED`` unless *configuration*'s *current* text is still *expected*."""
     if not same_text(current, expected):
-        msg = f"{configuration} changed while it was being edited; nothing was written, retry"
+        msg = (
+            f"{configuration} differs from the expected text; nothing was written. "
+            f"Re-read it and retry:\n{diff_excerpt(expected, current)}"
+        )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
 
