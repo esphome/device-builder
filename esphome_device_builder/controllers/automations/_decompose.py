@@ -57,12 +57,18 @@ def accepted_param_keys(
         for e in entry.config_entries
     ):
         return None
-    keys = {e.key for e in entry.config_entries} | _CONDITION_GATE_KEYS | {DEFAULT_SHORTHAND_KEY}
-    if entry.scalar_shorthand_key:
-        keys.add(entry.scalar_shorthand_key)
+    keys = set(declared_param_keys(entry)) | _CONDITION_GATE_KEYS | {DEFAULT_SHORTHAND_KEY}
     if isinstance(entry, AutomationAction):
         keys |= set(entry.accepts_action_list)
     return frozenset(keys)
+
+
+def declared_param_keys(entry: AutomationAction | AutomationCondition) -> list[str]:
+    """Return the field keys *entry* documents, sorted, scalar shorthand included."""
+    keys = {e.key for e in entry.config_entries}
+    if entry.scalar_shorthand_key:
+        keys.add(entry.scalar_shorthand_key)
+    return sorted(keys)
 
 
 def _safe_tree(

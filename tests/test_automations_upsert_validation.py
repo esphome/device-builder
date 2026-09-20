@@ -50,10 +50,9 @@ async def test_a_field_the_catalog_does_not_list_is_refused_naming_the_real_ones
         )
 
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
-    assert excinfo.value.message.startswith(
-        "'switch.turn_off' has no field ['switch_id']; it takes ["
+    assert excinfo.value.message == (
+        "'switch.turn_off' has no field ['switch_id']; its fields are ['id']"
     )
-    assert "'id'" in excinfo.value.message
 
 
 @pytest.mark.parametrize(

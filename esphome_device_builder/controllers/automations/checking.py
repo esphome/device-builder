@@ -6,9 +6,15 @@ from typing import Any
 
 from ...helpers.api import CommandError
 from ...models import ErrorCode
-from ...models.automations import ActionNode, AutomationTree, ConditionNode
+from ...models.automations import (
+    ActionNode,
+    AutomationAction,
+    AutomationCondition,
+    AutomationTree,
+    ConditionNode,
+)
 from . import catalog
-from ._decompose import accepted_param_keys
+from ._decompose import accepted_param_keys, declared_param_keys
 from .catalog import AutomationBodyRef
 
 
@@ -45,7 +51,7 @@ def _check_actions(nodes: list[ActionNode]) -> None:
             raise CommandError(ErrorCode.INVALID_ARGS, f"Unknown action id {node.action_id!r}")
         # A known but not form-editable action has no body to check fields against.
         if (entry := catalog.action_by_id(node.action_id)) is not None:
-            _check_fields(node.action_id, node.params, accepted_param_keys(entry))
+            _check_fields(node.action_id, node.params, entry)
             if stray := sorted(set(node.children) - set(entry.accepts_action_list)):
                 msg = (
                     f"Action {node.action_id!r} has no {stray} branch; "
@@ -63,16 +69,18 @@ def _check_conditions(nodes: list[ConditionNode]) -> None:
         if entry is None:
             msg = f"Unknown condition id {node.condition_id!r}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        _check_fields(node.condition_id, node.params, accepted_param_keys(entry))
+        _check_fields(node.condition_id, node.params, entry)
         if node.children and not entry.accepts_condition_list:
             msg = f"Condition {node.condition_id!r} takes no nested conditions"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
         _check_conditions(node.children)
 
 
-def _check_fields(node_id: str, params: dict[str, Any], allowed: frozenset[str] | None) -> None:
-    if allowed is None:
+def _check_fields(
+    node_id: str, params: dict[str, Any], entry: AutomationAction | AutomationCondition
+) -> None:
+    if (allowed := accepted_param_keys(entry)) is None:
         return
     if unknown := sorted(set(params) - allowed):
-        msg = f"{node_id!r} has no field {unknown}; it takes {sorted(allowed)}"
+        msg = f"{node_id!r} has no field {unknown}; its fields are {declared_param_keys(entry)}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
