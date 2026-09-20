@@ -240,7 +240,10 @@ class AutomationsController:
         own buffer.
         """
         _check_save_args(save=save, yaml=yaml, expected=expected)
-        tree = AutomationTree.from_dict(automation)
+        try:
+            tree = AutomationTree.from_dict(automation)
+        except (LookupError, ValueError, TypeError) as err:
+            raise CommandError(ErrorCode.INVALID_ARGS, f"Invalid automation: {err}") from err
         loc = _decode_location(location)
         render: Callable[[str], tuple[str, YamlDiff]]
         if save or expected is not None:

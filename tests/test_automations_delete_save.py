@@ -361,3 +361,24 @@ async def test_upsert_refuses_save_beside_yaml(tmp_path: Path) -> None:
         )
 
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.parametrize(
+    "automation",
+    [
+        {"trigger_id": "on_boot", "actions": "delay"},
+        {"trigger_id": "on_boot", "actions": [{"params": {}}]},
+    ],
+    ids=["actions_not_a_list", "node_without_action_id"],
+)
+async def test_upsert_refuses_a_malformed_tree_as_invalid_args(
+    tmp_path: Path, automation: dict[str, Any]
+) -> None:
+    controller = _make_controller(tmp_path, devices=_Devices())
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(configuration="d.yaml", automation=automation, location=_LOCATION)
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert excinfo.value.message.startswith("Invalid automation: ")
+    assert "actions" in excinfo.value.message
