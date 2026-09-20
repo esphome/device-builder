@@ -124,7 +124,8 @@ def validate_args(schema: dict[str, Any], arguments: dict[str, Any]) -> dict[str
     """
     Enforce ``required`` names, ``type``s, ``enum``s, numeric bounds and item shapes.
 
-    Returns *arguments* with each absent property's ``default`` filled in.
+    Returns *arguments* with each absent property's ``default`` filled in and integral
+    floats read back as the integers the schema declares.
     """
     properties: dict[str, Any] = schema["properties"]
     for key in schema["required"]:
@@ -164,8 +165,6 @@ def _count(name: str) -> Callable[[dict[str, Any]], str | None]:
         value = prop[name]
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             return f"needs a non-negative integer {name}"
-        if name == "maxItems" and "items" not in prop:
-            return "needs items beside maxItems"
         return None
 
     return check
@@ -197,24 +196,12 @@ def _items_check(prop: dict[str, Any]) -> str | None:
 
 
 def _properties_check(prop: dict[str, Any]) -> str | None:
-    if (
-        not isinstance(prop["properties"], dict)
-        or not isinstance(prop.get("required"), list)
-        or prop.get("additionalProperties") is not False
-    ):
-        return "needs properties, required and additionalProperties false; see closed_object"
+    if not isinstance(prop["properties"], dict) or not isinstance(prop.get("required"), list):
+        return "needs a properties mapping and a required list; see closed_object"
     if len(set(prop["required"])) != len(prop["required"]):
         return "has duplicate required names"
     if missing := set(prop["required"]) - set(prop["properties"]):
         return f"has required names not in properties: {sorted(missing)}"
-    return None
-
-
-def _openness_check(prop: dict[str, Any]) -> str | None:
-    if "properties" in prop:
-        return None
-    if prop["additionalProperties"] is not True:
-        return "needs additionalProperties true for an open object; see closed_object"
     return None
 
 
@@ -277,7 +264,7 @@ _KEYWORDS: dict[str, _Keyword] = {
     "items": _Keyword("array", frozenset({"array"}), _items_check, _items_apply),
     "properties": _Keyword("object", frozenset({"object"}), _properties_check, _object_apply),
     "required": _Keyword("object", frozenset({"object"}), lambda p: None),
-    "additionalProperties": _Keyword("object", frozenset({"object"}), _openness_check),
+    "additionalProperties": _Keyword("object", frozenset({"object"}), lambda p: None),
 }
 # Keywords ``validate_args`` enforces; ``default`` only on a tool's own properties.
 _PROPERTY_KEYS = frozenset(_KEYWORDS) | {"type", "description", "default"}
@@ -347,11 +334,24 @@ def _keyword_problem(prop: dict[str, Any]) -> str | None:
 
 
 def _container_problem(prop: dict[str, Any]) -> str | None:
-    """Return why a container *prop* declares no shape, or None; an open object says so."""
+    """Return why a container *prop*'s keywords do not add up to an enforceable shape, or None."""
     if prop["type"] == "array" and "items" not in prop:
-        return "needs items"
-    if prop["type"] == "object" and "additionalProperties" not in prop:
+        return "needs items" + (" beside maxItems" if "maxItems" in prop else "")
+    if prop["type"] == "object":
+        return _object_shape_problem(prop)
+    return None
+
+
+def _object_shape_problem(prop: dict[str, Any]) -> str | None:
+    """Return why an object *prop* is neither a closed object nor a declared open one, or None."""
+    if "properties" in prop:
+        if prop.get("additionalProperties") is not False:
+            return "needs additionalProperties false beside properties; see closed_object"
+        return None
+    if prop.get("additionalProperties") is not True:
         return "needs a shape: closed_object, or additionalProperties true for an open object"
+    if "required" in prop:
+        return "has required names but no properties; see closed_object"
     return None
 
 
