@@ -10,6 +10,7 @@ from typing import Any, Concatenate
 from ruamel.yaml import YAMLError
 from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.composer import ComposerError
+from ruamel.yaml.events import AliasEvent
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import _normalize_multi_conf_block
@@ -104,7 +105,10 @@ def _require_unaliased(yaml_text: str, domain: str) -> None:
     if idx is None:
         idx = _inline_header_index(lines, domain)
     anchor = re.search(r":\s*&(\S+)", lines[idx]) if idx is not None else None
-    if anchor and re.search(rf"\*{re.escape(anchor.group(1))}\b", yaml_text):
+    if anchor and any(
+        isinstance(event, AliasEvent) and event.anchor == anchor.group(1)
+        for event in make_yaml().parse(yaml_text)
+    ):
         msg = f"{domain}: is anchored as &{anchor.group(1)} and aliased; rewrite it as a list first"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 

@@ -4031,6 +4031,13 @@ def test_an_aliased_anchor_blocks_the_flow_expansion_too() -> None:
     )
 
 
+def test_a_quoted_or_commented_star_is_not_an_alias() -> None:
+    text = 'interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: "*shared"  # *shared\n'
+    new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith("interval:\n  - interval: 60s\n")
+    assert new_text.endswith('other: "*shared"  # *shared\n')
+
+
 def test_an_alias_inside_a_flow_value_is_named_in_the_refusal() -> None:
     with pytest.raises(CommandError) as err:
         render_upsert(
