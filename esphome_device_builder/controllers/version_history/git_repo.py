@@ -33,7 +33,7 @@ from itertools import batched
 from pathlib import Path
 
 import esphome_device_builder
-from esphome_device_builder.constants import is_secrets_file
+from esphome_device_builder.constants import SECRETS_FILENAMES, is_secrets_file
 from esphome_device_builder.helpers.atomic_io import atomic_write
 
 _LOGGER = logging.getLogger(__name__)
@@ -128,7 +128,7 @@ _DEFAULT_GITIGNORE = "".join(
         "# Managed by ESPHome Device Builder — created because this directory\n",
         "# was not already a git repository. Edit freely; it won't be regenerated.\n",
         *(f"{pattern}\n" for pattern in _MANAGED_EXCLUDES),
-        "secrets.yaml\n",
+        *(f"{name}\n" for name in SECRETS_FILENAMES),
     ]
 )
 

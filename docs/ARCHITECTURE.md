@@ -16,6 +16,8 @@
 
 7. **Device discovery.** mDNS browser for instant online/offline detection, ping sweep every 60s as fallback, optional MQTT discovery for devices that opt in via an `mqtt:` block. Source priority: `mdns > mqtt > ping`.
 
+8. **esphome owns config validation.** The catalogs describe schemas for the editor; they never gate a write. Field and value semantics are checked by running `esphome config` (`devices/validate`, the MCP `validate_config` tool). See the note under Component Catalog.
+
 ## Project Structure
 
 High-level orientation; not exhaustive. The larger surfaces
@@ -66,9 +68,12 @@ esphome_device_builder/
 │   ├── single_instance.py     # fcntl.flock guard for one process per <data_dir>
 │   └── yaml.py                # YAML generation
 │
+├── mcp/                       # Minimal MCP server library (JSON-RPC envelope, tool registry)
+│
 ├── api/                       # Transport layer
 │   ├── ws.py                  # /ws WebSocket dispatch
-│   └── legacy.py              # HA compat endpoints
+│   ├── legacy.py              # HA compat endpoints
+│   └── mcp/                   # /api/mcp endpoint: Device Builder tools on the mcp/ library
 │
 └── definitions/               # Data files
     ├── boards/                # board YAML manifests
@@ -310,6 +315,23 @@ fails the sync loudly instead of degrading to MISC.
 Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
 
+The catalog is a lossy snapshot, never a validator. Custom validators,
+`maybe_simple_value` wrappers and keys the sync cannot express all drop out,
+so a catalog-derived "is this field allowed" check refuses valid configs
+wherever the two differ (measured against esphome 2026.9.0: `emontx.send_command`
+requires `command` while the catalog lists only `id`, and 54 automation
+registry entries could not be compared at all). The editor makes that fatal:
+`automations/parse` copies every YAML key into `params` and the visual editor
+auto-applies the whole tree through `automations/upsert`, so one gap makes an
+existing valid automation impossible to edit. Guards that protect the
+dashboard's own round trip stay: an occupied location, a parser-skipped list
+entry, a stale `expected`, and the parser's refusal to decompose an
+uncatalogued id that shares a mapping with other keys (`_uncatalogued_action`),
+which keeps a save from restructuring a body it cannot read back. Field
+semantics come from `esphome config`, and an agent
+repairs from esphome's own error (PR #2793 was closed on this; issue #2797
+has the MCP follow-up).
+
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)
 — it pins the schema version to the dashboard's installed `esphome` to avoid
@@ -449,6 +471,8 @@ When `--ha-addon` is set, the server binds **two** TCP sites on a shared `Device
 
 - **Public site** (`--host:--port`, default `0.0.0.0:6052`) — the standard dashboard. The auth middleware enforces password on REST endpoints, and the WS handler enforces the in-band `auth` handshake. This is what users hit at `http://homeassistant.local:6052`.
 - **Trusted ingress site** (`--ingress-host:--ingress-port`) — binds **loopback + the supervisor gateway only** (`127.0.0.1` + `172.30.32.1`), never `0.0.0.0`. The add-on runs host-network (for mDNS), so `0.0.0.0` would put this no-auth site on the LAN; the two-host default keeps it reachable by HA core's ESPHome integration (loopback) and the supervisor's ingress proxy (gateway) only. A second layer, `ingress_peer_guard` (`helpers/auth.py`), 403s any TCP peer other than loopback or the supervisor (`172.30.32.2`), so another hassio-bridge add-on reaching the gateway can't use it either — mirroring the legacy add-on's nginx `allow 127.0.0.1; allow 172.30.32.2; deny all`. Skips the auth gate because the supervisor has already authenticated the request upstream. An explicit `--ingress-host` overrides. The HA add-on `config.yaml` advertises `ingress_port` to the supervisor so the ingress proxy knows where to forward.
+
+The MCP endpoint (`POST /api/mcp`, [API.md](API.md#mcp-endpoint-post-apimcp)) is registered on both sites and mirrors `/ws` on each: open on the trusted ingress site; on the public site behind the REST `Authorization` gate plus the same `Origin` / `Host` check the WebSocket handshake applies (`request_origin_allowed` + `host_in_allowlist`), and it additionally requires `Content-Type: application/json` so a browser cannot reach a tool through a preflight-free simple request. Its tools dispatch through the same `command_handlers` table as the WebSocket; those that read beside it are named in API.md's Tools paragraph, and none of them adds data the WS surface does not already expose.
 
 This is the Music Assistant pattern: physically separating the listeners is the security boundary, rather than trusting an `X-Ingress-Path` header. It also means HA app users can keep ingress access (no password) while operators can still secure direct access from outside HA with a username/password.
 

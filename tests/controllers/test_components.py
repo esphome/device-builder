@@ -46,6 +46,7 @@ from esphome_device_builder.models import (
     FeaturedComponent,
     FieldPreset,
 )
+from esphome_device_builder.models.common import DashboardModel
 
 
 class _Container:
@@ -242,6 +243,19 @@ async def test_get_component_bodies_resolves_rp2040_alias() -> None:
     assert bodies["rp2040"].id == "rp2"
 
 
+async def test_component_bodies_reach_the_wire_in_the_omit_defaults_shape() -> None:
+    """The command's models reach the wire with default-valued fields left out."""
+    cat = ComponentCatalog()
+    await asyncio.to_thread(cat.load)
+
+    bodies = DashboardModel.to_wire(await cat.get_component_bodies(component_ids=["wifi"]))
+
+    fast_connect = next(e for e in bodies["wifi"]["config_entries"] if e["key"] == "fast_connect")
+    assert fast_connect["default_value"] is False
+    assert "required" not in fast_connect
+    assert "options" not in fast_connect
+
+
 def test_index_title_returns_catalog_name_or_none() -> None:
     """``index_title`` is the slim-index name for a known id, else ``None``."""
     cat = ComponentCatalog()
@@ -254,6 +268,14 @@ def test_index_title_resolves_rp2040_alias() -> None:
     cat = ComponentCatalog()
     cat._by_id = {"rp2": _make_entry(entry_id="rp2", name="RP2 Platform")}
     assert cat.index_title("rp2040") == "RP2 Platform"
+
+
+def test_index_entry_returns_slim_entry_or_none() -> None:
+    cat = ComponentCatalog()
+    entry = _make_entry(entry_id="rp2", name="RP2 Platform")
+    cat._by_id = {"rp2": entry}
+    assert cat.index_entry("rp2040") is entry
+    assert cat.index_entry("does-not-exist") is None
 
 
 # ── get_components() ────────────────────────────────────────────────

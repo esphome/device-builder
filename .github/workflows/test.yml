@@ -183,6 +183,15 @@ jobs:
           python-version: ${{ matrix.python-version }}
           install-args: -c esphome-constraints.txt -e .[esphome,test]
 
+      - name: Move TEMP to the work disk (Windows)
+        # The default ``%TEMP%`` sits on the slow OS disk; pytest's
+        # ``tmp_path`` lives under it.
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Run pytest
         # ``uv run --no-sync`` uses the .venv created above as-is.
         # Without ``--no-sync``, ``uv run`` re-locks the project
@@ -214,7 +223,7 @@ jobs:
         run: uv run --no-sync pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4  # v7.1.0
         with:
           files: ./coverage.xml
           flags: py${{ matrix.python-version }}
@@ -378,6 +387,31 @@ jobs:
       - name: Run MQTT discovery e2e
         timeout-minutes: 5
         run: uv run --no-sync pytest -q tests/e2e/slow/mqtt --durations=10 --timeout=120 --no-cov
+
+  e2e-mcp-sdk:
+    name: E2E MCP SDK interop (esphome stable)
+    runs-on: ubuntu-latest
+    # Drives the official ``mcp`` SDK client (the line Home Assistant ships)
+    # against the MCP server. Lives under tests/e2e/slow/ so the unit matrix,
+    # the channel matrix and the esphome repo's device-builder run all skip it,
+    # and the SDK comes from its own extra so no other venv installs it.
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
+        with:
+          python-version: "3.14"
+          install-args: -c esphome-constraints.txt -e .[esphome,test,mcp-interop]
+
+      - name: Verify the MCP SDK is installed
+        run: uv run --no-sync python -c "import mcp; print(mcp.__file__)"
+      - name: Run MCP SDK interop e2e
+        timeout-minutes: 5
+        run: uv run --no-sync pytest -q tests/e2e/slow/mcp --durations=10 --timeout=120 --no-cov
 
   e2e-libretiny:
     name: E2E LibreTiny (esphome stable)

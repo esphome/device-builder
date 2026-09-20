@@ -12,7 +12,7 @@ classifiers = [
   "Topic :: Home Automation",
 ]
 dependencies = [
-  "esphome-device-builder-frontend==0.1.330",
+  "esphome-device-builder-frontend==0.1.337",
   "aiohttp>=3.9.0",
   # Provides an ``aiohttp.AsyncResolver`` that resolves ``.local``
   # hostnames through an injected ``AsyncZeroconf`` (the same
@@ -66,7 +66,7 @@ version = "0.0.0" # Set by GH action on release
 
 [project.optional-dependencies]
 esphome = [
-  "esphome>=2026.8.2",
+  "esphome>=2026.9.0",
 ]
 test = [
   "blockbuster>=1.5.5,<1.6",
@@ -84,6 +84,10 @@ test = [
   "pytest-xdist==3.8.0",
   "ruff==0.16.7",
   "types-PyYAML",
+]
+# Only the SDK interop job installs this: the official client is heavy and test-only.
+mcp-interop = [
+  "mcp>=1.26,<2",
 ]
 
 [project.urls]

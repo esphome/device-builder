@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from esphome.storage_json import StorageJSON
 
+from esphome_device_builder.controllers.devices import mutations_simple
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import read_yaml_scalar
 from esphome_device_builder.models import ErrorCode
@@ -43,6 +45,130 @@ async def test_config_only_rename_rewrites_name_and_renames_file(
     # Untouched siblings survive the rewrite.
     assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Kitchen Light"
     assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan", False)]
+
+
+_UNDERSCORE_YAML = _YAML.replace("name: kitchen", "name: test_1")
+
+
+@pytest.mark.parametrize(
+    ("configuration", "text", "new_name", "saved_meanwhile", "code"),
+    [
+        pytest.param(
+            "kitchen.yaml", _YAML, "livingroom", True, ErrorCode.PRECONDITION_FAILED, id="saved"
+        ),
+        pytest.param("kitchen.yaml", _YAML, "livingroom", False, ErrorCode.NOT_FOUND, id="deleted"),
+        pytest.param(
+            "test-1.yaml",
+            _UNDERSCORE_YAML,
+            "test-1",
+            True,
+            ErrorCode.PRECONDITION_FAILED,
+            id="in_place",
+        ),
+    ],
+)
+async def test_config_only_rename_refuses_when_the_file_changed_during_validation(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    configuration: str,
+    text: str,
+    new_name: str,
+    saved_meanwhile: bool,
+    code: ErrorCode,
+) -> None:
+    controller = make_controller(tmp_path)
+    old = tmp_path / configuration
+    old.write_text(text, encoding="utf-8")
+    on_disk = text + "logger:\n" if saved_meanwhile else None
+
+    async def _file_moves_on_meanwhile(*_args: object, **_kwargs: object) -> None:
+        if on_disk is None:
+            await asyncio.to_thread(old.unlink)
+        else:
+            await controller.update_config(configuration=configuration, content=on_disk)
+
+    monkeypatch.setattr(controller, "_schedule_storage_regenerate", lambda _configuration: None)
+    monkeypatch.setattr(controller, "_validate_rewritten_yaml_or_raise", _file_moves_on_meanwhile)
+
+    with pytest.raises(CommandError) as err:
+        await controller.rename_device(
+            configuration=configuration, new_name=new_name, config_only=True
+        )
+
+    assert err.value.code == code
+    assert not (tmp_path / "livingroom.yaml").exists()
+    assert (old.read_text(encoding="utf-8") if old.exists() else None) == on_disk
+
+
+async def test_config_only_rename_never_replaces_a_target_created_during_validation(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    other = _YAML.replace("name: kitchen", "name: livingroom")
+
+    async def _another_device_takes_the_name(*_args: object, **_kwargs: object) -> None:
+        await asyncio.to_thread((tmp_path / "livingroom.yaml").write_text, other, "utf-8")
+
+    monkeypatch.setattr(
+        controller, "_validate_rewritten_yaml_or_raise", _another_device_takes_the_name
+    )
+
+    with pytest.raises(CommandError) as err:
+        await controller.rename_device(
+            configuration="kitchen.yaml", new_name="livingroom", config_only=True
+        )
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "livingroom.yaml").read_text(encoding="utf-8") == other
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == _YAML
+
+
+async def test_config_only_rename_holds_both_filenames_only_while_the_metadata_moves(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    held: dict[str, tuple[bool, bool]] = {}
+
+    def _locks() -> tuple[bool, bool]:
+        return (
+            controller._yaml_write_lock("kitchen.yaml").locked(),
+            controller._yaml_write_lock("livingroom.yaml").locked(),
+        )
+
+    async def _migrate(_controller: object, _old: str, _new: str) -> None:
+        held["migrate"] = _locks()
+
+    async def _rescan(_controller: object, _new: str) -> None:
+        held["rescan"] = _locks()
+
+    monkeypatch.setattr(mutations_simple, "migrate_metadata", _migrate)
+    monkeypatch.setattr(mutations_simple, "rescan_renamed", _rescan)
+
+    await controller.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+
+    assert held == {"migrate": (True, True), "rescan": (False, False)}
+
+
+async def test_config_only_rename_lands_as_one_executor_job(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+
+    with patch.object(
+        mutations_simple, "run_in_executor", wraps=mutations_simple.run_in_executor
+    ) as spy:
+        await controller.rename_device(
+            configuration="kitchen.yaml", new_name="livingroom", config_only=True
+        )
+
+    jobs = [call.args[0].__name__ for call in spy.await_args_list]
+    assert jobs == ["_read_and_probe", "_land"]
 
 
 async def test_config_only_rename_retargets_name_labelled_ap_ssid(
@@ -302,7 +428,7 @@ async def test_config_only_rename_missing_file_raises(
             configuration="kitchen.yaml", new_name="livingroom", config_only=True
         )
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
 
 
 async def test_config_only_rename_still_rejects_collision(

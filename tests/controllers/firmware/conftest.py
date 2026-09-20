@@ -410,9 +410,7 @@ def wire_background_tasks(controller: FirmwareController) -> list[asyncio.Task[A
 def upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> FirmwareJob:
     """Return the UPLOAD job an install chained behind *compile_job*."""
     return next(
-        j
-        for j in controller.state.jobs.values()
-        if j.job_type is JobType.UPLOAD and j.depends_on == compile_job.job_id
+        j for j in controller.state.dependents(compile_job.job_id) if j.job_type is JobType.UPLOAD
     )
 
 

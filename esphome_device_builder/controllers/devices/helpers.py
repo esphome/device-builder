@@ -13,17 +13,20 @@ from esphome.helpers import friendly_name_slugify, sort_ip_addresses
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.device_config import raise_device_not_found
 from ...helpers.hostname import is_local_hostname, normalize_hostname
+from ...helpers.text import diff_excerpt, same_text
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
-from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from ...models import ComponentCatalogEntry, ConfigEntry
+    from ...device_builder import DeviceBuilder
+    from ...models import ComponentCatalogEntry, ComponentCatalogIndexEntry, ConfigEntry
     from .._device_state_monitor import DeviceStateMonitor
-    from ..components import _FeaturedRecord
+    from ..components import ComponentCatalog, _FeaturedRecord
+    from .controller import DevicesController
 
 # Top-level YAML key matcher; used instead of yaml.safe_load
 # because ESPHome configs commonly carry custom tags
@@ -36,14 +39,17 @@ __all__ = [
     "_drop_unconfigured_dependent_fields",
     "_looks_binary",
     "_normalize_pin_value",
-    "_redact_concealed_secrets",
     "_rewrite_required_yaml_leaf",
     "_validate_archive_configuration",
     "clean_friendly_name",
     "friendly_name_slugify",
+    "persist_if_unchanged",
     "raise_device_name_exists",
-    "raise_device_not_found",
+    "refuse_empty_write",
+    "require_catalog",
     "require_file_exists",
+    "require_unchanged",
+    "scanned_component_entries",
     "slugify_hostname",
     "write_new_file_exclusive",
 ]
@@ -76,14 +82,59 @@ async def write_new_file_exclusive(
         raise
 
 
-def raise_device_not_found(
-    configuration: str, *, from_exc: BaseException | None = None
-) -> NoReturn:
-    """Raise ``NOT_FOUND`` for a missing device *configuration*."""
-    err = CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
-    if from_exc is not None:
-        raise err from from_exc
-    raise err
+def require_catalog(db: DeviceBuilder) -> ComponentCatalog:
+    """Return the loaded component catalog, or raise ``UNAVAILABLE``."""
+    if db.components is None:
+        raise CommandError(ErrorCode.UNAVAILABLE, "Component catalog is not loaded")
+    return db.components
+
+
+def scanned_component_entries(
+    db: DeviceBuilder, configuration: str
+) -> list[ComponentCatalogIndexEntry]:
+    """Return the catalog index entries *configuration* used at its last scan."""
+    catalog = require_catalog(db)
+    if db.devices is None:
+        raise CommandError(ErrorCode.UNAVAILABLE, "Devices are not loaded")
+    if (device := db.devices.get_by_configuration(configuration)) is None:
+        raise_device_not_found(configuration)
+    # Empty: the last scan could not resolve the config to any component.
+    if not device.component_ids:
+        msg = f"{configuration} did not resolve at its last scan; fix and save it, then retry"
+        raise CommandError(ErrorCode.UNAVAILABLE, msg)
+    entries = (catalog.index_entry(component_id) for component_id in device.component_ids)
+    return [entry for entry in entries if entry is not None]
+
+
+def refuse_empty_write(configuration: str) -> NoReturn:
+    """Raise ``INVALID_ARGS`` for a write that would empty *configuration*."""
+    raise CommandError(
+        ErrorCode.INVALID_ARGS,
+        f"refusing to write empty content to {configuration!r} to prevent "
+        "accidental data loss; use the delete action to remove a file",
+    )
+
+
+def require_unchanged(current: str, expected: str, configuration: str) -> None:
+    """Raise ``PRECONDITION_FAILED`` unless *configuration*'s *current* text is still *expected*."""
+    if not same_text(current, expected):
+        msg = (
+            f"{configuration} differs from the expected text; nothing was written, "
+            f"re-read it and retry\n{diff_excerpt(expected, current)}"
+        )
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+
+
+async def persist_if_unchanged(
+    controller: DevicesController, configuration: str, content: str, *, expected: str, message: str
+) -> None:
+    """Save *content* through ``rewrite_yaml`` unless the file no longer holds *expected*."""
+
+    def _replace(current: str) -> tuple[str, None]:
+        require_unchanged(current, expected, configuration)
+        return content, None
+
+    await controller.rewrite_yaml(configuration, _replace, message=message)
 
 
 def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:
@@ -225,11 +276,6 @@ def _validate_archive_configuration(configuration: str) -> None:
             f"configuration must be a plain filename without path separators, "
             f"got {configuration!r}",
         )
-
-
-def _redact_concealed_secrets(line: str) -> str:
-    """Replace ANSI-conceal-wrapped secret runs with ``<removed>``."""
-    return _CONCEALED_SECRET_RE.sub("<removed>", line)
 
 
 def _normalize_pin_value(value: Any) -> Any:

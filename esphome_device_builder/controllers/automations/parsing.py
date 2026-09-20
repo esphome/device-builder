@@ -194,7 +194,7 @@ def _parse_automation_list(
     """
     out: list[ParsedAutomation] = []
     for idx, item in enumerate(items):
-        if not isinstance(item, dict):
+        if not is_mapping_entry(item):
             continue
         described = describe(item, idx)
         if described is None:
@@ -740,6 +740,16 @@ def _is_list_form_trigger(body: Any, trigger: AutomationTrigger) -> bool:
     )
 
 
+def is_mapping_entry(item: Any) -> bool:
+    """Report whether *item* is a mapping-shaped list entry; a block's describe may skip it too."""
+    return isinstance(item, dict)
+
+
+def is_effect_item(item: Any) -> bool:
+    """Report whether *item* is an ``effects:`` entry the parser lists."""
+    return isinstance(item, dict) and len(item) == 1
+
+
 def is_trigger_entry(item: Any, trigger: AutomationTrigger) -> bool:
     """
     Report whether *item* looks like one entry of a list-shaped trigger.
@@ -812,7 +822,7 @@ def _parse_light_effects(root: Any) -> list[ParsedAutomation]:
         if not isinstance(effects, list):
             continue
         for idx, item in enumerate(effects):
-            if not isinstance(item, dict) or len(item) != 1:
+            if not is_effect_item(item):
                 continue
             effect_id = next(iter(item))
             params = item[effect_id] or {}

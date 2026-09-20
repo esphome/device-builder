@@ -37,6 +37,7 @@ from esphome_device_builder.controllers.automations.writing_lists import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
     SubEntityRef,
+    apply_yaml_diff,
     remove_nested_handler,
     upsert_nested_handler,
 )
@@ -54,7 +55,7 @@ from esphome_device_builder.models.automations import (
     ScriptLocation,
     YamlDiff,
 )
-from tests.conftest import apply_yaml_diff
+from tests.conftest import apply_yaml_diff_like_frontend
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
@@ -64,7 +65,9 @@ def _load(name: str) -> str:
 
 
 def _apply_diff(text: str, diff: YamlDiff) -> str:
-    return apply_yaml_diff(text, diff.fromLine, diff.toLine, diff.replacement)
+    result = apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
+    assert apply_yaml_diff(text, diff) == result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1093,6 +1096,20 @@ def test_upsert_light_effect_out_of_range_raises_invalid_args() -> None:
             location=LightEffectLocation(component_id="my_lamp", index=99),
         )
     assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_upsert_light_effect_refuses_to_overwrite_an_entry_the_parser_skips() -> None:
+    text = (
+        "light:\n  - platform: rgb\n    id: l1\n    red: r\n    green: g\n    blue: b\n"
+        "    effects:\n      - random:\n      - !include eff.yaml\n"
+    )
+    target = _effect_parse(text, 0)
+    with pytest.raises(CommandError) as exc:
+        render_upsert(
+            text, tree=target.automation, location=LightEffectLocation(component_id="l1", index=1)
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert exc.value.message == "effects[1] is not an entry the parser lists; append at 2 instead"
 
 
 def test_upsert_light_effect_non_list_effects_raises_invalid_args() -> None:

@@ -17,6 +17,7 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import re
@@ -31,9 +32,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from aiohttp import web
 from blockbuster import BlockBusterFunction, blockbuster_ctx
 from esphome.core import CORE
 
+from esphome_device_builder.api.mcp import create_mcp_routes
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
 )
@@ -49,11 +52,13 @@ from esphome_device_builder.controllers.devices._metadata_store import DeviceMet
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
 )
 from esphome_device_builder.controllers.remote_build.discovery import start_discovery
+from esphome_device_builder.helpers.auth import auth_middleware
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.secrets_state import write_secrets_locked
@@ -65,6 +70,9 @@ from esphome_device_builder.models import (
     DeviceRuntimeState,
     DeviceState,
     EventType,
+    FirmwareJob,
+    JobStatus,
+    JobType,
     QueueStatus,
     ReachabilitySource,
 )
@@ -170,12 +178,26 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 # tests that override ``CORE.config_path`` (e.g. ``make_settings(
 # with_core_path=True)``) still take precedence, and sibling xdist
 # workers don't see leaked process-globals.
+#
+# A test that writes storage must request ``tmp_path``; without it the
+# sentinel's directory is never created (a dir per test is slow on Windows).
 # ---------------------------------------------------------------------------
 
 
+_lazy_config_dirs = itertools.count()
+
+
 @pytest.fixture(autouse=True)
-def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+def _core_config_path_in_tmp(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if "tmp_path" in request.fixturenames:
+        config_dir: Path = request.getfixturevalue("tmp_path")
+    else:
+        config_dir = tmp_path_factory.getbasetemp() / f"no-tmp-path-{next(_lazy_config_dirs)}"
+    monkeypatch.setattr(CORE, "config_path", config_dir / "___DASHBOARD_SENTINEL___.yaml")
 
 
 @pytest.fixture(autouse=True)
@@ -1134,6 +1156,62 @@ def make_state_monitor_with_callbacks(
     return monitor, callbacks
 
 
+class StubSessionStore:
+    """``auth.session_store`` stand-in that rejects every bearer token."""
+
+    async def validate(self, token: str) -> object | None:
+        return None
+
+
+class StubRateLimiter:
+    """``auth.rate_limiter`` stand-in with no lockout."""
+
+    def remaining_lockout(self, ip: str) -> float:
+        return 0.0
+
+    def clear(self, ip: str) -> None: ...
+
+    def record_failure(self, ip: str) -> None: ...
+
+
+class StubAuth:
+    """The ``auth`` controller surface ``auth_middleware`` reads."""
+
+    def __init__(self) -> None:
+        self.session_store = StubSessionStore()
+        self.rate_limiter = StubRateLimiter()
+
+
+async def rpc_post(
+    client: Any,
+    path: str,
+    method: str,
+    params: Any = None,
+    *,
+    msg_id: Any = 1,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """POST one JSON-RPC 2.0 request and return the decoded reply (asserts a JSON 200)."""
+    body: dict[str, Any] = {"jsonrpc": "2.0", "id": msg_id, "method": method}
+    if params is not None:
+        body["params"] = params
+    resp = await client.post(path, json=body, headers=headers)
+    assert resp.status == 200, await resp.text()
+    assert resp.content_type == "application/json"
+    return await resp.json()
+
+
+def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
+    """Build a running COMPILE ``FirmwareJob`` for ``kitchen.yaml``."""
+    base: dict[str, Any] = {
+        "job_id": job_id,
+        "configuration": "kitchen.yaml",
+        "job_type": JobType.COMPILE,
+        "status": JobStatus.RUNNING,
+    }
+    return FirmwareJob(**(base | overrides))
+
+
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:
     """
     Build a ``Device`` deriving friendly_name / configuration / address from *name*.
@@ -1300,7 +1378,7 @@ def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
 
 
-def apply_yaml_diff(text: str, from_line: int, to_line: int, replacement: str) -> str:
+def apply_yaml_diff_like_frontend(text: str, from_line: int, to_line: int, replacement: str) -> str:
     """Apply a YamlDiff splice exactly as the frontend ``applyYamlDiff`` does."""
     lines = text.split("\n")
     start = from_line - 1
@@ -1308,3 +1386,26 @@ def apply_yaml_diff(text: str, from_line: int, to_line: int, replacement: str) -
     stripped = replacement.removesuffix("\n")
     rep_lines = [] if stripped == "" else stripped.split("\n")
     return "\n".join([*lines[:start], *rep_lines, *lines[start + delete :]])
+
+
+class McpStubDeviceBuilder:
+    """A ``DeviceBuilder`` stand-in for the MCP endpoint: settings, catalog and handlers."""
+
+    def __init__(self, settings: DashboardSettings) -> None:
+        self.settings = settings
+        self.settings.trusted_domains = []
+        self.components: ComponentCatalog | None = None
+        self.command_handlers: dict[str, Any] = {}
+        self.auth = StubAuth()
+        self.devices = MagicMock(spec=DevicesController)
+        self.devices.get_by_configuration.return_value = None
+        self.firmware = MagicMock(spec=FirmwareController)
+        self.firmware.state = FirmwareState()
+
+
+def make_mcp_app(db: McpStubDeviceBuilder, *, with_auth: bool = False) -> web.Application:
+    """Build an aiohttp app serving only the MCP route."""
+    app = web.Application(middlewares=[auth_middleware] if with_auth else [])
+    app["device_builder"] = db
+    app.router.add_routes(create_mcp_routes())
+    return app

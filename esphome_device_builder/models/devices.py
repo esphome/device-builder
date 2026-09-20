@@ -201,6 +201,10 @@ class Device(DashboardModel):
     # (mid-edit drafts) — frontend falls back to rendering the
     # whole ``loaded_integrations`` list flat.
     directly_referenced_integrations: list[str] = field(default_factory=list)
+    # Component refs the resolved YAML makes (``key`` and ``key.platform``, scan order);
+    # in-process consumers only, so it stays off the wire.
+    component_ids: list[str] = field(default_factory=list, metadata={"serialize": "omit"})
+
     # Monitor-observed state; carried whole through rebuilds.
     runtime_state: DeviceRuntimeState = field(default_factory=DeviceRuntimeState)
     has_pending_changes: bool = True  # True until successfully compiled + deployed
@@ -349,6 +353,12 @@ class Device(DashboardModel):
     # *running* firmware has it compiled in is the frontend's half of the
     # gate (deployed hash == expected hash).
     ota_partition_access: bool = False
+
+    def to_flat_dict(self) -> dict[str, Any]:
+        """Serialise with ``runtime_state`` flattened; HA's dashboard API reads the keys flat."""
+        data = self.to_dict()
+        data.update(data.pop("runtime_state"))
+        return data
 
 
 @dataclass

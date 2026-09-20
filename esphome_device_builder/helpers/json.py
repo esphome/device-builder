@@ -22,7 +22,7 @@ from .origin import request_origin_allowed
 _LOGGER = logging.getLogger(__name__)
 
 _CORS_METHODS = "GET, POST, PUT, DELETE, OPTIONS"
-_CORS_HEADERS = "Content-Type, Authorization"
+_CORS_HEADERS = "Content-Type, Authorization, MCP-Protocol-Version"
 
 # Re-export so callers can ``except JSONDecodeError`` without importing
 # orjson themselves. orjson's exception is a subclass of ValueError.

@@ -63,6 +63,8 @@ from esphome_device_builder.models import (
     JobType,
 )
 
+from ..conftest import make_job
+
 
 def _make_app(
     tmp_path: Path,
@@ -164,13 +166,18 @@ def _make_devices_mock(
 
 
 class _StubDevice:
-    """Minimal ``Device`` stand-in — only ``to_dict`` is read."""
+    """Minimal ``Device`` / ``AdoptableDevice`` stand-in; only the serialisers are read."""
 
     def __init__(self, payload: dict[str, Any]) -> None:
         self._payload = payload
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self._payload)
+
+    def to_flat_dict(self) -> dict[str, Any]:
+        data = dict(self._payload)
+        data.update(data.pop("runtime_state", {}))
+        return data
 
 
 async def test_devices_returns_configured_and_importable_lists(
@@ -747,22 +754,9 @@ class _FakeFirmwareController:
             self._bus.fire(event_type, {"job": self._job})
 
 
-def _make_job(
-    *,
-    job_type: JobType = JobType.COMPILE,
-    output: list[str] | None = None,
-    status: JobStatus = JobStatus.RUNNING,
-    exit_code: int | None = None,
-) -> FirmwareJob:
-    """Build a ``FirmwareJob`` for tests."""
-    return FirmwareJob(
-        job_id="test-job-id",
-        configuration="kitchen.yaml",
-        job_type=job_type,
-        status=status,
-        output=output if output is not None else [],
-        exit_code=exit_code,
-    )
+def _make_job(**overrides: Any) -> FirmwareJob:
+    """Shared factory pinned to the id these tests assert on."""
+    return make_job("test-job-id", **overrides)
 
 
 def _plan(

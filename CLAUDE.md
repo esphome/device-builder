@@ -844,6 +844,18 @@ against legacy behaviour before assuming the simpler version suffices.
 
 ## Design principles
 
+- **esphome owns config validation; never pre-validate fields against
+  the catalog.** The catalogs are a lossy snapshot of esphome's schemas,
+  and the visual editor round-trips every parsed key through
+  `automations/upsert`, so a catalog-derived "is this field allowed"
+  check refuses valid configs and makes untouched automations impossible
+  to edit. Guards that protect the dashboard's own round trip stay (an
+  occupied location, a parser-skipped list entry, a stale `expected`,
+  the parser's refusal to decompose an uncatalogued id that shares a
+  mapping with other keys); field and value semantics come from running
+  `esphome config` (`devices/validate`, the MCP `validate_config` tool),
+  and an agent repairs from esphome's own error. Evidence and history:
+  docs/ARCHITECTURE.md "Component Catalog".
 - **Never generate invalid configs; fix the source, not the consumer.**
   When a downstream path hits an invalid YAML (`esphome config` exits
   non-zero, schema rejects, compile fails), fix the *generator* (wizard,

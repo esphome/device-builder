@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -771,8 +771,8 @@ async def test_add_component_with_draft_merges_draft_and_skips_persist(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
         lambda existing, component, fields: f"{existing}# added\n",
     )
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    rewrite = AsyncMock()
+    monkeypatch.setattr(controller, "rewrite_yaml", rewrite)
     (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
 
     resp = await controller.add_component(
@@ -783,7 +783,7 @@ async def test_add_component_with_draft_merges_draft_and_skips_persist(
     )
 
     assert resp.yaml == "DRAFT\n# added\n"
-    persist.assert_not_awaited()
+    rewrite.assert_not_awaited()
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n"
 
 
@@ -799,8 +799,7 @@ async def test_add_component_without_draft_reads_disk_and_persists(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
         lambda existing, component, fields: f"{existing}# added\n",
     )
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    monkeypatch.setattr(controller, "_schedule_storage_regenerate", lambda _configuration: None)
     (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
 
     resp = await controller.add_component(
@@ -810,7 +809,50 @@ async def test_add_component_without_draft_reads_disk_and_persists(
     )
 
     assert resp.yaml == "DISK\n# added\n"
-    persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n", message=ANY)
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n# added\n"
+
+
+async def test_add_component_to_a_missing_config_is_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+
+    with pytest.raises(CommandError) as err:
+        await controller.add_component(configuration="ghost.yaml", component_id="i2c", fields={})
+
+    assert err.value.code == ErrorCode.NOT_FOUND
+    assert not (tmp_path / "ghost.yaml").exists()
+
+
+async def test_add_component_refuses_when_the_file_changed_during_the_merge(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+    monkeypatch.setattr(controller, "_schedule_storage_regenerate", lambda _configuration: None)
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("DISK\n", encoding="utf-8")
+
+    real_persist = add_component_mod.persist_if_unchanged
+
+    async def _a_save_lands_first(*args: Any, **kwargs: Any) -> None:
+        await controller.update_config(configuration="kitchen.yaml", content="SAVED MEANWHILE\n")
+        await real_persist(*args, **kwargs)
+
+    monkeypatch.setattr(add_component_mod, "persist_if_unchanged", _a_save_lands_first)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
+        lambda existing, component, fields: f"{existing}# added\n",
+    )
+
+    with pytest.raises(CommandError) as err:
+        await controller.add_component(configuration="kitchen.yaml", component_id="i2c", fields={})
+
+    assert err.value.code == ErrorCode.PRECONDITION_FAILED
+    assert path.read_text(encoding="utf-8") == "SAVED MEANWHILE\n"
 
 
 async def test_add_component_into_broken_draft_appends_through_real_merge(
@@ -825,8 +867,8 @@ async def test_add_component_into_broken_draft_appends_through_real_merge(
     )
     controller._db.components = MagicMock()
     controller._db.components.get_component = AsyncMock(return_value=component)
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    rewrite = AsyncMock()
+    monkeypatch.setattr(controller, "rewrite_yaml", rewrite)
 
     broken = 'esphome:\n  name: "kitch\nsensor:\n  - platform:\n'
     resp = await controller.add_component(
@@ -838,7 +880,8 @@ async def test_add_component_into_broken_draft_appends_through_real_merge(
 
     assert broken in resp.yaml
     assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in resp.yaml
-    persist.assert_not_awaited()
+    rewrite.assert_not_awaited()
+    assert not (tmp_path / "kitchen.yaml").exists()
 
 
 # ---------------------------------------------------------------------------

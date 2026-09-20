@@ -36,7 +36,7 @@ from ...models.automations import (
 )
 from . import catalog
 from .emitter import dump, emit_effect_item, emit_trigger_list_item
-from .parsing import is_trigger_entry, make_yaml
+from .parsing import is_effect_item, is_mapping_entry, is_trigger_entry, make_yaml
 
 # The YAML field naming a component instance's id.
 _ID_KEY = "id"
@@ -85,8 +85,8 @@ def _resplice_handler_block(
     handler_key: str,
     entries: list,
     *,
-    upsert: Callable[..., tuple[str, int, int, str] | None],
-    remove: Callable[..., tuple[str, int, int] | None],
+    upsert: Callable[..., tuple[str, YamlDiff] | None],
+    remove: Callable[..., tuple[str, YamlDiff] | None],
     subject: str,
 ) -> tuple[str, YamlDiff]:
     """
@@ -102,17 +102,22 @@ def _resplice_handler_block(
         if res is None:  # pragma: no cover — container located by the caller
             msg = f"{subject} not found"
             raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-        new_text, from_line, to_line, replacement = res
-        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+        return res
     removed = remove(yaml_text, handler_key=handler_key)
     if removed is None:  # pragma: no cover — container located by the caller
         msg = f"{handler_key}: not found on {subject}"
         raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-    new_text, from_line, to_line = removed
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+    return removed
 
 
-def apply_list_entry_upsert(entries: list, item: Any, index: int, *, label: str) -> None:
+def apply_list_entry_upsert(
+    entries: list,
+    item: Any,
+    index: int,
+    *,
+    label: str,
+    replaceable: Callable[[Any], bool] | None,
+) -> None:
     """Append (``index == len``), replace (in range), or raise (out of range).
 
     The shared insert-or-replace-at-index step for every list-shaped handler
@@ -121,9 +126,19 @@ def apply_list_entry_upsert(entries: list, item: Any, index: int, *, label: str)
     if index == len(entries):
         entries.append(item)
     elif 0 <= index < len(entries):
+        require_replaceable(entries, index, label=label, replaceable=replaceable)
         entries[index] = item
     else:
         msg = f"{label}[{index}] out of range (have {len(entries)})"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
+def require_replaceable(
+    entries: list, index: int, *, label: str, replaceable: Callable[[Any], bool] | None
+) -> None:
+    """Refuse to overwrite ``entries[index]`` when the parser never lists it (an ``!include``)."""
+    if replaceable is not None and not replaceable(entries[index]):
+        msg = f"{label}[{index}] is not an entry the parser lists; append at {len(entries)} instead"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
@@ -151,6 +166,7 @@ def upsert_list_entry(
     index: int,
     strategy: ListContainerStrategy,
     trigger: AutomationTrigger | None = None,
+    replaceable: Callable[[Any], bool] | None,
 ) -> tuple[str, YamlDiff]:
     """
     Insert or replace one entry of a list-shaped handler at *index*.
@@ -175,7 +191,7 @@ def upsert_list_entry(
         wrapped = CommentedMap()
         wrapped["then"] = entries
         entries = [wrapped]
-    apply_list_entry_upsert(entries, item, index, label=key)
+    apply_list_entry_upsert(entries, item, index, label=key, replaceable=replaceable)
     return strategy.resplice(yaml_text, key, entries)
 
 
@@ -237,6 +253,7 @@ def upsert_component_on_entry(
         index=index,
         strategy=_component_strategy(domain, component_id),
         trigger=trigger,
+        replaceable=is_mapping_entry,
     )
 
 
@@ -307,6 +324,7 @@ def upsert_subentity_on_entry(
         index=index,
         strategy=_subentity_strategy(ref, component_id),
         trigger=trigger,
+        replaceable=is_mapping_entry,
     )
 
 
@@ -384,6 +402,7 @@ def upsert_light_effect(
         item=item,
         index=location.index,
         strategy=_component_strategy("light", location.component_id),
+        replaceable=is_effect_item,
     )
 
 

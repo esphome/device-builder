@@ -29,7 +29,7 @@ from esphome_device_builder.helpers.subscriber_presence import SubscriberPresenc
 from esphome_device_builder.models import EventType, UserPreferences
 from esphome_device_builder.models.preferences import Theme
 
-from .conftest import FakeWebSocketClient
+from .conftest import FakeWebSocketClient, make_device
 
 
 def _stub_config(db: DeviceBuilder, prefs: UserPreferences | None = None) -> None:
@@ -126,7 +126,7 @@ async def test_subscribe_events_excludes_device_reachability() -> None:
         EventType.DEVICE_REACHABILITY,
         {"device": "kitchen", "active_source": "mdns"},
     )
-    db.bus.fire(EventType.DEVICE_UPDATED, {"device": MagicMock(to_dict=lambda: {"x": 1})})
+    db.bus.fire(EventType.DEVICE_UPDATED, {"device": make_device("x")})
     for _ in range(10):
         await asyncio.sleep(0)
         if client.events:
@@ -459,7 +459,7 @@ async def test_subscribe_events_listener_forwards_bus_events() -> None:
 
     # Fire a bus event — the listener should forward it to the
     # client via send_event.
-    db.bus.fire(EventType.DEVICE_UPDATED, {"device": MagicMock(to_dict=lambda: {"x": 1})})
+    db.bus.fire(EventType.DEVICE_UPDATED, {"device": make_device("x")})
 
     # Yield so the helper's drain loop picks up the queued event.
     for _ in range(10):
@@ -473,7 +473,7 @@ async def test_subscribe_events_listener_forwards_bus_events() -> None:
     # which is part of the snapshot contract, not what this test
     # is pinning.
     bus_events = [e for e in client.events if e[1] == "device_updated"]
-    assert bus_events == [("m1", "device_updated", {"device": {"x": 1}})]
+    assert bus_events == [("m1", "device_updated", {"device": make_device("x").to_dict()})]
 
     # Clean up the parked task so the test finishes.
     handler_task.cancel()
@@ -539,7 +539,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     # ``initial_state`` send_event has not yet appended). The
     # listener must queue this; the helper's drain must deliver it
     # only after both ``initial_state`` and ``subscribed`` land.
-    db.bus.fire(EventType.DEVICE_UPDATED, {"device": MagicMock(to_dict=lambda: {"y": 2})})
+    db.bus.fire(EventType.DEVICE_UPDATED, {"device": make_device("y")})
 
     for _ in range(50):
         await asyncio.sleep(0)
@@ -551,7 +551,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     # the live device_updated event via the drain loop.
     assert client.events[0][1] == "initial_state"
     assert client.results == [("m1", {"subscribed": True})]
-    assert client.events[-1] == ("m1", "device_updated", {"device": {"y": 2}})
+    assert client.events[-1] == ("m1", "device_updated", {"device": make_device("y").to_dict()})
 
     handler_task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -591,7 +591,7 @@ class _GatedClient:
         (EventType.JOB_OUTPUT, lambda: {"job_id": "a", "line": "x"}),
         (
             EventType.DEVICE_UPDATED,
-            lambda: {"device": MagicMock(to_dict=lambda: {"id": "x"})},
+            lambda: {"device": make_device("x")},
         ),
     ],
     ids=["job_output", "device_updated"],

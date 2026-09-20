@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,7 @@ from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
+from ...helpers.device_config import read_device_config, read_device_config_async
 from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
 from ...helpers.secrets_state import (
@@ -87,10 +89,7 @@ from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
-from .helpers import (
-    _build_address_cache_args,
-    raise_device_not_found,
-)
+from .helpers import _build_address_cache_args, persist_if_unchanged, refuse_empty_write
 from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
 
@@ -841,29 +840,40 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @api_command("devices/get_config")
     async def get_config(self, *, configuration: str, **kwargs: Any) -> str:
         """Read device config YAML; a missing file is NOT_FOUND, not internal_error."""
-        try:
-            return await self._read_yaml_async(self._db.settings.rel_path(configuration))
-        except FileNotFoundError as err:
-            raise_device_not_found(configuration, from_exc=err)
+        return await read_device_config_async(self._db.settings, configuration)
 
     @api_command("devices/update_config")
     async def update_config(
-        self, *, configuration: str, content: str, allow_wipe: bool = False, **kwargs: Any
+        self,
+        *,
+        configuration: str,
+        content: str,
+        allow_wipe: bool = False,
+        expected: str | None = None,
+        **kwargs: Any,
     ) -> None:
         """
         Write device config YAML.
 
         ``allow_wipe`` permits clearing secrets.yaml to empty; without it an
         empty secrets save is refused. An empty device YAML is always refused.
+        With ``expected``, a device YAML is written only while it still holds
+        that text (``PRECONDITION_FAILED`` otherwise); secrets.yaml refuses it.
         """
         if not isinstance(allow_wipe, bool):
             raise CommandError(ErrorCode.INVALID_ARGS, "allow_wipe must be a boolean")
+        if expected is not None and not isinstance(expected, str):
+            raise CommandError(ErrorCode.INVALID_ARGS, "expected must be a string")
         is_empty = not content.strip()
         if is_secrets_file(configuration):
+            secrets_name = Path(configuration).name
+            if expected is not None:
+                msg = f"expected is not supported for {secrets_name}"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
             if is_empty and not allow_wipe:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
-                    "refusing to clear all secrets from secrets.yaml without "
+                    f"refusing to clear all secrets from {secrets_name} without "
                     "confirmation; pass allow_wipe to confirm",
                 )
             try:
@@ -871,7 +881,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             except SecretsContentError as err:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
-                    f"refusing to save invalid secrets.yaml: {err}",
+                    f"refusing to save invalid {secrets_name}: {err}",
                 ) from err
             # Hold the shared lock so a whole-file save can't interleave with a
             # per-key config/set_secret. A full save still replaces the document
@@ -882,12 +892,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 )
             return
         if is_empty:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"refusing to write empty content to {configuration!r} to prevent "
-                "accidental data loss; use the delete action to remove a file",
+            refuse_empty_write(configuration)
+        message = f"Edit {configuration}"
+        if expected is not None:
+            await persist_if_unchanged(
+                self, configuration, content, expected=expected, message=message
             )
-        await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
+            return
+        await self._persist_yaml_mutation(configuration, content, message=message)
 
     async def apply_restored_yaml(
         self, configuration: str, content: str, *, restored_from: str
@@ -896,6 +908,27 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._persist_yaml_mutation(
             configuration, content, message=f"Restore {configuration} to {restored_from}"
         )
+
+    async def rewrite_yaml[T](
+        self, configuration: str, rewrite: Callable[[str], tuple[str, T]], *, message: str
+    ) -> T:
+        """Read, rewrite and save a device *configuration* as one job under its write lock."""
+        if is_secrets_file(configuration):
+            raise CommandError(ErrorCode.INVALID_ARGS, f"{configuration} is not a device config")
+
+        def _rewrite() -> T:
+            path = self._db.settings.rel_path(configuration)
+            new_text, result = rewrite(read_device_config(path, configuration))
+            if not new_text.strip():
+                refuse_empty_write(configuration)
+            write_user_yaml(path, new_text)
+            return result
+
+        async with self._yaml_write_lock(configuration):
+            result = await run_in_executor(_rewrite)
+            await self._commit_history(configuration, message)
+        self._after_yaml_write(configuration)
+        return result
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
@@ -1111,6 +1144,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         async with self._yaml_write_lock(configuration):
             await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
             await self._commit_history(configuration, message or f"Update {configuration}")
+        self._after_yaml_write(configuration)
+
+    def _after_yaml_write(self, configuration: str) -> None:
+        """Drop the editor caches and reload *configuration* after a write."""
         # A write here (device YAML, or the whole-file secrets.yaml editor)
         # can change what any open editor's lint resolves; clear the caches
         # so the next validate re-reads disk instead of the stale result.
@@ -1123,9 +1160,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _yaml_write_lock(self, configuration: str) -> asyncio.Lock:
         """Return the per-file lock guarding a YAML write + its history commit."""
-        lock = self._yaml_write_locks.get(configuration)
+        # Lexical, so every spelling of one path (``foo/../kitchen.yaml``) shares a lock.
+        key = os.path.normpath(configuration)
+        lock = self._yaml_write_locks.get(key)
         if lock is None:
-            lock = self._yaml_write_locks[configuration] = asyncio.Lock()
+            lock = self._yaml_write_locks[key] = asyncio.Lock()
         return lock
 
     async def _commit_history(self, configuration: str, message: str) -> None:
@@ -1179,11 +1218,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             await self._scanner.scan()
         except OSError:
             _LOGGER.exception("Scan after writing %s failed", configuration)
-
-    @staticmethod
-    async def _read_yaml_async(path: Path) -> str:
-        """Read *path* as UTF-8 text off the executor."""
-        return await run_in_executor(path.read_text, "utf-8")
 
     async def _load_ignored_devices(self) -> None:
         """Seed ``state.ignored_devices`` from disk, in place."""
@@ -1331,5 +1365,16 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         message_id: str,
         *,
         line_transform: Callable[[str], str] | None = None,
+        slot: asyncio.Semaphore | None = None,
+        slot_timeout: float | None = None,
+        idle_timeout: float | None = None,
     ) -> None:
-        await logs.stream_subprocess(cmd, client, message_id, line_transform=line_transform)
+        await logs.stream_subprocess(
+            cmd,
+            client,
+            message_id,
+            line_transform=line_transform,
+            slot=slot,
+            slot_timeout=slot_timeout,
+            idle_timeout=idle_timeout,
+        )

@@ -12,8 +12,17 @@ that changes the scan rules surfaces.
 from __future__ import annotations
 
 import asyncio
+import logging
 
-from esphome_device_builder.helpers.api import api_command, collect_api_commands
+import pytest
+
+from esphome_device_builder.helpers.api import (
+    CollectingClient,
+    api_command,
+    collect_api_commands,
+    registered_stream,
+)
+from esphome_device_builder.models import StreamEvent
 
 
 def test_collect_api_commands_picks_up_decorated_methods() -> None:
@@ -157,3 +166,41 @@ async def test_collect_api_commands_returns_callable_bound_methods() -> None:
     handlers = collect_api_commands(controller)
 
     assert await handlers["ns/get"]() == 42
+
+
+async def test_collecting_client_keeps_the_tail_and_the_result() -> None:
+    client = CollectingClient(tail=2)
+    for line in ("a", "b", "c"):
+        await client.send_event("m", StreamEvent.OUTPUT, line)
+    await client.send_event("m", StreamEvent.RESULT, {"success": True, "code": 0})
+    assert list(client.output) == ["b", "c"]
+    assert client.truncated is True
+    assert client.result == {"success": True, "code": 0}
+
+
+async def test_collecting_client_takes_a_direct_result() -> None:
+    client = CollectingClient()
+    await client.send_result("m", {"ok": True})
+    assert client.result == {"ok": True}
+
+
+async def test_collecting_client_without_a_tail_keeps_everything() -> None:
+    client = CollectingClient()
+    for line in ("a", "b", "c"):
+        await client.send_event("m", StreamEvent.OUTPUT, line)
+    assert list(client.output) == ["a", "b", "c"]
+    assert client.truncated is False
+
+
+async def test_collecting_client_satisfies_registered_stream() -> None:
+    with registered_stream(CollectingClient(), "m"):
+        pass
+
+
+async def test_collecting_client_ignores_other_frames(caplog: pytest.LogCaptureFixture) -> None:
+    client = CollectingClient()
+    with caplog.at_level(logging.DEBUG, logger="esphome_device_builder.helpers.api"):
+        await client.send_event("m", StreamEvent.SNAPSHOT, ["old"])
+        await client.send_event("m", StreamEvent.SNAPSHOT, ["older"])
+    assert list(client.output) == []
+    assert caplog.text.count("CollectingClient m ignores snapshot frames") == 1

@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
-from .helpers import _redact_concealed_secrets
+from ...helpers.ansi import redact_concealed
+from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from .controller import DevicesController
+
+# A stream holds its permit until the client drains it: a separate budget from
+# ``_config_semaphore``, so both pools can be full at once on a low-RAM host.
+_MAX_CONCURRENT_VALIDATES = 3
+_QUEUE_TIMEOUT = 30.0
+_validate_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_VALIDATES)
 
 
 async def validate_config(
@@ -41,5 +49,13 @@ async def validate_config(
         # the escape, so the resolved secret bytes were leaking
         # plain into the validate dialog. Strip the wrapped runs
         # before the line leaves the WS handler.
-        line_transform = _redact_concealed_secrets
-    await controller._stream_subprocess(cmd, client, message_id, line_transform=line_transform)
+        line_transform = redact_concealed
+    await controller._stream_subprocess(
+        cmd,
+        client,
+        message_id,
+        line_transform=line_transform,
+        slot=_validate_semaphore,
+        slot_timeout=_QUEUE_TIMEOUT,
+        idle_timeout=ESPHOME_CONFIG_TIMEOUT,
+    )

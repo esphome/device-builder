@@ -1,9 +1,9 @@
 """Tests for the ``devices/clone`` command path.
 
-Covers the user-correctable failures (collision, empty / equal name,
-missing source) as typed ``CommandError(INVALID_ARGS, …)`` so the
-clone dialog can show specific messages rather than a generic
-"Command failed" fallback. Also covers the happy path: the new YAML
+Covers the user-correctable failures (collision, empty / equal name as
+``INVALID_ARGS``, a missing source as ``NOT_FOUND``) as typed
+``CommandError`` so the clone dialog can show specific messages rather
+than a generic "Command failed" fallback. Also covers the happy path: the new YAML
 swaps ``esphome.name`` / ``friendly_name``, regenerates the API
 encryption key, leaves ``!secret`` indirections alone, and triggers
 a scan so the new file shows up in the next ``devices/list``.
@@ -402,14 +402,14 @@ async def test_clone_device_rejects_missing_source(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A source filename that doesn't exist raises ``INVALID_ARGS``."""
+    """A source filename that doesn't exist raises ``NOT_FOUND``."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
 
     with pytest.raises(CommandError) as excinfo:
         await ctrl.clone_device(configuration="ghost.yaml", new_name="bedroom-bulb")
 
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "ghost.yaml not found" in excinfo.value.message
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+    assert "ghost.yaml" in excinfo.value.message
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

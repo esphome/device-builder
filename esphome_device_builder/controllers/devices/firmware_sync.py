@@ -233,6 +233,14 @@ async def migrate_metadata_then_scan(
     controller: DevicesController, old_configuration: str, new_configuration: str
 ) -> None:
     """Move the renamed device's metadata before the scan rebuilds it."""
+    await migrate_metadata(controller, old_configuration, new_configuration)
+    await rescan_renamed(controller, new_configuration)
+
+
+async def migrate_metadata(
+    controller: DevicesController, old_configuration: str, new_configuration: str
+) -> None:
+    """Move the renamed device's metadata; a failure is logged, not raised."""
     try:
         await controller._migrate_device_metadata(old_configuration, new_configuration)
     except Exception:
@@ -243,6 +251,10 @@ async def migrate_metadata_then_scan(
             old_configuration,
             new_configuration,
         )
+
+
+async def rescan_renamed(controller: DevicesController, new_configuration: str) -> None:
+    """Reload *new_configuration* and rescan so its migrated sidecar reaches RAM."""
     # The renamed YAML was written before the migration (at queue time on
     # the OTA path), so a poll scan has usually already indexed it
     # label-less; force a reload so the migrated sidecar reaches RAM.

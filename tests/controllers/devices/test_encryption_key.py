@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -67,6 +69,44 @@ async def test_set_encryption_key_overwrites_existing_literal(
     assert f'key: "{KEY}"' in new_yaml
     assert OTHER_KEY not in new_yaml
     assert ("request", "kitchen.yaml") in ctrl._scanner.calls
+
+
+async def test_set_encryption_key_keeps_the_key_when_the_file_changed_during_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML)
+    concurrent = API_KEY_YAML + "logger:\n"
+
+    async def _save_lands_meanwhile(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        await ctrl.update_config(configuration="kitchen.yaml", content=concurrent)
+        return SimpleNamespace(unavailable=False)
+
+    monkeypatch.setattr(ctrl, "_validate_rewritten_yaml_or_raise", _save_lands_meanwhile)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "differs from the expected text" in result["reason"]
+    assert "\n" not in result["reason"]
+    assert ":;" not in result["reason"]
+    assert result["reason"].endswith("the key was kept for a later attempt")
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == concurrent
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+async def test_set_encryption_key_keeps_the_key_when_the_config_vanished(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML)
+    await asyncio.to_thread((tmp_path / "kitchen.yaml").unlink)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert result["reason"] == "Device 'kitchen.yaml' not found"
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
 async def test_set_encryption_key_same_key_is_unchanged_no_write(
@@ -454,6 +494,9 @@ async def test_set_encryption_key_partial_refusal_keeps_reason(
 
     assert result["result"] == "updated"
     assert "!secret" in result["reason"]
+    # The sibling's update consumed the key, so the refusal must not claim it was kept.
+    assert "kept for a later attempt" not in result["reason"]
+    assert ctrl._pending_keys.get("kitchen") is None
 
 
 async def test_set_encryption_key_stores_pending_for_unadopted_device(

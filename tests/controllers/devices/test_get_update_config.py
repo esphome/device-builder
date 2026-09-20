@@ -29,10 +29,13 @@ from __future__ import annotations
 import stat
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import controller as devices_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -133,6 +136,129 @@ async def test_update_config_writes_content_to_disk(
 
     assert result is None  # API contract: no payload on success
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == new_content
+
+
+async def test_rewrite_yaml_saves_the_rewritten_text_and_returns_the_result(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    with patch.object(
+        devices_controller, "run_in_executor", wraps=devices_controller.run_in_executor
+    ) as spy:
+        result = await controller.rewrite_yaml(
+            "kitchen.yaml", lambda text: (text + "logger:\n", len(text)), message="Add logger"
+        )
+
+    assert spy.await_count == 1
+    assert result == len("esphome:\n  name: kitchen\n")
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == (
+        "esphome:\n  name: kitchen\nlogger:\n"
+    )
+
+
+async def test_rewrite_yaml_leaves_the_file_alone_when_the_rewrite_raises(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    original = "esphome:\n  name: kitchen\n"
+    (tmp_path / "kitchen.yaml").write_text(original, encoding="utf-8")
+
+    def _refuse(_text: str) -> tuple[str, None]:
+        raise CommandError(ErrorCode.NOT_FOUND, "nothing to rewrite")
+
+    with (
+        patch.object(controller, "_commit_history") as commit,
+        pytest.raises(CommandError),
+    ):
+        await controller.rewrite_yaml("kitchen.yaml", _refuse, message="unused")
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == original
+    commit.assert_not_called()
+
+
+async def test_rewrite_yaml_does_not_relabel_a_missing_file_inside_the_rewrite(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    def _needs_an_include(_text: str) -> tuple[str, None]:
+        raise FileNotFoundError("common.yaml")
+
+    with pytest.raises(FileNotFoundError, match=r"common\.yaml"):
+        await controller.rewrite_yaml("kitchen.yaml", _needs_an_include, message="unused")
+
+
+async def test_automations_delete_with_save_rewrites_the_config_on_disk(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    controller._db.devices = controller
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n  on_boot:\n    then:\n      - delay: 1s\n", encoding="utf-8"
+    )
+
+    result = await AutomationsController(controller._db).delete(
+        configuration="kitchen.yaml",
+        location={"kind": "device_on", "trigger": "on_boot"},
+        save=True,
+    )
+
+    assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: kitchen\n"
+
+
+async def test_rewrite_yaml_refuses_to_write_an_empty_config(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    original = "esphome:\n  name: kitchen\n"
+    (tmp_path / "kitchen.yaml").write_text(original, encoding="utf-8")
+
+    with pytest.raises(CommandError) as err:
+        await controller.rewrite_yaml("kitchen.yaml", lambda text: ("\n", None), message="unused")
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == original
+
+
+async def test_rewrite_yaml_refuses_the_secrets_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "secrets.yaml").write_text("wifi_password: hunter2\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as err:
+        await controller.rewrite_yaml("secrets.yaml", lambda text: ("", None), message="unused")
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == "wifi_password: hunter2\n"
+
+
+async def test_rewrite_yaml_of_a_missing_config_is_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+
+    with pytest.raises(CommandError) as err:
+        await controller.rewrite_yaml("ghost.yaml", lambda text: (text, None), message="unused")
+
+    assert err.value.code == ErrorCode.NOT_FOUND
+    assert not (tmp_path / "ghost.yaml").exists()
+
+
+def test_every_spelling_of_a_path_shares_one_write_lock(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    lock = controller._yaml_write_lock("kitchen.yaml")
+    assert controller._yaml_write_lock("foo/../kitchen.yaml") is lock
+    assert controller._yaml_write_lock("./kitchen.yaml") is lock
+    assert controller._yaml_write_lock("porch.yaml") is not lock
 
 
 async def test_update_config_overwrites_existing_yaml(
@@ -279,6 +405,22 @@ async def test_update_config_refuses_blank_secrets_without_allow_wipe(
     assert controller._scanner.calls == []
 
 
+async def test_update_config_names_the_matched_secrets_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "secrets.yml").write_text("wifi_password: hunter2\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yml", content="")
+    assert "from secrets.yml without" in excinfo.value.message
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(configuration="secrets.yml", content="- not\n- a mapping\n")
+    assert "invalid secrets.yml: secrets.yml must be a top-level mapping" in excinfo.value.message
+
+
 @pytest.mark.parametrize("content", ["", "   \n\n"])
 async def test_update_config_wipes_secrets_with_allow_wipe(
     tmp_path: Path, make_controller: MakeControllerFactory, content: str
@@ -312,6 +454,70 @@ async def test_update_config_refuses_empty_device_yaml_even_with_allow_wipe(
     assert target.read_text(encoding="utf-8") == original
     assert regenerated == []
     assert controller._scanner.calls == []
+
+
+async def test_update_config_with_expected_writes_while_the_text_still_matches(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    await controller.update_config(
+        configuration="kitchen.yaml",
+        content="esphome:\n  name: kitchen\n  friendly_name: Kitchen\n",
+        expected="esphome:\n  name: kitchen\n",
+    )
+
+    assert "friendly_name" in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert regenerated == ["kitchen.yaml"]
+    assert controller._scanner.calls == [("request", "kitchen.yaml")]
+
+
+async def test_update_config_with_expected_refuses_a_file_that_moved_on(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(
+            configuration="kitchen.yaml", content="esphome:\n  name: k2\n", expected="stale\n"
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: kitchen\n"
+    assert regenerated == []
+    assert controller._scanner.calls == []
+
+
+@pytest.mark.parametrize(
+    ("configuration", "expected", "fragment"),
+    [
+        ("secrets.yaml", "a: 1\n", "not supported for secrets.yaml"),
+        ("kitchen.yaml", 7, "expected must be a string"),
+    ],
+)
+async def test_update_config_refuses_expected_where_it_cannot_apply(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    configuration: str,
+    expected: object,
+    fragment: str,
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(
+            configuration=configuration,
+            content="a: 1\n",
+            expected=expected,  # type: ignore[arg-type]
+        )
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert fragment in excinfo.value.message
 
 
 async def test_update_config_rejects_non_bool_allow_wipe(

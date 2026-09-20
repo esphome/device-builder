@@ -22,7 +22,7 @@ from typing import Annotated, Any, Literal
 from mashumaro.config import BaseConfig
 from mashumaro.types import Discriminator
 
-from .common import ConfigEntry, DashboardModel, RequiredGroup
+from .common import ConfigEntry, DashboardModel, RequiredGroup, _CatalogConfig
 
 # ---------------------------------------------------------------------------
 # Catalog
@@ -54,6 +54,9 @@ class AutomationTrigger(DashboardModel):
     # when introspection positively reads single=False).
     supports_list: bool = False
     config_entries: list[ConfigEntry] = field(default_factory=list)
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -87,6 +90,9 @@ class AutomationAction(DashboardModel):
     # never ``advanced``.
     required_groups: list[RequiredGroup] = field(default_factory=list)
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class AutomationCondition(DashboardModel):
@@ -112,6 +118,9 @@ class AutomationCondition(DashboardModel):
     # ``sensor.in_range`` requires at least one of ``above`` / ``below``.
     required_groups: list[RequiredGroup] = field(default_factory=list)
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class LightEffect(DashboardModel):
@@ -129,6 +138,9 @@ class LightEffect(DashboardModel):
     value_type: str | None = None
     # ``templatable`` scalar value accepts a lambda; renderer offers the toggle.
     templatable: bool = False
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -151,6 +163,9 @@ class Filter(DashboardModel):
     applies_to: list[str] = field(default_factory=list)
     value_type: str | None = None
     templatable: bool = False
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -185,6 +200,9 @@ class AutomationTriggerIndex(DashboardModel):
     is_device_level: bool = False
     supports_list: bool = False
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class AutomationActionIndex(DashboardModel):
@@ -201,6 +219,9 @@ class AutomationActionIndex(DashboardModel):
     # False when the editor should not render this action as a form.
     form_editable: bool = True
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default, so ``form_editable`` appears only when false."""
+
 
 @dataclass
 class AutomationConditionIndex(DashboardModel):
@@ -213,6 +234,9 @@ class AutomationConditionIndex(DashboardModel):
     domain: str
     accepts_condition_list: bool = False
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class LightEffectIndex(DashboardModel):
@@ -224,6 +248,9 @@ class LightEffectIndex(DashboardModel):
     value_type: str | None = None
     templatable: bool = False
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class FilterIndex(DashboardModel):
@@ -234,6 +261,9 @@ class FilterIndex(DashboardModel):
     applies_to: list[str] = field(default_factory=list)
     value_type: str | None = None
     templatable: bool = False
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -445,6 +475,9 @@ class ParsedAutomation(DashboardModel):
     error: str | None = None
     unsupported: bool = False
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 # ---------------------------------------------------------------------------
 # get_available response
@@ -466,6 +499,9 @@ class AvailableScript(DashboardModel):
     id: str
     parameters: list[AvailableScriptParameter] = field(default_factory=list)
 
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
+
 
 @dataclass
 class AvailableComponentInstance(DashboardModel):
@@ -486,6 +522,9 @@ class AvailableComponentInstance(DashboardModel):
     # True only when the YAML declares ``id:``; a synthesized round-trip
     # identity must not be written into reference params.
     has_explicit_id: bool = False
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 @dataclass
@@ -529,9 +568,10 @@ class YamlDiff(DashboardModel):
       replaced; ``replacement`` is inserted before ``fromLine``,
       matching CodeMirror's empty-range ``replaceRange``.
 
-    Both shapes are applied through one ``lines.slice(0, fromLine
-    - 1) + replacement + lines.slice(toLine)`` pattern on the
-    frontend.
+    Both shapes are one splice of ``replacement``'s lines over that
+    range, on the frontend and in ``helpers.yaml.apply_yaml_diff``:
+    its final terminator is implied, so a splice that reaches an
+    unterminated last line leaves the text unterminated.
     """
 
     fromLine: int  # noqa: N815 — wire-shape matches frontend
