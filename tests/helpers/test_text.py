@@ -33,3 +33,12 @@ def test_diff_excerpt_shows_both_sides_of_a_wholesale_rewrite() -> None:
     assert sum(line.startswith("-") and not line.startswith("---") for line in lines) == 6
     assert sum(line.startswith("+") and not line.startswith("+++") for line in lines) == 6
     assert lines[-1].startswith("... ") and lines[-1].endswith(" more diff lines")
+
+
+def test_diff_excerpt_budgets_a_line_that_starts_like_a_header() -> None:
+    expected = "".join(f"-- note {i}\n" for i in range(10))
+    current = "".join(f"++ note {i}\n" for i in range(10))
+    lines = diff_excerpt(expected, current).splitlines()
+    assert lines[:2] == ["--- expected", "+++ current"]
+    assert sum(line.startswith("---") for line in lines[2:]) == 6
+    assert sum(line.startswith("+++") for line in lines[2:]) == 6

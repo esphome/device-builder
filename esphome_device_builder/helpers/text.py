@@ -36,8 +36,9 @@ def diff_excerpt(expected: str, current: str) -> str:
     )
     budget = {"-": _DIFF_EXCERPT_LINES, "+": _DIFF_EXCERPT_LINES}
     shown: list[str] = []
-    for line in lines:
-        side = line[:1] if line[:1] in budget and not line.startswith(("---", "+++")) else ""
+    for position, line in enumerate(lines):
+        # The first two records are the file headers, whatever they start with.
+        side = line[:1] if position >= 2 and line[:1] in budget else ""
         if side and budget[side] == 0:
             continue
         if side:
