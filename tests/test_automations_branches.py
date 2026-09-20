@@ -1195,14 +1195,6 @@ def test_upsert_interval_out_of_range_raises_invalid_args() -> None:
         render_upsert(text, tree=tree, location=IntervalLocation(index=99))
     assert err.value.code == ErrorCode.INVALID_ARGS
     assert err.value.message == "interval[99] out of range (have 1)"
-    with pytest.raises(CommandError) as err:
-        render_upsert(
-            "interval:\n  interval: 60s\n  then:\n    - delay: 1s\n",
-            tree=tree,
-            location=IntervalLocation(index=0),
-        )
-    assert err.value.code == ErrorCode.INVALID_ARGS
-    assert "single mapping" in err.value.message
 
 
 def test_delete_interval_by_index_succeeds() -> None:

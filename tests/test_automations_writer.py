@@ -3785,3 +3785,63 @@ def test_index_free_single_mapping_valves_round_trips() -> None:
     deleted, _d = render_delete(new_text, location=loc)
     assert "set_action" not in deleted
     assert "valve_switch: Only Zone" in deleted
+
+
+# ---------------------------------------------------------------------------
+# Mapping-form top-level blocks
+# ---------------------------------------------------------------------------
+
+_MAPPED_INTERVAL = (
+    "esphome:\n  name: x\ninterval:\n  interval: 60s\n  then:\n    - delay: 1s\nlogger:\n"
+)
+_MAPPED_SCRIPT = "script:\n  id: s1\n  then:\n    - delay: 1s\n"
+_TICK = AutomationTree(
+    trigger_params={"interval": "10s"},
+    actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+)
+
+
+def test_upsert_interval_on_a_mapping_form_block_appends_as_a_one_item_list() -> None:
+    new_text, diff = render_upsert(_MAPPED_INTERVAL, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "esphome:\n  name: x\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\nlogger:\n"
+    )
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_interval_on_a_mapping_form_block_replaces_index_zero() -> None:
+    new_text, diff = render_upsert(_MAPPED_INTERVAL, tree=_TICK, location=IntervalLocation(index=0))
+    assert new_text.count("- interval:") == 1
+    assert "interval: 10s" in new_text and "60s" not in new_text
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+
+
+def test_upsert_script_on_a_mapping_form_block_replaces_by_id_or_appends() -> None:
+    tree = AutomationTree(actions=[ActionNode(action_id="delay", params={"id": "3s"})])
+    replaced, diff = render_upsert(_MAPPED_SCRIPT, tree=tree, location=ScriptLocation(id="s1"))
+    assert replaced.count("- id:") == 1 and "delay: 3s" in replaced
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == replaced
+    appended, diff = render_upsert(_MAPPED_SCRIPT, tree=tree, location=ScriptLocation(id="s2"))
+    assert [p.location.id for p in parse_device_yaml(appended)] == ["s1", "s2"]
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == appended
+
+
+def test_delete_on_a_mapping_form_block_removes_its_one_entry() -> None:
+    new_text, diff = render_delete(_MAPPED_INTERVAL, location=IntervalLocation(index=0))
+    assert "60s" not in new_text and "logger:" in new_text
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+    new_text, diff = render_delete(_MAPPED_SCRIPT, location=ScriptLocation(id="s1"))
+    assert "delay" not in new_text
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == new_text
+
+
+def test_listify_keeps_comments_and_blank_lines_inside_the_block() -> None:
+    text = "interval:\n  # every minute\n  interval: 60s\n\n  then:\n    - delay: 1s\n"
+    new_text, _diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith(
+        "interval:\n  # every minute\n  - interval: 60s\n\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n"
+    )
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]

@@ -17,6 +17,8 @@ value re-emits its tag (see :func:`emitter.encode_value`).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from functools import partial
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
@@ -39,6 +41,8 @@ from ...helpers.yaml.writing_layout import (
     _indent_for_top_list,
     _locate_singleton_block,
     _locate_top_list_item,
+    block_end_index,
+    find_block_header,
 )
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -155,7 +159,17 @@ def _upsert_script(
 ) -> tuple[str, YamlDiff]:
     """Splice or replace a top-level ``script:`` list item."""
     rendered = render_script_item(tree, location.id)
-    return _upsert_top_level_list(yaml_text, "script", rendered, location.id, "id")
+    return _in_list_form(
+        yaml_text,
+        "script",
+        partial(
+            _upsert_top_level_list,
+            domain="script",
+            rendered_item=rendered,
+            item_id=location.id,
+            id_key="id",
+        ),
+    )
 
 
 def _upsert_interval(
@@ -165,7 +179,49 @@ def _upsert_interval(
 ) -> tuple[str, YamlDiff]:
     """Splice or replace a top-level ``interval:`` list item by index."""
     rendered = render_interval_item(tree)
-    return _upsert_top_level_list_indexed(yaml_text, "interval", rendered, location.index)
+    return _in_list_form(
+        yaml_text,
+        "interval",
+        partial(
+            _upsert_top_level_list_indexed,
+            domain="interval",
+            rendered_item=rendered,
+            index=location.index,
+        ),
+    )
+
+
+def _in_list_form(
+    yaml_text: str, domain: str, op: Callable[[str], tuple[str, YamlDiff]]
+) -> tuple[str, YamlDiff]:
+    """Run *op* with a mapping-form ``<domain>:`` block first rewritten as a one-item list."""
+    listed = _listify_top_level_block(yaml_text, domain)
+    new_text, diff = op(listed)
+    if listed is yaml_text:
+        return new_text, diff
+    return new_text, _build_diff_for_append(yaml_text, new_text)
+
+
+def _listify_top_level_block(yaml_text: str, domain: str) -> str:
+    """Return *yaml_text* with a mapping-form ``<domain>:`` block rewritten as a one-item list."""
+    data = make_yaml().load(yaml_text) or {}
+    block = data.get(domain) if isinstance(data, dict) else None
+    if not isinstance(block, dict):
+        return yaml_text
+    lines = yaml_text.splitlines(keepends=True)
+    start = find_block_header(lines, domain)
+    if start is None:  # pragma: no cover — the loaded block came from this header
+        return yaml_text
+    end = block_end_index(lines, start)
+    body = lines[start + 1 : end]
+    first = next(
+        i for i, line in enumerate(body) if line.strip() and not line.lstrip().startswith("#")
+    )
+    indent = body[first][: len(body[first]) - len(body[first].lstrip(" "))]
+    for i in range(first, len(body)):
+        if body[i].strip():
+            body[i] = indent + ("- " if i == first else "  ") + body[i][len(indent) :]
+    return "".join(lines[: start + 1]) + "".join(body) + "".join(lines[end:])
 
 
 def _upsert_device_on(
@@ -497,14 +553,11 @@ def _upsert_top_level_list_indexed(
     rendered_item: str,
     index: int,
 ) -> tuple[str, YamlDiff]:
-    """Append (``index == len``), replace (in range), or raise (out of range or not a list)."""
+    """Append (``index == len``), replace (in range), or raise (out of range)."""
     yaml = make_yaml()
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
-    if items is not None and not isinstance(items, list):
-        msg = f"{domain}: is a single mapping, not a list; convert it to a list first"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    entries = items or []
+    entries = items if isinstance(items, list) else []
     if 0 <= index < len(entries):
         require_replaceable(entries, index, label=domain, replaceable=is_mapping_entry)
         return _replace_top_level_list_item(yaml_text, domain, index, rendered_item)
@@ -596,14 +649,19 @@ def _delete_top_level(
 ) -> tuple[str, YamlDiff]:
     """Drop a top-level script / interval / device-on block."""
     if isinstance(location, ScriptLocation):
-        return _delete_top_level_list_by_id(
+        return _in_list_form(
             yaml_text,
             "script",
-            "id",
-            location.id,
+            partial(
+                _delete_top_level_list_by_id, domain="script", id_key="id", item_id=location.id
+            ),
         )
     if isinstance(location, IntervalLocation):
-        return _delete_top_level_list_by_index(yaml_text, "interval", location.index)
+        return _in_list_form(
+            yaml_text,
+            "interval",
+            partial(_delete_top_level_list_by_index, domain="interval", index=location.index),
+        )
     if isinstance(location, DeviceOnLocation):
         if location.index is not None:
             return _delete_device_on_entry(yaml_text, location.trigger, location.index)
