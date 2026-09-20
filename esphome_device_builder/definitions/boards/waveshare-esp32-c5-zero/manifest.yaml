@@ -105,19 +105,16 @@ pins:
     available: true
   - gpio: 23
     label: "GPIO23"
-    features: [pwm]
-    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed"
-    available: null
+    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed, excluded until verified"
+    available: false
   - gpio: 24
     label: "GPIO24"
-    features: [pwm]
-    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed"
-    available: null
+    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed, excluded until verified"
+    available: false
   - gpio: 25
     label: "GPIO25"
-    features: [pwm]
-    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed"
-    available: null
+    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed, excluded until verified"
+    available: false
   - gpio: 26
     label: "GPIO26"
     occupied_by: "Antenna switch"
@@ -131,9 +128,8 @@ pins:
     available: false
   - gpio: 28
     label: "GPIO28"
-    features: [pwm]
-    notes: "Listed on the Waveshare pinout diagram; exact role unconfirmed"
-    available: null
+    notes: "Listed on the Waveshare pinout diagram; exact role unconfirmed, excluded until verified"
+    available: false
 
 featured_components:
   - id: status_rgb
