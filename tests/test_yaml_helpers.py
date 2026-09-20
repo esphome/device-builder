@@ -38,6 +38,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
     _mapping_body_to_list_item,
+    _normalize_multi_conf_block,
     _safe_yaml_scalar,
     _splice_into_domain_block,
     _splice_into_multi_conf_block,
@@ -1749,6 +1750,18 @@ def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
     assert result.count("rtttl:\n") == 1
     assert "  - id: rtttl_1" in result
     assert "  - id: rtttl_2" in result
+
+
+def test_normalize_multi_conf_block_keeps_a_leading_comment_at_the_marker_indent() -> None:
+    existing = "rtttl:\n  # buzzer notes\n  id: rtttl_1\n  output: buzz\n"
+    assert _normalize_multi_conf_block(existing, "rtttl") == (
+        "rtttl:\n  # buzzer notes\n  - id: rtttl_1\n    output: buzz\n"
+    )
+
+
+def test_normalize_multi_conf_block_leaves_an_empty_body_alone() -> None:
+    existing = "rtttl:\n  # nothing yet\nlogger:\n"
+    assert _normalize_multi_conf_block(existing, "rtttl") is existing
 
 
 def test_normalize_multi_conf_block_treats_bare_dash_as_list_form() -> None:

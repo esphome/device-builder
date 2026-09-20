@@ -378,6 +378,8 @@ def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
         return existing
 
     body_lines = [line.rstrip("\n\r") for line in file_lines[block_start + 1 : last_content]]
+    if not any(line.strip() and not line.lstrip().startswith("#") for line in body_lines):
+        return existing
     rewritten = "\n".join(_mapping_body_to_list_item(body_lines)) + "\n"
     return "".join(file_lines[: block_start + 1]) + rewritten + "".join(file_lines[last_content:])
 
@@ -402,11 +404,13 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
             result.append(line)
             continue
         rest = line[len(body_indent) :] if line.startswith(body_indent) else line.lstrip()
-        if not marked and not line.lstrip().startswith("#"):
+        if marked:
+            result.append(ESPHOME_YAML_INDENT * 2 + rest)
+        elif line.lstrip().startswith("#"):
+            result.append(ESPHOME_YAML_INDENT + rest)
+        else:
             result.append(f"{ESPHOME_YAML_INDENT}- {rest}")
             marked = True
-        else:
-            result.append(ESPHOME_YAML_INDENT * 2 + rest)
     return result
 
 

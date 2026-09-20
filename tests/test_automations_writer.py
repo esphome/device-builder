@@ -3845,3 +3845,18 @@ def test_listify_keeps_comments_and_blank_lines_inside_the_block() -> None:
         "  - interval: 10s\n"
     )
     assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "interval: {interval: 60s, then: [{delay: 1s}]}\n",
+        "interval: [{interval: 60s, then: [{delay: 1s}]}]\n",
+    ],
+    ids=["flow_mapping", "flow_list"],
+)
+def test_upsert_refuses_a_flow_style_block_instead_of_duplicating_it(text: str) -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == "interval: is written in flow style; rewrite it as a block first"

@@ -185,15 +185,14 @@ def _parse_automation_list(
     *,
     describe: Callable[[dict[str, Any], int], tuple[AutomationLocation, str] | None],
     params_of: Callable[[dict[str, Any]], dict[str, Any]],
-    range_of: Callable[[int], tuple[int, int]] | None = None,
+    range_of: Callable[[int], tuple[int, int]],
 ) -> list[ParsedAutomation]:
     """
     Parse one top-level list block of trigger-less automations.
 
     *describe* returns the item's ``(location, label)`` or ``None`` to
     skip it; *params_of* collects the item's params for the tree build;
-    *range_of* maps an index to its line range when *items* is not the
-    block itself (a mapping-form block listed as one entry).
+    *range_of* maps an index to its line range.
     """
     out: list[ParsedAutomation] = []
     for idx, item in enumerate(items):
@@ -203,7 +202,7 @@ def _parse_automation_list(
         if described is None:
             continue
         location, label = described
-        from_line, to_line = range_of(idx) if range_of else _item_range(items, idx)
+        from_line, to_line = range_of(idx)
         tree, error, unsupported = _safe_tree(
             partial(_block_tree, params_of(item), item.get("then")),
             trigger_id=None,
@@ -302,7 +301,12 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
             return None
         return ApiActionLocation(action_name=str(action_name)), f"API: {action_name}"
 
-    return _parse_automation_list(actions, describe=_describe, params_of=_collect_api_action_params)
+    return _parse_automation_list(
+        actions,
+        describe=_describe,
+        params_of=_collect_api_action_params,
+        range_of=partial(_item_range, actions),
+    )
 
 
 def singleton_component_id(section: dict, domain: str) -> str:
