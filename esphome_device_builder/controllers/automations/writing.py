@@ -41,7 +41,6 @@ from ...helpers.yaml import (
     upsert_nested_handler,
     upsert_subentity_handler,
 )
-from ...helpers.yaml.scalar import _split_value_and_comment
 from ...helpers.yaml.scan import key_line_res
 from ...helpers.yaml.writing_layout import (
     _build_diff_for_append,
@@ -176,64 +175,6 @@ def _upsert_interval(
     """Splice or replace a top-level ``interval:`` list item by index."""
     rendered = render_interval_item(tree)
     return _upsert_top_level_list_indexed(yaml_text, "interval", rendered, location.index)
-
-
-def _in_list_form[**P](
-    op: Callable[Concatenate[str, str, P], tuple[str, YamlDiff]],
-) -> Callable[Concatenate[str, str, P], tuple[str, YamlDiff]]:
-    """Run *op* with a mapping-form ``<domain>:`` block first rewritten as a one-item list."""
-
-    @wraps(op)
-    def run(yaml_text: str, domain: str, *args: P.args, **kwargs: P.kwargs) -> tuple[str, YamlDiff]:
-        expanded = _expand_flow_block(yaml_text, domain)
-        listed = _normalize_multi_conf_block(expanded, domain) or expanded
-        new_text, diff = op(listed, domain, *args, **kwargs)
-        if listed is yaml_text:
-            return new_text, diff
-        if not yaml_text.endswith("\n") and new_text.endswith("\n"):
-            # The editor's splice cannot add a final newline the file never had.
-            new_text = new_text[:-1]
-        return new_text, _build_diff_for_append(yaml_text, new_text)
-
-    return run
-
-
-def _expand_flow_block(yaml_text: str, domain: str) -> str:
-    """Rewrite a one-line flow-style ``<domain>: {...}`` / ``[...]`` as a block-form list."""
-    lines = yaml_text.splitlines(keepends=True)
-    inline_re = key_line_res(domain, prefix="^")[1]
-    idx = next((i for i, line in enumerate(lines) if inline_re.match(line.rstrip("\n\r"))), None)
-    if idx is None:
-        return yaml_text
-    header, comment = _split_value_and_comment(lines[idx].rstrip("\n\r"))
-    try:
-        loaded = make_yaml().load(header)
-    except YAMLError:
-        return yaml_text  # a flow value spanning lines is left for _require_block_style
-    value = loaded.get(domain) if isinstance(loaded, dict) else None
-    if not isinstance(value, (dict, list)):
-        return yaml_text
-    items = value if isinstance(value, list) else [value]
-    _set_block_style(items)
-    body = dump(items) if items else ""
-    header_line = f"{domain}:" + (f"  {comment.strip()}" if comment.strip() else "") + "\n"
-    return "".join(lines[:idx]) + header_line + body + "".join(lines[idx + 1 :])
-
-
-def _set_block_style(node: Any) -> None:
-    """Clear ruamel's flow-style flags on *node* and everything under it."""
-    if isinstance(node, (CommentedMap, CommentedSeq)):
-        node.fa.set_block_style()
-    children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
-    for child in children:
-        _set_block_style(child)
-
-
-def _require_block_style(yaml_text: str, domain: str, items: Any) -> None:
-    """Refuse a flow-style ``<domain>:`` value spanning lines; the line splicers cannot see it."""
-    if items is not None and find_block_header(yaml_text.splitlines(), domain) is None:
-        msg = f"{domain}: is written in flow style; rewrite it as a block first"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
 def _upsert_device_on(
@@ -537,6 +478,85 @@ def _upsert_api_action(
 # ---------------------------------------------------------------------------
 
 
+def _in_list_form[**P](
+    op: Callable[Concatenate[str, str, P], tuple[str, YamlDiff]],
+) -> Callable[Concatenate[str, str, P], tuple[str, YamlDiff]]:
+    """Run *op* with a mapping-form ``<domain>:`` block first rewritten as a one-item list."""
+
+    @wraps(op)
+    def run(yaml_text: str, domain: str, *args: P.args, **kwargs: P.kwargs) -> tuple[str, YamlDiff]:
+        expanded = _expand_flow_block(yaml_text, domain)
+        listed = _normalize_multi_conf_block(expanded, domain) or expanded
+        _require_block_style(listed, domain)
+        new_text, diff = op(listed, domain, *args, **kwargs)
+        if listed is yaml_text:
+            return new_text, diff
+        if not yaml_text.endswith("\n") and new_text.endswith("\n"):
+            # The editor's splice cannot add a final newline the file never had.
+            new_text = new_text[:-1]
+        return new_text, _build_diff_for_append(yaml_text, new_text)
+
+    return run
+
+
+def _expand_flow_block(yaml_text: str, domain: str) -> str:
+    """Rewrite a one-line flow-style ``<domain>: {...}`` / ``[...]`` as a block-form list."""
+    lines = yaml_text.splitlines(keepends=True)
+    idx = _inline_header_index(lines, domain)
+    if idx is None:
+        return yaml_text
+    value, comment = _split_flow_comment(lines[idx].rstrip("\n\r")[len(domain) + 1 :])
+    try:
+        loaded = make_yaml().load(f"{domain}:{value}")
+    except YAMLError:
+        return yaml_text  # a flow value spanning lines is left for _require_block_style
+    block = loaded.get(domain) if isinstance(loaded, dict) else None
+    if not isinstance(block, (dict, list)):
+        return yaml_text
+    items = block if isinstance(block, list) else [block]
+    _set_block_style(items)
+    body = dump(items) if items else ""
+    header_line = f"{domain}:" + (f"  {comment.strip()}" if comment.strip() else "") + "\n"
+    return "".join(lines[:idx]) + header_line + body + "".join(lines[idx + 1 :])
+
+
+def _split_flow_comment(rest: str) -> tuple[str, str]:
+    """Split *rest* at the first ``#`` outside quotes; a flow value may quote one anywhere."""
+    quote: str | None = None
+    for i, ch in enumerate(rest):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#" and (i == 0 or rest[i - 1].isspace()):
+            return rest[:i], rest[i:]
+    return rest, ""
+
+
+def _inline_header_index(lines: list[str], domain: str) -> int | None:
+    """Index of a column-0 ``<domain>: <value>`` line, or None."""
+    inline_re = key_line_res(domain, prefix="^")[1]
+    return next((i for i, line in enumerate(lines) if inline_re.match(line.rstrip("\n\r"))), None)
+
+
+def _set_block_style(node: Any) -> None:
+    """Clear ruamel's flow-style flags on *node* and everything under it."""
+    if isinstance(node, (CommentedMap, CommentedSeq)):
+        node.fa.set_block_style()
+    children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
+    for child in children:
+        _set_block_style(child)
+
+
+def _require_block_style(yaml_text: str, domain: str) -> None:
+    """Refuse a value the line splicers cannot see: an inline scalar or a multi-line flow."""
+    lines = yaml_text.splitlines()
+    if _inline_header_index(lines, domain) is not None and find_block_header(lines, domain) is None:
+        msg = f"{domain}: is written in flow style; rewrite it as a block first"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
 @_in_list_form
 def _upsert_top_level_list(
     yaml_text: str,
@@ -549,7 +569,6 @@ def _upsert_top_level_list(
     yaml = make_yaml()
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
-    _require_block_style(yaml_text, domain, items)
     existing_idx: int | None = None
     if isinstance(items, list):
         for idx, raw in enumerate(items):
@@ -572,7 +591,6 @@ def _upsert_top_level_list_indexed(
     yaml = make_yaml()
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
-    _require_block_style(yaml_text, domain, items)
     entries = items if isinstance(items, list) else []
     if 0 <= index < len(entries):
         require_replaceable(entries, index, label=domain, replaceable=is_mapping_entry)
@@ -691,13 +709,12 @@ def _delete_top_level_list_by_id(
     yaml = make_yaml()
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
-    _require_block_style(yaml_text, domain, items)
     if not isinstance(items, list):
         msg = f"Block {domain!r} not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     for idx, raw in enumerate(items):
         if isinstance(raw, dict) and str(raw.get(id_key, "")) == item_id:
-            return _delete_top_level_list_by_index(yaml_text, domain, idx)
+            return _delete_list_item_lines(yaml_text, domain, idx)
     msg = f"{domain}:[{id_key}={item_id!r}] not present"
     raise CommandError(ErrorCode.NOT_FOUND, msg)
 
@@ -709,8 +726,10 @@ def _delete_top_level_list_by_index(
     index: int,
 ) -> tuple[str, YamlDiff]:
     """Remove the *index*'th list item under ``<domain>:``."""
-    data = make_yaml().load(yaml_text) or {}
-    _require_block_style(yaml_text, domain, data.get(domain) if isinstance(data, dict) else None)
+    return _delete_list_item_lines(yaml_text, domain, index)
+
+
+def _delete_list_item_lines(yaml_text: str, domain: str, index: int) -> tuple[str, YamlDiff]:
     lines = yaml_text.splitlines(keepends=True)
     start, end = _locate_top_list_item(lines, domain, index)
     return splice_lines(lines, start=start, end=end, replacement="")

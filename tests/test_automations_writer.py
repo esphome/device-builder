@@ -3928,3 +3928,38 @@ def test_delete_refuses_a_flow_block_it_cannot_expand(
         render_delete(text, location=location)
     assert err.value.code == ErrorCode.INVALID_ARGS
     assert err.value.message == f"{domain}: is written in flow style; rewrite it as a block first"
+
+
+def test_listify_leaves_a_trailing_banner_with_the_next_block() -> None:
+    text = (
+        "interval:\n  interval: 60s\n  then:\n    - delay: 1s\n"
+        "# --- logging ---\nlogger:\n  level: DEBUG\n"
+    )
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\n"
+        "# --- logging ---\nlogger:\n  level: DEBUG\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    deleted, diff = render_delete(new_text, location=IntervalLocation(index=1))
+    assert "# --- logging ---\nlogger:" in deleted
+    assert _apply_diff(new_text, diff) == deleted
+
+
+def test_list_append_lands_above_a_trailing_banner() -> None:
+    text = (
+        "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n# --- logging ---\nlogger:\n"
+    )
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.endswith(
+        "  - interval: 10s\n    then:\n      - delay: 2s\n# --- logging ---\nlogger:\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+
+
+def test_upsert_expands_a_flow_block_holding_a_quoted_hash() -> None:
+    text = 'interval: {interval: 60s, then: [{logger.log: "a # b"}]}\n'
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert 'logger.log: "a # b"' in new_text and new_text.count("- interval:") == 2
+    assert _apply_diff(text, diff) == new_text
