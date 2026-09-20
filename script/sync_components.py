@@ -1648,12 +1648,7 @@ _HubVariants = dict[str, tuple[str, dict[str, list[str]]]]
 
 
 def _resolve_reference_classes(entries: list[dict]) -> None:
-    """
-    Keep ``references_class`` only where some offered candidate fails it.
-
-    Annotates the failing declarers with ``id_classes`` /
-    ``id_classes_by_variant`` and the hub-variant ``bus_constraints``. In-place.
-    """
+    """Keep ``references_class`` only where a candidate fails it; annotate those, in place."""
     provided, variants = _declared_id_classes(entries)
     failing, restrictive = _failing_declarers(entries, provided)
     by_id = {entry["id"]: entry for entry in entries}
@@ -1687,19 +1682,14 @@ def _restrictive_references(entries: list[dict]) -> set[tuple[str, str]]:
 
 
 def _declared_id_classes(entries: list[dict]) -> tuple[dict[str, list[set[str]]], _HubVariants]:
-    """
-    Return the id class sets each offered declarer can provide, one per hub variant.
-
-    Pops the ``_root_id_classes`` / ``_variant_id_classes`` scratch fields. A
-    declarer whose own-domain ids are all nested (``provides_id_paths`` without
-    a root path) is left out: the picker never offers its root id.
-    """
+    """Pop the id class scratch and return each offered declarer's sets, one per hub variant."""
     provided: dict[str, list[set[str]]] = {}
     variants: _HubVariants = {}
     for entry in entries:
         classes = entry.pop("_root_id_classes", None)
         variant = entry.pop("_variant_id_classes", None)
         own = (entry.get("provides_id_paths") or {}).get(entry["id"].split(".", 1)[0])
+        # Own-domain ids that are all nested: the picker never offers the root id.
         if not classes or (own and not any(len(path) == 1 for path in own)):
             continue
         if variant and len({tuple(v) for v in variant[1].values()}) > 1:
