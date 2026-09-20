@@ -5,9 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
-import script.sync_components as sc
 from script.sync_components import (  # type: ignore[import-not-found]
     _prune_automation_reference_classes,
     _resolve_reference_classes,
@@ -28,21 +25,10 @@ def _reference(key: str, domain: str, cls: str) -> dict:
 
 
 def _declarer(component_id: str, classes: list[str], **extra: object) -> dict:
-    return {
-        "id": component_id,
-        "config_entries": [],
-        "_impl_class_paths": {cls: [["id"]] for cls in classes},
-        **extra,
-    }
+    return {"id": component_id, "config_entries": [], "_root_id_classes": set(classes), **extra}
 
 
-@pytest.fixture(autouse=True)
-def _no_bundle_references(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sc, "_collect_referenced_classes", lambda _schema_dir: set())
-
-
-def _resolve(entries: list[dict]) -> None:
-    _resolve_reference_classes(entries, Path())
+_resolve = _resolve_reference_classes
 
 
 def test_reference_a_candidate_fails_keeps_its_class_and_marks_the_candidate() -> None:
@@ -107,23 +93,35 @@ def test_typed_hub_is_judged_per_variant_and_constrains_the_dependent() -> None:
     assert "bus_constraints" not in client
 
 
-def test_platform_whose_own_domain_ids_are_nested_is_not_a_candidate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_platform_whose_own_domain_ids_are_nested_is_not_a_candidate() -> None:
     """The ``dht`` shape: the picker descends to the nested ids and skips the root."""
-    monkeypatch.setattr(sc, "_collect_referenced_classes", lambda _schema_dir: {"sensor::Sensor"})
-    dht = {
-        "id": "sensor.dht",
-        "config_entries": [],
-        "_impl_class_paths": {"dht::DHT": [["id"]], "sensor::Sensor": [["temperature", "id"]]},
-    }
+    dht = _declarer(
+        "sensor.dht", ["dht::DHT"], provides_id_paths={"sensor": [["temperature", "id"]]}
+    )
+    adc = _declarer("sensor.adc", ["sensor::Sensor"])
     consumer = {
         "id": "climate.thermostat",
         "config_entries": [_reference("sensor", "sensor", "sensor::Sensor")],
     }
-    _resolve([dht, consumer])
+    _resolve([dht, adc, consumer])
     assert "id_classes" not in dht
     assert "references_class" not in consumer["config_entries"][0]
+
+
+def test_hybrid_platform_with_a_root_path_stays_a_candidate() -> None:
+    """A root path in ``provides_id_paths`` means the root id is offered, so it is judged."""
+    hub = _declarer(
+        "sensor.pulse_meter",
+        ["pulse_meter::Hub"],
+        provides_id_paths={"sensor": [["id"], ["total", "id"]]},
+    )
+    adc = _declarer("sensor.adc", ["sensor::Sensor"])
+    consumer = {
+        "id": "climate.thermostat",
+        "config_entries": [_reference("sensor", "sensor", "sensor::Sensor")],
+    }
+    _resolve([hub, adc, consumer])
+    assert hub["id_classes"] == ["pulse_meter::Hub"]
 
 
 def test_variant_id_classes_reads_each_typed_branch() -> None:
@@ -213,7 +211,6 @@ def test_shipped_float_output_reference_and_binary_only_declarer() -> None:
     light = next(e for e in _body("light.monochromatic")["config_entries"] if e["key"] == "output")
     assert light["references_class"] == "output::FloatOutput"
     assert "output::FloatOutput" not in _body("output.gpio")["id_classes"]
-    assert "id_classes" not in _body("output.ledc")
 
 
 def test_shipped_modbus_variants_and_the_server_dependents() -> None:

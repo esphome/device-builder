@@ -1371,8 +1371,9 @@ def build_catalog(
     # After the anchor pass so the fallback help_link is the final URL.
     _repair_help_links(out, _load_docs_page_index())
 
-    _resolve_reference_classes(out, schema_dir)
     _resolve_provides(out, schema_dir)
+    # Reads ``provides_id_paths``, so after the provides pass.
+    _resolve_reference_classes(out)
     _apply_libretiny_family_provides(out)
     _apply_libretiny_family_options(out)
 
@@ -1646,15 +1647,15 @@ def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> No
 _HubVariants = dict[str, tuple[str, dict[str, list[str]]]]
 
 
-def _resolve_reference_classes(entries: list[dict], schema_dir: Path) -> None:
+def _resolve_reference_classes(entries: list[dict]) -> None:
     """
     Keep ``references_class`` only where some offered candidate fails it.
 
     Annotates the failing declarers with ``id_classes`` /
     ``id_classes_by_variant`` and the hub-variant ``bus_constraints``. In-place.
     """
-    root_classes, variants = _declared_id_classes(entries, _collect_referenced_classes(schema_dir))
-    failing, restrictive = _failing_declarers(entries, root_classes, variants)
+    provided, variants = _declared_id_classes(entries)
+    failing, restrictive = _failing_declarers(entries, provided)
     by_id = {entry["id"]: entry for entry in entries}
     for entry in entries:
         _prune_reference_classes(entry.get("config_entries") or [], restrictive)
@@ -1662,7 +1663,7 @@ def _resolve_reference_classes(entries: list[dict], schema_dir: Path) -> None:
     for component_id in failing:
         entry = by_id[component_id]
         if component_id not in variants:
-            entry["id_classes"] = sorted(root_classes[component_id])
+            entry["id_classes"] = sorted(provided[component_id][0])
             continue
         typed_key, per_variant = variants[component_id]
         entry["id_classes_by_variant"] = {
@@ -1685,60 +1686,37 @@ def _restrictive_references(entries: list[dict]) -> set[tuple[str, str]]:
     return pairs
 
 
-def _declared_id_classes(
-    entries: list[dict], referenced: set[str]
-) -> tuple[dict[str, set[str]], _HubVariants]:
+def _declared_id_classes(entries: list[dict]) -> tuple[dict[str, list[set[str]]], _HubVariants]:
     """
-    Return each offered declarer's root id classes, plus typed hubs' per-variant ones.
+    Return the id class sets each offered declarer can provide, one per hub variant.
 
-    Pops the ``_variant_id_classes`` scratch field. A hub whose variants all
-    declare the same classes is an ordinary declarer.
+    Pops the ``_root_id_classes`` / ``_variant_id_classes`` scratch fields. A
+    declarer whose own-domain ids are all nested (``provides_id_paths`` without
+    a root path) is left out: the picker never offers its root id.
     """
-    root_classes: dict[str, set[str]] = {}
+    provided: dict[str, list[set[str]]] = {}
     variants: _HubVariants = {}
     for entry in entries:
-        impl_paths = entry.get("_impl_class_paths") or {}
+        classes = entry.pop("_root_id_classes", None)
         variant = entry.pop("_variant_id_classes", None)
-        if _root_id_is_skipped(entry["id"], impl_paths, referenced):
+        own = (entry.get("provides_id_paths") or {}).get(entry["id"].split(".", 1)[0])
+        if not classes or (own and not any(len(path) == 1 for path in own)):
             continue
-        classes = {
-            cls
-            for cls, paths in impl_paths.items()
-            if "::" in cls and any(len(path) == 1 for path in paths)
-        }
         if variant and len({tuple(v) for v in variant[1].values()}) > 1:
             variants[entry["id"]] = variant
-        if classes:
-            root_classes[entry["id"]] = classes
-    return root_classes, variants
-
-
-def _root_id_is_skipped(
-    component_id: str, impl_paths: dict[str, list[list[str]]], referenced: set[str]
-) -> bool:
-    """Whether own-domain ids are provided only at nested paths, per ``_resolve_provides``."""
-    own_domain = component_id.split(".", 1)[0]
-    paths = [
-        path
-        for cls in impl_paths.keys() & referenced
-        if _reference_namespace(cls) == own_domain
-        for path in impl_paths[cls]
-    ]
-    return any(len(path) > 1 for path in paths) and not any(len(path) == 1 for path in paths)
+            provided[entry["id"]] = [set(v) for v in variant[1].values()]
+        else:
+            provided[entry["id"]] = [classes]
+    return provided, variants
 
 
 def _failing_declarers(
-    entries: list[dict], root_classes: dict[str, set[str]], variants: _HubVariants
+    entries: list[dict], provided: dict[str, list[set[str]]]
 ) -> tuple[set[str], set[tuple[str, str]]]:
     """Return the declarers some reference rejects, and those restrictive references."""
     by_domain: dict[str, list[str]] = {}
-    for component_id in root_classes:
+    for component_id in provided:
         by_domain.setdefault(component_id.split(".", 1)[0], []).append(component_id)
-
-    def provided(component_id: str) -> list[set[str]]:
-        if component_id in variants:
-            return [set(classes) for classes in variants[component_id][1].values()]
-        return [root_classes[component_id]]
 
     failing: set[str] = set()
     restrictive: set[tuple[str, str]] = set()
@@ -1748,12 +1726,10 @@ def _failing_declarers(
         if not domain or not cls:
             return
         declarers = by_domain.get(domain, ())
-        failed = [cid for cid in declarers if any(cls not in c for c in provided(cid))]
-        # When no offered declarer provides the class, the bundle cannot name
-        # the real candidates (``i2c`` picks its ``declare_id`` class in a
-        # function; an OTA platform satisfies ``http_request``'s), so the
-        # reference stays unfiltered.
-        if failed and any(cls in c for cid in declarers for c in provided(cid)):
+        failed = [cid for cid in declarers if any(cls not in c for c in provided[cid])]
+        # No offered declarer provides it: the bundle cannot name the
+        # candidates, so leave it unfiltered.
+        if failed and any(cls in c for cid in declarers for c in provided[cid]):
             restrictive.add((domain, cls))
             failing.update(failed)
 
@@ -1805,6 +1781,18 @@ def _apply_hub_variant_constraints(
             entry.setdefault("bus_constraints", {}).setdefault(hub, {})[typed_key] = qualifying[0]
 
     _walk_catalog_entries(entry.get("config_entries") or [], visit)
+
+
+def _id_class_scratch(section: dict, impl_paths: dict[str, list[list[str]]]) -> dict[str, Any]:
+    """Return the scratch fields ``_resolve_reference_classes`` consumes."""
+    return {
+        "_root_id_classes": {
+            cls
+            for cls, paths in impl_paths.items()
+            if "::" in cls and any(len(path) == 1 for path in paths)
+        },
+        "_variant_id_classes": _variant_id_classes(section),
+    }
 
 
 def _variant_id_classes(section: dict) -> tuple[str, dict[str, list[str]]] | None:
@@ -3331,7 +3319,7 @@ def build_component_entry(
         "config_entries": config_entries,
     }
     component["_impl_class_paths"] = _implemented_classes(section, schema_dir)
-    component["_variant_id_classes"] = _variant_id_classes(section)
+    component.update(_id_class_scratch(section, component["_impl_class_paths"]))
     # Kept out of ``docs_url`` so segment-parsing passes never see a
     # fragment; ``_attach_docs_anchors`` restores it where it helps.
     if docs.url and "#" in docs.url:
