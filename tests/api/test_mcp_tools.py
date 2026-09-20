@@ -172,6 +172,22 @@ async def test_update_config_forwards_content(
         mcp_client, "update_config", {"configuration": "kitchen.yaml", "content": "esphome: {}"}
     ) == (False, "Saved kitchen.yaml")
     assert handler.await_args.kwargs["content"] == "esphome: {}"
+    assert "expected" not in handler.await_args.kwargs
+
+
+async def test_update_config_forwards_expected_and_surfaces_a_stale_read(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    handler = AsyncMock(
+        side_effect=CommandError(ErrorCode.PRECONDITION_FAILED, "kitchen.yaml changed")
+    )
+    mcp_db.command_handlers["devices/update_config"] = handler
+    assert await mcp_call(
+        mcp_client,
+        "update_config",
+        {"configuration": "kitchen.yaml", "content": "b: 2\n", "expected": "a: 1\n"},
+    ) == (True, "precondition_failed: kitchen.yaml changed")
+    assert handler.await_args.kwargs["expected"] == "a: 1\n"
 
 
 async def test_add_component_returns_the_saved_yaml(

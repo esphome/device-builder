@@ -551,7 +551,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM age
 |---|---|---|
 | `list_devices` | `devices/list` | Flat rows (`runtime_state` merged in), scalar fields only; per-device lists come from the detail tools |
 | `get_config {configuration}` | `devices/get_config` | Returns the YAML text |
-| `update_config {configuration, content}` | `devices/update_config` | Whole-file replace; the earlier text is kept in version history |
+| `update_config {configuration, content, expected?}` | `devices/update_config` | Whole-file replace; the earlier text is kept in version history. `expected` is the text `get_config` returned, and a file that changed since answers `precondition_failed` with nothing written |
 | `add_component {configuration, component_id, fields?}` | `devices/add_component` | |
 | `validate_config {configuration, tail_lines?}` | `devices/validate` | `{success, exit_code, output, truncated}` (the last `tail_lines` lines; `truncated` says earlier lines were dropped; esphome's concealed values are replaced with `<removed>`). The bounds are `devices/validate`'s own: `unavailable` when three validations are already running and none frees a slot within 30 s, or when the run prints nothing for a minute and is stopped; a run that ends without a result frame is an `internal_error` |
 | `compile {configuration}` | `firmware/compile` | `{job_id, status}` |

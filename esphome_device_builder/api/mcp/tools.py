@@ -109,16 +109,22 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "update_config",
     "Replace a device's YAML configuration with new content. Read it with get_config "
-    "first and change only what is needed; run validate_config or compile afterwards. "
-    "The previous text stays in the dashboard's version history.",
+    "first, pass that text as expected, and change only what is needed; run "
+    "validate_config or compile afterwards. The previous text stays in the dashboard's "
+    "version history.",
     {
         "configuration": _CONFIGURATION,
         "content": _prop("string", "The complete new YAML."),
+        "expected": _prop(
+            "string",
+            "The text get_config returned; the write is refused with precondition_failed "
+            "if the file changed since, so nothing is overwritten unseen.",
+        ),
     },
     ("configuration", "content"),
 )
 async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    await _call(db, "devices/update_config", **_only(args, "configuration", "content"))
+    await _call(db, "devices/update_config", **_only(args, "configuration", "content", "expected"))
     return f"Saved {args['configuration']}"
 
 
