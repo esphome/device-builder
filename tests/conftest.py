@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import ssl
 import sys
@@ -108,6 +109,14 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # at controller construction.
     ("controllers/devices/controller.py", "__init__"),
 )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Temporary probe toggle: run the suite at 1ms Windows timer resolution."""
+    if sys.platform == "win32" and os.environ.get("PROBE_TIMER_1MS"):
+        import ctypes  # noqa: PLC0415
+
+        ctypes.WinDLL("winmm").timeBeginPeriod(1)
 
 
 @pytest.fixture(autouse=True)

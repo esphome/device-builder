@@ -627,3 +627,77 @@ jobs:
           # single bench is visible in the CI log without having
           # to dig into the CodSpeed dashboard.
           run: pytest tests/benchmarks --codspeed --no-cov --timeout=600 --durations 10
+
+  windows-perf-probe:
+    # TEMPORARY: measures where the Windows pytest time goes. Each leg runs
+    # the ``test`` job's pytest command with one change; removed before this
+    # PR leaves draft.
+    name: Perf probe (${{ matrix.variant }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: linux-durations
+            os: ubuntu-latest
+            extra-args: --durations=0 --durations-min=0.02
+          - variant: baseline-durations
+            os: windows-latest
+            extra-args: --durations=0 --durations-min=0.02
+          - variant: temp-on-d
+            os: windows-latest
+          - variant: defender-off
+            os: windows-latest
+          - variant: no-cov
+            os: windows-latest
+            extra-args: --no-cov
+          - variant: timer-1ms
+            os: windows-latest
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
+        with:
+          python-version: "3.14"
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
+
+      - name: Report Defender state
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,OnAccessProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled | Format-List
+          Get-MpPreference | Select-Object DisableRealtimeMonitoring,ExclusionPath,ExclusionProcess | Format-List
+
+      - name: Turn Defender real-time scanning off
+        if: matrix.variant == 'defender-off'
+        shell: pwsh
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $true
+          Add-MpPreference -ExclusionPath 'C:\', 'D:\'
+          Add-MpPreference -ExclusionProcess 'python.exe', 'uv.exe'
+          Get-MpPreference | Select-Object DisableRealtimeMonitoring,ExclusionPath,ExclusionProcess | Format-List
+
+      - name: Point TEMP at the runner temp dir
+        if: matrix.variant == 'temp-on-d'
+        shell: bash
+        run: |
+          echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Ask conftest for 1ms timer resolution
+        if: matrix.variant == 'timer-1ms'
+        shell: bash
+        run: echo "PROBE_TIMER_1MS=1" >> "$GITHUB_ENV"
+
+      - name: Time OS primitives
+        run: uv run --no-sync python script/_perf_probe.py
+
+      - name: Run pytest
+        timeout-minutes: 8
+        run: uv run --no-sync pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term ${{ matrix.extra-args }}
