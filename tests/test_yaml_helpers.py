@@ -1752,6 +1752,13 @@ def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
     assert "  - id: rtttl_2" in result
 
 
+def test_merge_component_yaml_lands_above_a_trailing_banner() -> None:
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  - id: rtttl_1\n    output: buzz\n# --- logging ---\nlogger:\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+    assert result.endswith("  - id: rtttl_2\n    output: buzz\n# --- logging ---\nlogger:\n")
+
+
 def test_normalize_multi_conf_block_keeps_a_leading_comment_at_the_marker_indent() -> None:
     existing = "rtttl:\n  # buzzer notes\n  id: rtttl_1\n  output: buzz\n"
     assert _normalize_multi_conf_block(existing, "rtttl") == (

@@ -280,9 +280,10 @@ def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, 
     Locate the ``<key>:`` block in *file_lines*; return ``(header, end)``.
 
     *end* is the index of the first line that belongs to the next
-    top-level block (or ``len(file_lines)`` at EOF), rewound past any
-    trailing blank lines so an inserted item lands directly after the
-    last content line. Returns ``None`` when no matching header exists.
+    top-level block (or ``len(file_lines)`` at EOF), rewound past the
+    trailing blank and column-0 comment lines so an inserted item lands
+    directly after the last content line and a section banner stays with
+    the next block. Returns ``None`` when no matching header exists.
     """
     block_start = find_block_header(file_lines, key)
     if block_start is None:

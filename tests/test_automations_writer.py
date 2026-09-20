@@ -3889,15 +3889,25 @@ def test_upsert_expands_an_empty_flow_list_and_keeps_a_trailing_comment() -> Non
 
 
 @pytest.mark.parametrize(
-    "text",
-    ["interval: {interval: 60s,\n  then: [{delay: 1s}]}\n", "interval: 60s\n"],
-    ids=["multi_line_flow", "inline_scalar"],
+    ("text", "message"),
+    [
+        (
+            "interval: {interval: 60s,\n  then: [{delay: 1s}]}\n",
+            "interval: is written in flow style across several lines; rewrite it as a block first",
+        ),
+        ("interval: 60s\n", "interval: holds a scalar, not an automation block"),
+        (
+            "interval: !include intervals.yaml\n",
+            "interval: is provided by a tag; edit the included file instead",
+        ),
+    ],
+    ids=["multi_line_flow", "inline_scalar", "tagged"],
 )
-def test_upsert_refuses_a_flow_block_it_cannot_expand(text: str) -> None:
+def test_upsert_refuses_a_block_it_cannot_expand_naming_its_shape(text: str, message: str) -> None:
     with pytest.raises(CommandError) as err:
         render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
     assert err.value.code == ErrorCode.INVALID_ARGS
-    assert err.value.message == "interval: is written in flow style; rewrite it as a block first"
+    assert err.value.message == message
 
 
 @pytest.mark.parametrize(
@@ -3927,7 +3937,9 @@ def test_delete_refuses_a_flow_block_it_cannot_expand(
     with pytest.raises(CommandError) as err:
         render_delete(text, location=location)
     assert err.value.code == ErrorCode.INVALID_ARGS
-    assert err.value.message == f"{domain}: is written in flow style; rewrite it as a block first"
+    assert err.value.message == (
+        f"{domain}: is written in flow style across several lines; rewrite it as a block first"
+    )
 
 
 def test_listify_leaves_a_trailing_banner_with_the_next_block() -> None:
