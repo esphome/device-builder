@@ -43,32 +43,32 @@ _CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 DEFAULT_SHORTHAND_KEY = "id"
 
 
+# The one action whose params are the called script's own declared parameters.
+_OPEN_PARAMS_ACTION = "script.execute"
+
+
 def accepted_param_keys(
     entry: AutomationAction | AutomationCondition,
 ) -> frozenset[str] | None:
-    """
-    Keys ``params`` may carry for *entry*, or ``None`` when any key may (script parameters).
-
-    The union of the entry's fields, its scalar shorthand, the condition gate keys,
-    the synthetic ``id`` a bare scalar parses to, and an action's branch names.
-    """
-    if any(
-        e.key == DEFAULT_SHORTHAND_KEY and e.references_component == "script"
-        for e in entry.config_entries
-    ):
+    """Return the keys ``params`` may carry for *entry*, or ``None`` when any key may."""
+    if isinstance(entry, AutomationAction) and entry.id == _OPEN_PARAMS_ACTION:
         return None
-    keys = set(declared_param_keys(entry)) | _CONDITION_GATE_KEYS | {DEFAULT_SHORTHAND_KEY}
-    if isinstance(entry, AutomationAction):
-        keys |= set(entry.accepts_action_list)
+    keys = {e.key for e in entry.config_entries} | {_scalar_param_key(entry)}
+    if isinstance(entry, AutomationCondition):
+        # The sync strips a condition's own gate (``for.condition``) from its fields.
+        keys |= _CONDITION_GATE_KEYS
     return frozenset(keys)
 
 
-def declared_param_keys(entry: AutomationAction | AutomationCondition) -> list[str]:
-    """Return the field keys *entry* documents, sorted, scalar shorthand included."""
-    keys = {e.key for e in entry.config_entries}
-    if entry.scalar_shorthand_key:
-        keys.add(entry.scalar_shorthand_key)
-    return sorted(keys)
+def _scalar_param_key(entry: AutomationAction | AutomationCondition) -> str:
+    """Return the ``params`` key a bare-scalar body of *entry* is stored under."""
+    key = entry.scalar_shorthand_key or DEFAULT_SHORTHAND_KEY
+    if isinstance(entry, AutomationAction) and (
+        key in _CONDITION_GATE_KEYS or key in entry.accepts_action_list
+    ):
+        # ``wait_until``'s shorthand names its gate; store the scalar harmlessly under ``id``.
+        return DEFAULT_SHORTHAND_KEY
+    return key
 
 
 def _safe_tree(
@@ -232,13 +232,7 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
         # Bare-scalar shorthand (``logger.log: "hi"`` / ``light.turn_on: id``):
         # surface the scalar under the action's own ``maybe_simple_value`` key
         # so the writer reconstructs the short form on round-trip.
-        key = action.scalar_shorthand_key or DEFAULT_SHORTHAND_KEY
-        # ``core.wait_until`` has ``maybe == "condition"``; a shorthand that
-        # names a gate / sub-list key must never land in ``params`` — fall
-        # back to ``id`` so it round-trips harmlessly.
-        if key in _CONDITION_GATE_KEYS or key in action.accepts_action_list:
-            key = DEFAULT_SHORTHAND_KEY
-        params = {key: _render_value(raw_params)}
+        params = {_scalar_param_key(action): _render_value(raw_params)}
 
     return ActionNode(
         action_id=action_id,
@@ -290,8 +284,7 @@ def _decompose_condition(raw: dict) -> ConditionNode:
     elif isinstance(value, dict):
         params = {k: _render_value(v) for k, v in value.items()}
     elif value is not None:
-        key = catalog_entry.scalar_shorthand_key or DEFAULT_SHORTHAND_KEY
-        params = {key: _render_value(value)}
+        params = {_scalar_param_key(catalog_entry): _render_value(value)}
     return ConditionNode(
         condition_id=str(cond_id),
         params=params,

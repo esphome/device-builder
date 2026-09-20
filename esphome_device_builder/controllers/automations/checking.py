@@ -14,7 +14,7 @@ from ...models.automations import (
     ConditionNode,
 )
 from . import catalog
-from ._decompose import accepted_param_keys, declared_param_keys
+from ._decompose import accepted_param_keys
 from .catalog import AutomationBodyRef
 
 
@@ -82,5 +82,5 @@ def _check_fields(
     if (allowed := accepted_param_keys(entry)) is None:
         return
     if unknown := sorted(set(params) - allowed):
-        msg = f"{node_id!r} has no field {unknown}; its fields are {declared_param_keys(entry)}"
+        msg = f"{node_id!r} has no field {unknown}; its fields are {sorted(allowed)}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)

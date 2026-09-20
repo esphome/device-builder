@@ -60,6 +60,10 @@ async def test_a_field_the_catalog_does_not_list_is_refused_naming_the_real_ones
     [
         ([_action("switch.explode", {"id": "relay"})], "Unknown action id 'switch.explode'"),
         ([_action("delay", {"id": "1s"}, children={"then": []})], "has no ['then'] branch"),
+        ([_action("if", {"then": []})], "'if' has no field ['then']; its fields are ['id']"),
+        ([_action("delay", {"condition": {}})], "'delay' has no field ['condition']"),
+        ([_action("logger.log", {"id": "tick"})], "'logger.log' has no field ['id']"),
+        ([_action("script.stop", {"id": "s", "times": 3})], "'script.stop' has no field ['times']"),
         (
             [_action("if", {}, children={"then": [_action("switch.turn_on", {"nope": 1})]})],
             "'switch.turn_on' has no field ['nope']",
@@ -116,6 +120,10 @@ async def test_a_field_the_catalog_does_not_list_is_refused_naming_the_real_ones
     ids=[
         "unknown_action",
         "stray_branch",
+        "branch_as_param",
+        "gate_as_param",
+        "shorthand_not_id",
+        "script_stop_extra",
         "nested_child",
         "condition_field",
         "unknown_condition",
