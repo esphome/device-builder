@@ -16,6 +16,8 @@
 
 7. **Device discovery.** mDNS browser for instant online/offline detection, ping sweep every 60s as fallback, optional MQTT discovery for devices that opt in via an `mqtt:` block. Source priority: `mdns > mqtt > ping`.
 
+8. **esphome owns config validation.** The catalogs describe schemas for the editor; they never gate a write. Field and value semantics are checked by running `esphome config` (`devices/validate`, the MCP `validate_config` tool). See the note under Component Catalog.
+
 ## Project Structure
 
 High-level orientation; not exhaustive. The larger surfaces
@@ -312,6 +314,20 @@ dotted id directly. A new upstream domain missing a `ComponentCategory` member
 fails the sync loudly instead of degrading to MISC.
 Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
+
+The catalog is a lossy snapshot, never a validator. Custom validators,
+`maybe_simple_value` wrappers and keys the sync cannot express all drop out,
+so a catalog-derived "is this field allowed" check refuses valid configs
+wherever the two differ (measured against esphome 2026.9.0: `emontx.send_command`
+requires `command` while the catalog lists only `id`, and 54 automation
+registry entries could not be compared at all). The editor makes that fatal:
+`automations/parse` copies every YAML key into `params` and the visual editor
+auto-applies the whole tree through `automations/upsert`, so one gap makes an
+existing valid automation impossible to edit. Structural guards on a write
+(an occupied location, a parser-skipped list entry, a stale `expected`) are
+fine; field semantics come from `esphome config`, and an agent repairs from
+esphome's own error (PR #2793 was closed on this; issue #2797 has the MCP
+follow-up).
 
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)
