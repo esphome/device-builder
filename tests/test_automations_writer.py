@@ -3860,12 +3860,27 @@ def test_listify_keeps_comments_and_blank_lines_inside_the_block() -> None:
 @pytest.mark.parametrize(
     "text",
     [
-        "interval: {interval: 60s, then: [{delay: 1s}]}\n",
-        "interval: [{interval: 60s, then: [{delay: 1s}]}]\n",
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}\nota:\n",
+        "logger:\ninterval: [{interval: 60s, then: [{delay: 1s}]}]\nota:\n",
     ],
     ids=["flow_mapping", "flow_list"],
 )
-def test_upsert_refuses_a_flow_style_block_instead_of_duplicating_it(text: str) -> None:
+def test_upsert_expands_a_one_line_flow_block_into_a_block_list(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "logger:\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\nota:\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["interval: {interval: 60s,\n  then: [{delay: 1s}]}\n", "interval: 60s\n"],
+    ids=["multi_line_flow", "inline_scalar"],
+)
+def test_upsert_refuses_a_flow_block_it_cannot_expand(text: str) -> None:
     with pytest.raises(CommandError) as err:
         render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
     assert err.value.code == ErrorCode.INVALID_ARGS

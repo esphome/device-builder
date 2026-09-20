@@ -21,6 +21,9 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, Concatenate
 
+from ruamel.yaml import YAMLError
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     SubEntityRef,
@@ -38,6 +41,7 @@ from ...helpers.yaml import (
     upsert_nested_handler,
     upsert_subentity_handler,
 )
+from ...helpers.yaml.scan import key_line_res
 from ...helpers.yaml.writing_layout import (
     _build_diff_for_append,
     _indent_for_top_list,
@@ -180,7 +184,8 @@ def _in_list_form[**P](
 
     @wraps(op)
     def run(yaml_text: str, domain: str, *args: P.args, **kwargs: P.kwargs) -> tuple[str, YamlDiff]:
-        listed = _normalize_multi_conf_block(yaml_text, domain) or yaml_text
+        expanded = _expand_flow_block(yaml_text, domain)
+        listed = _normalize_multi_conf_block(expanded, domain) or expanded
         new_text, diff = op(listed, domain, *args, **kwargs)
         if listed is yaml_text:
             return new_text, diff
@@ -189,8 +194,36 @@ def _in_list_form[**P](
     return run
 
 
+def _expand_flow_block(yaml_text: str, domain: str) -> str:
+    """Rewrite a one-line flow-style ``<domain>: {...}`` / ``[...]`` as a block-form list."""
+    lines = yaml_text.splitlines(keepends=True)
+    inline_re = key_line_res(domain, prefix="^")[1]
+    idx = next((i for i, line in enumerate(lines) if inline_re.match(line.rstrip("\n\r"))), None)
+    if idx is None:
+        return yaml_text
+    try:
+        loaded = make_yaml().load(lines[idx])
+    except YAMLError:
+        return yaml_text  # a flow value spanning lines is left for _require_block_style
+    value = loaded.get(domain) if isinstance(loaded, dict) else None
+    if not isinstance(value, (dict, list)):
+        return yaml_text
+    items = value if isinstance(value, list) else [value]
+    _set_block_style(items)
+    return "".join(lines[:idx]) + f"{domain}:\n" + dump(items) + "".join(lines[idx + 1 :])
+
+
+def _set_block_style(node: Any) -> None:
+    """Clear ruamel's flow-style flags on *node* and everything under it."""
+    if isinstance(node, (CommentedMap, CommentedSeq)):
+        node.fa.set_block_style()
+    children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
+    for child in children:
+        _set_block_style(child)
+
+
 def _require_block_style(yaml_text: str, domain: str, items: Any) -> None:
-    """Refuse a flow-style ``<domain>: {...}`` / ``[...]`` the line splicers cannot see into."""
+    """Refuse a flow-style ``<domain>:`` value spanning lines; the line splicers cannot see it."""
     if items is not None and find_block_header(yaml_text.splitlines(), domain) is None:
         msg = f"{domain}: is written in flow style; rewrite it as a block first"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
