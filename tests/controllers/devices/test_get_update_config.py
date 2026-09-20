@@ -456,6 +456,66 @@ async def test_update_config_refuses_empty_device_yaml_even_with_allow_wipe(
     assert controller._scanner.calls == []
 
 
+async def test_update_config_with_expected_writes_while_the_text_still_matches(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    await controller.update_config(
+        configuration="kitchen.yaml",
+        content="esphome:\n  name: kitchen\n  friendly_name: Kitchen\n",
+        expected="esphome:\n  name: kitchen\n",
+    )
+
+    assert "friendly_name" in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_update_config_with_expected_refuses_a_file_that_moved_on(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(
+            configuration="kitchen.yaml", content="esphome:\n  name: k2\n", expected="stale\n"
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: kitchen\n"
+
+
+@pytest.mark.parametrize(
+    ("configuration", "expected", "fragment"),
+    [
+        ("secrets.yaml", "a: 1\n", "not supported for secrets.yaml"),
+        ("kitchen.yaml", 7, "expected must be a string"),
+    ],
+)
+async def test_update_config_refuses_expected_where_it_cannot_apply(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    configuration: str,
+    expected: object,
+    fragment: str,
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.update_config(
+            configuration=configuration,
+            content="a: 1\n",
+            expected=expected,  # type: ignore[arg-type]
+        )
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert fragment in excinfo.value.message
+
+
 async def test_update_config_rejects_non_bool_allow_wipe(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
