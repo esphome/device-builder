@@ -1819,7 +1819,8 @@ def _id_class_scratch(section: dict, impl_paths: dict[str, list[list[str]]]) -> 
     }
 
 
-class _UntypedVariant(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class _UntypedVariant:
     """A typed hub the bundle cannot judge: *name* is the first variant with no id class."""
 
     typed_key: str
