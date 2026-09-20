@@ -52,10 +52,14 @@ def _make_controller(config_dir: Path, *, devices: Any) -> AutomationsController
     return AutomationsController(db)
 
 
+def _setup(config_dir: Path, text: str = _YAML) -> tuple[AutomationsController, _Devices]:
+    devices = _Devices(text)
+    return _make_controller(config_dir, devices=devices), devices
+
+
 @pytest.mark.parametrize("save", [True, False])
 async def test_delete_writes_the_spliced_config_only_with_save(tmp_path: Path, save: bool) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
 
     result = await controller.delete(configuration="d.yaml", location=_LOCATION, save=save)
 
@@ -67,8 +71,7 @@ async def test_delete_writes_the_spliced_config_only_with_save(tmp_path: Path, s
 async def test_delete_with_expected_removes_only_the_automation_it_was_shown(
     tmp_path: Path,
 ) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
     shown = (await asyncio.to_thread(parsing.parse_device_yaml, _YAML))[0].raw_yaml
     assert shown.endswith("\n")
 
@@ -100,8 +103,7 @@ async def test_delete_with_expected_removes_only_the_automation_it_was_shown(
 async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
     tmp_path: Path, location: dict[str, Any], expected: str, fragment: str
 ) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
 
     with pytest.raises(CommandError) as excinfo:
         await controller.delete(
@@ -111,7 +113,7 @@ async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
     assert fragment in excinfo.value.message
     if fragment.startswith("differs"):
-        assert "nothing was deleted, list again before deleting" in excinfo.value.message
+        assert "nothing was written, list again and retry" in excinfo.value.message
         assert "-    - delay: 2s\n+    - delay: 1s\n" in excinfo.value.message
     assert devices.saved == []
 
@@ -122,8 +124,7 @@ async def test_delete_with_expected_refuses_a_positional_index_that_shifted(
     item = "  - interval: {n}s\n    then:\n      - delay: {n}s\n"
     listed = "interval:\n" + item.format(n=1)
     on_disk = "interval:\n" + item.format(n=9) + item.format(n=1)
-    devices = _Devices(on_disk)
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path, on_disk)
     shown = (await asyncio.to_thread(parsing.parse_device_yaml, listed))[0].raw_yaml
 
     with pytest.raises(CommandError) as excinfo:
@@ -139,8 +140,7 @@ async def test_delete_with_expected_refuses_a_positional_index_that_shifted(
 
 
 async def test_delete_with_expected_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:
-    devices = _Devices("esphome: [\n")
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path, "esphome: [\n")
 
     with pytest.raises(CommandError) as excinfo:
         await controller.delete(
@@ -148,14 +148,13 @@ async def test_delete_with_expected_refuses_a_file_that_no_longer_loads(tmp_path
         )
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert excinfo.value.message.startswith("the config no longer loads, nothing was deleted: ")
+    assert excinfo.value.message.startswith("the config no longer loads, nothing was written: ")
     assert isinstance(excinfo.value.__cause__, CommandError)
     assert devices.saved == []
 
 
 async def test_delete_with_expected_passes_other_parser_errors_through(tmp_path: Path) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
     other = CommandError(ErrorCode.UNAVAILABLE, "catalog not loaded")
 
     with (
@@ -192,8 +191,7 @@ async def test_delete_refuses_a_non_string_expected(tmp_path: Path) -> None:
     ],
 )
 async def test_delete_refuses_invalid_save_args(tmp_path: Path, args: dict[str, Any]) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
 
     with pytest.raises(CommandError) as err:
         await controller.delete(configuration="d.yaml", location=_LOCATION, **args)
@@ -255,9 +253,20 @@ _REPLACEMENT = {
 }
 
 
+_LIST_SHAPED = (
+    "esphome:\n  name: d\n  on_boot:\n"
+    "    - then:\n        - delay: 9s\n    - then:\n        - delay: 8s\n"
+)
+_INTERVAL = "interval:\n  - interval: 1s\n    then:\n      - delay: 1s\n"
+_SHORTHAND = (
+    "button:\n  - platform: template\n    name: B\n    id: bid\n"
+    "    on_press:\n      - switch.turn_off: relay\n"
+)
+_TIMED = _AUTOMATION | {"trigger_id": None, "trigger_params": {"interval": "5s"}}
+
+
 async def test_upsert_with_save_inserts_at_an_empty_location(tmp_path: Path) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
 
     result = await controller.upsert(
         configuration="d.yaml",
@@ -272,122 +281,100 @@ async def test_upsert_with_save_inserts_at_an_empty_location(tmp_path: Path) -> 
     assert "on_shutdown:" in new_text and "on_boot:" in new_text
 
 
-async def test_upsert_with_save_refuses_to_replace_without_expected(tmp_path: Path) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
-
-    with pytest.raises(CommandError) as excinfo:
-        await controller.upsert(
-            configuration="d.yaml", automation=_REPLACEMENT, location=_LOCATION, save=True
-        )
-
-    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert "already holds YAML" in excinfo.value.message
-    assert devices.saved == []
-
-
-async def test_upsert_with_save_refuses_to_replace_a_list_shaped_handler(tmp_path: Path) -> None:
-    handlers = "    - then:\n        - delay: 9s\n    - then:\n        - delay: 8s\n"
-    listed = "esphome:\n  name: d\n  on_boot:\n" + handlers
-    devices = _Devices(listed)
-    controller = _make_controller(tmp_path, devices=devices)
-
-    with pytest.raises(CommandError) as excinfo:
-        await controller.upsert(
-            configuration="d.yaml", automation=_REPLACEMENT, location=_LOCATION, save=True
-        )
-
-    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert devices.saved == []
-
-
-async def test_upsert_with_save_appends_a_handler_to_a_list_shaped_trigger(
+@pytest.mark.parametrize(
+    ("text", "automation", "location", "needle", "count"),
+    [
+        pytest.param(
+            _LIST_SHAPED,
+            _AUTOMATION,
+            {"kind": "device_on", "trigger": "on_boot", "index": 2},
+            "- then:",
+            3,
+            id="list_shaped_handler",
+        ),
+        pytest.param(
+            _SHORTHAND,
+            _AUTOMATION | {"trigger_id": None},
+            {"kind": "component_on", "component_id": "bid", "trigger": "on_press", "index": 1},
+            "- then:",
+            2,
+            id="bare_action_list_shorthand",
+        ),
+        pytest.param(
+            _INTERVAL, _TIMED, {"kind": "interval", "index": 1}, "- interval:", 2, id="interval"
+        ),
+        pytest.param(
+            "api:\n  services:\n    - service: ping\n      then:\n        - delay: 1s\n",
+            _AUTOMATION | {"trigger_id": None},
+            {"kind": "api_action", "action_name": "pong"},
+            "- action:",
+            2,
+            id="legacy_api_services",
+        ),
+    ],
+)
+async def test_upsert_with_save_appends_beside_existing_automations(
     tmp_path: Path,
+    text: str,
+    automation: dict[str, Any],
+    location: dict[str, Any],
+    needle: str,
+    count: int,
 ) -> None:
-    handlers = "    - then:\n        - delay: 9s\n    - then:\n        - delay: 8s\n"
-    devices = _Devices("esphome:\n  name: d\n  on_boot:\n" + handlers)
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path, text)
 
     await controller.upsert(
-        configuration="d.yaml",
-        automation=_AUTOMATION,
-        location={"kind": "device_on", "trigger": "on_boot", "index": 2},
-        save=True,
+        configuration="d.yaml", automation=automation, location=location, save=True
     )
 
-    assert devices.saved[0][1].count("- then:") == 3
+    assert devices.saved[0][1].count(needle) == count
+    if text is _SHORTHAND:
+        assert "switch.turn_off: relay" in devices.saved[0][1]
 
 
-async def test_upsert_with_save_appends_to_a_bare_action_list_shorthand(tmp_path: Path) -> None:
-    shorthand = (
-        "button:\n  - platform: template\n    name: B\n    id: bid\n"
-        "    on_press:\n      - switch.turn_off: relay\n"
-    )
-    devices = _Devices(shorthand)
-    controller = _make_controller(tmp_path, devices=devices)
-
-    await controller.upsert(
-        configuration="d.yaml",
-        automation=_AUTOMATION | {"trigger_id": None},
-        location={"kind": "component_on", "component_id": "bid", "trigger": "on_press", "index": 1},
-        save=True,
-    )
-
-    saved = devices.saved[0][1]
-    assert saved.count("- then:") == 2 and "switch.turn_off: relay" in saved
-
-
-async def test_upsert_with_save_refuses_an_index_the_writer_cannot_honour(tmp_path: Path) -> None:
-    devices = _Devices("interval:\n  - interval: 1s\n    then:\n      - delay: 1s\n")
-    controller = _make_controller(tmp_path, devices=devices)
+@pytest.mark.parametrize(
+    ("text", "automation", "location", "fragment"),
+    [
+        pytest.param(_YAML, _REPLACEMENT, _LOCATION, "already holds YAML", id="occupied"),
+        pytest.param(
+            _LIST_SHAPED, _REPLACEMENT, _LOCATION, "already holds YAML", id="list_shaped_handler"
+        ),
+        pytest.param(
+            _INTERVAL, _TIMED, {"kind": "interval", "index": 5}, "already holds", id="bad_index"
+        ),
+        pytest.param(
+            "esphome: [\n",
+            _AUTOMATION,
+            {"kind": "device_on", "trigger": "on_shutdown"},
+            "no longer loads",
+            id="no_longer_loads",
+        ),
+    ],
+)
+async def test_upsert_with_save_refuses_an_insert_that_is_not_clean(
+    tmp_path: Path,
+    text: str,
+    automation: dict[str, Any],
+    location: dict[str, Any],
+    fragment: str,
+) -> None:
+    controller, devices = _setup(tmp_path, text)
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(
-            configuration="d.yaml",
-            automation=_AUTOMATION | {"trigger_id": None, "trigger_params": {"interval": "5s"}},
-            location={"kind": "interval", "index": 5},
-            save=True,
+            configuration="d.yaml", automation=automation, location=location, save=True
         )
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert fragment in excinfo.value.message
     assert devices.saved == []
-
-
-async def test_upsert_with_save_appends_to_a_list_without_expected(tmp_path: Path) -> None:
-    devices = _Devices("interval:\n  - interval: 1s\n    then:\n      - delay: 1s\n")
-    controller = _make_controller(tmp_path, devices=devices)
-
-    result = await controller.upsert(
-        configuration="d.yaml",
-        automation=_AUTOMATION | {"trigger_id": None, "trigger_params": {"interval": "5s"}},
-        location={"kind": "interval", "index": 1},
-        save=True,
-    )
-
-    assert result["yaml_diff"]["toLine"] == result["yaml_diff"]["fromLine"] - 1
-    assert devices.saved[0][1].count("- interval:") == 2
-
-
-async def test_upsert_with_save_inserts_into_a_legacy_api_services_block(tmp_path: Path) -> None:
-    devices = _Devices("api:\n  services:\n    - service: ping\n      then:\n        - delay: 1s\n")
-    controller = _make_controller(tmp_path, devices=devices)
-
-    await controller.upsert(
-        configuration="d.yaml",
-        automation=_AUTOMATION | {"trigger_id": None},
-        location={"kind": "api_action", "action_name": "pong"},
-        save=True,
-    )
-
-    assert devices.saved[0][1].count("- action:") == 2
 
 
 async def test_upsert_with_expected_refuses_when_the_writer_would_append_instead(
     tmp_path: Path,
 ) -> None:
     idless = "script:\n  - then:\n      - delay: 1s\n"
-    devices = _Devices(idless)
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path, idless)
     shown = (await asyncio.to_thread(parsing.parse_device_yaml, idless))[0]
 
     with pytest.raises(CommandError) as excinfo:
@@ -405,8 +392,7 @@ async def test_upsert_with_expected_refuses_when_the_writer_would_append_instead
 
 
 async def test_upsert_with_save_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:
-    devices = _Devices("esphome: [\n")
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path, "esphome: [\n")
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(
@@ -421,8 +407,7 @@ async def test_upsert_with_save_refuses_a_file_that_no_longer_loads(tmp_path: Pa
 
 
 async def test_upsert_with_expected_replaces_the_automation_it_was_shown(tmp_path: Path) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
     shown = (await asyncio.to_thread(parsing.parse_device_yaml, _YAML))[0].raw_yaml
 
     await controller.upsert(
@@ -451,8 +436,7 @@ async def test_upsert_with_expected_replaces_the_automation_it_was_shown(tmp_pat
 async def test_upsert_with_expected_refuses_a_changed_or_missing_automation(
     tmp_path: Path, location: dict[str, Any], expected: str, fragment: str
 ) -> None:
-    devices = _Devices()
-    controller = _make_controller(tmp_path, devices=devices)
+    controller, devices = _setup(tmp_path)
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(
