@@ -8,7 +8,13 @@ from unittest.mock import AsyncMock
 import jsonschema
 import pytest
 
-from esphome_device_builder.mcp import INTERNAL_ERROR, INVALID_ARGS, McpToolError, ToolRegistry
+from esphome_device_builder.mcp import (
+    INTERNAL_ERROR,
+    INVALID_ARGS,
+    McpToolError,
+    ToolRegistry,
+    closed_object,
+)
 from esphome_device_builder.mcp.tools import validate_args
 
 _SCHEMA = {
@@ -154,8 +160,105 @@ async def test_a_raising_translator_counts_as_untranslated() -> None:
 
 def test_registration_rejects_keywords_the_validator_does_not_enforce() -> None:
     tools: ToolRegistry[None] = ToolRegistry()
-    with pytest.raises(ValueError, match=r"unenforced keywords \['enum'\]"):
-        tools.tool("t", "desc", {"a": {"type": "string", "enum": ["x"]}})
+    with pytest.raises(ValueError, match=r"unenforced keywords \['pattern'\]"):
+        tools.tool("t", "desc", {"a": {"type": "string", "pattern": "x"}})
+
+
+_REF = closed_object(
+    {"kind": {"type": "string", "enum": ["a", "b"]}, "id": {"type": "string"}}, ("kind", "id")
+)
+_NESTED = closed_object({"refs": {"type": "array", "items": _REF}})
+
+
+def test_closed_object_registers_as_valid_json_schema() -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+
+    @tools.tool("t", "desc", {"refs": {"type": "array", "items": _REF}}, ("refs",))
+    async def _t(_context: None, _args: dict[str, Any]) -> str:
+        return "ok"
+
+    (definition,) = tools.definitions()
+    jsonschema.Draft202012Validator.check_schema(definition["inputSchema"])
+    assert definition["inputSchema"]["properties"]["refs"]["items"] == {
+        "type": "object",
+        "properties": {"kind": {"type": "string", "enum": ["a", "b"]}, "id": {"type": "string"}},
+        "required": ["kind", "id"],
+        "additionalProperties": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("prop", "fragment"),
+    [
+        pytest.param({"type": "integer", "enum": [1]}, "enum on a non-string type", id="int_enum"),
+        pytest.param({"type": "string", "enum": []}, "list of strings", id="empty_enum"),
+        pytest.param({"type": "string", "enum": ["x", 1]}, "list of strings", id="mixed"),
+        pytest.param({"type": "string", "enum": ["x", "x"]}, "duplicate enum", id="dup_enum"),
+        pytest.param({"type": "string", "items": _REF}, "non-array type", id="str_items"),
+        pytest.param({"type": "array", "items": "x"}, "property schema as its items", id="items"),
+        pytest.param(_REF | {"type": "array"}, "properties on a non-object type", id="arr_props"),
+        pytest.param(
+            {"type": "object", "properties": {}},
+            "see closed_object",
+            id="half",
+        ),
+        pytest.param(
+            closed_object({"a": {"type": "string"}}, ("a", "a")), "duplicate required", id="dup_req"
+        ),
+        pytest.param(
+            closed_object({}, ("a",)), r"required names not in properties: \['a'\]", id="missing"
+        ),
+        pytest.param(
+            closed_object({}) | {"additionalProperties": True},
+            "additionalProperties false",
+            id="open",
+        ),
+        pytest.param(
+            {"type": "array", "items": {"type": "integer", "default": 1}},
+            r"a.items has unenforced keywords \['default'\]",
+            id="nested_default",
+        ),
+        pytest.param({"type": "array", "items": {}}, "a.items needs a type", id="nested_type"),
+        pytest.param(
+            closed_object({"k": {"type": "integer", "minimum": "1"}}),
+            "a.k needs numeric bounds",
+            id="nested_bounds",
+        ),
+    ],
+)
+def test_registration_rejects_shapes_it_cannot_enforce(prop: dict[str, Any], fragment: str) -> None:
+    tools: ToolRegistry[None] = ToolRegistry()
+    with pytest.raises(ValueError, match=fragment):
+        tools.tool("t", "desc", {"a": prop})
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{}, {"refs": []}, {"refs": [{"kind": "a", "id": "x"}, {"kind": "b", "id": "y"}]}],
+)
+def test_validate_args_accepts_nested_shapes(arguments: dict[str, Any]) -> None:
+    validate_args(_NESTED, arguments)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "fragment"),
+    [
+        pytest.param({"refs": ["a/x"]}, "a list whose item 0 is object", id="item_type"),
+        pytest.param({"refs": [{"kind": "a"}]}, "item 0 is an object with id", id="req"),
+        pytest.param(
+            {"refs": [{"kind": "a", "id": "x", "z": 1}]}, "is an object without z", id="unknown"
+        ),
+        pytest.param({"refs": [{"kind": "a", "id": 1}]}, "an object whose id is string", id="type"),
+        pytest.param(
+            {"refs": [{"kind": "a", "id": "x"}, {"kind": "c", "id": "x"}]},
+            r"item 1 is an object whose kind is one of \['a', 'b'\]",
+            id="enum",
+        ),
+    ],
+)
+def test_validate_args_rejects_nested_shapes(arguments: dict[str, Any], fragment: str) -> None:
+    with pytest.raises(McpToolError, match=fragment):
+        validate_args(_NESTED, arguments)
 
 
 _BOUNDED = {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}

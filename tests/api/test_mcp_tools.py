@@ -484,10 +484,15 @@ async def test_get_automation_docs_example_resolves_against_the_catalog(
     )
     assert is_error
     assert text == "not_found: Unknown automation refs: actions/nope.x"
-    for bad in ({"type": "action", "id": "light.turn_on"}, {"type": "actions"}, "actions/x"):
+    for bad, must_be in (
+        ({"type": "action", "id": "light.turn_on"}, "an object whose type is one of ['triggers'"),
+        ({"type": "actions"}, "an object with id"),
+        ("actions/x", "object"),
+    ):
         is_error, text = await mcp_call(mcp_client, "get_automation_docs", {"refs": [bad]})
         assert is_error
-        assert text.startswith("invalid_args: each ref needs a type of triggers, actions")
+        prefix = "invalid_args: Argument refs must be a list whose item 0 is "
+        assert text.startswith(prefix + must_be)
 
 
 async def test_get_automation_docs_caps_the_refs_per_call(
