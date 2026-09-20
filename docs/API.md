@@ -532,6 +532,59 @@ Right after a client subscribes (and before any live events arrive), the server 
 
 ---
 
+## MCP endpoint (`POST /api/mcp`)
+
+A [Model Context Protocol](https://modelcontextprotocol.io) server so an LLM agent (Home Assistant's `mcp` integration, Claude Code, Claude Desktop through a local bridge) can read and change device configs, start builds and installs, and read the component catalog. The protocol lives in the generic `mcp/` package (JSON-RPC envelope, tool registry); `api/mcp/` adds the route and the Device Builder tools. Same aiohttp app as everything else; no extra dependency.
+
+**Transport.** Stateless streamable HTTP: one JSON-RPC 2.0 request per `POST /api/mcp` with a JSON reply, no session id, no server-initiated stream. The body must be `Content-Type: application/json` (415 otherwise). `GET` and `DELETE` answer 405. A notification (a message without `id`) answers 202 with an empty body. Batches (a JSON array body) are rejected, so the batching-era revisions are not offered: `2025-06-18` and `2025-11-25` are echoed back and any other request is answered with `2025-11-25`, the newest served, as the spec's counter-offer.
+
+| Method | Result |
+|---|---|
+| `initialize` | `{protocolVersion, capabilities: {tools: {}}, serverInfo: {name, version}}` |
+| `ping` | `{}` |
+| `tools/list` | `{tools: [{name, description, inputSchema}]}` |
+| `tools/call` | `{content: [{type: "text", text}], isError}`. A tool failure is a result with `isError: true` whose text starts with the `ErrorCode` (`not_found: ...`, `invalid_args: ...`), not a JSON-RPC error. An unknown tool name is JSON-RPC `-32602`. |
+
+**Tools.** Each calls the WS command handlers through the same command table, so validation and error codes match the WS surface. `tail_lines` is 0 to 1000 (default 50) and `limit` is 1 to 100 (default 20); a value outside either range is `invalid_args`, as is more than 50 `refs` on `get_automation_docs`. `install` also reads the dependent upload job off the firmware state, `get_job` builds its reply with the firmware package's `job_report`, and `get_config_components` reads scan data through a shared helper instead of a command. Every tool answers within Home Assistant's 10 second per-call budget except `validate_config` and `create_device`, which run `esphome config` and are best effort there. Long work is start-then-poll.
+
+| Tool | Wraps | Notes |
+|---|---|---|
+| `list_devices` | `devices/list` | Flat rows (`runtime_state` merged in), scalar fields only; per-device lists come from the detail tools |
+| `get_config {configuration}` | `devices/get_config` | Returns the YAML text |
+| `update_config {configuration, content, expected}` | `devices/update_config` | Whole-file replace; the earlier text is kept in version history. `expected` is required and is the text `get_config` returned, so a tool cannot write a file it has not read; a file that changed since answers `precondition_failed` with nothing written, a deleted one `not_found`, and a new device is made with `create_device`, never here |
+| `add_component {configuration, component_id, fields?}` | `devices/add_component` | |
+| `validate_config {configuration, tail_lines?}` | `devices/validate` | `{success, exit_code, output, truncated}` (the last `tail_lines` lines; `truncated` says earlier lines were dropped; esphome's concealed values are replaced with `<removed>`). The bounds are `devices/validate`'s own: `unavailable` when three validations are already running and none frees a slot within 30 s, or when the run prints nothing for a minute and is stopped; a run that ends without a result frame is an `internal_error` |
+| `compile {configuration}` | `firmware/compile` | `{job_id, status}` |
+| `install {configuration, port?}` | `firmware/install` | `{job_id, status, upload_job_id, deferred}`; `upload_job_id` is null when `deferred` (an offline device whose update was queued). A flash has no undo |
+| `get_job {job_id, tail_lines?}` | `firmware/get_job` | Job fields plus `queued_update_armed`, the last `tail_lines` output lines (ANSI stripped), `truncated` when earlier lines were dropped (by the tail or by the job's own output retention), and `output_available: false` when the job log could not be read; esphome's concealed values are replaced with `<removed>`; terminal jobs read the output sidecar |
+| `cancel_job {job_id}` | `firmware/cancel` then `firmware/get_job` | `{job_id, status}` as of right after the request; a queued job is `cancelled` at once, a running one is signalled and may still finish, so poll `get_job` |
+| `search_components {query, limit?}` | `components/get_components` | `{total, components}` with slim index rows; `total` above the row count means the query was capped |
+| `get_component {component_id, platform?, board_id?, include_advanced?}` | `components/get_component_bodies` | The catalog body with `advanced` and `hidden` (YAML-only) entries removed unless `include_advanced`. Fields at their model default are absent (the catalog models omit them), so a `default_value` of `false` is kept while `required: false` is not |
+| `get_config_components {configuration}` | `Device.component_ids` (scan data) + slim index | The catalog components a device YAML used as of its last scan (every save rescans): the `key` and `key.platform` ids with a catalog entry, each with name, description and docs URL. An unknown config answers `not_found`; a config whose last scan could not load it (a mid-edit syntax error) answers `unavailable` rather than an empty list; saving the file rescans it |
+| `search_boards {query, limit?}` | `boards/get_boards` | `{total, boards}` with slim board rows; the `id` is what `create_device` takes |
+| `list_secret_names` | `config/get_secrets` | The secret names defined in `secrets.yaml` |
+| `set_secret {name, value, overwrite?}` | `config/set_secret` | `{name, created}`; `overwrite` defaults to false, so an existing name is `invalid_args` rather than a silent skip, and with `overwrite: true` the old value is replaced (`created: false`) and not recoverable, since secrets.yaml is kept out of version history; the only tool that changes the secrets file |
+| `create_device {name, friendly_name?, board_id?}` | `devices/create` | The wizard, without the inline `ssid` / `psk` arguments, so Wi-Fi lands as `!secret wifi_ssid` / `!secret wifi_password` references |
+| `list_automations {configuration}` | `automations/parse` | Every automation in the YAML with its label, raw YAML, line range and `location` (the editor's decomposed tree is dropped) |
+| `get_available_automations {configuration}` | `automations/get_available` | The trigger, action, condition, script and component ids this device's config exposes |
+| `get_automation_docs {refs, include_advanced?}` | `automations/get_bodies` | Bodies for up to 50 `[{type, id}]` refs (advanced and hidden fields only with `include_advanced`); `type` is one of `triggers`, `actions`, `conditions`, `light_effects`, `filters` (any other type is `invalid_args`) |
+| `delete_automation {configuration, location, expected}` | `automations/delete` with `save` | Removes the automation at a `location` from `list_automations` and saves the file in one call, answering `{configuration, yaml_diff}`. `expected` is required and is the `raw_yaml` the listing returned, so the tool cannot delete an automation it was not shown: a location is positional, and one that changed or moved since answers `precondition_failed` with nothing written; adding or changing one is a YAML edit through `update_config` |
+
+**Secrets.** `get_config` reads `secrets.yaml` by that exact name, the file `list_secret_names` and `set_secret` use (a `secrets.yml` alias is refused, so the three tools always agree on one file), but no tool writes it whole: every other tool that takes a `configuration` refuses the secrets file (`secrets.yaml` or `.yml`, any case or Windows alias), so a model cannot replace the document and lose the other secrets by mistake. `set_secret` changes one key under the secrets write lock and is the only write path; `list_secret_names` lists the names. Every `configuration` must be a bare device `.yaml` filename, with no directory part. `validate_config` and `get_job` output has esphome's conceal-wrapped values (passwords, keys) removed, as the dashboard's own validate view does. `create_device` references the Wi-Fi secrets by name instead of taking credentials.
+
+**Recovery.** Every YAML write a tool makes lands in the dashboard's version history like an editor save, so a bad `update_config`, `add_component` or `delete_automation` is undone from there. `set_secret` is not: secrets.yaml is kept out of version history by design, so a replaced secret is gone, which is why replacing one needs `overwrite`. A flash is not: `install` puts whatever compiles onto the device, and a config that compiles but drops `wifi:`, `api:` or `ota:`, or names the wrong board, leaves a device that only a serial cable recovers. Reading `secrets.yaml` through `get_config` puts its values into the model's context, and the client (Home Assistant keeps conversation traces) decides where that goes.
+
+**Auth.** The route mirrors `/ws` on each site: nothing on the trusted ingress site; on the public site the REST `Authorization` gate (`Basic` or a `Bearer` session token) whenever a password is set, plus the WebSocket handshake's `Origin` / `Host` check for any request carrying an `Origin` header (same-origin or `--trusted-domains`, 403 otherwise). Non-browser clients send no `Origin`. Home Assistant's `mcp` integration cannot send a static credential (a 401 sends it into OAuth discovery, which this server does not offer), so from HA the server must be reachable without a password: the add-on ingress site, or a standalone install with no password.
+
+**Connecting.**
+
+- Home Assistant add-on: the add-on announces `http://127.0.0.1:<ingress_port>/api/mcp` through supervisor discovery; confirm the `mcp` integration when it appears.
+- Home Assistant, standalone backend: Settings → Integrations → Model Context Protocol, URL `http://<host>:6052/api/mcp`.
+- Claude Code: `claude mcp add --transport http device-builder http://127.0.0.1:6052/api/mcp`, adding `--header "Authorization: Basic <base64 user:password>"` when a password is set.
+- Claude Desktop: a stdio bridge such as `npx mcp-remote http://127.0.0.1:6052/api/mcp` in its MCP config.
+
+---
+
 ## Legacy REST Endpoints (Deprecated)
 
 For Home Assistant ESPHome integration backward compat only.
