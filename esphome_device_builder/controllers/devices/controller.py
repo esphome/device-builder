@@ -23,6 +23,7 @@ from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
+from ...helpers.device_config import read_device_config, read_device_config_async
 from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
 from ...helpers.secrets_state import (
@@ -88,12 +89,7 @@ from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
-from .helpers import (
-    _build_address_cache_args,
-    read_device_config,
-    read_device_config_async,
-    refuse_empty_write,
-)
+from .helpers import _build_address_cache_args, refuse_empty_write
 from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
 
@@ -844,7 +840,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @api_command("devices/get_config")
     async def get_config(self, *, configuration: str, **kwargs: Any) -> str:
         """Read device config YAML; a missing file is NOT_FOUND, not internal_error."""
-        return await read_device_config_async(self, configuration)
+        return await read_device_config_async(self._db.settings, configuration)
 
     @api_command("devices/update_config")
     async def update_config(

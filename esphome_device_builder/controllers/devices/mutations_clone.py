@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.device_config import read_device_config
 from ...helpers.device_yaml import (
     configuration_stem,
     parse_esphome_meta,
@@ -26,7 +27,6 @@ from .helpers import (
     clean_friendly_name,
     friendly_name_slugify,
     raise_device_name_exists,
-    read_device_config,
     write_new_file_exclusive,
 )
 

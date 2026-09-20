@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import (
     CAPTIVE_PORTAL_PLATFORMS,
     device_ap_label,
@@ -31,7 +32,6 @@ from .helpers import (
     _apply_featured_presets,
     _drop_unconfigured_dependent_fields,
     persist_if_unchanged,
-    read_device_config_async,
     require_catalog,
 )
 
@@ -108,7 +108,7 @@ async def add_component(
         _require_present_fields(component, fields)
 
     if yaml is None:
-        existing = await read_device_config_async(controller, configuration)
+        existing = await read_device_config_async(controller._db.settings, configuration)
     else:
         existing = yaml
     # Honour each field's ``depends_on_component`` gate against
