@@ -570,6 +570,12 @@ class ConfigEntry(DashboardModel):
     # "uart" buses. None when the field is a free-form ID.
     references_component: str | None = None
 
+    # The C++ class the referenced id must inherit (``output::FloatOutput``),
+    # set only when some candidate of ``references_component`` fails it (a
+    # ``gpio`` output is binary only). The frontend drops a candidate whose
+    # component's ``id_classes`` are known and lack it. None = any candidate.
+    references_class: str | None = None
+
     # === pin selection (only meaningful when type == PIN) ===
 
     # Pin capabilities required for this field. Frontend filters the
