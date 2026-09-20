@@ -4064,6 +4064,12 @@ def test_an_alias_as_the_whole_value_is_named_in_the_refusal() -> None:
     assert err.value.message == "interval: is an alias; rewrite it as a block first"
 
 
+def test_a_delete_by_index_still_splices_a_draft_that_does_not_parse() -> None:
+    text = "interval:\n  interval: 60s\n  then:\n    - delay: 1s\nbroken: [unclosed\n"
+    new_text, _ = writing._delete_top_level_list_by_index(text, "interval", 0)
+    assert new_text == "interval:\nbroken: [unclosed\n"
+
+
 def test_a_quoted_or_commented_star_is_not_an_alias() -> None:
     text = 'interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: "*shared"  # *shared\n'
     new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))

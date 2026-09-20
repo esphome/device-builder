@@ -107,7 +107,10 @@ def _set_block_style(node: Any) -> None:
 
 def _require_unaliased(yaml_text: str, domain: str, *, nested: bool) -> None:
     """Refuse to rewrite a block whose anchor (any anchor under it when *nested*) is aliased."""
-    events = list(make_yaml().parse(yaml_text))
+    try:
+        events = list(make_yaml().parse(yaml_text))
+    except YAMLError:
+        return
     anchors = _block_anchors(events, domain)
     if not nested:
         anchors = anchors[:1]
