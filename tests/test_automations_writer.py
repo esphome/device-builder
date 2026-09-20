@@ -4031,6 +4031,16 @@ def test_an_aliased_anchor_blocks_the_flow_expansion_too() -> None:
     )
 
 
+def test_a_nested_aliased_anchor_is_named_in_the_refusal() -> None:
+    text = "interval: {interval: 60s, then: &acts [{delay: 1s}]}\nother: *acts\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (
+        err.value.message == "interval: holds an aliased anchor &acts; rewrite it as a list first"
+    )
+
+
 def test_a_quoted_or_commented_star_is_not_an_alias() -> None:
     text = 'interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: "*shared"  # *shared\n'
     new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))

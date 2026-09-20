@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, Concatenate
@@ -10,7 +9,14 @@ from typing import Any, Concatenate
 from ruamel.yaml import YAMLError
 from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.composer import ComposerError
-from ruamel.yaml.events import AliasEvent
+from ruamel.yaml.events import (
+    AliasEvent,
+    CollectionEndEvent,
+    CollectionStartEvent,
+    Event,
+    NodeEvent,
+    ScalarEvent,
+)
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import _normalize_multi_conf_block
@@ -99,18 +105,40 @@ def _set_block_style(node: Any) -> None:
 
 
 def _require_unaliased(yaml_text: str, domain: str) -> None:
-    """Refuse to rewrite a block whose header anchor is aliased; the alias would break."""
-    lines = yaml_text.splitlines()
-    idx = find_block_header(lines, domain)
-    if idx is None:
-        idx = _inline_header_index(lines, domain)
-    anchor = re.search(r":\s*&(\S+)", lines[idx]) if idx is not None else None
-    if anchor and any(
-        isinstance(event, AliasEvent) and event.anchor == anchor.group(1)
-        for event in make_yaml().parse(yaml_text)
-    ):
-        msg = f"{domain}: is anchored as &{anchor.group(1)} and aliased; rewrite it as a list first"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    """Refuse to rewrite a block declaring an anchor that is aliased; the alias would break."""
+    events = list(make_yaml().parse(yaml_text))
+    anchors = _block_anchors(events, domain)
+    aliased = {event.anchor for event in events if isinstance(event, AliasEvent)}
+    hit = next((name for name in anchors if name in aliased), None)
+    if hit is None:
+        return
+    if hit == anchors[0]:
+        msg = f"{domain}: is anchored as &{hit} and aliased; rewrite it as a list first"
+    else:
+        msg = f"{domain}: holds an aliased anchor &{hit}; rewrite it as a list first"
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
+def _block_anchors(events: list[Event], domain: str) -> list[str | None]:
+    """Anchors declared under the top-level ``<domain>:`` value, the value's own first."""
+    depth = 0
+    node = -1
+    key_node: int | None = None
+    anchors: list[str | None] = []
+    for event in events:
+        if isinstance(event, CollectionEndEvent):
+            depth -= 1
+            continue
+        if depth == 1:
+            node += 1
+            if key_node is None and isinstance(event, ScalarEvent) and event.value == domain:
+                key_node = node
+        in_value = key_node is not None and node == key_node + 1
+        if in_value and isinstance(event, NodeEvent) and not isinstance(event, AliasEvent):
+            anchors.append(event.anchor)
+        if isinstance(event, CollectionStartEvent):
+            depth += 1
+    return anchors
 
 
 def _require_block_style(yaml_text: str, domain: str) -> None:
