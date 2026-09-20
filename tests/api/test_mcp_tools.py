@@ -582,6 +582,45 @@ async def test_automation_tools_wrap_the_automation_commands(
     }
 
 
+async def test_upsert_automation_saves_through_the_command(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    upsert = AsyncMock(
+        return_value={"yaml_diff": {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"}}
+    )
+    mcp_db.command_handlers["automations/upsert"] = upsert
+    location = {"kind": "device_on", "trigger": "on_boot"}
+    tree = {"trigger_id": "on_boot", "trigger_params": {}, "actions": []}
+    assert await mcp_call_json(
+        mcp_client,
+        "upsert_automation",
+        {"configuration": "kitchen.yaml", "location": location, "automation": tree},
+    ) == {
+        "configuration": "kitchen.yaml",
+        "yaml_diff": {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"},
+    }
+    assert upsert.await_args.kwargs == {
+        "client": ANY,
+        "message_id": ANY,
+        "configuration": "kitchen.yaml",
+        "location": location,
+        "automation": tree,
+        "save": True,
+    }
+    upsert.side_effect = CommandError(ErrorCode.PRECONDITION_FAILED, "already holds one")
+    assert await mcp_call(
+        mcp_client,
+        "upsert_automation",
+        {
+            "configuration": "kitchen.yaml",
+            "location": location,
+            "automation": tree,
+            "expected": "stale\n",
+        },
+    ) == (True, "precondition_failed: already holds one")
+    assert upsert.await_args.kwargs["expected"] == "stale\n"
+
+
 async def test_delete_automation_cannot_delete_what_it_was_not_shown(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:

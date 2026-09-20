@@ -112,9 +112,8 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "update_config",
     "Replace a device's YAML configuration with new content. Read it with get_config "
     "first, pass that text as expected, and change only what is needed; run "
-    "validate_config or compile afterwards. For an automation, check "
-    "get_available_automations first for where it goes. The previous text stays in the "
-    "dashboard's version history.",
+    "validate_config or compile afterwards. Add or change an automation with "
+    "upsert_automation instead. The previous text stays in the dashboard's version history.",
     {
         "configuration": _CONFIGURATION,
         "content": _prop("string", "The complete new YAML."),
@@ -399,9 +398,9 @@ async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "get_available_automations",
     "The triggers, actions, conditions, scripts and component instances this device's "
-    "config makes available for automations, by id. Call this before writing one: ESPHome "
-    "has no automation block; a trigger is an on_* key under esphome (device level) or "
-    "under the component entry it belongs to, and scripts and intervals are top-level "
+    "config makes available for automations, by id. Call this before upsert_automation: "
+    "ESPHome has no automation block; a trigger is an on_* key under esphome (device level) "
+    "or under the component entry it belongs to, and scripts and intervals are top-level "
     "script and interval lists. An omitted list is empty.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
@@ -442,6 +441,37 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     if missing := [key for key in keys if key not in bodies]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
     return _visible(bodies, include_advanced=args["include_advanced"])
+
+
+@_tool(
+    "upsert_automation",
+    "Insert or replace one automation in a device config and save it; the backend renders "
+    "the YAML in the right place. location is where it lives: {kind: 'device_on', trigger: "
+    "'on_boot'} for a device level trigger, {kind: 'component_on', component_id, trigger} for "
+    "a component's on_* trigger (ids from get_available_automations), {kind: 'script', id} "
+    "or {kind: 'interval', index}. automation is {trigger_id, trigger_params, actions: "
+    "[{action_id, params, children: {then: [...]}, conditions: [...]}]} with ids and fields "
+    "from get_available_automations and get_automation_docs. An insert needs an empty "
+    "location; to replace, pass the automation's raw_yaml from list_automations as expected.",
+    {
+        "configuration": _CONFIGURATION,
+        "location": _prop("object", "Where the automation lives; see the description."),
+        "automation": _prop("object", "The automation tree; see the description."),
+        "expected": _prop(
+            "string",
+            "When replacing: the automation's raw_yaml exactly as list_automations returned it.",
+        ),
+    },
+    ("configuration", "location", "automation"),
+)
+async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
+    result = await _call(
+        db,
+        "automations/upsert",
+        save=True,
+        **_only(args, "configuration", "location", "automation", "expected"),
+    )
+    return {"configuration": args["configuration"], "yaml_diff": result["yaml_diff"]}
 
 
 @_tool(
