@@ -135,6 +135,31 @@ def test_several_non_default_variants_constrain_the_dependent_to_a_choice_set() 
     assert display["bus_constraints"] == {"spi": {"type": ["octal", "quad"]}}
 
 
+def test_two_references_narrow_the_hub_variants_to_the_ones_both_can_use() -> None:
+    hub = _declarer(
+        "spi",
+        ["spi::SPIComponent"],
+        _variant_id_classes=(
+            "type",
+            {
+                "single": ["spi::SPIComponent"],
+                "quad": ["spi::QuadSPIComponent", "spi::WideBus"],
+                "octal": ["spi::OctalSPIComponent", "spi::WideBus"],
+            },
+        ),
+    )
+    hub["config_entries"] = [{"key": "type", "default_value": "single"}]
+    display = {
+        "id": "display.wide",
+        "config_entries": [
+            _reference("spi_id", "spi", "spi::WideBus"),
+            _reference("data_id", "spi", "spi::QuadSPIComponent"),
+        ],
+    }
+    _resolve([hub, display])
+    assert display["bus_constraints"] == {"spi": {"type": "quad"}}
+
+
 def test_platform_whose_own_domain_ids_are_nested_is_not_a_candidate() -> None:
     """The ``dht`` shape: the picker descends to the nested ids and skips the root."""
     dht = _declarer(

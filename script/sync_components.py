@@ -1770,7 +1770,7 @@ def _default_variant(hub: dict, typed_key: str) -> Any:
 def _apply_hub_variant_constraints(
     entry: dict, by_id: dict[str, dict], variants: _HubVariants
 ) -> None:
-    """Record the one non-default typed hub variant *entry*'s references need."""
+    """Record the non-default typed hub variants *entry*'s references can all use."""
 
     def visit(field: dict, _path: tuple[str, ...]) -> None:
         hub, cls = field.get("references_component"), field.get("references_class")
@@ -1782,14 +1782,20 @@ def _apply_hub_variant_constraints(
         # does) or the default one already does.
         if not qualifying or _default_variant(by_id[hub], typed_key) in qualifying:
             return
-        # One variant is an exact match; several are a choice set, first = default.
-        needed: Any = qualifying[0] if len(qualifying) == 1 else sorted(qualifying)
         constraints = entry.setdefault("bus_constraints", {}).setdefault(hub, {})
-        if constraints.setdefault(typed_key, needed) != needed:
+        # Narrow what an earlier reference or the component's own validator
+        # recorded; only variants nothing can share are a contradiction.
+        recorded = constraints.get(typed_key)
+        allowed = set(qualifying)
+        if recorded is not None:
+            allowed &= set(recorded) if isinstance(recorded, list) else {recorded}
+        if not allowed:
             raise SystemExit(
                 f"{entry['id']}: bus_constraints[{hub}][{typed_key}] is "
-                f"{constraints[typed_key]!r} but {cls} needs {needed!r}"
+                f"{recorded!r} but {cls} needs one of {sorted(qualifying)}"
             )
+        # One variant is an exact match; several are a choice set, first = default.
+        constraints[typed_key] = min(allowed) if len(allowed) == 1 else sorted(allowed)
 
     _walk_catalog_entries(entry.get("config_entries") or [], visit)
 
