@@ -193,8 +193,10 @@ async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     "install",
     "Compile and install firmware on a device. Returns the compile job id and the "
     "dependent upload job id; poll both with get_job. An offline device gets the update "
-    "queued for its next wake (deferred, no upload job). A flash has no undo: the device "
-    "runs whatever compiles, so read and validate the config first.",
+    "queued for its next wake (deferred, no upload job). A null upload_job_id with deferred "
+    "false means the upload job could not be read: poll the compile job, do not install "
+    "again. A flash has no undo: the device runs whatever compiles, so read and validate the "
+    "config first.",
     {
         "configuration": _CONFIGURATION,
         "port": _prop("string", "'OTA' (default), a serial port, or an IP/hostname."),
