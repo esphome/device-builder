@@ -1013,6 +1013,7 @@ def main() -> int:
             registry_groups=_collect_automation_registry_groups(),
             registry_refined=registry_refined,
             registry_ranges=_collect_automation_field_ranges(),
+            restrictive_references=_restrictive_references(catalog),
         )
         _LOGGER.info(
             "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
@@ -1641,53 +1642,60 @@ def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> No
         raise SystemExit("docs_url validation failed:\n  " + "\n  ".join(bad))
 
 
-#: ``(references_component, references_class)`` pairs some picker candidate
-#: fails, set by ``_resolve_reference_classes`` and read when the automations
-#: catalog prunes its own references.
-_RESTRICTIVE_REFERENCES: set[tuple[str, str]] = set()
+#: ``{hub id: (typed_key, {variant: id classes})}`` for the typed hubs.
+_HubVariants = dict[str, tuple[str, dict[str, list[str]]]]
 
 
 def _resolve_reference_classes(entries: list[dict], schema_dir: Path) -> None:
     """
-    Keep ``references_class`` only where some candidate would fail it.
+    Keep ``references_class`` only where some offered candidate fails it.
 
-    A reference is restrictive when a declarer the picker would offer (the
-    ``<domain>`` component, a ``<domain>.<stem>`` platform, or one variant of
-    a typed hub) declares an id that does not inherit the required class.
-    Each such declarer gets ``id_classes`` (``id_classes_by_variant`` for a
-    typed hub); everything else stays unannotated, which readers treat as
-    "no constraint". A dependent that needs one non-default hub variant also
-    gets the matching ``bus_constraints`` entry. In-place.
+    Annotates the failing declarers with ``id_classes`` /
+    ``id_classes_by_variant`` and the hub-variant ``bus_constraints``. In-place.
     """
     root_classes, variants = _declared_id_classes(entries, _collect_referenced_classes(schema_dir))
-    failing = _failing_declarers(entries, root_classes, variants)
+    failing, restrictive = _failing_declarers(entries, root_classes, variants)
     by_id = {entry["id"]: entry for entry in entries}
     for entry in entries:
-        _prune_reference_classes(entry.get("config_entries") or [])
+        _prune_reference_classes(entry.get("config_entries") or [], restrictive)
         _apply_hub_variant_constraints(entry, by_id, variants)
     for component_id in failing:
-        if component_id in variants:
-            typed_key, per_variant = variants[component_id]
-            by_id[component_id]["id_classes_by_variant"] = {
-                typed_key: {name: sorted(classes) for name, classes in sorted(per_variant.items())}
-            }
-        else:
-            by_id[component_id]["id_classes"] = sorted(root_classes[component_id])
+        entry = by_id[component_id]
+        if component_id not in variants:
+            entry["id_classes"] = sorted(root_classes[component_id])
+            continue
+        typed_key, per_variant = variants[component_id]
+        entry["id_classes_by_variant"] = {
+            typed_key: {name: sorted(classes) for name, classes in sorted(per_variant.items())}
+        }
+        # An unset discriminator declares the default variant's classes.
+        entry["id_classes"] = sorted(per_variant.get(_default_variant(entry, typed_key), []))
+
+
+def _restrictive_references(entries: list[dict]) -> set[tuple[str, str]]:
+    """Return the ``(references_component, references_class)`` pairs *entries* kept."""
+    pairs: set[tuple[str, str]] = set()
+
+    def collect(field: dict, _path: tuple[str, ...]) -> None:
+        if field.get("references_class"):
+            pairs.add((field["references_component"], field["references_class"]))
+
+    for entry in entries:
+        _walk_catalog_entries(entry.get("config_entries") or [], collect)
+    return pairs
 
 
 def _declared_id_classes(
     entries: list[dict], referenced: set[str]
-) -> tuple[dict[str, set[str]], dict[str, tuple[str, dict[str, list[str]]]]]:
+) -> tuple[dict[str, set[str]], _HubVariants]:
     """
     Return each offered declarer's root id classes, plus typed hubs' per-variant ones.
 
     Pops the ``_variant_id_classes`` scratch field. A hub whose variants all
-    declare the same classes is an ordinary declarer. A multi-entity platform
-    whose referenceable ids are nested (``dht``'s ``temperature.id``) is left
-    out: ``provides_id_paths`` makes the picker descend and skip its root id.
+    declare the same classes is an ordinary declarer.
     """
     root_classes: dict[str, set[str]] = {}
-    variants: dict[str, tuple[str, dict[str, list[str]]]] = {}
+    variants: _HubVariants = {}
     for entry in entries:
         impl_paths = entry.get("_impl_class_paths") or {}
         variant = entry.pop("_variant_id_classes", None)
@@ -1720,11 +1728,9 @@ def _root_id_is_skipped(
 
 
 def _failing_declarers(
-    entries: list[dict],
-    root_classes: dict[str, set[str]],
-    variants: dict[str, tuple[str, dict[str, list[str]]]],
-) -> set[str]:
-    """Return the declarers some reference rejects; fills ``_RESTRICTIVE_REFERENCES``."""
+    entries: list[dict], root_classes: dict[str, set[str]], variants: _HubVariants
+) -> tuple[set[str], set[tuple[str, str]]]:
+    """Return the declarers some reference rejects, and those restrictive references."""
     by_domain: dict[str, list[str]] = {}
     for component_id in root_classes:
         by_domain.setdefault(component_id.split(".", 1)[0], []).append(component_id)
@@ -1735,49 +1741,57 @@ def _failing_declarers(
         return [root_classes[component_id]]
 
     failing: set[str] = set()
-    _RESTRICTIVE_REFERENCES.clear()
+    restrictive: set[tuple[str, str]] = set()
 
     def note(field: dict, _path: tuple[str, ...]) -> None:
         domain, cls = field.get("references_component"), field.get("references_class")
         if not domain or not cls:
             return
-        failed = [
-            cid
-            for cid in by_domain.get(domain, ())
-            if any(cls not in classes for classes in provided(cid))
-        ]
-        if failed:
-            _RESTRICTIVE_REFERENCES.add((domain, cls))
+        declarers = by_domain.get(domain, ())
+        failed = [cid for cid in declarers if any(cls not in c for c in provided(cid))]
+        # When no offered declarer provides the class, the bundle cannot name
+        # the real candidates (``i2c`` picks its ``declare_id`` class in a
+        # function; an OTA platform satisfies ``http_request``'s), so the
+        # reference stays unfiltered.
+        if failed and any(cls in c for cid in declarers for c in provided(cid)):
+            restrictive.add((domain, cls))
             failing.update(failed)
 
     for entry in entries:
         _walk_catalog_entries(entry.get("config_entries") or [], note)
-    return failing
+    return failing, restrictive
 
 
-def _prune_reference_classes(config_entries: list[dict]) -> None:
-    """Drop ``references_class`` from every reference no candidate can fail."""
+def _prune_reference_classes(config_entries: list[dict], restrictive: set[tuple[str, str]]) -> None:
+    """Drop ``references_class`` from every reference outside *restrictive*."""
 
     def prune(field: dict, _path: tuple[str, ...]) -> None:
-        pair = (field.get("references_component"), field.get("references_class"))
-        if pair not in _RESTRICTIVE_REFERENCES:
+        if (field.get("references_component"), field.get("references_class")) not in restrictive:
             # Popped, not nulled: automation entries are already default-stripped.
             field.pop("references_class", None)
 
     _walk_catalog_entries(config_entries, prune)
 
 
-def _prune_automation_reference_classes(automations: dict[str, Any]) -> None:
+def _prune_automation_reference_classes(
+    automations: dict[str, list[dict]], restrictive: set[tuple[str, str]]
+) -> None:
     """Apply the components' restrictive set to every automation reference."""
     for group in automations.values():
-        for item in group if isinstance(group, list) else ():
-            _prune_reference_classes(item.get("config_entries") or [])
+        for item in group:
+            _prune_reference_classes(item.get("config_entries") or [], restrictive)
+
+
+def _default_variant(hub: dict, typed_key: str) -> Any:
+    """Return the default of *hub*'s *typed_key* discriminator entry, or None."""
+    discriminator = next(
+        (e for e in hub.get("config_entries") or [] if e.get("key") == typed_key), None
+    )
+    return discriminator.get("default_value") if discriminator else None
 
 
 def _apply_hub_variant_constraints(
-    entry: dict,
-    by_id: dict[str, dict],
-    variants: dict[str, tuple[str, dict[str, list[str]]]],
+    entry: dict, by_id: dict[str, dict], variants: _HubVariants
 ) -> None:
     """Record the one non-default typed hub variant *entry*'s references need."""
 
@@ -1787,15 +1801,8 @@ def _apply_hub_variant_constraints(
             return
         typed_key, per_variant = variants[hub]
         qualifying = [name for name, classes in per_variant.items() if cls in classes]
-        if len(qualifying) != 1:
-            return
-        discriminator = next(
-            (e for e in by_id[hub].get("config_entries") or [] if e.get("key") == typed_key),
-            None,
-        )
-        if discriminator is None or discriminator.get("default_value") == qualifying[0]:
-            return
-        entry.setdefault("bus_constraints", {}).setdefault(hub, {})[typed_key] = qualifying[0]
+        if len(qualifying) == 1 and qualifying[0] != _default_variant(by_id[hub], typed_key):
+            entry.setdefault("bus_constraints", {}).setdefault(hub, {})[typed_key] = qualifying[0]
 
     _walk_catalog_entries(entry.get("config_entries") or [], visit)
 
@@ -10039,6 +10046,7 @@ def build_automations(  # noqa: C901
     registry_refined: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] | None = None,
     registry_ranges: dict[str, dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]]]
     | None = None,
+    restrictive_references: set[tuple[str, str]] | None = None,
 ) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.
@@ -10174,9 +10182,7 @@ def build_automations(  # noqa: C901
         "light_effects": _dedupe_by_id(effects),
         "filters": _dedupe_filters(filters),
     }
-    # The components' restrictive set, so an action's reference
-    # (``output.set_level`` needs a FloatOutput) filters the same way.
-    _prune_automation_reference_classes(automations)
+    _prune_automation_reference_classes(automations, restrictive_references or set())
     return automations
 
 

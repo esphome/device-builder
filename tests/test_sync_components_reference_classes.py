@@ -11,6 +11,7 @@ import script.sync_components as sc
 from script.sync_components import (  # type: ignore[import-not-found]
     _prune_automation_reference_classes,
     _resolve_reference_classes,
+    _restrictive_references,
     _variant_id_classes,
 )
 
@@ -99,7 +100,8 @@ def test_typed_hub_is_judged_per_variant_and_constrains_the_dependent() -> None:
             "server": ["modbus::Modbus", "modbus::ModbusServerHub"],
         }
     }
-    assert "id_classes" not in hub
+    # An unset ``role`` declares the default variant's classes.
+    assert hub["id_classes"] == ["modbus::Modbus", "modbus::ModbusClientHub"]
     assert cover["bus_constraints"] == {"modbus": {"role": "server"}}
     # The default variant already satisfies it: nothing to seed.
     assert "bus_constraints" not in client
@@ -160,19 +162,32 @@ def test_variant_id_classes_reads_each_typed_branch() -> None:
     assert _variant_id_classes({"schemas": {"CONFIG_SCHEMA": {"schema": {}}}}) is None
 
 
+def test_reference_no_declarer_can_satisfy_stays_unfiltered() -> None:
+    """The ``i2c`` shape: the bundle lost the real class, so nothing may be filtered."""
+    bus = _declarer("i2c", ["i2c::I2CBus"])
+    camera = {
+        "id": "esp32_camera",
+        "config_entries": [_reference("i2c_id", "i2c", "i2c::InternalI2CBus")],
+    }
+    _resolve([bus, camera])
+    assert "references_class" not in camera["config_entries"][0]
+    assert "id_classes" not in bus
+
+
 def test_automation_references_use_the_components_restrictive_set() -> None:
     """An already default-stripped action entry loses the key outright, never gains a null."""
-    _resolve(
-        [
-            _declarer("output.gpio", ["output::BinaryOutput"]),
-            {
-                "id": "light.monochromatic",
-                "config_entries": [_reference("output", "output", "output::FloatOutput")],
-            },
-        ]
-    )
+    components = [
+        _declarer("output.gpio", ["output::BinaryOutput"]),
+        _declarer("output.ledc", ["output::FloatOutput", "output::BinaryOutput"]),
+        {
+            "id": "light.monochromatic",
+            "config_entries": [_reference("output", "output", "output::FloatOutput")],
+        },
+    ]
+    _resolve(components)
+    restrictive = _restrictive_references(components)
+    assert restrictive == {("output", "output::FloatOutput")}
     automations = {
-        "esphome_schema_version": "x",
         "actions": [
             {
                 "id": "output.set_level",
@@ -183,7 +198,7 @@ def test_automation_references_use_the_components_restrictive_set() -> None:
             }
         ],
     }
-    _prune_automation_reference_classes(automations)
+    _prune_automation_reference_classes(automations, restrictive)
     kept, dropped = automations["actions"][0]["config_entries"]
     assert kept["references_class"] == "output::FloatOutput"
     assert "references_class" not in dropped
@@ -206,6 +221,13 @@ def test_shipped_modbus_variants_and_the_server_dependents() -> None:
     for component_id in ("hoermann_hcp", "modbus_server"):
         assert _body(component_id)["bus_constraints"]["modbus"] == {"role": "server"}
     assert _body("display.qspi_dbi")["bus_constraints"]["spi"]["type"] == "quad"
+
+
+def test_shipped_i2c_bus_is_never_filtered() -> None:
+    """``esp32_camera`` needs an ``InternalI2CBus`` the bundle records as ``I2CBus``."""
+    assert "id_classes" not in _body("i2c")
+    camera = next(e for e in _body("esp32_camera")["config_entries"] if e["key"] == "i2c_id")
+    assert "references_class" not in camera
 
 
 def test_shipped_index_carries_the_declarer_classes() -> None:
