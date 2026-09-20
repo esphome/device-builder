@@ -315,6 +315,58 @@ async def test_upsert_with_save_appends_to_a_list_without_expected(tmp_path: Pat
     assert devices.saved[0][1].count("- interval:") == 2
 
 
+async def test_upsert_with_save_inserts_into_a_legacy_api_services_block(tmp_path: Path) -> None:
+    devices = _Devices("api:\n  services:\n    - service: ping\n      then:\n        - delay: 1s\n")
+    controller = _make_controller(tmp_path, devices=devices)
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION | {"trigger_id": None},
+        location={"kind": "api_action", "action_name": "pong"},
+        save=True,
+    )
+
+    assert devices.saved[0][1].count("- action:") == 2
+
+
+async def test_upsert_with_expected_refuses_when_the_writer_would_append_instead(
+    tmp_path: Path,
+) -> None:
+    idless = "script:\n  - then:\n      - delay: 1s\n"
+    devices = _Devices(idless)
+    controller = _make_controller(tmp_path, devices=devices)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, idless))[0]
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION | {"trigger_id": None},
+            location=shown.location.to_dict(),
+            save=True,
+            expected=shown.raw_yaml,
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "could not be replaced in place" in excinfo.value.message
+    assert devices.saved == []
+
+
+async def test_upsert_with_save_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:
+    devices = _Devices("esphome: [\n")
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION,
+            location={"kind": "device_on", "trigger": "on_shutdown"},
+            save=True,
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert devices.saved == []
+
+
 async def test_upsert_with_expected_replaces_the_automation_it_was_shown(tmp_path: Path) -> None:
     devices = _Devices()
     controller = _make_controller(tmp_path, devices=devices)
