@@ -125,6 +125,20 @@ async def test_delete_with_expected_refuses_a_positional_index_that_shifted(
     assert devices.saved == []
 
 
+async def test_delete_with_expected_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:
+    devices = _Devices("esphome: [\n")
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml", location=_LOCATION, save=True, expected="on_boot: {}\n"
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert isinstance(excinfo.value.__cause__, CommandError)
+    assert devices.saved == []
+
+
 async def test_delete_refuses_a_non_string_expected(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path, devices=_Devices())
 

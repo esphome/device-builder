@@ -482,9 +482,14 @@ def _render_delete_if_unchanged(
     yaml_text: str, *, location: AutomationLocation, expected: str
 ) -> tuple[str, YamlDiff]:
     """Delete the automation at *location* only while its text still equals *expected*."""
-    rows = parsing.parse_device_yaml(yaml_text)
+    msg = "the automation at that location changed or moved; list again before deleting"
+    try:
+        rows = parsing.parse_device_yaml(yaml_text)
+    except CommandError as err:
+        if err.code is not ErrorCode.INVALID_ARGS:
+            raise
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg) from err
     row = next((p for p in rows if p.location == location), None)
     if row is None or row.raw_yaml != expected:
-        msg = "the automation at that location changed or moved; list again before deleting"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     return writing.render_delete(yaml_text, location=location)
