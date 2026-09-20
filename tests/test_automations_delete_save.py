@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ class _Devices:
     async def rewrite_yaml(
         self, configuration: str, rewrite: Callable[[str], tuple[str, YamlDiff]], *, message: str
     ) -> YamlDiff:
-        new_text, diff = rewrite(_YAML)
+        new_text, diff = await asyncio.to_thread(rewrite, _YAML)
         self.saved.append((configuration, new_text, message))
         return diff
 
