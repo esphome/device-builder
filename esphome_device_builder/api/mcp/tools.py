@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from ...constants import SECRETS_FILENAMES, is_device_config_name, is_secrets_file
+from ...constants import SECRETS_FILENAME, is_device_config_name, is_secrets_file
 from ...controllers.automations.catalog import AUTOMATION_TYPES
 from ...controllers.devices.helpers import scanned_component_entries
 from ...controllers.firmware.follow import job_report
@@ -440,8 +440,8 @@ def _check_configuration(configuration: str | None, *, allow_secrets: bool) -> N
     if configuration is None:
         return
     if is_secrets_file(configuration):
-        # Only the bare canonical name reads the file; an alias or a path is refused.
-        if allow_secrets and configuration in SECRETS_FILENAMES:
+        # Only the bare canonical name reads the file, the one set_secret writes.
+        if allow_secrets and configuration == SECRETS_FILENAME:
             return
         raise CommandError(
             ErrorCode.INVALID_ARGS,

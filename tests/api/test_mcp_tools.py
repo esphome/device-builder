@@ -82,19 +82,37 @@ def test_check_configuration_refuses_every_secrets_spelling(name: str) -> None:
 
 def test_check_configuration_can_allow_the_secrets_file_but_never_another_type() -> None:
     _check_configuration("secrets.yaml", allow_secrets=True)
-    _check_configuration("secrets.yml", allow_secrets=True)
-    for refused in ("notes.txt", "packages/secrets.yaml", "SECRETS.YAML", "secrets.yaml."):
+    for refused in (
+        "notes.txt",
+        "packages/secrets.yaml",
+        "SECRETS.YAML",
+        "secrets.yaml.",
+        "secrets.yml",
+    ):
         with pytest.raises(CommandError):
             _check_configuration(refused, allow_secrets=True)
 
 
+@pytest.mark.parametrize("spelling", ["secrets.yaml", "secrets.yml", "SECRETS.YAML"])
 @pytest.mark.parametrize(("tool", "extra"), _SECRET_REFUSING_TOOLS)
 async def test_secrets_file_is_refused_by_every_tool_but_get_config(
-    mcp_client: Any, tool: str, extra: dict[str, Any]
+    mcp_client: Any, tool: str, extra: dict[str, Any], spelling: str
 ) -> None:
-    is_error, text = await mcp_call(mcp_client, tool, {"configuration": "secrets.yaml"} | extra)
+    is_error, text = await mcp_call(mcp_client, tool, {"configuration": spelling} | extra)
     assert is_error
     assert text == "invalid_args: secrets.yaml is read with get_config and changed with set_secret"
+
+
+@pytest.mark.parametrize("spelling", ["secrets.yml", "SECRETS.YAML", "packages/secrets.yaml"])
+async def test_get_config_reads_only_the_canonical_secrets_name(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, spelling: str
+) -> None:
+    handler = AsyncMock(return_value="wifi_password: hunter2\n")
+    mcp_db.command_handlers["devices/get_config"] = handler
+    is_error, text = await mcp_call(mcp_client, "get_config", {"configuration": spelling})
+    assert is_error
+    assert text == "invalid_args: secrets.yaml is read with get_config and changed with set_secret"
+    handler.assert_not_awaited()
 
 
 async def test_get_config_reads_the_secrets_file(
