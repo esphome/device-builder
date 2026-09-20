@@ -35,14 +35,20 @@ def diff_excerpt(expected: str, current: str) -> str:
         )
     )
     budget = {"-": _DIFF_EXCERPT_LINES, "+": _DIFF_EXCERPT_LINES}
-    shown: list[str] = []
-    for position, line in enumerate(lines):
-        # The first two records are the file headers, whatever they start with.
-        side = line[:1] if position >= 2 and line[:1] in budget else ""
+    shown: list[str] = lines[:2]  # the file headers
+    pending_hunk: str | None = None
+    for line in lines[2:]:
+        if line.startswith("@@"):
+            pending_hunk = line
+            continue
+        side = line[:1] if line[:1] in budget else ""
         if side and budget[side] == 0:
             continue
         if side:
             budget[side] -= 1
+        if pending_hunk is not None:
+            shown.append(pending_hunk)
+            pending_hunk = None
         shown.append(line if line.endswith("\n") else line + "\n")
     hidden = len(lines) - len(shown)
     return "".join(shown) + (f"... {hidden} more diff lines\n" if hidden else "")
