@@ -13,3 +13,8 @@ def summarise(messages: Iterable[str]) -> str:
     # esphome messages often end with their own period; the caller's
     # tail brings the sentence break.
     return ("; ".join(shown) + suffix).removesuffix(".")
+
+
+def same_text(current: str, expected: str) -> bool:
+    """Whether *expected* is *current* up to trailing newlines, which a caller may drop."""
+    return current.rstrip("\n") == expected.rstrip("\n")
