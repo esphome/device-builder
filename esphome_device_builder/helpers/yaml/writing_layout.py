@@ -5,7 +5,13 @@ from __future__ import annotations
 from ...models.api import ErrorCode
 from ...models.automations import YamlDiff
 from ..api import CommandError
-from .scan import block_end_index, find_block_header, opens_top_level_block, top_list_item_starts
+from .scan import (
+    block_end_index,
+    find_block_header,
+    opens_top_level_block,
+    top_list_item_starts,
+    trim_trailing_gap,
+)
 
 
 def _indent_for_top_list(rendered_item: str) -> str:
@@ -35,23 +41,7 @@ def _locate_top_list_item(
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     start = item_starts[index]
     end = item_starts[index + 1] if index + 1 < len(item_starts) else domain_end
-    return start, _trim_trailing_gap(lines, start, end)
-
-
-def _trim_trailing_gap(lines: list[str], start: int, end: int) -> int:
-    """
-    Pull *end* back over trailing blank and column-0 comment lines.
-
-    Item bodies are always indented, so a blank line or a comment at
-    column 0 belongs to the gap before the next block (a section
-    banner), not to the item being replaced or deleted.
-    """
-    while end - 1 > start:
-        stripped = lines[end - 1].rstrip("\n\r")
-        if stripped and stripped[0] != "#":
-            break
-        end -= 1
-    return end
+    return start, trim_trailing_gap(lines, start, end)
 
 
 def _locate_singleton_block(
@@ -106,7 +96,7 @@ def _next_non_blank_at_col_zero(lines: list[str], start: int) -> bool:
 
 def _build_diff_for_append(old_yaml: str, new_yaml: str) -> YamlDiff:
     """
-    Build a diff describing the lines changed by an append-style write.
+    Build the single-span diff from *old_yaml* to *new_yaml*.
 
     Bounds the change to the region between the common leading and
     trailing lines, so a splice into a block that isn't the last in

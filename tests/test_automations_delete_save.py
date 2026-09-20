@@ -342,6 +342,35 @@ async def test_upsert_with_save_appends_beside_existing_automations(
 
 
 _WITH_INCLUDE = _INTERVAL + "  - !include more.yaml\n"
+_MAPPED = "interval:\n  interval: 1s\n  then:\n    - delay: 1s\n"
+
+
+async def test_upsert_with_save_appends_beside_a_mapping_form_interval(tmp_path: Path) -> None:
+    controller, devices = _setup(tmp_path, _MAPPED)
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_TIMED,
+        location={"kind": "interval", "index": 1},
+        save=True,
+    )
+
+    assert len(devices.saved) == 1
+
+
+async def test_upsert_with_expected_replaces_a_mapping_form_interval(tmp_path: Path) -> None:
+    controller, devices = _setup(tmp_path, _MAPPED)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, _MAPPED))[0]
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_TIMED,
+        location=shown.location.to_dict(),
+        save=True,
+        expected=shown.raw_yaml,
+    )
+
+    assert "interval: 5s" in devices.saved[0][1]
 
 
 async def test_upsert_with_save_appends_after_an_entry_the_parser_skips(tmp_path: Path) -> None:

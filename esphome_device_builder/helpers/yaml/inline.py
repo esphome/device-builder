@@ -261,10 +261,10 @@ def _locate_key_block(lines: list[str], frame: _SpanFrame, key: str) -> _SpanFra
     if frame.is_list_item:
         dash_header, dash_scalar = key_line_res(key, prefix=DASH_KEY_PREFIX)
         first = lines[frame.start].rstrip("\n\r")
-        if dash_scalar.match(first):
-            raise YamlUpsertNotSupportedError(inline_msg)
         if dash_header.match(first):
             start = frame.start
+        elif dash_scalar.match(first):
+            raise YamlUpsertNotSupportedError(inline_msg)
     if start is None:
         header_re, scalar_re = key_line_res(key, prefix=f"^{re.escape(frame.child_indent)}")
         for idx in range(frame.start, frame.end):

@@ -185,12 +185,14 @@ def _parse_automation_list(
     *,
     describe: Callable[[dict[str, Any], int], tuple[AutomationLocation, str] | None],
     params_of: Callable[[dict[str, Any]], dict[str, Any]],
+    range_of: Callable[[int], tuple[int, int]],
 ) -> list[ParsedAutomation]:
     """
     Parse one top-level list block of trigger-less automations.
 
     *describe* returns the item's ``(location, label)`` or ``None`` to
-    skip it; *params_of* collects the item's params for the tree build.
+    skip it; *params_of* collects the item's params for the tree build;
+    *range_of* maps an index to its line range.
     """
     out: list[ParsedAutomation] = []
     for idx, item in enumerate(items):
@@ -200,7 +202,7 @@ def _parse_automation_list(
         if described is None:
             continue
         location, label = described
-        from_line, to_line = _item_range(items, idx)
+        from_line, to_line = range_of(idx)
         tree, error, unsupported = _safe_tree(
             partial(_block_tree, params_of(item), item.get("then")),
             trigger_id=None,
@@ -222,11 +224,10 @@ def _parse_automation_list(
 
 def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
     """Parse top-level ``script:`` list blocks."""
-    if not isinstance(root, dict):
+    listed = listed_block(root, "script")
+    if listed is None:
         return []
-    scripts = root.get("script")
-    if not isinstance(scripts, list):
-        return []
+    scripts, range_of = listed
 
     def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str]:
         script_id = item.get("id") or f"script_{idx}"
@@ -236,16 +237,16 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
         scripts,
         describe=_describe,
         params_of=partial(_collect_block_params, action_list_keys={"then"}),
+        range_of=range_of,
     )
 
 
 def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
     """Parse top-level ``interval:`` list blocks."""
-    if not isinstance(root, dict):
+    listed = listed_block(root, "interval")
+    if listed is None:
         return []
-    intervals = root.get("interval")
-    if not isinstance(intervals, list):
-        return []
+    intervals, range_of = listed
 
     def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str]:
         every = item.get("interval")
@@ -256,7 +257,20 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
         intervals,
         describe=_describe,
         params_of=partial(_collect_block_params, action_list_keys={"then"}),
+        range_of=range_of,
     )
+
+
+def listed_block(root: Any, key: str) -> tuple[list[Any], Callable[[int], tuple[int, int]]] | None:
+    """Return a top-level block as a list plus its per-index line range; a mapping is one entry."""
+    if not isinstance(root, dict):
+        return None
+    block = root.get(key)
+    if isinstance(block, list):
+        return block, partial(_item_range, block)
+    if isinstance(block, dict):
+        return [block], lambda _idx: _key_range(root, key)
+    return None
 
 
 def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
@@ -287,7 +301,12 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
             return None
         return ApiActionLocation(action_name=str(action_name)), f"API: {action_name}"
 
-    return _parse_automation_list(actions, describe=_describe, params_of=_collect_api_action_params)
+    return _parse_automation_list(
+        actions,
+        describe=_describe,
+        params_of=_collect_api_action_params,
+        range_of=partial(_item_range, actions),
+    )
 
 
 def singleton_component_id(section: dict, domain: str) -> str:

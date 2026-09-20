@@ -1177,3 +1177,19 @@ def test_resolve_action_field_target_handles_sub_entity_and_bad_yaml() -> None:
         "sensor",
         "sensor.aht10",
     )
+
+
+def test_parse_mapping_form_interval_and_script_as_one_entry_each() -> None:
+    yaml = (
+        "esphome:\n  name: x\n"
+        "interval:\n  interval: 60s\n  then:\n    - delay: 1s\n"
+        "script:\n  id: s1\n  then:\n    - delay: 1s\n"
+    )
+    by_kind = {p.location.kind: p for p in parse_device_yaml(yaml)}
+    interval, script = by_kind["interval"], by_kind["script"]
+    assert interval.location.index == 0
+    assert (interval.from_line, interval.to_line) == (3, 6)
+    assert interval.automation.trigger_params == {"interval": "60s"}
+    assert script.location.id == "s1"
+    assert (script.from_line, script.to_line) == (7, 10)
+    assert interval.raw_yaml.lstrip().startswith("- interval: 60s")

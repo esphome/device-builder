@@ -24,10 +24,10 @@ def key_header_re(key: str, *, indent: str = "") -> re.Pattern[str]:
 
 
 def key_line_res(key: str, *, prefix: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
-    """``(block header, inline scalar)`` patterns for ``<key>:`` after regex *prefix*."""
+    """``(block header, inline scalar)`` patterns for ``<key>:``; a header may carry an anchor."""
     escaped = re.escape(key)
     return (
-        re.compile(rf"{prefix}{escaped}:\s*(?:#.*)?$"),
+        re.compile(rf"{prefix}{escaped}:\s*(?:&\S+\s*)?(?:#.*)?$"),
         re.compile(rf"{prefix}{escaped}:\s*[^\s#]"),
     )
 
@@ -42,7 +42,7 @@ def find_block_header(lines: list[str], key: str) -> int | None:
 
 
 #: Generic column-0 form of ``key_header_re`` — keep the two shapes in sync.
-_TOP_LEVEL_HEADER_RE = re.compile(r"^(\S+):\s*(?:#.*)?$")
+_TOP_LEVEL_HEADER_RE = re.compile(r"^(\S+):\s*(?:&\S+\s*)?(?:#.*)?$")
 
 
 def top_level_key_index(lines: list[str]) -> dict[str, int]:
@@ -147,3 +147,13 @@ def trim_trailing_blanks(lines: list[str], block_start: int, insert_at: int) -> 
     while insert_at > block_start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
     return insert_at
+
+
+def trim_trailing_gap(lines: list[str], start: int, end: int) -> int:
+    """Pull *end* back over the trailing blank and column-0 comment lines before the next block."""
+    while end - 1 > start:
+        line = lines[end - 1]
+        if line.strip() and not line.startswith("#"):
+            break
+        end -= 1
+    return end

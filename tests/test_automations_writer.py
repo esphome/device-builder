@@ -3785,3 +3785,237 @@ def test_index_free_single_mapping_valves_round_trips() -> None:
     deleted, _d = render_delete(new_text, location=loc)
     assert "set_action" not in deleted
     assert "valve_switch: Only Zone" in deleted
+
+
+# ---------------------------------------------------------------------------
+# Mapping-form top-level blocks
+# ---------------------------------------------------------------------------
+
+_MAPPED_INTERVAL = (
+    "esphome:\n  name: x\ninterval:\n  interval: 60s\n  then:\n    - delay: 1s\nlogger:\n"
+)
+_MAPPED_SCRIPT = "script:\n  id: s1\n  then:\n    - delay: 1s\n"
+_TICK = AutomationTree(
+    trigger_params={"interval": "10s"},
+    actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+)
+
+
+def test_upsert_interval_on_a_mapping_form_block_appends_as_a_one_item_list() -> None:
+    new_text, diff = render_upsert(_MAPPED_INTERVAL, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "esphome:\n  name: x\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\nlogger:\n"
+    )
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_interval_on_a_mapping_form_block_replaces_index_zero() -> None:
+    new_text, diff = render_upsert(_MAPPED_INTERVAL, tree=_TICK, location=IntervalLocation(index=0))
+    assert new_text.count("- interval:") == 1
+    assert "interval: 10s" in new_text and "60s" not in new_text
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+
+
+def test_upsert_script_on_a_mapping_form_block_replaces_by_id_or_appends() -> None:
+    tree = AutomationTree(actions=[ActionNode(action_id="delay", params={"id": "3s"})])
+    replaced, diff = render_upsert(_MAPPED_SCRIPT, tree=tree, location=ScriptLocation(id="s1"))
+    assert replaced.count("- id:") == 1 and "delay: 3s" in replaced
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == replaced
+    appended, diff = render_upsert(_MAPPED_SCRIPT, tree=tree, location=ScriptLocation(id="s2"))
+    assert [p.location.id for p in parse_device_yaml(appended)] == ["s1", "s2"]
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == appended
+
+
+def test_delete_on_a_mapping_form_block_removes_its_one_entry() -> None:
+    new_text, diff = render_delete(_MAPPED_INTERVAL, location=IntervalLocation(index=0))
+    assert "60s" not in new_text and "logger:" in new_text
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+    new_text, diff = render_delete(_MAPPED_SCRIPT, location=ScriptLocation(id="s1"))
+    assert "delay" not in new_text
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == new_text
+
+
+def test_listify_keeps_a_column_zero_comment_inside_the_block() -> None:
+    text = "interval:\n  interval: 60s\n# a column-zero note\n  then:\n    - delay: 1s\nlogger:\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith(
+        "interval:\n  - interval: 60s\n    # a column-zero note\n    then:\n      - delay: 1s\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_listify_keeps_comments_and_blank_lines_inside_the_block() -> None:
+    text = "interval:\n  # every minute\n  interval: 60s\n\n  then:\n    - delay: 1s\n"
+    new_text, _diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith(
+        "interval:\n  # every minute\n  - interval: 60s\n\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n"
+    )
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}\nota:\n",
+        "logger:\ninterval: [{interval: 60s, then: [{delay: 1s}]}]\nota:\n",
+    ],
+    ids=["flow_mapping", "flow_list"],
+)
+def test_upsert_expands_a_one_line_flow_block_into_a_block_list(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "logger:\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\nota:\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_expands_an_empty_flow_list_and_keeps_a_trailing_comment() -> None:
+    new_text, diff = render_upsert(
+        "logger:\ninterval: []\nota:\n", tree=_TICK, location=IntervalLocation(index=0)
+    )
+    assert new_text == "logger:\ninterval:\n  - interval: 10s\n    then:\n      - delay: 2s\nota:\n"
+    assert _apply_diff("logger:\ninterval: []\nota:\n", diff) == new_text
+    for text in (
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}  # note\nota:\n",
+        "logger:\ninterval: [{interval: 60s, then: [{delay: 1s}]}]  # note\nota:\n",
+    ):
+        new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+        assert new_text.startswith("logger:\ninterval:  # note\n  - interval: 60s\n")
+        assert _apply_diff(text, diff) == new_text
+        assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        (
+            "interval: {interval: 60s,\n  then: [{delay: 1s}]}\n",
+            "interval: is written in flow style across several lines; rewrite it as a block first",
+        ),
+        ("interval: 60s\n", "interval: holds a scalar, not an automation block"),
+        (
+            "interval: !include intervals.yaml\n",
+            "interval: is provided by a tag; edit the included file instead",
+        ),
+    ],
+    ids=["multi_line_flow", "inline_scalar", "tagged"],
+)
+def test_upsert_refuses_a_block_it_cannot_expand_naming_its_shape(text: str, message: str) -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == message
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "logger:\ninterval:\n  interval: 60s\n  then:\n    - delay: 1s",
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}",
+    ],
+    ids=["mapping", "flow"],
+)
+def test_a_rewritten_file_without_a_final_newline_matches_the_splice(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert not new_text.endswith("\n")
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "location",
+    [ScriptLocation(id="s1"), IntervalLocation(index=0)],
+    ids=["script_by_id", "interval_by_index"],
+)
+def test_delete_refuses_a_flow_block_it_cannot_expand(
+    location: ScriptLocation | IntervalLocation,
+) -> None:
+    domain = "script" if isinstance(location, ScriptLocation) else "interval"
+    text = f"{domain}: {{id: s1, interval: 60s,\n  then: [{{delay: 1s}}]}}\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=location)
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        f"{domain}: is written in flow style across several lines; rewrite it as a block first"
+    )
+
+
+def test_listify_leaves_a_trailing_banner_with_the_next_block() -> None:
+    text = (
+        "interval:\n  interval: 60s\n  then:\n    - delay: 1s\n"
+        "# --- logging ---\nlogger:\n  level: DEBUG\n"
+    )
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\n"
+        "# --- logging ---\nlogger:\n  level: DEBUG\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    deleted, diff = render_delete(new_text, location=IntervalLocation(index=1))
+    assert "# --- logging ---\nlogger:" in deleted
+    assert _apply_diff(new_text, diff) == deleted
+
+
+def test_list_append_lands_above_a_trailing_banner() -> None:
+    text = (
+        "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n# --- logging ---\nlogger:\n"
+    )
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.endswith(
+        "  - interval: 10s\n    then:\n      - delay: 2s\n# --- logging ---\nlogger:\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "scalar",
+    ['"a # b"', '"a \\" # b"', "'it''s # x'"],
+    ids=["double_quoted", "escaped_double_quote", "doubled_single_quote"],
+)
+def test_upsert_expands_a_flow_block_holding_a_quoted_hash(scalar: str) -> None:
+    text = f"interval: {{interval: 60s, then: [{{logger.log: {scalar}}}]}}\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.count("- interval:") == 2 and "# b" not in new_text.split("logger.log")[1][:1]
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_list_append_lands_directly_after_the_last_item_past_a_blank_of_spaces() -> None:
+    text = "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n   \nlogger:\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert "      - delay: 1s\n  - interval: 10s\n" in new_text
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\n",
+        "interval: &shared\n  interval: 60s\n  then:\n    - delay: 1s\n",
+    ],
+    ids=["anchored_list", "anchored_mapping"],
+)
+def test_an_anchored_header_is_a_block_header(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith("interval: &shared\n  - interval: 60s\n")
+    assert new_text.count("- interval:") == 2
+    assert _apply_diff(text, diff) == new_text
+
+
+def test_an_aliased_anchor_blocks_the_mapping_rewrite_but_not_a_list() -> None:
+    mapping = "interval: &shared\n  interval: 60s\n  then:\n    - delay: 1s\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(mapping, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+    as_list = "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\nother: *shared\n"
+    new_text, _diff = render_upsert(as_list, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.count("- interval:") == 2 and "other: *shared" in new_text

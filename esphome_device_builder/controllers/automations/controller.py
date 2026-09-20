@@ -371,8 +371,8 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
     devices: list[AvailableComponentInstance] = []
     domains: set[str] = set(data.keys())
 
-    if isinstance(data.get("script"), list):
-        scripts = _scope_scripts(data["script"])
+    if (listed := parsing.listed_block(data, "script")) is not None:
+        scripts = _scope_scripts(listed[0])
     # ``devices`` ships to the frontend in this order; keep document-order
     # iteration (a ``set()`` wrap hash-shuffles it per process).
     for domain in data:

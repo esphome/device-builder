@@ -15,7 +15,7 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
-from .scan import block_end_index, find_block_header, leading_ws, trim_trailing_blanks
+from .scan import block_end_index, find_block_header, leading_ws, trim_trailing_gap
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -280,16 +280,17 @@ def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, 
     Locate the ``<key>:`` block in *file_lines*; return ``(header, end)``.
 
     *end* is the index of the first line that belongs to the next
-    top-level block (or ``len(file_lines)`` at EOF), rewound past any
-    trailing blank lines so an inserted item lands directly after the
-    last content line. Returns ``None`` when no matching header exists.
+    top-level block (or ``len(file_lines)`` at EOF), rewound past the
+    trailing blank and column-0 comment lines so an inserted item lands
+    directly after the last content line and a section banner stays with
+    the next block. Returns ``None`` when no matching header exists.
     """
     block_start = find_block_header(file_lines, key)
     if block_start is None:
         return None
 
     block_end = block_end_index(file_lines, block_start)
-    return block_start, trim_trailing_blanks(file_lines, block_start, block_end)
+    return block_start, trim_trailing_gap(file_lines, block_start, block_end)
 
 
 def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> str:
@@ -378,6 +379,8 @@ def _normalize_multi_conf_block(existing: str, comp_id: str) -> str | None:
         return existing
 
     body_lines = [line.rstrip("\n\r") for line in file_lines[block_start + 1 : last_content]]
+    if not any(line.strip() and not line.lstrip().startswith("#") for line in body_lines):
+        return existing
     rewritten = "\n".join(_mapping_body_to_list_item(body_lines)) + "\n"
     return "".join(file_lines[: block_start + 1]) + rewritten + "".join(file_lines[last_content:])
 
@@ -402,11 +405,13 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
             result.append(line)
             continue
         rest = line[len(body_indent) :] if line.startswith(body_indent) else line.lstrip()
-        if not marked and not line.lstrip().startswith("#"):
+        if marked:
+            result.append(ESPHOME_YAML_INDENT * 2 + rest)
+        elif line.lstrip().startswith("#"):
+            result.append(ESPHOME_YAML_INDENT + rest)
+        else:
             result.append(f"{ESPHOME_YAML_INDENT}- {rest}")
             marked = True
-        else:
-            result.append(ESPHOME_YAML_INDENT * 2 + rest)
     return result
 
 

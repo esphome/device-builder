@@ -73,6 +73,7 @@ from .parsing import (
     resolve_component_domain,
     resolve_component_target,
 )
+from .writing_blocks import in_list_form
 from .writing_lists import (
     ListContainerStrategy,
     delete_light_effect,
@@ -469,6 +470,7 @@ def _upsert_api_action(
 # ---------------------------------------------------------------------------
 
 
+@in_list_form
 def _upsert_top_level_list(
     yaml_text: str,
     domain: str,
@@ -491,20 +493,18 @@ def _upsert_top_level_list(
     return _replace_top_level_list_item(yaml_text, domain, existing_idx, rendered_item)
 
 
+@in_list_form
 def _upsert_top_level_list_indexed(
     yaml_text: str,
     domain: str,
     rendered_item: str,
     index: int,
 ) -> tuple[str, YamlDiff]:
-    """Append (``index == len``), replace (in range), or raise (out of range or not a list)."""
+    """Append (``index == len``), replace (in range), or raise (out of range)."""
     yaml = make_yaml()
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
-    if items is not None and not isinstance(items, list):
-        msg = f"{domain}: is a single mapping, not a list; convert it to a list first"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    entries = items or []
+    entries = items if isinstance(items, list) else []
     if 0 <= index < len(entries):
         require_replaceable(entries, index, label=domain, replaceable=is_mapping_entry)
         return _replace_top_level_list_item(yaml_text, domain, index, rendered_item)
@@ -596,12 +596,7 @@ def _delete_top_level(
 ) -> tuple[str, YamlDiff]:
     """Drop a top-level script / interval / device-on block."""
     if isinstance(location, ScriptLocation):
-        return _delete_top_level_list_by_id(
-            yaml_text,
-            "script",
-            "id",
-            location.id,
-        )
+        return _delete_top_level_list_by_id(yaml_text, "script", "id", location.id)
     if isinstance(location, IntervalLocation):
         return _delete_top_level_list_by_index(yaml_text, "interval", location.index)
     if isinstance(location, DeviceOnLocation):
@@ -616,6 +611,7 @@ def _delete_top_level(
     raise CommandError(ErrorCode.INVALID_ARGS, msg)  # pragma: no cover
 
 
+@in_list_form
 def _delete_top_level_list_by_id(
     yaml_text: str,
     domain: str,
@@ -631,17 +627,22 @@ def _delete_top_level_list_by_id(
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     for idx, raw in enumerate(items):
         if isinstance(raw, dict) and str(raw.get(id_key, "")) == item_id:
-            return _delete_top_level_list_by_index(yaml_text, domain, idx)
+            return _delete_list_item_lines(yaml_text, domain, idx)
     msg = f"{domain}:[{id_key}={item_id!r}] not present"
     raise CommandError(ErrorCode.NOT_FOUND, msg)
 
 
+@in_list_form
 def _delete_top_level_list_by_index(
     yaml_text: str,
     domain: str,
     index: int,
 ) -> tuple[str, YamlDiff]:
     """Remove the *index*'th list item under ``<domain>:``."""
+    return _delete_list_item_lines(yaml_text, domain, index)
+
+
+def _delete_list_item_lines(yaml_text: str, domain: str, index: int) -> tuple[str, YamlDiff]:
     lines = yaml_text.splitlines(keepends=True)
     start, end = _locate_top_list_item(lines, domain, index)
     return splice_lines(lines, start=start, end=end, replacement="")
