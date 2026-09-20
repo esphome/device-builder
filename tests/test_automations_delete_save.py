@@ -111,6 +111,7 @@ async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
     assert fragment in excinfo.value.message
     if fragment.startswith("differs"):
+        assert "nothing was deleted, list again before deleting" in excinfo.value.message
         assert "-    - delay: 2s\n+    - delay: 1s\n" in excinfo.value.message
     assert devices.saved == []
 
@@ -298,6 +299,23 @@ async def test_upsert_with_save_refuses_to_replace_a_list_shaped_handler(tmp_pat
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
     assert devices.saved == []
+
+
+async def test_upsert_with_save_appends_a_handler_to_a_list_shaped_trigger(
+    tmp_path: Path,
+) -> None:
+    handlers = "    - then:\n        - delay: 9s\n    - then:\n        - delay: 8s\n"
+    devices = _Devices("esphome:\n  name: d\n  on_boot:\n" + handlers)
+    controller = _make_controller(tmp_path, devices=devices)
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION,
+        location={"kind": "device_on", "trigger": "on_boot", "index": 2},
+        save=True,
+    )
+
+    assert devices.saved[0][1].count("- then:") == 3
 
 
 async def test_upsert_with_save_appends_to_a_list_without_expected(tmp_path: Path) -> None:
