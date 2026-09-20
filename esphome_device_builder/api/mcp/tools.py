@@ -384,8 +384,8 @@ async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "list_automations",
     "List the automations a device config contains (scripts, intervals, api actions, "
-    "on_* triggers, light effects) with their YAML, line range and location. Edit them by "
-    "rewriting the YAML with update_config; remove one with delete_automation.",
+    "on_* triggers, light effects) with their YAML, line range and location. Add or change "
+    "one with upsert_automation; remove one with delete_automation.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
@@ -446,13 +446,19 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "upsert_automation",
     "Insert or replace one automation in a device config and save it; the backend renders "
-    "the YAML in the right place. location is where it lives: {kind: 'device_on', trigger: "
-    "'on_boot'} for a device level trigger, {kind: 'component_on', component_id, trigger} for "
-    "a component's on_* trigger (ids from get_available_automations), {kind: 'script', id} "
-    "or {kind: 'interval', index}. automation is {trigger_id, trigger_params, actions: "
-    "[{action_id, params, children: {then: [...]}, conditions: [...]}]} with ids and fields "
-    "from get_available_automations and get_automation_docs. An insert needs an empty "
-    "location; to replace, pass the automation's raw_yaml from list_automations as expected.",
+    "the YAML in the right place. location kinds: {kind: 'device_on', trigger} for a device "
+    "level on_* trigger; {kind: 'component_on', component_id, trigger} for a component "
+    "instance's on_* trigger; {kind: 'script', id}; {kind: 'interval', index}; "
+    "{kind: 'component_action', component_id, field} for an action-list field such as "
+    "turn_on_action; {kind: 'light_effect', component_id, index}; {kind: 'api_action', "
+    "action_name}. Add index to device_on or component_on only for a list-shaped handler "
+    "(component_id and index from list_automations, trigger and action ids from "
+    "get_available_automations). automation is {trigger_id, trigger_params, actions} where "
+    "each action is {action_id, params, children, conditions}, children maps a branch name "
+    "such as then or else to a list of actions, and each condition is {condition_id, params, "
+    "children} with children a list of conditions; fields from get_automation_docs. An "
+    "insert must not replace existing YAML; to replace, pass the automation's raw_yaml from "
+    "list_automations as expected.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "Where the automation lives; see the description."),
