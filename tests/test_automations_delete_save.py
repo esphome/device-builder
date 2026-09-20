@@ -135,6 +135,7 @@ async def test_delete_with_expected_refuses_a_file_that_no_longer_loads(tmp_path
         )
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert excinfo.value.message.startswith("the config no longer loads, nothing was deleted: ")
     assert isinstance(excinfo.value.__cause__, CommandError)
     assert devices.saved == []
 
