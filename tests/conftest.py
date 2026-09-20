@@ -17,6 +17,7 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import os
@@ -111,14 +112,6 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
 )
 
 
-def pytest_configure(config: pytest.Config) -> None:
-    """Temporary probe toggle: run the suite at 1ms Windows timer resolution."""
-    if sys.platform == "win32" and os.environ.get("PROBE_TIMER_1MS"):
-        import ctypes  # noqa: PLC0415
-
-        ctypes.WinDLL("winmm").timeBeginPeriod(1)
-
-
 @pytest.fixture(autouse=True)
 def blockbuster() -> Iterator[BlockBuster | None]:
     """Fail any test that performs a blocking call from inside the event loop.
@@ -185,9 +178,20 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 # ---------------------------------------------------------------------------
 
 
+_lazy_config_dirs = itertools.count()
+
+
 @pytest.fixture(autouse=True)
-def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+def _core_config_path_in_tmp(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if "tmp_path" in request.fixturenames or not os.environ.get("PROBE_LAZY_TMP"):
+        config_dir: Path = request.getfixturevalue("tmp_path")
+    else:
+        config_dir = tmp_path_factory.getbasetemp() / f"no-tmp-path-{next(_lazy_config_dirs)}"
+    monkeypatch.setattr(CORE, "config_path", config_dir / "___DASHBOARD_SENTINEL___.yaml")
 
 
 @pytest.fixture(autouse=True)

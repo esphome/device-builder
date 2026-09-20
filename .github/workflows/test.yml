@@ -639,21 +639,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: linux-durations
+          - variant: linux-lazy-tmp
             os: ubuntu-latest
+            lazy: "1"
+          - variant: temp-on-d-durations
+            os: windows-latest
+            temp: d
             extra-args: --durations=0 --durations-min=0.02
-          - variant: baseline-durations
+          - variant: temp-on-d-repeat
             os: windows-latest
-            extra-args: --durations=0 --durations-min=0.02
-          - variant: temp-on-d
+            temp: d
+          - variant: lazy-tmp
             os: windows-latest
-          - variant: defender-off
+            lazy: "1"
+          - variant: temp-on-d-lazy-tmp
             os: windows-latest
-          - variant: no-cov
+            temp: d
+            lazy: "1"
+          - variant: temp-on-refs-lazy-tmp
             os: windows-latest
-            extra-args: --no-cov
-          - variant: timer-1ms
-            os: windows-latest
+            temp: refs
+            lazy: "1"
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -674,26 +680,28 @@ jobs:
           Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,OnAccessProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled | Format-List
           Get-MpPreference | Select-Object DisableRealtimeMonitoring,ExclusionPath,ExclusionProcess | Format-List
 
-      - name: Turn Defender real-time scanning off
-        if: matrix.variant == 'defender-off'
+      - name: Create a ReFS virtual disk for TEMP
+        if: matrix.temp == 'refs'
         shell: pwsh
         run: |
-          Set-MpPreference -DisableRealtimeMonitoring $true
-          Add-MpPreference -ExclusionPath 'C:\', 'D:\'
-          Add-MpPreference -ExclusionProcess 'python.exe', 'uv.exe'
-          Get-MpPreference | Select-Object DisableRealtimeMonitoring,ExclusionPath,ExclusionProcess | Format-List
+          $script = Join-Path $env:RUNNER_TEMP 'refs.diskpart'
+          Set-Content -Path $script -Value @('create vdisk file="D:\probe-temp.vhdx" maximum=8192 type=expandable', 'attach vdisk', 'create partition primary', 'format fs=refs quick', 'assign letter=V')
+          diskpart /s $script
+          New-Item -ItemType Directory -Path 'V:\t' | Out-Null
+          "TEMP=V:\t" >> $env:GITHUB_ENV
+          "TMP=V:\t" >> $env:GITHUB_ENV
 
       - name: Point TEMP at the runner temp dir
-        if: matrix.variant == 'temp-on-d'
+        if: matrix.temp == 'd'
         shell: bash
         run: |
           echo "TEMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
           echo "TMP=$RUNNER_TEMP" >> "$GITHUB_ENV"
 
-      - name: Ask conftest for 1ms timer resolution
-        if: matrix.variant == 'timer-1ms'
+      - name: Ask conftest for lazy tmp_path
+        if: matrix.lazy == '1'
         shell: bash
-        run: echo "PROBE_TIMER_1MS=1" >> "$GITHUB_ENV"
+        run: echo "PROBE_LAZY_TMP=1" >> "$GITHUB_ENV"
 
       - name: Time OS primitives
         run: uv run --no-sync python script/_perf_probe.py
