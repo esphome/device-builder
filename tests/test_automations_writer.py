@@ -1098,6 +1098,20 @@ def test_upsert_light_effect_out_of_range_raises_invalid_args() -> None:
     assert exc.value.code == ErrorCode.INVALID_ARGS
 
 
+def test_upsert_light_effect_refuses_to_overwrite_an_entry_the_parser_skips() -> None:
+    text = (
+        "light:\n  - platform: rgb\n    id: l1\n    red: r\n    green: g\n    blue: b\n"
+        "    effects:\n      - random:\n      - !include eff.yaml\n"
+    )
+    target = _effect_parse(text, 0)
+    with pytest.raises(CommandError) as exc:
+        render_upsert(
+            text, tree=target.automation, location=LightEffectLocation(component_id="l1", index=1)
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert exc.value.message == "effects[1] is not an entry the parser lists; append at 2 instead"
+
+
 def test_upsert_light_effect_non_list_effects_raises_invalid_args() -> None:
     """A present-but-non-list ``effects:`` is refused, not silently overwritten."""
     list_text = _load("light_effects.yaml")
