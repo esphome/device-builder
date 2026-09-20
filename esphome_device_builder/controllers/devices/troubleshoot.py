@@ -6,10 +6,10 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from ...helpers.device_config import raise_device_not_found
 from ...helpers.ip import drop_unusable_addresses
 from ...models import DeviceTroubleshootResult, PingTargetSource
 from .._device_state_monitor import _pick_ipv4, should_ping
-from .helpers import raise_device_not_found
 
 if TYPE_CHECKING:
     from ...models import Device

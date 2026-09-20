@@ -6,14 +6,11 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, NoReturn, cast
-from unittest.mock import patch
 
 import pytest
 
 from esphome_device_builder.controllers.devices.helpers import (
     raise_device_name_exists,
-    raise_device_not_found,
-    read_device_config,
     require_catalog,
     require_file_exists,
     require_unchanged,
@@ -76,20 +73,6 @@ def test_scanned_component_entries_refuses(
     with pytest.raises(CommandError) as excinfo:
         scanned_component_entries(_scan_db(component_ids), configuration)
     assert excinfo.value.code is code
-
-
-def test_raise_device_not_found_code_and_message() -> None:
-    with pytest.raises(CommandError) as exc_info:
-        raise_device_not_found("living.yaml")
-    assert exc_info.value.code is ErrorCode.NOT_FOUND
-    assert exc_info.value.message == "Device 'living.yaml' not found"
-
-
-def test_raise_device_not_found_chains_cause() -> None:
-    cause = FileNotFoundError("gone")
-    with pytest.raises(CommandError) as exc_info:
-        raise_device_not_found("living.yaml", from_exc=cause)
-    assert exc_info.value.__cause__ is cause
 
 
 def test_raise_device_name_exists_code_and_message() -> None:
@@ -172,31 +155,3 @@ def test_require_unchanged_refuses_a_text_that_moved_on() -> None:
         require_unchanged("a: 9\n", "a: 1\n", "k.yaml")
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
     assert "k.yaml changed" in excinfo.value.message
-
-
-def test_read_device_config_returns_the_text_or_not_found(tmp_path: Path) -> None:
-    path = tmp_path / "kitchen.yaml"
-    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    assert read_device_config(path, "kitchen.yaml") == "esphome:\n  name: kitchen\n"
-
-    with pytest.raises(CommandError) as excinfo:
-        read_device_config(tmp_path / "ghost.yaml", "ghost.yaml")
-    assert excinfo.value.code is ErrorCode.NOT_FOUND
-    assert "ghost.yaml" in excinfo.value.message
-
-
-def test_read_device_config_answers_not_found_when_the_file_vanishes_mid_read(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "kitchen.yaml"
-    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    vanished = FileNotFoundError(path)
-
-    with (
-        patch.object(Path, "read_text", side_effect=vanished),
-        pytest.raises(CommandError) as excinfo,
-    ):
-        read_device_config(path, "kitchen.yaml")
-
-    assert excinfo.value.code is ErrorCode.NOT_FOUND
-    assert excinfo.value.__cause__ is vanished

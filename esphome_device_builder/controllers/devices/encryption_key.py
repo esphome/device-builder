@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import config_has_top_level_block
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
@@ -23,7 +24,7 @@ from ...helpers.yaml import (
 )
 from ...models import ErrorCode
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
-from .helpers import persist_if_unchanged, read_device_config_async
+from .helpers import persist_if_unchanged
 from .resolve import resolve_config_subprocess
 
 if TYPE_CHECKING:
@@ -118,7 +119,7 @@ async def _apply_to_device(
 ) -> tuple[KeyHandoffResult, str]:
     """Splice *key* into *device*'s YAML; returns ``(outcome, reason)``."""
     configuration = device.configuration
-    content = await read_device_config_async(controller, configuration)
+    content = await read_device_config_async(controller._db.settings, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if existing is not None and is_indirected_scalar(existing):

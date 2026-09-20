@@ -13,6 +13,7 @@ from esphome.helpers import friendly_name_slugify, sort_ip_addresses
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.device_config import raise_device_not_found
 from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
@@ -43,9 +44,6 @@ __all__ = [
     "friendly_name_slugify",
     "persist_if_unchanged",
     "raise_device_name_exists",
-    "raise_device_not_found",
-    "read_device_config",
-    "read_device_config_async",
     "refuse_empty_write",
     "require_catalog",
     "require_file_exists",
@@ -107,24 +105,6 @@ def scanned_component_entries(
     return [entry for entry in entries if entry is not None]
 
 
-def raise_device_not_found(
-    configuration: str, *, from_exc: BaseException | None = None
-) -> NoReturn:
-    """Raise ``NOT_FOUND`` for a missing device *configuration*."""
-    err = CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
-    if from_exc is not None:
-        raise err from from_exc
-    raise err
-
-
-def read_device_config(path: Path, configuration: str) -> str:
-    """Read *configuration*'s YAML at *path*; ``NOT_FOUND`` when it is missing. Blocking."""
-    try:
-        return path.read_text("utf-8")
-    except FileNotFoundError as err:
-        raise_device_not_found(configuration, from_exc=err)
-
-
 def refuse_empty_write(configuration: str) -> NoReturn:
     """Raise ``INVALID_ARGS`` for a write that would empty *configuration*."""
     raise CommandError(
@@ -151,12 +131,6 @@ async def persist_if_unchanged(
         return content, None
 
     await controller.rewrite_yaml(configuration, _replace, message=message)
-
-
-async def read_device_config_async(controller: DevicesController, configuration: str) -> str:
-    """Read *configuration*'s YAML off the loop; ``NOT_FOUND`` when it is missing."""
-    path = controller._db.settings.rel_path(configuration)
-    return await run_in_executor(read_device_config, path, configuration)
 
 
 def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:
