@@ -382,7 +382,7 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    include_advanced = args.get("include_advanced", False)
+    keys = []
     for ref in args["refs"]:
         if (
             not isinstance(ref, dict)
@@ -392,14 +392,11 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
         ):
             msg = f"each ref needs a type of {', '.join(AUTOMATION_TYPES)} and an id"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        keys.append(f"{ref['type']}/{ref['id']}")
     bodies = await _call(db, "automations/get_bodies", refs=args["refs"])
-    if missing := [
-        f"{ref['type']}/{ref['id']}"
-        for ref in args["refs"]
-        if f"{ref['type']}/{ref['id']}" not in bodies
-    ]:
+    if missing := [key for key in keys if key not in bodies]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
-    return _visible(bodies, include_advanced=include_advanced)
+    return _visible(bodies, include_advanced=args.get("include_advanced", False))
 
 
 @_tool(

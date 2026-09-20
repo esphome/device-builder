@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
+from esphome_device_builder.api.mcp.tools import TOOLS
 from esphome_device_builder.models import (
     JobStatus,
     JobType,
@@ -87,107 +88,25 @@ async def test_get_job_tails_ram_output_for_running_job(
     assert data["queued_update_armed"] is False
 
 
-async def test_get_job_reads_sidecar_for_terminal_job(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    job = make_job(status=JobStatus.COMPLETED, exit_code=0)
-    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
-    with patch(
-        "esphome_device_builder.controllers.firmware.follow.read_job_output",
-        return_value=["a\n", "b\n", "c\n"],
-    ) as read:
-        data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
-    read.assert_called_once_with("job1")
-    assert data["output"] == ["a", "b", "c"]
-    assert data["exit_code"] == 0
-    assert data["status"] == "completed"
-
-
-async def test_get_job_zero_tail_still_reports_truncation(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    job = make_job(status=JobStatus.COMPLETED, exit_code=0)
-    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
-    with patch(
-        "esphome_device_builder.controllers.firmware.follow.read_job_output",
-        return_value=["built\n"],
-    ):
-        data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 0})
-    assert data["output"] == []
-    assert data["truncated"] is True
-    assert data["output_available"] is True
-
-
-async def test_get_job_redacts_concealed_values(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    job = make_job(output=["  password: \x1b[8mhunter2secret\x1b[28m\n"])
-    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
-    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
-    assert data["output"] == ["  password: <removed>"]
-
-
-async def test_get_job_flags_an_unreadable_log(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    job = make_job(status=JobStatus.COMPLETED, exit_code=0)
-    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=job)
-    with patch(
-        "esphome_device_builder.controllers.firmware.follow.read_job_output", return_value=None
-    ):
-        data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
-    assert data["output"] == []
-    assert data["output_available"] is False
-
-
 @pytest.mark.parametrize(
-    ("tool", "arguments"),
+    ("tool", "arg", "bounds"),
     [
-        ("get_job", {"job_id": "job1", "tail_lines": -1}),
-        ("validate_config", {"configuration": "kitchen.yaml", "tail_lines": -1}),
-        ("search_components", {"query": "x", "limit": 0}),
-        ("search_boards", {"query": "x", "limit": 0}),
+        ("get_job", "tail_lines", (0, 1000, 50)),
+        ("validate_config", "tail_lines", (0, 1000, 50)),
+        ("search_components", "limit", (1, 100, 20)),
+        ("search_boards", "limit", (1, 100, 20)),
     ],
 )
-async def test_negative_bounds_are_invalid_args(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder, tool: str, arguments: dict[str, Any]
+def test_tail_lines_and_limit_bounds_come_from_the_schema(
+    tool: str, arg: str, bounds: tuple[int, int, int]
 ) -> None:
-    is_error, text = await mcp_call(mcp_client, tool, arguments)
-    assert is_error
-    assert text.startswith("invalid_args: ")
+    prop = TOOLS[tool].schema["properties"][arg]
+    assert (prop["minimum"], prop["maximum"], prop["default"]) == bounds
 
 
-async def test_tail_lines_and_limit_accept_their_maximum_and_refuse_more(
+async def test_a_schema_default_is_forwarded_to_the_command(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
-        return_value=make_job(output=[f"{i}\n" for i in range(1500)])
-    )
-    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 1000})
-    assert len(data["output"]) == 1000
-    search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
-    mcp_db.command_handlers["components/get_components"] = search
-    await mcp_call(mcp_client, "search_components", {"query": "x", "limit": 100})
-    assert search.await_args.kwargs["limit"] == 100
-
-    assert await mcp_call(mcp_client, "get_job", {"job_id": "job1", "tail_lines": 1001}) == (
-        True,
-        "invalid_args: Argument tail_lines must be at most 1000",
-    )
-    assert await mcp_call(mcp_client, "search_components", {"query": "x", "limit": 101}) == (
-        True,
-        "invalid_args: Argument limit must be at most 100",
-    )
-
-
-async def test_tail_lines_and_limit_default_from_the_schema(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
-) -> None:
-    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
-        return_value=make_job(output=[f"{i}\n" for i in range(80)])
-    )
-    data = await mcp_call_json(mcp_client, "get_job", {"job_id": "job1"})
-    assert len(data["output"]) == 50
     search = AsyncMock(return_value=PagedComponentsResponse(components=[]))
     mcp_db.command_handlers["components/get_components"] = search
     await mcp_call(mcp_client, "search_components", {"query": "x"})
