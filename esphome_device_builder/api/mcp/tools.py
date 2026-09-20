@@ -112,9 +112,8 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "update_config",
     "Replace a device's YAML configuration with new content. Read it with get_config "
     "first, pass that text as expected, and change only what is needed; run "
-    "validate_config or compile afterwards. For an automation, check "
-    "get_available_automations first for where it goes. The previous text stays in the "
-    "dashboard's version history.",
+    "validate_config or compile afterwards. Add or change an automation with "
+    "upsert_automation instead. The previous text stays in the dashboard's version history.",
     {
         "configuration": _CONFIGURATION,
         "content": _prop("string", "The complete new YAML."),
@@ -384,8 +383,8 @@ async def _create_device(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "list_automations",
     "List the automations a device config contains (scripts, intervals, api actions, "
-    "on_* triggers, light effects) with their YAML, line range and location. Edit them by "
-    "rewriting the YAML with update_config; remove one with delete_automation.",
+    "on_* triggers, light effects) with their YAML, line range and location. Add or change "
+    "one with upsert_automation; remove one with delete_automation.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
@@ -398,9 +397,9 @@ async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "get_available_automations",
     "The triggers, actions, conditions, scripts and component instances this device's "
-    "config makes available for automations, by id. Call this before writing one: ESPHome "
-    "has no automation block; a trigger is an on_* key under esphome (device level) or "
-    "under the component entry it belongs to, and scripts and intervals are top-level "
+    "config makes available for automations, by id. Call this before upsert_automation: "
+    "ESPHome has no automation block; a trigger is an on_* key under esphome (device level) "
+    "or under the component entry it belongs to, and scripts and intervals are top-level "
     "script and interval lists. An omitted list is empty.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
@@ -441,6 +440,54 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     if missing := [key for key in keys if key not in bodies]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
     return _visible(bodies, include_advanced=args["include_advanced"])
+
+
+@_tool(
+    "upsert_automation",
+    "Insert or replace one automation in a device config and save it; the backend renders "
+    "the YAML in the right place. location kinds: {kind: 'device_on', trigger} for a device "
+    "level on_* trigger; {kind: 'component_on', component_id, trigger} for a component "
+    "instance's on_* trigger; {kind: 'script', id}; {kind: 'interval', index}; "
+    "{kind: 'component_action', component_id, field} for an action-list field such as "
+    "turn_on_action; {kind: 'light_effect', component_id, index}; {kind: 'api_action', "
+    "action_name}. In a location, component_id is the instance id (devices[].id from "
+    "get_available_automations, not the catalog type in devices[].component_id) and trigger "
+    "is the bare YAML key such as on_press; add index only for a list-shaped handler (from "
+    "list_automations); to append an interval or light_effect, pass index equal to the "
+    "current list length. automation is {trigger_params, actions}: the location decides "
+    "the trigger, so a trigger_id is ignored. trigger_params holds the block's own keys "
+    "(a trigger's fields; for interval its interval period; for script its mode and "
+    "parameters; for api_action its variables; for light_effect exactly one key, the "
+    "effect id mapped to its params; for component_action nothing, it is ignored). Each "
+    "action is {action_id, params, children, "
+    "conditions}, children maps a branch name such as then or else to a list of actions, "
+    "and each condition is {condition_id, params, children} with children a list of "
+    "conditions; ids from get_available_automations, fields from get_automation_docs. An "
+    "insert must not replace existing YAML; to replace, pass the automation's raw_yaml from "
+    "list_automations as expected. The tool checks the shape, not the fields: esphome does "
+    "that, so run validate_config after every write and repair what it reports by "
+    "replacing the automation with expected.",
+    {
+        "configuration": _CONFIGURATION,
+        "location": _prop("object", "Where the automation lives; see the description.")
+        | {"additionalProperties": True},
+        "automation": _prop("object", "The automation tree; see the description.")
+        | {"additionalProperties": True},
+        "expected": _prop(
+            "string",
+            "When replacing: the automation's raw_yaml exactly as list_automations returned it.",
+        ),
+    },
+    ("configuration", "location", "automation"),
+)
+async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
+    result = await _call(
+        db,
+        "automations/upsert",
+        save=True,
+        **_only(args, "configuration", "location", "automation", "expected"),
+    )
+    return {"configuration": args["configuration"], "yaml_diff": result["yaml_diff"]}
 
 
 @_tool(
