@@ -67,7 +67,7 @@ from .emitter import (
 from .parsing import (
     ComponentTarget,
     component_action_field_paths,
-    is_listed_automation,
+    is_mapping_entry,
     make_yaml,
     resolve_action_field_target,
     resolve_component_domain,
@@ -226,6 +226,7 @@ def _upsert_device_on_entry(
         index=index,
         strategy=_DEVICE_STRATEGY,
         trigger=catalog.trigger_by_id(trigger),
+        replaceable=None,
     )
 
 
@@ -501,7 +502,7 @@ def _upsert_top_level_list_indexed(
     data = yaml.load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
     if isinstance(items, list) and 0 <= index < len(items):
-        require_replaceable(items, index, label=domain, replaceable=is_listed_automation)
+        require_replaceable(items, index, label=domain, replaceable=is_mapping_entry)
         return _replace_top_level_list_item(yaml_text, domain, index, rendered_item)
     return _append_top_level_list(yaml_text, domain, rendered_item)
 

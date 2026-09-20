@@ -194,7 +194,7 @@ def _parse_automation_list(
     """
     out: list[ParsedAutomation] = []
     for idx, item in enumerate(items):
-        if not is_listed_automation(item):
+        if not is_mapping_entry(item):
             continue
         described = describe(item, idx)
         if described is None:
@@ -740,8 +740,8 @@ def _is_list_form_trigger(body: Any, trigger: AutomationTrigger) -> bool:
     )
 
 
-def is_listed_automation(item: Any) -> bool:
-    """Report whether *item* is a top-level list entry the parser lists."""
+def is_mapping_entry(item: Any) -> bool:
+    """Report whether *item* is a mapping-shaped list entry; a block's describe may skip it too."""
     return isinstance(item, dict)
 
 

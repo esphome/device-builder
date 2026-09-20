@@ -116,7 +116,7 @@ def apply_list_entry_upsert(
     index: int,
     *,
     label: str,
-    replaceable: Callable[[Any], bool] | None = None,
+    replaceable: Callable[[Any], bool] | None,
 ) -> None:
     """Append (``index == len``), replace (in range), or raise (out of range).
 
@@ -166,7 +166,7 @@ def upsert_list_entry(
     index: int,
     strategy: ListContainerStrategy,
     trigger: AutomationTrigger | None = None,
-    replaceable: Callable[[Any], bool] | None = None,
+    replaceable: Callable[[Any], bool] | None,
 ) -> tuple[str, YamlDiff]:
     """
     Insert or replace one entry of a list-shaped handler at *index*.
@@ -253,6 +253,7 @@ def upsert_component_on_entry(
         index=index,
         strategy=_component_strategy(domain, component_id),
         trigger=trigger,
+        replaceable=None,
     )
 
 
@@ -323,6 +324,7 @@ def upsert_subentity_on_entry(
         index=index,
         strategy=_subentity_strategy(ref, component_id),
         trigger=trigger,
+        replaceable=None,
     )
 
 
