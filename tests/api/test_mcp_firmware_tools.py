@@ -113,8 +113,17 @@ async def test_a_schema_default_is_forwarded_to_the_command(
     assert search.await_args.kwargs["limit"] == 20
 
 
-async def test_cancel_job(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
+@pytest.mark.parametrize("status", [JobStatus.CANCELLED, JobStatus.RUNNING])
+async def test_cancel_job_reports_the_status_after_the_request(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, status: JobStatus
+) -> None:
     handler = AsyncMock(return_value=None)
     mcp_db.command_handlers["firmware/cancel"] = handler
-    assert await mcp_call(mcp_client, "cancel_job", {"job_id": "job1"}) == (False, "Cancelled job1")
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(
+        return_value=make_job("job1", status=status)
+    )
+    assert await mcp_call_json(mcp_client, "cancel_job", {"job_id": "job1"}) == {
+        "job_id": "job1",
+        "status": status.value,
+    }
     assert handler.await_args.kwargs["job_id"] == "job1"

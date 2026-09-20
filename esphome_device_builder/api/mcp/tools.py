@@ -225,13 +225,16 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
 
 @_tool(
     "cancel_job",
-    "Cancel a queued or running firmware job.",
+    "Cancel a queued or running firmware job. Returns the job's status right after the "
+    "request: a queued job is cancelled at once, a running one is signalled and may still "
+    "finish, so poll get_job for its final status.",
     {"job_id": _JOB_ID},
     ("job_id",),
 )
-async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> str:
+async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     await _call(db, "firmware/cancel", **_only(args, "job_id"))
-    return f"Cancelled {args['job_id']}"
+    job = await _call(db, "firmware/get_job", job_id=args["job_id"])
+    return {"job_id": args["job_id"], "status": job.status}
 
 
 @_tool(
