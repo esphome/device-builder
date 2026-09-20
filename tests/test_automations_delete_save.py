@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from esphome_device_builder.controllers.automations import AutomationsController
+from esphome_device_builder.controllers.automations import AutomationsController, parsing
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
@@ -31,13 +32,14 @@ _AUTOMATION = {
 class _Devices:
     """Stand-in for the devices controller's locked read-rewrite-save."""
 
-    def __init__(self) -> None:
+    def __init__(self, text: str = _YAML) -> None:
+        self.text = text
         self.saved: list[tuple[str, str, str]] = []
 
     async def rewrite_yaml(
         self, configuration: str, rewrite: Callable[[str], tuple[str, YamlDiff]], *, message: str
     ) -> YamlDiff:
-        new_text, diff = rewrite(_YAML)
+        new_text, diff = await asyncio.to_thread(rewrite, self.text)
         self.saved.append((configuration, new_text, message))
         return diff
 
@@ -60,6 +62,113 @@ async def test_delete_writes_the_spliced_config_only_with_save(tmp_path: Path, s
     assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
     saved = [("d.yaml", "esphome:\n  name: d\n", "Delete an automation from d.yaml")]
     assert devices.saved == (saved if save else [])
+
+
+async def test_delete_with_expected_removes_only_the_automation_it_was_shown(
+    tmp_path: Path,
+) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, _YAML))[0].raw_yaml
+
+    result = await controller.delete(
+        configuration="d.yaml", location=_LOCATION, save=True, expected=shown
+    )
+
+    assert result["yaml_diff"] == {"fromLine": 3, "toLine": 5, "replacement": ""}
+    saved = [("d.yaml", "esphome:\n  name: d\n", "Delete an automation from d.yaml")]
+    assert devices.saved == saved
+
+
+@pytest.mark.parametrize(
+    ("location", "expected"),
+    [
+        (_LOCATION, "on_boot:\n  then:\n    - delay: 2s\n"),
+        ({"kind": "device_on", "trigger": "on_shutdown"}, "on_shutdown: {}\n"),
+    ],
+    ids=["changed", "moved"],
+)
+async def test_delete_with_expected_refuses_a_changed_or_missing_automation(
+    tmp_path: Path, location: dict[str, Any], expected: str
+) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml", location=location, save=True, expected=expected
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert devices.saved == []
+
+
+async def test_delete_with_expected_refuses_a_positional_index_that_shifted(
+    tmp_path: Path,
+) -> None:
+    item = "  - interval: {n}s\n    then:\n      - delay: {n}s\n"
+    listed = "interval:\n" + item.format(n=1)
+    on_disk = "interval:\n" + item.format(n=9) + item.format(n=1)
+    devices = _Devices(on_disk)
+    controller = _make_controller(tmp_path, devices=devices)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, listed))[0].raw_yaml
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml",
+            location={"kind": "interval", "index": 0},
+            save=True,
+            expected=shown,
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert devices.saved == []
+
+
+async def test_delete_with_expected_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:
+    devices = _Devices("esphome: [\n")
+    controller = _make_controller(tmp_path, devices=devices)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml", location=_LOCATION, save=True, expected="on_boot: {}\n"
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert excinfo.value.message.startswith("the config no longer loads, nothing was deleted: ")
+    assert isinstance(excinfo.value.__cause__, CommandError)
+    assert devices.saved == []
+
+
+async def test_delete_with_expected_passes_other_parser_errors_through(tmp_path: Path) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+    other = CommandError(ErrorCode.UNAVAILABLE, "catalog not loaded")
+
+    with (
+        patch.object(automations_controller.parsing, "parse_device_yaml", side_effect=other),
+        pytest.raises(CommandError) as excinfo,
+    ):
+        await controller.delete(
+            configuration="d.yaml", location=_LOCATION, save=True, expected="on_boot: {}\n"
+        )
+
+    assert excinfo.value is other
+    assert devices.saved == []
+
+
+async def test_delete_refuses_a_non_string_expected(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path, devices=_Devices())
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.delete(
+            configuration="d.yaml",
+            location=_LOCATION,
+            expected=7,  # type: ignore[arg-type]
+        )
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "expected must be a string" in excinfo.value.message
 
 
 @pytest.mark.parametrize(
