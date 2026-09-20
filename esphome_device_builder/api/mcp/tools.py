@@ -194,11 +194,8 @@ async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     "install",
     "Compile and install firmware on a device. Returns the compile job id and the "
     "dependent upload job id; poll both with get_job. An offline device gets the update "
-    "queued for its next wake (deferred, no upload job). A null upload_job_id with deferred "
-    "false means no upload will follow this compile: poll the compile job with get_job and, "
-    "when it completes successfully, install again to flash; a failed compile has nothing to "
-    "flash, fix the config first. A flash has no undo: the device runs whatever compiles, so "
-    "read and validate the config first.",
+    "queued for its next wake (deferred, upload_job_id null). A flash has no undo: the "
+    "device runs whatever compiles, so read and validate the config first.",
     {
         "configuration": _CONFIGURATION,
         "port": _prop("string", "'OTA' (default), a serial port, or an IP/hostname."),
@@ -211,7 +208,8 @@ async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     if (firmware := db.firmware) is not None:
         upload = next(firmware.state.dependents(job.job_id), None)
     if upload is None and not job.is_deferred_install:
-        _LOGGER.warning("Install %s was queued without a dependent upload job", job.job_id)
+        msg = f"install {job.job_id} was queued without its upload job"
+        raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
     return {
         "job_id": job.job_id,
         "status": job.status,

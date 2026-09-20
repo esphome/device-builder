@@ -68,19 +68,17 @@ async def test_install_deferred_has_no_upload(
     }
 
 
-async def test_install_reports_a_missing_upload_without_losing_the_job_id(
+async def test_install_without_its_upload_job_is_a_server_fault(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder, caplog: pytest.LogCaptureFixture
 ) -> None:
     compile_job = make_job("c1", status=JobStatus.QUEUED)
     mcp_db.command_handlers["firmware/install"] = AsyncMock(return_value=compile_job)
     mcp_db.firmware = None
-    assert await mcp_call_json(mcp_client, "install", {"configuration": "kitchen.yaml"}) == {
-        "job_id": "c1",
-        "status": "queued",
-        "upload_job_id": None,
-        "deferred": False,
-    }
-    assert "queued without a dependent upload" in caplog.text
+    assert await mcp_call(mcp_client, "install", {"configuration": "kitchen.yaml"}) == (
+        True,
+        "internal_error: install c1 was queued without its upload job",
+    )
+    assert "server fault" in caplog.text
 
 
 async def test_cancel_job_reports_a_pruned_job_as_gone(
