@@ -110,8 +110,9 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "update_config",
     "Replace a device's YAML configuration with new content. Read it with get_config "
     "first, pass that text as expected, and change only what is needed; run "
-    "validate_config or compile afterwards. The previous text stays in the dashboard's "
-    "version history.",
+    "validate_config or compile afterwards. For an automation, check "
+    "get_available_automations first for where it goes. The previous text stays in the "
+    "dashboard's version history.",
     {
         "configuration": _CONFIGURATION,
         "content": _prop("string", "The complete new YAML."),
@@ -389,7 +390,10 @@ async def _list_automations(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "get_available_automations",
     "The triggers, actions, conditions, scripts and component instances this device's "
-    "config makes available for automations, by id. An omitted list is empty.",
+    "config makes available for automations, by id. Call this before writing one: ESPHome "
+    "has no automation block; a trigger is an on_* key under esphome (device level) or "
+    "under the component entry it belongs to, and scripts and intervals are top-level "
+    "script and interval lists. An omitted list is empty.",
     {"configuration": _CONFIGURATION},
     ("configuration",),
 )
