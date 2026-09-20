@@ -12,7 +12,7 @@ from ...controllers.devices.helpers import scanned_component_entries
 from ...controllers.firmware.follow import job_report
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
-from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry
+from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry, closed_object
 from ...models import ErrorCode
 
 if TYPE_CHECKING:
@@ -140,7 +140,8 @@ async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
         "component_id": _COMPONENT_ID,
         "fields": _prop(
             "object", "Config values keyed by field name; nested blocks are nested objects."
-        ),
+        )
+        | {"additionalProperties": True},
     },
     ("configuration", "component_id"),
 )
@@ -411,32 +412,32 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
 
 @_tool(
     "get_automation_docs",
-    "Documentation for automation building blocks: each ref is {type, id} with type one of "
-    + ", ".join(AUTOMATION_TYPES)
-    + " and id from get_available_automations, e.g. {type: 'actions', id: 'light.turn_on'}."
-    " An omitted flag is false; advanced and YAML-only fields are omitted unless "
-    "include_advanced is true.",
+    "Documentation for automation building blocks: the fields each trigger, action, condition, "
+    "light effect or filter takes. An omitted flag is false; advanced and YAML-only fields are "
+    "omitted unless include_advanced is true.",
     {
-        "refs": _prop("array", "List of {type, id} refs, at most 50 per call."),
+        "refs": _prop("array", "Building blocks to document.")
+        | {
+            "maxItems": _MAX_REFS,
+            "items": closed_object(
+                {
+                    "type": _prop("string", "The building block kind.")
+                    | {"enum": list(AUTOMATION_TYPES)},
+                    "id": _prop(
+                        "string", "Its id from get_available_automations, e.g. 'light.turn_on'."
+                    )
+                    | {"minLength": 1},
+                },
+                ("type", "id"),
+            ),
+        },
         "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
         | {"default": False},
     },
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    if len(args["refs"]) > _MAX_REFS:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"at most {_MAX_REFS} refs per call")
-    keys = []
-    for ref in args["refs"]:
-        if (
-            not isinstance(ref, dict)
-            or ref.get("type") not in AUTOMATION_TYPES
-            or not isinstance(ref.get("id"), str)
-            or not ref["id"]
-        ):
-            msg = f"each ref needs a type of {', '.join(AUTOMATION_TYPES)} and an id"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
-        keys.append(f"{ref['type']}/{ref['id']}")
+    keys = [f"{ref['type']}/{ref['id']}" for ref in args["refs"]]
     bodies = await _call(db, "automations/get_bodies", refs=args["refs"])
     if missing := [key for key in keys if key not in bodies]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
@@ -450,7 +451,8 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "precondition_failed if the automation changed or moved since it was listed.",
     {
         "configuration": _CONFIGURATION,
-        "location": _prop("object", "The automation's location as returned by list_automations."),
+        "location": _prop("object", "The automation's location as returned by list_automations.")
+        | {"additionalProperties": True},
         "expected": _prop(
             "string", "The automation's raw_yaml exactly as list_automations returned it."
         ),
