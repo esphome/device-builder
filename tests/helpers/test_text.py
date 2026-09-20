@@ -52,3 +52,14 @@ def test_diff_excerpt_drops_the_hunk_headers_of_hidden_changes() -> None:
     assert sum(line.startswith("@@") for line in lines) == 6
     assert all(not line.startswith("@@") for line in lines[-2:])
     assert lines[-1].endswith(" more diff lines")
+
+
+def test_diff_excerpt_attaches_a_hunk_header_to_the_line_shown_under_it() -> None:
+    expected = "".join(f"k{i}\n" for i in range(10))
+    added = "".join(f"new{i}\n" for i in range(8))
+    current = "k0\nk1\n" + added + "".join(f"k{i}\n" for i in range(2, 8)) + "k9\n"
+    lines = diff_excerpt(expected, current).splitlines()
+    assert sum(line.startswith("+") and not line.startswith("+++") for line in lines) == 6
+    assert lines[-3].startswith("@@")
+    assert lines[-2] == "-k8"
+    assert lines[-1].endswith(" more diff lines")
