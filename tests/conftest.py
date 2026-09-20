@@ -175,10 +175,8 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 # with_core_path=True)``) still take precedence, and sibling xdist
 # workers don't see leaked process-globals.
 #
-# Only a test that already uses ``tmp_path`` (directly or through a
-# fixture) gets that directory; everything else gets a unique path that
-# is never created, since a directory per test is slow on Windows
-# runners. A test that writes storage must request ``tmp_path``.
+# A test that writes storage must request ``tmp_path``; without it the
+# sentinel's directory is never created (a dir per test is slow on Windows).
 # ---------------------------------------------------------------------------
 
 

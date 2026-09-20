@@ -184,8 +184,7 @@ jobs:
           install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Move TEMP to the work disk (Windows)
-        # Windows runners keep ``%TEMP%`` on ``C:``, which is about twice
-        # as slow for small file I/O as the ``D:`` work disk, and pytest's
+        # The default ``%TEMP%`` sits on the slow OS disk; pytest's
         # ``tmp_path`` lives under it.
         if: runner.os == 'Windows'
         shell: bash
