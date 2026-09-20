@@ -119,7 +119,7 @@ def emit_action_seq(actions: list[ActionNode]) -> CommentedSeq:
     return seq
 
 
-def _shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str | None:
+def shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str | None:
     """Return the collapse key for a bare-scalar form, or ``None`` for mapping-only.
 
     Most shorthands come straight from the catalog's ``scalar_shorthand_key``
@@ -169,7 +169,7 @@ def emit_action_node(node: ActionNode) -> CommentedMap:
     for child_key in sorted(node.children.keys(), key=lambda k: (k != "then", k)):
         body[child_key] = emit_action_seq(node.children[child_key])
     out = CommentedMap()
-    shorthand = _shorthand_key(catalog.action_by_id(node.action_id))
+    shorthand = shorthand_key(catalog.action_by_id(node.action_id))
     if (
         not node.children
         and not node.conditions
@@ -206,7 +206,7 @@ def emit_condition_node(node: ConditionNode) -> CommentedMap:
     if not node.params:
         out[node.condition_id] = None
         return out
-    shorthand = _shorthand_key(catalog.condition_by_id(node.condition_id))
+    shorthand = shorthand_key(catalog.condition_by_id(node.condition_id))
     if len(node.params) == 1 and shorthand is not None and shorthand in node.params:
         out[node.condition_id] = encode_value(node.params[shorthand])
         return out

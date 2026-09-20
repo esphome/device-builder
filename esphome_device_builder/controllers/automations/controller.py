@@ -23,7 +23,10 @@ from ...helpers.device_config import read_device_config
 from ...helpers.text import diff_excerpt, same_text
 from ...models.api import ErrorCode
 from ...models.automations import (
+    ActionNode,
     ApiActionLocation,
+    AutomationAction,
+    AutomationCondition,
     AutomationLocation,
     AutomationTree,
     AvailableAutomations,
@@ -32,6 +35,7 @@ from ...models.automations import (
     AvailableScriptParameter,
     ComponentActionFieldLocation,
     ComponentOnLocation,
+    ConditionNode,
     DeviceOnLocation,
     IntervalLocation,
     LightEffectLocation,
@@ -42,6 +46,7 @@ from ...models.automations import (
 )
 from . import catalog, parsing, writing
 from .catalog import AutomationBodyRef
+from .emitter import shorthand_key
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -243,6 +248,7 @@ class AutomationsController:
             tree = AutomationTree.from_dict(automation)
         except (LookupError, ValueError, TypeError) as err:
             raise CommandError(ErrorCode.INVALID_ARGS, f"Invalid automation: {err}") from err
+        await _check_tree_against_catalog(tree)
         loc = _decode_location(location)
         render: Callable[[str], tuple[str, YamlDiff]]
         if save or expected is not None:
@@ -504,6 +510,79 @@ def _decode_location(raw: dict) -> AutomationLocation:
         return loc_type.from_dict(raw)
     except (LookupError, ValueError, TypeError) as err:
         raise CommandError(ErrorCode.INVALID_ARGS, f"Invalid {kind} location: {err}") from err
+
+
+async def _check_tree_against_catalog(tree: AutomationTree) -> None:
+    """Refuse an action or condition the catalog does not know, or a field it does not list."""
+    refs: list[AutomationBodyRef] = []
+    _collect_action_refs(tree.actions, refs)
+    if refs:
+        await catalog.get_bodies(refs)  # warms the per-id caches the sync lookups read
+    _check_actions(tree.actions)
+
+
+def _collect_action_refs(nodes: list[ActionNode], refs: list[AutomationBodyRef]) -> None:
+    for node in nodes:
+        if node.unknown:
+            continue
+        refs.append({"type": "actions", "id": node.action_id})
+        for branch in node.children.values():
+            _collect_action_refs(branch, refs)
+        _collect_condition_refs(node.conditions, refs)
+
+
+def _collect_condition_refs(nodes: list[ConditionNode], refs: list[AutomationBodyRef]) -> None:
+    for node in nodes:
+        refs.append({"type": "conditions", "id": node.condition_id})
+        _collect_condition_refs(node.children, refs)
+
+
+def _check_actions(nodes: list[ActionNode]) -> None:
+    for node in nodes:
+        if node.unknown:
+            continue
+        entry = catalog.action_by_id(node.action_id)
+        if entry is None:
+            raise CommandError(ErrorCode.INVALID_ARGS, f"Unknown action id {node.action_id!r}")
+        _check_fields(node.action_id, node.params, entry, extra=entry.accepts_action_list)
+        if stray := sorted(set(node.children) - set(entry.accepts_action_list)):
+            msg = (
+                f"Action {node.action_id!r} has no {stray} branch; "
+                f"it takes {entry.accepts_action_list}"
+            )
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        for branch in node.children.values():
+            _check_actions(branch)
+        _check_conditions(node.conditions)
+
+
+def _check_conditions(nodes: list[ConditionNode]) -> None:
+    for node in nodes:
+        entry = catalog.condition_by_id(node.condition_id)
+        if entry is None:
+            msg = f"Unknown condition id {node.condition_id!r}"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        _check_fields(node.condition_id, node.params, entry, extra=[])
+        if node.children and not entry.accepts_condition_list:
+            msg = f"Condition {node.condition_id!r} takes no nested conditions"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        _check_conditions(node.children)
+
+
+def _check_fields(
+    node_id: str,
+    params: dict[str, Any],
+    entry: AutomationAction | AutomationCondition,
+    *,
+    extra: list[str],
+) -> None:
+    """Raise ``INVALID_ARGS`` for a param the catalog entry does not list, naming what it does."""
+    allowed = {e.key for e in entry.config_entries} | set(extra)
+    if shorthand := shorthand_key(entry):
+        allowed.add(shorthand)
+    if unknown := sorted(set(params) - allowed):
+        msg = f"{node_id!r} has no field {unknown}; it takes {sorted(allowed)}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
 def _check_save_args(*, save: bool, yaml: str | None, expected: str | None) -> None:

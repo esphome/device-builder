@@ -1020,7 +1020,7 @@ async def test_upsert_api_action_returns_yaml_diff(tmp_path: Path) -> None:
             "actions": [
                 {
                     "action_id": "logger.log",
-                    "params": {"id": "tick"},
+                    "params": {"format": "tick"},
                     "children": {},
                     "conditions": [],
                 },
