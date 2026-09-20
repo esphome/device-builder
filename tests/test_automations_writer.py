@@ -3875,6 +3875,19 @@ def test_upsert_expands_a_one_line_flow_block_into_a_block_list(text: str) -> No
     assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
 
 
+def test_upsert_expands_an_empty_flow_list_and_keeps_a_trailing_comment() -> None:
+    new_text, diff = render_upsert(
+        "logger:\ninterval: []\nota:\n", tree=_TICK, location=IntervalLocation(index=0)
+    )
+    assert new_text == "logger:\ninterval:\n  - interval: 10s\n    then:\n      - delay: 2s\nota:\n"
+    assert _apply_diff("logger:\ninterval: []\nota:\n", diff) == new_text
+    text = "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}  # note\nota:\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith("logger:\ninterval:  # note\n  - interval: 60s\n")
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
 @pytest.mark.parametrize(
     "text",
     ["interval: {interval: 60s,\n  then: [{delay: 1s}]}\n", "interval: 60s\n"],

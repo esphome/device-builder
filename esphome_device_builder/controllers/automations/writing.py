@@ -41,6 +41,7 @@ from ...helpers.yaml import (
     upsert_nested_handler,
     upsert_subentity_handler,
 )
+from ...helpers.yaml.scalar import _split_value_and_comment
 from ...helpers.yaml.scan import key_line_res
 from ...helpers.yaml.writing_layout import (
     _build_diff_for_append,
@@ -201,8 +202,9 @@ def _expand_flow_block(yaml_text: str, domain: str) -> str:
     idx = next((i for i, line in enumerate(lines) if inline_re.match(line.rstrip("\n\r"))), None)
     if idx is None:
         return yaml_text
+    header, comment = _split_value_and_comment(lines[idx].rstrip("\n\r"))
     try:
-        loaded = make_yaml().load(lines[idx])
+        loaded = make_yaml().load(header)
     except YAMLError:
         return yaml_text  # a flow value spanning lines is left for _require_block_style
     value = loaded.get(domain) if isinstance(loaded, dict) else None
@@ -210,7 +212,9 @@ def _expand_flow_block(yaml_text: str, domain: str) -> str:
         return yaml_text
     items = value if isinstance(value, list) else [value]
     _set_block_style(items)
-    return "".join(lines[:idx]) + f"{domain}:\n" + dump(items) + "".join(lines[idx + 1 :])
+    body = dump(items) if items else ""
+    header_line = f"{domain}:" + (f"  {comment.strip()}" if comment.strip() else "") + "\n"
+    return "".join(lines[:idx]) + header_line + body + "".join(lines[idx + 1 :])
 
 
 def _set_block_style(node: Any) -> None:
