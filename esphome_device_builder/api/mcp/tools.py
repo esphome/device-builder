@@ -157,7 +157,13 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 )
 async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     client = CollectingClient(tail=args["tail_lines"])
-    await _call(db, "devices/validate", client=client, configuration=args["configuration"])
+    await _call(
+        db,
+        "devices/validate",
+        client=client,
+        configuration=args["configuration"],
+        show_secrets=False,
+    )
     if (result := client.result) is None:
         _LOGGER.error("MCP validate of %s produced no result frame", args["configuration"])
         raise McpToolError(INTERNAL_ERROR, "Validation produced no result")

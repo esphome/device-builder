@@ -41,7 +41,10 @@ async def mcp_call_json(client: Any, name: str, arguments: dict[str, Any] | None
 def validate_stub(frames: list[tuple[str, Any]]) -> Any:
     """Build a ``devices/validate`` stand-in that emits *frames*."""
 
-    async def validate(*, client: Any, message_id: str, configuration: str) -> None:
+    async def validate(
+        *, client: Any, message_id: str, configuration: str, show_secrets: bool
+    ) -> None:
+        assert show_secrets is False  # the tool must pin the redacting default
         for event, data in frames:
             await client.send_event(message_id, event, data)
 
