@@ -168,7 +168,31 @@ _REF = closed_object(
     {"kind": {"type": "string", "enum": ["a", "b"]}, "id": {"type": "string", "minLength": 1}},
     ("kind", "id"),
 )
-_NESTED = closed_object({"refs": {"type": "array", "items": _REF}})
+_NESTED = closed_object({"refs": {"type": "array", "items": _REF, "maxItems": 2}})
+_NESTED_ACCEPTED = [
+    {},
+    {"refs": []},
+    {"refs": [{"kind": "a", "id": "x"}, {"kind": "b", "id": "y"}]},
+]
+_NESTED_REJECTED = [
+    pytest.param({"refs": ["a/x"]}, "a list whose item 0 is object", id="item_type"),
+    pytest.param({"refs": [{"kind": "a"}]}, "item 0 is an object with id", id="req"),
+    pytest.param(
+        {"refs": [{"kind": "a", "id": "x", "z": 1}]}, "is an object without z", id="unknown"
+    ),
+    pytest.param({"refs": [{"kind": "a", "id": 1}]}, "an object whose id is string", id="type"),
+    pytest.param(
+        {"refs": [{"kind": "a", "id": ""}]},
+        "an object whose id is at least 1 characters long",
+        id="empty",
+    ),
+    pytest.param(
+        {"refs": [{"kind": "a", "id": "x"}, {"kind": "c", "id": "x"}]},
+        r"item 1 is an object whose kind is one of \['a', 'b'\]",
+        id="enum",
+    ),
+    pytest.param({"refs": [{"kind": "a", "id": "x"}] * 3}, "a list of at most 2 items", id="long"),
+]
 
 
 def test_closed_object_registers_as_valid_json_schema() -> None:
@@ -202,6 +226,13 @@ def test_closed_object_registers_as_valid_json_schema() -> None:
         pytest.param({"type": "integer", "minLength": 1}, "on a non-string type", id="int_len"),
         pytest.param({"type": "string", "minLength": -1}, "integer minLength", id="neg_len"),
         pytest.param({"type": "string", "minLength": True}, "integer minLength", id="bool_len"),
+        pytest.param({"type": "string", "maxItems": 1}, "maxItems on a non-array", id="str_max"),
+        pytest.param({"type": "array", "maxItems": 1}, "items beside maxItems", id="bare_max"),
+        pytest.param(
+            {"type": "integer", "items": {"type": "string"}, "default": 1},
+            "items on a non-array type",
+            id="items_with_default",
+        ),
         pytest.param({"type": "array", "items": "x"}, "property schema as its items", id="items"),
         pytest.param(_REF | {"type": "array"}, "properties on a non-object type", id="arr_props"),
         pytest.param(
@@ -239,38 +270,26 @@ def test_registration_rejects_shapes_it_cannot_enforce(prop: dict[str, Any], fra
         tools.tool("t", "desc", {"a": prop})
 
 
-@pytest.mark.parametrize(
-    "arguments",
-    [{}, {"refs": []}, {"refs": [{"kind": "a", "id": "x"}, {"kind": "b", "id": "y"}]}],
-)
+@pytest.mark.parametrize("arguments", _NESTED_ACCEPTED)
 def test_validate_args_accepts_nested_shapes(arguments: dict[str, Any]) -> None:
     validate_args(_NESTED, arguments)
 
 
-@pytest.mark.parametrize(
-    ("arguments", "fragment"),
-    [
-        pytest.param({"refs": ["a/x"]}, "a list whose item 0 is object", id="item_type"),
-        pytest.param({"refs": [{"kind": "a"}]}, "item 0 is an object with id", id="req"),
-        pytest.param(
-            {"refs": [{"kind": "a", "id": "x", "z": 1}]}, "is an object without z", id="unknown"
-        ),
-        pytest.param({"refs": [{"kind": "a", "id": 1}]}, "an object whose id is string", id="type"),
-        pytest.param(
-            {"refs": [{"kind": "a", "id": ""}]},
-            "an object whose id is at least 1 characters long",
-            id="empty",
-        ),
-        pytest.param(
-            {"refs": [{"kind": "a", "id": "x"}, {"kind": "c", "id": "x"}]},
-            r"item 1 is an object whose kind is one of \['a', 'b'\]",
-            id="enum",
-        ),
-    ],
-)
+@pytest.mark.parametrize(("arguments", "fragment"), _NESTED_REJECTED)
 def test_validate_args_rejects_nested_shapes(arguments: dict[str, Any], fragment: str) -> None:
     with pytest.raises(McpToolError, match=fragment):
         validate_args(_NESTED, arguments)
+
+
+@pytest.mark.parametrize("arguments", [*_NESTED_ACCEPTED, *(p.values[0] for p in _NESTED_REJECTED)])
+def test_validate_args_agrees_with_a_json_schema_validator(arguments: dict[str, Any]) -> None:
+    try:
+        validate_args(_NESTED, arguments)
+    except McpToolError:
+        accepted = False
+    else:
+        accepted = True
+    assert jsonschema.Draft202012Validator(_NESTED).is_valid(arguments) is accepted
 
 
 _BOUNDED = {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}

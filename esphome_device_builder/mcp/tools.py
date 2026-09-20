@@ -19,7 +19,8 @@ INTERNAL_ERROR = "internal_error"
 
 # Schema keywords ``validate_args`` enforces; ``default`` only on a tool's own properties.
 _PROPERTY_KEYS = frozenset(
-    {"type", "description", "minimum", "maximum", "minLength", "default", "enum", "items"}
+    {"type", "description", "minimum", "maximum", "minLength", "maxItems", "default"}
+    | {"enum", "items"}
     | {"properties", "required", "additionalProperties"}
 )
 _NESTED_KEYS = _PROPERTY_KEYS - {"default"}
@@ -166,7 +167,7 @@ def _value_problem(prop: dict[str, Any], value: Any) -> str | None:
     ):
         return str(json_type)
     if "items" in prop:
-        return _items_problem(prop["items"], value)
+        return _items_problem(prop, value)
     if "properties" in prop:
         return _object_problem(prop, value)
     return _range_problem(prop, value)
@@ -185,10 +186,12 @@ def _range_problem(prop: dict[str, Any], value: Any) -> str | None:
     return None
 
 
-def _items_problem(items: dict[str, Any], values: Any) -> str | None:
-    """Return what the first offending element of *values* must be, or None."""
+def _items_problem(prop: dict[str, Any], values: Any) -> str | None:
+    """Return what the list *values* or its first offending element must be, or None."""
+    if "maxItems" in prop and len(values) > prop["maxItems"]:
+        return f"a list of at most {prop['maxItems']} items"
     for index, item in enumerate(values):
-        if problem := _value_problem(items, item):
+        if problem := _value_problem(prop["items"], item):
             return f"a list whose item {index} is {problem}"
     return None
 
@@ -216,9 +219,10 @@ def _property_problem(
         return f"{path} has unenforced keywords {sorted(unsupported)}"
     if problem := (
         _bounds_problem(prop)
+        or _length_problem(prop)
         or _enum_problem(prop)
-        or _default_problem(prop, required=required)
         or _shape_problem(prop)
+        or _default_problem(prop, required=required)
     ):
         return f"{path} {problem}"
     if "items" in prop:
@@ -252,6 +256,8 @@ def _shape_problem(prop: dict[str, Any]) -> str | None:
             return "has items on a non-array type"
         if not isinstance(prop["items"], dict):
             return "needs a property schema as its items"
+    elif "maxItems" in prop:
+        return "needs items beside maxItems"
     if _OBJECT_KEYS & set(prop):
         return _object_shape_problem(prop)
     return None
@@ -277,7 +283,7 @@ def _object_shape_problem(prop: dict[str, Any]) -> str | None:
 
 
 def _bounds_problem(prop: dict[str, Any]) -> str | None:
-    """Return why *prop*'s ``minimum`` / ``maximum`` / ``minLength`` cannot be enforced, or None."""
+    """Return why *prop*'s ``minimum`` / ``maximum`` cannot be enforced, or None."""
     bounds = [prop[k] for k in ("minimum", "maximum") if k in prop]
     if bounds and prop["type"] not in _NUMERIC_TYPES:
         return "has bounds on a non-numeric type"
@@ -285,18 +291,19 @@ def _bounds_problem(prop: dict[str, Any]) -> str | None:
         return "needs numeric bounds"
     if len(bounds) == 2 and bounds[0] > bounds[1]:
         return "has minimum above maximum"
-    return _length_problem(prop)
+    return None
 
 
 def _length_problem(prop: dict[str, Any]) -> str | None:
-    """Return why *prop*'s ``minLength`` cannot be enforced, or None."""
-    if "minLength" not in prop:
-        return None
-    if prop["type"] != "string":
-        return "has minLength on a non-string type"
-    length = prop["minLength"]
-    if isinstance(length, bool) or not isinstance(length, int) or length < 0:
-        return "needs a non-negative integer minLength"
+    """Return why *prop*'s ``minLength`` / ``maxItems`` cannot be enforced, or None."""
+    for keyword, json_type in (("minLength", "string"), ("maxItems", "array")):
+        if keyword not in prop:
+            continue
+        if prop["type"] != json_type:
+            return f"has {keyword} on a non-{json_type} type"
+        length = prop[keyword]
+        if isinstance(length, bool) or not isinstance(length, int) or length < 0:
+            return f"needs a non-negative integer {keyword}"
     return None
 
 

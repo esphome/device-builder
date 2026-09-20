@@ -504,7 +504,7 @@ async def test_get_automation_docs_caps_the_refs_per_call(
     refs = [{"type": "actions", "id": f"a{i}"} for i in range(51)]
     assert await mcp_call(mcp_client, "get_automation_docs", {"refs": refs}) == (
         True,
-        "invalid_args: at most 50 refs per call",
+        "invalid_args: Argument refs must be a list of at most 50 items",
     )
     bodies.assert_not_awaited()
 

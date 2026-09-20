@@ -415,8 +415,9 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     "light effect or filter takes. An omitted flag is false; advanced and YAML-only fields are "
     "omitted unless include_advanced is true.",
     {
-        "refs": _prop("array", "Building blocks to document, at most 50 per call.")
+        "refs": _prop("array", "Building blocks to document.")
         | {
+            "maxItems": _MAX_REFS,
             "items": closed_object(
                 {
                     "type": _prop("string", "The building block kind.")
@@ -427,7 +428,7 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
                     | {"minLength": 1},
                 },
                 ("type", "id"),
-            )
+            ),
         },
         "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
         | {"default": False},
@@ -435,8 +436,6 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     ("refs",),
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    if len(args["refs"]) > _MAX_REFS:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"at most {_MAX_REFS} refs per call")
     keys = [f"{ref['type']}/{ref['id']}" for ref in args["refs"]]
     bodies = await _call(db, "automations/get_bodies", refs=args["refs"])
     if missing := [key for key in keys if key not in bodies]:
