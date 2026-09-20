@@ -132,7 +132,7 @@ def _block_anchors(events: list[Event], domain: str) -> list[str | None]:
         if isinstance(event, CollectionEndEvent):
             depth -= 1
             continue
-        if depth == 1:
+        if depth == 1 and isinstance(event, NodeEvent):
             node += 1
             is_key = node % 2 == 0 and isinstance(event, ScalarEvent) and event.value == domain
             if key_node is None and is_key:

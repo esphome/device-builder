@@ -4049,7 +4049,7 @@ def test_a_nested_anchor_survives_the_mapping_normalisation() -> None:
 
 
 def test_a_scalar_valued_like_the_domain_does_not_hide_the_header_anchor() -> None:
-    text = "comment: interval\ninterval: &shared\n  interval: 60s\nother: *shared\n"
+    text = "# interval\ncomment: interval\ninterval: &shared\n  interval: 60s\nother: *shared\n"
     with pytest.raises(CommandError) as err:
         render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
     assert err.value.message == (
