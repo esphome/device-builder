@@ -95,6 +95,24 @@ def test_typed_hub_is_judged_per_variant_and_constrains_the_dependent() -> None:
     assert "bus_constraints" not in client
 
 
+def test_typed_hub_default_that_names_no_variant_fails_the_sync() -> None:
+    hub = _declarer(
+        "modbus",
+        ["modbus::Modbus"],
+        _variant_id_classes=(
+            "role",
+            {"client": ["modbus::ModbusClientHub"], "server": ["modbus::ModbusServerHub"]},
+        ),
+    )
+    hub["config_entries"] = [{"key": "role", "default_value": "master"}]
+    cover = {
+        "id": "hoermann_hcp",
+        "config_entries": [_reference("modbus_id", "modbus", "modbus::ModbusServerHub")],
+    }
+    with pytest.raises(SystemExit, match="master"):
+        _resolve([hub, cover])
+
+
 def test_platform_whose_own_domain_ids_are_nested_is_not_a_candidate() -> None:
     """The ``dht`` shape: the picker descends to the nested ids and skips the root."""
     dht = _declarer(

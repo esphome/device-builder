@@ -1664,8 +1664,15 @@ def _resolve_reference_classes(entries: list[dict]) -> None:
         entry["id_classes_by_variant"] = {
             typed_key: {name: sorted(classes) for name, classes in sorted(per_variant.items())}
         }
-        # An unset discriminator declares the default variant's classes.
-        entry["id_classes"] = sorted(per_variant.get(_default_variant(entry, typed_key), []))
+        # An unset discriminator declares the default variant's classes; a
+        # required one (``output.template``) has no default and ships none.
+        default = _default_variant(entry, typed_key)
+        if default is not None and default not in per_variant:
+            raise SystemExit(
+                f"{component_id}: {typed_key} defaults to {default!r}, "
+                f"not one of its variants {sorted(per_variant)}"
+            )
+        entry["id_classes"] = sorted(per_variant.get(default, []))
 
 
 def _restrictive_references(entries: list[dict]) -> set[tuple[str, str]]:
