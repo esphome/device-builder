@@ -68,6 +68,32 @@ async def test_install_deferred_has_no_upload(
     }
 
 
+async def test_install_reports_a_missing_upload_without_losing_the_job_id(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, caplog: pytest.LogCaptureFixture
+) -> None:
+    compile_job = make_job("c1", status=JobStatus.QUEUED)
+    mcp_db.command_handlers["firmware/install"] = AsyncMock(return_value=compile_job)
+    mcp_db.firmware = None
+    assert await mcp_call_json(mcp_client, "install", {"configuration": "kitchen.yaml"}) == {
+        "job_id": "c1",
+        "status": "queued",
+        "upload_job_id": None,
+        "deferred": False,
+    }
+    assert "queued without a dependent upload" in caplog.text
+
+
+async def test_cancel_job_reports_a_pruned_job_as_gone(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["firmware/cancel"] = AsyncMock(return_value=None)
+    mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=None)
+    assert await mcp_call_json(mcp_client, "cancel_job", {"job_id": "job1"}) == {
+        "job_id": "job1",
+        "status": None,
+    }
+
+
 async def test_get_job_unknown_is_not_found(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
     mcp_db.command_handlers["firmware/get_job"] = AsyncMock(return_value=None)
     assert await mcp_call(mcp_client, "get_job", {"job_id": "nope"}) == (

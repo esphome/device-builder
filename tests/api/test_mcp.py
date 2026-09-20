@@ -152,6 +152,17 @@ def test_library_error_words_match_error_code() -> None:
     assert INTERNAL_ERROR == ErrorCode.INTERNAL_ERROR
 
 
+async def test_a_server_fault_from_a_command_is_logged_at_error(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, caplog: pytest.LogCaptureFixture
+) -> None:
+    mcp_db.command_handlers["devices/get_config"] = AsyncMock(
+        side_effect=CommandError(ErrorCode.INTERNAL_ERROR, "disk on fire")
+    )
+    is_error, text = await mcp_call(mcp_client, "get_config", {"configuration": "kitchen.yaml"})
+    assert (is_error, text) == (True, "internal_error: disk on fire")
+    assert "MCP tool hit a server fault: disk on fire" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("exc", "expected"),
     [

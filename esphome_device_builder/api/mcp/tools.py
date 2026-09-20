@@ -26,6 +26,8 @@ _LOGGER = logging.getLogger(__name__)
 def _translate(err: Exception) -> McpToolError | None:
     """Map a user-facing WS command error onto ``McpToolError``; anything else is internal."""
     if isinstance(err, CommandError):
+        if err.code is ErrorCode.INTERNAL_ERROR:
+            _LOGGER.error("MCP tool hit a server fault: %s", err.message, exc_info=err)
         return McpToolError(err.code.value, err.message)
     return None
 
@@ -201,8 +203,11 @@ async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
 )
 async def _install(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     job = await _call(db, "firmware/install", **_only(args, "configuration", "port"))
-    assert db.firmware is not None  # type narrowing; the command answered, so it is started
-    upload = next(db.firmware.state.dependents(job.job_id), None)
+    upload = None
+    if (firmware := db.firmware) is not None:
+        upload = next(firmware.state.dependents(job.job_id), None)
+    if upload is None and not job.is_deferred_install:
+        _LOGGER.warning("Install %s was queued without a dependent upload job", job.job_id)
     return {
         "job_id": job.job_id,
         "status": job.status,
@@ -228,14 +233,15 @@ async def _get_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     "cancel_job",
     "Cancel a queued or running firmware job. Returns the job's status right after the "
     "request: a queued job is cancelled at once, a running one is signalled and may still "
-    "finish, so poll get_job for its final status.",
+    "finish, so poll get_job for its final status. A null status means the job already "
+    "left the retained history.",
     {"job_id": _JOB_ID},
     ("job_id",),
 )
 async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     await _call(db, "firmware/cancel", **_only(args, "job_id"))
     job = await _call(db, "firmware/get_job", job_id=args["job_id"])
-    return {"job_id": args["job_id"], "status": job.status}
+    return {"job_id": args["job_id"], "status": job.status if job else None}
 
 
 @_tool(
