@@ -42,7 +42,7 @@ def find_block_header(lines: list[str], key: str) -> int | None:
 
 
 #: Generic column-0 form of ``key_header_re`` — keep the two shapes in sync.
-_TOP_LEVEL_HEADER_RE = re.compile(r"^(\S+):\s*(?:#.*)?$")
+_TOP_LEVEL_HEADER_RE = re.compile(r"^(\S+):\s*(?:&\S+\s*)?(?:#.*)?$")
 
 
 def top_level_key_index(lines: list[str]) -> dict[str, int]:

@@ -3881,11 +3881,14 @@ def test_upsert_expands_an_empty_flow_list_and_keeps_a_trailing_comment() -> Non
     )
     assert new_text == "logger:\ninterval:\n  - interval: 10s\n    then:\n      - delay: 2s\nota:\n"
     assert _apply_diff("logger:\ninterval: []\nota:\n", diff) == new_text
-    text = "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}  # note\nota:\n"
-    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
-    assert new_text.startswith("logger:\ninterval:  # note\n  - interval: 60s\n")
-    assert _apply_diff(text, diff) == new_text
-    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+    for text in (
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}  # note\nota:\n",
+        "logger:\ninterval: [{interval: 60s, then: [{delay: 1s}]}]  # note\nota:\n",
+    ):
+        new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+        assert new_text.startswith("logger:\ninterval:  # note\n  - interval: 60s\n")
+        assert _apply_diff(text, diff) == new_text
+        assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
 
 
 @pytest.mark.parametrize(
@@ -4003,3 +4006,16 @@ def test_an_anchored_header_is_a_block_header(text: str) -> None:
     assert new_text.startswith("interval: &shared\n  - interval: 60s\n")
     assert new_text.count("- interval:") == 2
     assert _apply_diff(text, diff) == new_text
+
+
+def test_an_aliased_anchor_blocks_the_mapping_rewrite_but_not_a_list() -> None:
+    mapping = "interval: &shared\n  interval: 60s\n  then:\n    - delay: 1s\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(mapping, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+    as_list = "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\nother: *shared\n"
+    new_text, _diff = render_upsert(as_list, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.count("- interval:") == 2 and "other: *shared" in new_text

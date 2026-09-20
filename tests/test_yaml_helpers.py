@@ -2558,9 +2558,17 @@ def test_top_level_key_index_matches_find_block_header() -> None:
         "  fake:\n",
         "ota :\n",
         "sensor:\n",
+        "interval: &shared\n",
     ]
     index = top_level_key_index(lines)
-    assert index == {"esphome": 0, "sensor": 1, "logger": 3, '"quoted"': 4, "a:b": 5}
+    assert index == {
+        "esphome": 0,
+        "sensor": 1,
+        "logger": 3,
+        '"quoted"': 4,
+        "a:b": 5,
+        "interval": 12,
+    }
     for key in (*index, "wifi", "quoted", "a", "nested", "dash", "script", "fake", "ota"):
         assert index.get(key) == find_block_header(lines, key)
 

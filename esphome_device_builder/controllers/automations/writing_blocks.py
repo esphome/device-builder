@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, Concatenate
@@ -28,6 +29,8 @@ def in_list_form[**P](
     def run(yaml_text: str, domain: str, *args: P.args, **kwargs: P.kwargs) -> tuple[str, YamlDiff]:
         expanded = _expand_flow_block(yaml_text, domain)
         listed = _normalize_multi_conf_block(expanded, domain) or expanded
+        if listed != expanded:
+            _require_unaliased(expanded, domain)
         _require_block_style(listed, domain)
         new_text, diff = op(listed, domain, *args, **kwargs)
         if listed == yaml_text:
@@ -91,6 +94,16 @@ def _set_block_style(node: Any) -> None:
     children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
     for child in children:
         _set_block_style(child)
+
+
+def _require_unaliased(yaml_text: str, domain: str) -> None:
+    """Refuse to rewrite a mapping whose header anchor is aliased; the alias would change shape."""
+    lines = yaml_text.splitlines()
+    idx = find_block_header(lines, domain)
+    anchor = re.search(r":\s*&(\S+)", lines[idx]) if idx is not None else None
+    if anchor and re.search(rf"\*{re.escape(anchor.group(1))}\b", yaml_text):
+        msg = f"{domain}: is anchored as &{anchor.group(1)} and aliased; rewrite it as a list first"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
 def _require_block_style(yaml_text: str, domain: str) -> None:
