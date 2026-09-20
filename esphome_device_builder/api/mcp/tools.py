@@ -430,18 +430,24 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 
 @_tool(
     "delete_automation",
-    "Remove one automation from a device config and save it; pass the location from "
-    "list_automations. Check the returned yaml_diff line range against that automation's "
-    "from_line and to_line: a location is positional and shifts after an edit.",
+    "Remove one automation from a device config and save it; pass the location and raw_yaml "
+    "from list_automations. A location is positional, so the delete is refused with "
+    "precondition_failed if the automation changed or moved since it was listed.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "The automation's location as returned by list_automations."),
+        "expected": _prop(
+            "string", "The automation's raw_yaml exactly as list_automations returned it."
+        ),
     },
-    ("configuration", "location"),
+    ("configuration", "location", "expected"),
 )
 async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     result = await _call(
-        db, "automations/delete", save=True, **_only(args, "configuration", "location")
+        db,
+        "automations/delete",
+        save=True,
+        **_only(args, "configuration", "location", "expected"),
     )
     return {"configuration": args["configuration"], "yaml_diff": result["yaml_diff"]}
 

@@ -559,7 +559,9 @@ async def test_automation_tools_wrap_the_automation_commands(
     assert docs == {"actions/light.turn_on": {"id": "light.turn_on"}}
     assert bodies.await_args.kwargs["refs"] == refs
     assert await mcp_call_json(
-        mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
+        mcp_client,
+        "delete_automation",
+        {"configuration": "kitchen.yaml", "location": location, "expected": "script:\n"},
     ) == {
         "configuration": "kitchen.yaml",
         "yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""},
@@ -569,5 +571,27 @@ async def test_automation_tools_wrap_the_automation_commands(
         "message_id": ANY,
         "configuration": "kitchen.yaml",
         "location": location,
+        "expected": "script:\n",
         "save": True,
     }
+
+
+async def test_delete_automation_cannot_delete_what_it_was_not_shown(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    delete = AsyncMock(
+        side_effect=CommandError(ErrorCode.PRECONDITION_FAILED, "the automation changed")
+    )
+    mcp_db.command_handlers["automations/delete"] = delete
+    location = {"kind": "script", "index": 0}
+    is_error, text = await mcp_call(
+        mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
+    )
+    assert is_error
+    assert text.startswith("invalid_args: ") and "expected" in text
+    delete.assert_not_awaited()
+    assert await mcp_call(
+        mcp_client,
+        "delete_automation",
+        {"configuration": "kitchen.yaml", "location": location, "expected": "stale\n"},
+    ) == (True, "precondition_failed: the automation changed")
