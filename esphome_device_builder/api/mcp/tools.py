@@ -117,11 +117,11 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
         "content": _prop("string", "The complete new YAML."),
         "expected": _prop(
             "string",
-            "The text get_config returned; the write is refused with precondition_failed "
-            "if the file changed since, so nothing is overwritten unseen.",
+            "The text get_config returned, verbatim; the write is refused with "
+            "precondition_failed if the file changed since, so nothing is overwritten unseen.",
         ),
     },
-    ("configuration", "content"),
+    ("configuration", "content", "expected"),
 )
 async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
     await _call(db, "devices/update_config", **_only(args, "configuration", "content", "expected"))

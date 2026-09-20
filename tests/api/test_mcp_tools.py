@@ -169,10 +169,26 @@ async def test_update_config_forwards_content(
     handler = AsyncMock(return_value=None)
     mcp_db.command_handlers["devices/update_config"] = handler
     assert await mcp_call(
-        mcp_client, "update_config", {"configuration": "kitchen.yaml", "content": "esphome: {}"}
+        mcp_client,
+        "update_config",
+        {"configuration": "kitchen.yaml", "content": "esphome: {}", "expected": "a: 1\n"},
     ) == (False, "Saved kitchen.yaml")
     assert handler.await_args.kwargs["content"] == "esphome: {}"
-    assert "expected" not in handler.await_args.kwargs
+    assert handler.await_args.kwargs["expected"] == "a: 1\n"
+
+
+async def test_update_config_cannot_write_a_file_it_has_not_read(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    handler = AsyncMock(return_value=None)
+    mcp_db.command_handlers["devices/update_config"] = handler
+    is_error, text = await mcp_call(
+        mcp_client, "update_config", {"configuration": "kitchen.yaml", "content": "esphome: {}"}
+    )
+    assert is_error
+    assert text.startswith("invalid_args: ")
+    assert "expected" in text
+    handler.assert_not_awaited()
 
 
 async def test_update_config_forwards_expected_and_surfaces_a_stale_read(
