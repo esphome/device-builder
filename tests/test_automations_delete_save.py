@@ -139,6 +139,23 @@ async def test_delete_with_expected_refuses_a_file_that_no_longer_loads(tmp_path
     assert devices.saved == []
 
 
+async def test_delete_with_expected_passes_other_parser_errors_through(tmp_path: Path) -> None:
+    devices = _Devices()
+    controller = _make_controller(tmp_path, devices=devices)
+    other = CommandError(ErrorCode.UNAVAILABLE, "catalog not loaded")
+
+    with (
+        patch.object(automations_controller.parsing, "parse_device_yaml", side_effect=other),
+        pytest.raises(CommandError) as excinfo,
+    ):
+        await controller.delete(
+            configuration="d.yaml", location=_LOCATION, save=True, expected="on_boot: {}\n"
+        )
+
+    assert excinfo.value is other
+    assert devices.saved == []
+
+
 async def test_delete_refuses_a_non_string_expected(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path, devices=_Devices())
 
