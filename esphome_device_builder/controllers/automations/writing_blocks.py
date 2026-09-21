@@ -111,22 +111,19 @@ def _require_unaliased(yaml_text: str, domain: str, *, nested: bool) -> None:
         events = list(make_yaml().parse(yaml_text))
     except YAMLError:
         return
-    anchors = _block_anchors(events, domain)
-    if not nested:
-        anchors = anchors[:1]
+    own, inner = _block_anchors(events, domain)
     aliased = {event.anchor for event in events if isinstance(event, AliasEvent)}
-    hit = next((name for name in anchors if name in aliased), None)
-    if hit is None:
-        return
-    if hit == anchors[0]:
-        msg = f"{domain}: is anchored as &{hit} and aliased; rewrite it as a list first"
-    else:
+    if own in aliased:
+        msg = f"{domain}: is anchored as &{own} and aliased; rewrite it as a list first"
+    elif nested and (hit := next((name for name in inner if name in aliased), None)):
         msg = f"{domain}: holds an aliased anchor &{hit}; rewrite it as a list first"
+    else:
+        return
     raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
-def _block_anchors(events: list[Event], domain: str) -> list[str | None]:
-    """Anchors declared under the top-level ``<domain>:`` value, the value's own first."""
+def _block_anchors(events: list[Event], domain: str) -> tuple[str | None, list[str]]:
+    """Return the anchor on the top-level ``<domain>:`` value and the anchors declared under it."""
     depth = 0
     node = -1
     key_node: int | None = None
@@ -145,7 +142,8 @@ def _block_anchors(events: list[Event], domain: str) -> list[str | None]:
             anchors.append(event.anchor)
         if isinstance(event, CollectionStartEvent):
             depth += 1
-    return anchors
+    own, *inner = anchors or [None]
+    return own, [name for name in inner if name]
 
 
 def _require_block_style(yaml_text: str, domain: str) -> None:
