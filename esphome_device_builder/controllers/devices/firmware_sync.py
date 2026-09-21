@@ -90,6 +90,10 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         return
     recompute_hash = job_type in COMPILING_JOB_TYPES
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
+    if flashed and not job.flash_bootloader:
+        # The app image now carries the YAML's own name; a bootloader-only
+        # upload replaces no app, so its record stands.
+        controller._metadata_store.update(configuration, deployed_name="")
     # Routed through the controller's bound delegate so tests
     # that monkeypatch ``_refresh_after_firmware_job`` on the
     # instance still intercept.
@@ -122,9 +126,6 @@ async def refresh_after_job(
         await controller._persist_expected_config_hash(configuration)
     await controller._scanner.reload(configuration)
     if flashed:
-        # The landed image carries the YAML's own name, so a pre-rename
-        # hostname recorded for it is spent.
-        controller._metadata_store.update(configuration, deployed_name="")
         await controller._sync_deployed_state_after_flash(configuration)
         controller._schedule_version_reprobe(configuration)
     # A real compile moves the build-size cache's freshness

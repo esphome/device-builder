@@ -345,10 +345,12 @@ async def _config_only_rename(
         )
         await migrate_metadata(controller, configuration, new_filename)
     await rescan_renamed(controller, new_filename)
-    # An in-place rescan re-stamps the pre-rename name; this rename knows
-    # better. Skipped when a concurrent rename moved the entry away.
-    if controller._metadata_store.get(new_filename):
-        controller._metadata_store.update(new_filename, deployed_name=deployed_name)
+    # An in-place rescan re-stamps the pre-rename name over a record this
+    # rename just cleared. Only the clear is re-asserted: the stamp keeps
+    # an existing record, so a set is never the value that got polluted,
+    # and re-clearing never overwrites a fresher mDNS or rename value.
+    if not deployed_name:
+        controller._metadata_store.update(new_filename, deployed_name="")
     return {"configuration": new_filename, "job": None}
 
 

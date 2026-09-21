@@ -55,11 +55,7 @@ def on_state_change(
     controller: DevicesController, name: str, state: DeviceState, source: str
 ) -> None:
     """Forward state monitor updates onto the event bus."""
-    # An announce under the device's own name proves the firmware carries it.
-    heard_own_name = state is DeviceState.ONLINE and source == ReachabilitySource.MDNS
     for device in controller._devices_by_name(name):
-        if heard_own_name:
-            controller._metadata_store.update(device.configuration, deployed_name="")
         old_state = device.runtime_state.state
         device.runtime_state.state = state
         _LOGGER.info(
@@ -88,6 +84,11 @@ def on_source_change(controller: DevicesController, name: str, source: Reachabil
     for device in controller._devices_by_name(name):
         if device.runtime_state.active_source == source:
             continue
+        if source is ReachabilitySource.MDNS:
+            # An announce under the device's own name proves the firmware
+            # carries it. Ownership, not the state flip: a ping-online
+            # device stays ONLINE, so only the source moves.
+            controller._metadata_store.update(device.configuration, deployed_name="")
         device.runtime_state.active_source = source
         controller._fire_device_updated(device)
 

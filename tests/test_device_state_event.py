@@ -10,7 +10,7 @@ other source) flipped a device online — exactly the bug from the
 
 from __future__ import annotations
 
-from esphome_device_builder.models import DeviceState, EventType
+from esphome_device_builder.models import DeviceState, EventType, ReachabilitySource
 
 from .conftest import make_device, make_devices_controller_with_bus
 
@@ -60,23 +60,35 @@ def test_state_change_unknown_device_does_not_fire() -> None:
     assert captured == []
 
 
-async def test_mdns_online_under_its_own_name_clears_the_deployed_name() -> None:
+async def test_mdns_ownership_clears_the_deployed_name() -> None:
     """An announce under the YAML's name proves the firmware carries it (#2730)."""
     device = make_device(address="")
     ctrl, _ = make_devices_controller_with_bus([device])
     ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
 
-    ctrl._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
+    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
 
     assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")
 
 
-async def test_ping_online_keeps_the_deployed_name() -> None:
+async def test_mdns_ownership_of_a_ping_online_device_still_clears() -> None:
+    """``apply`` skips the state callback when the device is already ONLINE."""
+    device = make_device(address="", state=DeviceState.ONLINE)
+    ctrl, _ = make_devices_controller_with_bus([device])
+    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    ctrl._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
+    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
+
+    assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")
+
+
+async def test_ping_ownership_keeps_the_deployed_name() -> None:
     """Ping reaches the device through the record itself; it proves no name."""
     device = make_device(address="")
     ctrl, _ = make_devices_controller_with_bus([device])
     ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
 
-    ctrl._on_state_change("kitchen", DeviceState.ONLINE, "ping")
+    ctrl._on_source_change("kitchen", ReachabilitySource.PING)
 
     assert ctrl._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"

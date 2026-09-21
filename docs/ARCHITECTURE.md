@@ -275,9 +275,11 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   hand-edited `esphome.name` records the same way, off the scan's name
   change, for a device with build output. A chained flash-free
   rename keeps the first record; it clears on a rename back to it, on the
-  next landed flash or completed rename chain, and on an mDNS ONLINE under
-  the device's own name (the self-heal for a flash from outside the
-  dashboard).
+  next app flash or completed rename chain (a `--bootloader` upload replaces
+  no app, so it keeps the record), and when mDNS takes ownership of the
+  device's own name (the self-heal for a flash from outside the dashboard,
+  keyed on ownership rather than the state flip so a ping-online device is
+  covered).
 - Plus a **remote build-server pool** — one more consumer (`run_dispatch_loop`)
   gathered alongside the lane workers. Compiles eligible for a paired server
   hold here (off the single compile lane) and run concurrently, one per
