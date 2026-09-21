@@ -521,3 +521,21 @@ async def test_in_place_rename_back_survives_the_rescan_stamp(
         )
 
     assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
+
+
+async def test_rename_leaves_no_orphan_when_the_entry_moved_away(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A concurrent rename migrating the entry must not get it re-created (#2730)."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+
+    async def _rescan_steals_the_entry(_controller: object, configuration: str) -> None:
+        await controller._metadata_store.remove(configuration)
+
+    with patch.object(mutations_simple, "rescan_renamed", _rescan_steals_the_entry):
+        await controller.rename_device(
+            configuration="kitchen.yaml", new_name="livingroom", config_only=True
+        )
+
+    assert controller._metadata_store.get("livingroom.yaml") == {}

@@ -345,9 +345,10 @@ async def _config_only_rename(
         )
         await migrate_metadata(controller, configuration, new_filename)
     await rescan_renamed(controller, new_filename)
-    # An in-place rescan re-enters the scan-change stamp with the
-    # pre-rename name; this rename knows better. A no-op otherwise.
-    controller._metadata_store.update(new_filename, deployed_name=deployed_name)
+    # An in-place rescan re-stamps the pre-rename name; this rename knows
+    # better. Skipped when a concurrent rename moved the entry away.
+    if controller._metadata_store.get(new_filename):
+        controller._metadata_store.update(new_filename, deployed_name=deployed_name)
     return {"configuration": new_filename, "job": None}
 
 
