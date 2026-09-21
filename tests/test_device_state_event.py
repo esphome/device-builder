@@ -92,3 +92,14 @@ async def test_ping_ownership_keeps_the_deployed_name() -> None:
     ctrl._on_source_change("kitchen", ReachabilitySource.PING)
 
     assert ctrl._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"
+
+
+async def test_mdns_ownership_clears_through_a_stale_active_source() -> None:
+    """A same-path rename carries ``active_source`` forward as mdns (#2730)."""
+    device = make_device(address="", active_source=ReachabilitySource.MDNS)
+    ctrl, _ = make_devices_controller_with_bus([device])
+    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
+
+    assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")

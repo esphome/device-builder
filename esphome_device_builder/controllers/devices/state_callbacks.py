@@ -82,12 +82,14 @@ def on_state_change(
 def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
     """Update ``active_source`` and fire DEVICE_UPDATED; also clears ``deployed_name``."""
     for device in controller._devices_by_name(name):
-        if device.runtime_state.active_source == source:
-            continue
         if source is ReachabilitySource.MDNS:
             # An announce under the device's own name proves the firmware
-            # carries it; ownership moves even when the state doesn't.
+            # carries it. Above the dedupe: a same-path rename carries the
+            # pre-rename ``active_source`` forward, so the row may already
+            # read mdns while the ledger for the new name doesn't.
             controller._clear_deployed_name(device.configuration)
+        if device.runtime_state.active_source == source:
+            continue
         device.runtime_state.active_source = source
         controller._fire_device_updated(device)
 
