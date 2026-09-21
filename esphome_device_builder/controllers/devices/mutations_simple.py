@@ -339,10 +339,15 @@ async def _config_only_rename(
         for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
-        # Before the migrate, so its immediate flush is the only store write.
-        controller._stamp_deployed_name(configuration, old_name=old_name, new_name=new_name)
+        # Before the migrate, so its immediate flush carries the record.
+        deployed_name = controller._stamp_deployed_name(
+            configuration, old_name=old_name, new_name=new_name
+        )
         await migrate_metadata(controller, configuration, new_filename)
     await rescan_renamed(controller, new_filename)
+    # An in-place rescan re-enters the scan-change stamp with the
+    # pre-rename name; this rename knows better. A no-op otherwise.
+    controller._metadata_store.update(new_filename, deployed_name=deployed_name)
     return {"configuration": new_filename, "job": None}
 
 

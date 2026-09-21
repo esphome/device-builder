@@ -270,8 +270,8 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   broadcasting the pre-rename hostname. That name is recorded as
   `deployed_name` in the device-metadata store and backs the device's OTA
   address-cache args, so an install still reaches a device that never
-  announces its new name (#2730); the record is dropped when another config
-  claims that name, since its broadcast is then somebody else's. A
+  announces its new name (#2730); the record is ignored while another config
+  owns that name, since its broadcast is then somebody else's. A
   hand-edited `esphome.name` records the same way, off the scan's name
   change, for a device with build output. A chained flash-free
   rename keeps the first record; it clears on a rename back to it, on the

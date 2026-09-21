@@ -218,15 +218,16 @@ class DeviceMetadataBase(DeviceBuilderBase):
         await self._metadata_store.rename(old_configuration, new_configuration)
         await self._shared_sidecar.rename(old_configuration, new_configuration)
 
-    def _stamp_deployed_name(self, configuration: str, *, old_name: str, new_name: str) -> None:
+    def _stamp_deployed_name(self, configuration: str, *, old_name: str, new_name: str) -> str:
         """Record the hostname the firmware still answers to after a flash-free rename.
 
-        A chained rename keeps the existing record; renaming back to it clears.
+        A chained rename keeps the existing record; renaming back to it
+        clears. Returns the recorded name (``""`` when cleared).
         """
         stamped = self._metadata_store.get(configuration).get("deployed_name") or old_name
-        self._metadata_store.update(
-            configuration, deployed_name="" if stamped == new_name else stamped
-        )
+        deployed = "" if stamped == new_name else stamped
+        self._metadata_store.update(configuration, deployed_name=deployed)
+        return deployed
 
     async def _clear_volatile_device_metadata(self, configuration: str) -> None:
         """Clear archive-volatile fields in both stores (keeps identity).

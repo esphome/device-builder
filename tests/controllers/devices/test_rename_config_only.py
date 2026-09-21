@@ -9,11 +9,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from esphome.storage_json import StorageJSON
 
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import mutations_simple
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import read_yaml_scalar
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import make_device
 
 from .conftest import MakeControllerFactory, wifi_ap_block
 
@@ -493,3 +495,29 @@ async def test_config_only_rename_records_the_deployed_name(
 
     assert current == expected_filename
     assert controller._metadata_store.get(current).get("deployed_name") == expected_deployed
+
+
+async def test_in_place_rename_back_survives_the_rescan_stamp(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The rescan re-enters the scan-change stamp with the pre-rename name (#2730)."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(
+        _YAML.replace("name: kitchen", "name: livingroom"), encoding="utf-8"
+    )
+    # The state a hand-edit leaves: the firmware still answers to kitchen.
+    controller._metadata_store.update("kitchen.yaml", deployed_name="kitchen", delay=0.0)
+
+    async def _rescan_fires_scan_change(_controller: object, configuration: str) -> None:
+        controller._on_scan_change(
+            ScanChange.RELOADED,
+            make_device(configuration=configuration, name="kitchen", loaded_integrations=["api"]),
+            make_device(configuration=configuration, name="livingroom"),
+        )
+
+    with patch.object(mutations_simple, "rescan_renamed", _rescan_fires_scan_change):
+        await controller.rename_device(
+            configuration="kitchen.yaml", new_name="kitchen", config_only=True
+        )
+
+    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
