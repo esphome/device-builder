@@ -85,5 +85,5 @@ source:
   type: esphome-devices
   remote_id: AVATTO-S06Pro-IR-Remote
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AVATTO-S06Pro-IR-Remote/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 2ec691c3abef4ebbc3fc323f335bcdcc8754ef88117636304123c2c4f59d400a

@@ -45,7 +45,6 @@ featured_components:
   fields: {}
   requires:
   - uart_bus
-  - modbus_bus
 - id: uart_bus
   component_id: uart
   fields:
@@ -1923,5 +1922,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-N30
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-N30/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 70a0651f4125b5aacf1a1ba66db43e8db0353428bcb816d3342ce811385cd2aa

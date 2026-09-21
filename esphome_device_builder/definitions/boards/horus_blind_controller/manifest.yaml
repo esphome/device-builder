@@ -84,5 +84,5 @@ source:
   type: esphome-devices
   remote_id: Horus-Blind-Controller
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Horus-Blind-Controller/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 5724028cf005532c2e617d71f3785af67188a6817aea78306d4525b26311afe8

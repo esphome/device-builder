@@ -140,5 +140,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-2-Gang-Switch-Socket
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-2-Gang-Switch-Socket/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: ab80d39c650865d38ae4f4dac38d9bb919f6cd80400b919743af7c6fe3abf9e8
