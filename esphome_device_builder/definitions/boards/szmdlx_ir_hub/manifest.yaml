@@ -34,5 +34,5 @@ source:
   type: esphome-devices
   remote_id: SZMDLX-IR-Hub
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/SZMDLX-IR-Hub/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 714443b9cca7f5ca16525ba42c3a2cb29b1a1931adafa2ee34beb636d2155993

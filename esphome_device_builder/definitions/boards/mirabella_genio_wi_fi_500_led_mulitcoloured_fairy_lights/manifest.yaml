@@ -86,5 +86,5 @@ source:
   type: esphome-devices
   remote_id: Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Mirabella-Genio-Wi-Fi-500-LED-Mulitcoloured-Fairy-Lights/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 92c7c609fb9264b10f099f748c772dd76d020ec06952dc2c5add7563f0b98eb5

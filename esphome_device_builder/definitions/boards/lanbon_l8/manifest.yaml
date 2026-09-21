@@ -152,5 +152,5 @@ source:
   type: esphome-devices
   remote_id: lanbon_l8
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/lanbon_l8/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: f22118de5dea812eb5eb318ef5a56850da2537769f0d66e7eee5b15451d74589

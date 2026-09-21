@@ -153,5 +153,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Uni
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Uni/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: a833441233acef1c4d0ace94498f1f4a002c1603a05e14f0059b939785b07dbf

@@ -46,5 +46,5 @@ source:
   type: esphome-devices
   remote_id: Holman-4x34mm-spotlight
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Holman-4x34mm-spotlight/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: e3ad0b926346fa2057d839e2f276d1a862916d8278d5867484edb2f468e80bc9

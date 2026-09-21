@@ -35,5 +35,5 @@ source:
   type: esphome-devices
   remote_id: Homemaster-MicroPLC
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Homemaster-MicroPLC/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: c1dcdfb24f96200915da88f97c8514ed44d81689e912cad9769f99a2a1c45504

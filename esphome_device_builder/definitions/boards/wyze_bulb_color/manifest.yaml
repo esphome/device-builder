@@ -88,5 +88,5 @@ source:
   type: esphome-devices
   remote_id: wyze-bulb-color
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/wyze-bulb-color/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 573858ac31e286c532feb2bba14f0c2e1f2e36c8c51d01a406a25c5b48e555f8

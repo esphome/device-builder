@@ -1,0 +1,291 @@
+id: kincony_b2
+name: KinCony-B2 (ESP32-S3 2CH Relay board)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+  logger_hardware_uart: USB_SERIAL_JTAG
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-B2/B2-2.jpg
+tags:
+- relay
+pins:
+- gpio: 1
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 2
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 4
+  available: false
+  occupied_by: b2-output01
+- gpio: 6
+  available: false
+  occupied_by: b2-input01
+- gpio: 7
+  available: false
+  occupied_by: b2-input02
+- gpio: 8
+  available: false
+  occupied_by: bus_a
+- gpio: 17
+  available: false
+  occupied_by: b2-W1-io17
+- gpio: 18
+  available: false
+  occupied_by: bus_a
+- gpio: 38
+  available: false
+  occupied_by: uart_1
+- gpio: 39
+  available: false
+  occupied_by: uart_1
+- gpio: 40
+  available: false
+  occupied_by: b2-W1-io40
+- gpio: 41
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 42
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 43
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 44
+  available: false
+  occupied_by: Ethernet RESET
+- gpio: 46
+  available: false
+  occupied_by: b2-output02
+- gpio: 47
+  available: false
+  occupied_by: b2-W1-io47
+- gpio: 48
+  available: false
+  occupied_by: b2-W1-io48
+docs_url: https://devices.esphome.io/devices/KinCony-B2/
+featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 38
+      locked: true
+    rx_pin:
+      value: 39
+      locked: true
+    id:
+      value: uart_1
+      locked: true
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: ads1115_hub
+  component_id: ads1115
+  fields:
+    address: 72
+  requires:
+  - bus_a
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO1
+      locked: true
+    mosi_pin:
+      value: GPIO2
+      locked: true
+    miso_pin:
+      value: GPIO41
+      locked: true
+    cs_pin:
+      value: GPIO42
+      locked: true
+    interrupt_pin:
+      value: GPIO43
+      locked: true
+    reset_pin:
+      value: GPIO44
+      locked: true
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: b2-input01
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: b2-input02
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 47
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: b2-W1-io47
+- id: binary_sensor_gpio_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_4
+    name: b2-W1-io48
+- id: binary_sensor_gpio_5
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 17
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_5
+    name: b2-W1-io17
+- id: binary_sensor_gpio_6
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 40
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_6
+    name: b2-W1-io40
+- id: sensor_ads1115_1
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A0_GND
+    gain: 6.144
+    resolution: 16_BITS
+    update_interval: 5s
+    id: sensor_ads1115_1
+    name: ADS1115 Channel A0-GND
+  requires:
+  - bus_a
+  - ads1115_hub
+- id: sensor_ads1115_2
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A1_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_2
+    name: ADS1115 Channel A1-GND
+  requires:
+  - bus_a
+  - ads1115_hub
+- id: sensor_ads1115_3
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A2_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_3
+    name: ADS1115 Channel A2-GND
+  requires:
+  - bus_a
+  - ads1115_hub
+- id: sensor_ads1115_4
+  component_id: sensor.ads1115
+  fields:
+    multiplexer: A3_GND
+    gain: 6.144
+    update_interval: 5s
+    id: sensor_ads1115_4
+    name: ADS1115 Channel A3-GND
+  requires:
+  - bus_a
+  - ads1115_hub
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
+- id: switch_gpio_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_1
+    name: b2-output01
+- id: switch_gpio_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 46
+      locked: true
+    inverted:
+      value: false
+      locked: true
+    id: switch_gpio_2
+    name: b2-output02
+source:
+  type: esphome-devices
+  remote_id: KinCony-B2
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B2/index.md
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  content_hash: 17f6f6592f0ae193d7f81a4cd0ce3aad513e40efce96e8b0d60f4a745fda1023

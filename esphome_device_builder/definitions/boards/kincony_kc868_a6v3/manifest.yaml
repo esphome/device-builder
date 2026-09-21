@@ -481,5 +481,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-KC868-A6v3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-A6v3/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: fdbac473c5f70613fa7572d77d28a77a6b816ef4200ad309c2cda043307dbdd3
