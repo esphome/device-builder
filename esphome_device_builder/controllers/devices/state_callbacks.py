@@ -55,7 +55,11 @@ def on_state_change(
     controller: DevicesController, name: str, state: DeviceState, source: str
 ) -> None:
     """Forward state monitor updates onto the event bus."""
+    # An announce under the device's own name proves the firmware carries it.
+    heard_own_name = state is DeviceState.ONLINE and source == ReachabilitySource.MDNS
     for device in controller._devices_by_name(name):
+        if heard_own_name:
+            controller._metadata_store.update(device.configuration, deployed_name="")
         old_state = device.runtime_state.state
         device.runtime_state.state = state
         _LOGGER.info(

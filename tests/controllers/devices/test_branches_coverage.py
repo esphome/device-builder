@@ -65,12 +65,19 @@ from .conftest import (
 )
 
 
-def _device(name: str, *, ip: str = "", ip_addresses: list[str] | None = None) -> Device:
+def _device(
+    name: str,
+    *,
+    ip: str = "",
+    ip_addresses: list[str] | None = None,
+    loaded_integrations: list[str] | None = None,
+) -> Device:
     return make_device(
         name=name,
         state=DeviceState.ONLINE,
         ip=ip,
         ip_addresses=list(ip_addresses) if ip_addresses else [],
+        loaded_integrations=loaded_integrations or [],
     )
 
 
@@ -1654,10 +1661,23 @@ async def test_on_scan_change_name_change_records_the_deployed_name(
     """A hand-edited ``esphome.name`` strands the firmware like a config-only rename."""
     controller = make_controller(tmp_path, with_state_monitor=True)
 
-    controller._on_scan_change(ScanChange.UPDATED, _device("livingroom"), _device("kitchen"))
+    compiled = _device("livingroom", loaded_integrations=["api"])
 
-    configuration = _device("livingroom").configuration
-    assert controller._metadata_store.get(configuration)["deployed_name"] == "kitchen"
+    controller._on_scan_change(ScanChange.UPDATED, compiled, _device("kitchen"))
+
+    assert controller._metadata_store.get(compiled.configuration)["deployed_name"] == "kitchen"
+
+
+async def test_on_scan_change_never_compiled_name_change_records_nothing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The cold-start refine renames off a placeholder; no firmware answered to it."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    refined = _device("livingroom")
+
+    controller._on_scan_change(ScanChange.RELOADED, refined, _device("livingroom-yaml"))
+
+    assert controller._metadata_store.get(refined.configuration) == {}
 
 
 async def test_on_scan_change_same_name_records_nothing(

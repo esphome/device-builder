@@ -58,3 +58,25 @@ def test_state_change_unknown_device_does_not_fire() -> None:
     ctrl._on_state_change("ghost", DeviceState.ONLINE, "mdns")
 
     assert captured == []
+
+
+async def test_mdns_online_under_its_own_name_clears_the_deployed_name() -> None:
+    """An announce under the YAML's name proves the firmware carries it (#2730)."""
+    device = make_device(address="")
+    ctrl, _ = make_devices_controller_with_bus([device])
+    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    ctrl._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
+
+    assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")
+
+
+async def test_ping_online_keeps_the_deployed_name() -> None:
+    """Ping reaches the device through the record itself; it proves no name."""
+    device = make_device(address="")
+    ctrl, _ = make_devices_controller_with_bus([device])
+    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    ctrl._on_state_change("kitchen", DeviceState.ONLINE, "ping")
+
+    assert ctrl._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"
