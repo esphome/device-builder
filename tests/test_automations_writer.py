@@ -4066,7 +4066,7 @@ def test_an_alias_as_the_whole_value_is_named_in_the_refusal() -> None:
 
 def test_a_delete_by_index_still_splices_a_draft_that_does_not_parse() -> None:
     text = "interval:\n  interval: 60s\n  then:\n    - delay: 1s\nbroken: [unclosed\n"
-    new_text, _ = writing._delete_top_level_list_by_index(text, "interval", 0)
+    new_text, _ = render_delete(text, location=IntervalLocation(index=0))
     assert new_text == "interval:\nbroken: [unclosed\n"
 
 
