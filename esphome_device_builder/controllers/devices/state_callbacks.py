@@ -80,15 +80,14 @@ def on_state_change(
 
 
 def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
-    """Update ``active_source`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
+    """Update ``active_source`` and fire DEVICE_UPDATED; also clears ``deployed_name``."""
     for device in controller._devices_by_name(name):
         if device.runtime_state.active_source == source:
             continue
         if source is ReachabilitySource.MDNS:
             # An announce under the device's own name proves the firmware
-            # carries it. Ownership, not the state flip: a ping-online
-            # device stays ONLINE, so only the source moves.
-            controller._metadata_store.update(device.configuration, deployed_name="")
+            # carries it; ownership moves even when the state doesn't.
+            controller._clear_deployed_name(device.configuration)
         device.runtime_state.active_source = source
         controller._fire_device_updated(device)
 

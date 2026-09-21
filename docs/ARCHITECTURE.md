@@ -265,21 +265,11 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   cancelling the tail cascades *up* to its compile. A persisted RENAME
   with no `depends_on` (pre-decomposition) still runs the fused
   `esphome rename` CLI on the compile lane. The flash-free branches
-  (`config_only` for an offline device, and an in-place rename whose target
-  filename is the device's own) skip the chain, so the firmware keeps
-  broadcasting the pre-rename hostname. That name is recorded as
-  `deployed_name` in the device-metadata store and backs the device's OTA
-  address-cache args, so an install still reaches a device that never
-  announces its new name (#2730); the record is ignored while another config
-  owns that name, since its broadcast is then somebody else's. A
-  hand-edited `esphome.name` records the same way, off the scan's name
-  change, for a device with build output. A chained flash-free
-  rename keeps the first record; it clears on a rename back to it, on the
-  next app flash or completed rename chain (a `--bootloader` upload replaces
-  no app, so it keeps the record), and when mDNS takes ownership of the
-  device's own name (the self-heal for a flash from outside the dashboard,
-  keyed on ownership rather than the state flip so a ping-online device is
-  covered).
+  (`config_only` for an offline device, an in-place rename whose target
+  filename is the device's own, and a hand-edited `esphome.name`) skip the
+  chain, so the firmware keeps broadcasting the pre-rename hostname; that
+  name is remembered as `deployed_name` (#2730), covered below with the rest
+  of the live-state fields.
 - Plus a **remote build-server pool** — one more consumer (`run_dispatch_loop`)
   gathered alongside the lane workers. Compiles eligible for a paired server
   hold here (off the single compile lane) and run concurrently, one per
@@ -832,6 +822,8 @@ Per-device metadata is partitioned across two files by *who writes it* and *how 
 
 * **Identity** (`board_id`, `friendly_name`, `comment`, `labels`, `mac_address`) lives in `<config_dir>/.device-builder.json` alongside the cross-flavor catalog keys (`_labels`, `_remote_build`, `dashboard_id`). Access goes through `SharedSidecarClient` — a thin async wrapper around the existing `helpers/metadata_sidecar.metadata_transaction` (`fcntl.flock` + `_METADATA_LOCK` for cross-flavor RMW safety). Writes are infrequent (user-edited names, scanner-derived `board_id` backfill, first-observation `mac_address`) and run through the transactional path so the `esphome` / `esphome-beta` / `esphome-dev` flavors on a shared `/config/esphome` can't clobber each other.
 * **Live state** (`ip`, `expected_config_hash`, `deployed_config_hash`, `deployed_version`, `deployed_name`, `api_encryption_active`, `build_size_*`, `regen_failed_*`) lives in `<data_dir>/.device-builder-devices.json`. Access goes through `DeviceMetadataStore` — a `helpers.storage.Store`-backed RAM-canonical dict that debounces writes (2s coalesce) and flushes on shutdown. The store keys on `<data_dir>` rather than `<config_dir>` because each HA-addon flavor compiles its own binaries and observes its own mDNS broadcasts; sharing this state across flavors would let one flavor's running-firmware hash overwrite another's. The file is per-flavor by construction, so no cross-process lock is needed beyond the single-instance startup `flock` that already pins one process per `data_dir`.
+
+`deployed_name` is the odd one out: it is stamped, not observed. A rename that doesn't flash (and a hand-edited `esphome.name`, off the scan's name change, for a device with build output) leaves the firmware answering its old hostname, so that name is recorded and backs the device's OTA address-cache args — published under the new `<name>.local` key, so an install still reaches a device that never announces its new name. It is ignored while another config owns that name, since the broadcast is then somebody else's. A chained flash-free rename keeps the first record; it clears on a rename back to it, on the next app flash or completed rename chain (a `--bootloader` upload replaces no app, so the record stands), and when mDNS takes ownership of the device's own name — keyed on ownership rather than the state flip, so a device held ONLINE by ping is covered. That last one is the self-heal for a flash from outside the dashboard.
 
 The `STORE_FIELDS` frozenset in `controllers/devices/_metadata_store.py` enumerates the live-state field names; `DeviceMetadataBase._persist_device_metadata_async` is the routing dispatcher (anything in `STORE_FIELDS` → store, everything else → shared sidecar). The mDNS hot path (`state_callbacks.on_*`) writes the store directly via `controller._metadata_store.update(...)` / `set_field(...)` — sync RAM mutation on the event loop, debounced disk write on the executor.
 

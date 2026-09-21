@@ -91,9 +91,10 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
     recompute_hash = job_type in COMPILING_JOB_TYPES
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
     if flashed and not job.flash_bootloader:
-        # The app image now carries the YAML's own name; a bootloader-only
-        # upload replaces no app, so its record stands.
-        controller._metadata_store.update(configuration, deployed_name="")
+        # A bootloader-only upload replaces no app, so its record stands.
+        # Cleared here, not in the background refresh, so a following job's
+        # address-cache read can't race it.
+        controller._clear_deployed_name(configuration)
     # Routed through the controller's bound delegate so tests
     # that monkeypatch ``_refresh_after_firmware_job`` on the
     # instance still intercept.
@@ -237,9 +238,8 @@ async def migrate_metadata_then_scan(
     controller: DevicesController, old_configuration: str, new_configuration: str
 ) -> None:
     """Move the renamed device's metadata before the scan rebuilds it."""
-    # Same clear as the flashed branch of ``refresh_after_job``, which a
-    # completed RENAME never reaches.
-    controller._metadata_store.update(old_configuration, deployed_name="")
+    # The tail flashed the new name; a completed RENAME reaches no other clear.
+    controller._clear_deployed_name(old_configuration)
     await migrate_metadata(controller, old_configuration, new_configuration)
     await rescan_renamed(controller, new_configuration)
 

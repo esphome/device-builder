@@ -19,6 +19,9 @@ _SHARED_SIDECAR_FILENAME = ".device-builder.json"
 
 _DEFAULT_SAVE_DELAY = 2.0
 
+# Read-only miss sentinel for ``get_field``; never mutated.
+_EMPTY: dict[str, Any] = {}
+
 # Fields the store owns. Everything else lives in the shared sidecar.
 STORE_FIELDS: frozenset[str] = frozenset(
     {
@@ -109,6 +112,10 @@ class DeviceMetadataStore:
     def get(self, filename: str) -> dict[str, Any]:
         """Return a shallow copy of *filename*'s metadata."""
         return dict(self._state.get(filename, {}))
+
+    def get_field(self, filename: str, key: str) -> Any:
+        """Return one field of *filename*'s metadata without copying the entry."""
+        return self._state.get(filename, _EMPTY).get(key)
 
     def update(
         self,

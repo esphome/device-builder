@@ -39,7 +39,6 @@ from esphome_device_builder.controllers._device_scanner import (
     ScanChange,
 )
 from esphome_device_builder.controllers.devices import DevicesController, firmware_sync
-from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     Device,
@@ -51,7 +50,7 @@ from esphome_device_builder.models import (
 )
 from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
-from tests.conftest import make_device
+from tests.conftest import attach_metadata_store, make_device
 
 
 def _stub_metadata(_config_dir: object, _filename: object) -> DeviceFileMetadata:
@@ -145,12 +144,7 @@ def _make_controller(tmp_path: Path) -> tuple[Any, list[tuple[str, bool, bool]]]
     # without needing the full worker lifecycle.
     controller._build_size = MagicMock()
     controller._refresh_after_firmware_job = _capturing_refresh  # type: ignore[method-assign]
-    controller._shutdown_callbacks = []
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_path,
-        data_dir=tmp_path,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, tmp_path)
     return controller, captured
 
 
@@ -332,12 +326,7 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
     controller._db = db
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
-    controller._shutdown_callbacks = []
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_path,
-        data_dir=tmp_path,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, tmp_path)
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
@@ -366,15 +355,9 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     controller._db = db
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
-    controller._shutdown_callbacks = []
     tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
-    tmp_dir = Path(tmp_dir_obj.name)
     controller._tmpdir = tmp_dir_obj  # keep alive
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_dir,
-        data_dir=tmp_dir,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, Path(tmp_dir_obj.name))
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
@@ -473,15 +456,9 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
     controller._db = db
     controller._scanner = scanner
     controller._state_monitor = state_monitor
-    controller._shutdown_callbacks = []
     tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
-    tmp_dir = Path(tmp_dir_obj.name)
     controller._tmpdir = tmp_dir_obj  # keep alive
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_dir,
-        data_dir=tmp_dir,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, Path(tmp_dir_obj.name))
     return controller, fired
 
 

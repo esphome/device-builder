@@ -479,12 +479,7 @@ def _gates_on_unconfigured_block(
 def _build_address_cache_args(
     device: Device, monitor: DeviceStateMonitor | None, deployed_name: str = ""
 ) -> list[str]:
-    """
-    Build CLI cache args from the IPs we already have for *device*.
-
-    *deployed_name* is the hostname the firmware still answers to after a
-    flash-free rename; its addresses back the YAML name's key.
-    """
+    """Build CLI cache args from the IPs we have for *device* or *deployed_name*."""
     address = device.address
     if not address:
         return []

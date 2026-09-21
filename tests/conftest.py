@@ -957,6 +957,16 @@ async def release_and_drain_advertise(db: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+def attach_metadata_store(controller: Any, directory: Path) -> None:
+    """Wire a real ``DeviceMetadataStore`` (and its shutdown list) onto *controller*."""
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=directory,
+        data_dir=directory,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
+
+
 def make_devices_controller_with_bus(
     devices: list[Device],
     *,
@@ -1009,12 +1019,7 @@ def make_devices_controller_with_bus(
     tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
     tmp_dir = Path(tmp_dir_obj.name)
     controller._tmpdir = tmp_dir_obj  # keep alive
-    controller._shutdown_callbacks = []
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_dir,
-        data_dir=tmp_dir,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, tmp_dir)
     controller._shared_sidecar = SharedSidecarClient(tmp_dir)
     return controller, captured
 

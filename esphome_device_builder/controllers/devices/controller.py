@@ -428,12 +428,19 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         loaded = device.loaded_integrations
         if loaded and "api" not in loaded and "web_server" not in loaded:
             return []
-        deployed_name = self._metadata_store.get(configuration).get("deployed_name", "")
-        if deployed_name and self._scanner.get_by_name(deployed_name):
-            # Another config reclaimed the name, so whatever answers to it
-            # is no longer this device.
-            deployed_name = ""
-        return _build_address_cache_args(device, self._state_monitor, deployed_name)
+        return _build_address_cache_args(
+            device, self._state_monitor, self._deployed_name(configuration)
+        )
+
+    def _deployed_name(self, configuration: str) -> str:
+        """
+        Return the hostname *configuration*'s firmware still answers to, if any.
+
+        Empty while another config owns that name: whatever answers to
+        it is then somebody else's device, not ours.
+        """
+        deployed_name = self._metadata_store.get_field(configuration, "deployed_name") or ""
+        return "" if self._devices_by_name(deployed_name) else deployed_name
 
     def get_ota_address_cache_args(self, configuration: str, port: str | None) -> list[str]:
         """Return cache args when ``port == "OTA"`` (or ``None`` for always-OTA flows)."""
