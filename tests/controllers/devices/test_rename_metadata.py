@@ -164,6 +164,29 @@ async def test_completed_rename_migrates_metadata_then_scans(
     assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan", False)]
 
 
+async def test_completed_rename_clears_the_deployed_name_record(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The tail flashed the new name, so a carried-over record is spent."""
+    controller = make_controller(tmp_path)
+    controller._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    scheduled: list[Any] = []
+    controller._db.create_background_task = scheduled.append
+
+    job = FirmwareJob(
+        job_id="abc123",
+        configuration="kitchen.yaml",
+        job_type=JobType.RENAME,
+        status=JobStatus.COMPLETED,
+        new_name="livingroom",
+    )
+    firmware_sync.on_job_completed(controller, Event(EventType.JOB_COMPLETED, {"job": job}))
+    await scheduled[0]
+
+    assert "deployed_name" not in controller._metadata_store.get("livingroom.yaml")
+
+
 async def test_completed_rename_normalizes_new_name_with_extension(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

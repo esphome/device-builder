@@ -244,7 +244,8 @@ async def rename_device(
     # a stem compare wrongly rejects the legitimate ``test_1`` -> ``test-1``
     # rename and wrongly accepts a real no-op whose filename differs from its
     # name.
-    if new_name == resolved_device_name(old_meta, configuration):
+    old_name = resolved_device_name(old_meta, configuration)
+    if new_name == old_name:
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "new_name must differ from the current device name",
@@ -276,6 +277,7 @@ async def rename_device(
             content=content,
             new_content=new_content,
             in_place=in_place,
+            old_name=old_name,
         )
 
     firmware = controller._db.firmware
@@ -296,13 +298,15 @@ async def _config_only_rename(
     content: str,
     new_content: str,
     in_place: bool,
+    old_name: str,
 ) -> dict[str, Any]:
     """
     Land the rewritten YAML with no compile or OTA.
 
     Validates *new_content* before touching disk, writes the new file
-    atomically, removes the old, and migrates the StorageJSON + sidecar
-    metadata. Refuses with ``PRECONDITION_FAILED`` when the file no longer
+    atomically, removes the old, records the pre-rename hostname, and
+    migrates the StorageJSON + sidecar metadata. Refuses with
+    ``PRECONDITION_FAILED`` when the file no longer
     holds *content*, and never replaces a target another writer created.
     Returns ``job: None`` (nothing is queued). When *in_place*
     the target filename is the device's own file: the rewrite lands on it
@@ -335,9 +339,21 @@ async def _config_only_rename(
         for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
+        # Before the migrate, so its immediate flush is the only store write.
+        _stamp_deployed_name(controller, configuration, old_name=old_name, new_name=new_name)
         await migrate_metadata(controller, configuration, new_filename)
     await rescan_renamed(controller, new_filename)
     return {"configuration": new_filename, "job": None}
+
+
+def _stamp_deployed_name(
+    controller: DevicesController, configuration: str, *, old_name: str, new_name: str
+) -> None:
+    """Record the hostname the firmware still answers to after a flash-free rename."""
+    stamped = controller._metadata_store.get(configuration).get("deployed_name") or old_name
+    controller._metadata_store.update(
+        configuration, deployed_name="" if stamped == new_name else stamped
+    )
 
 
 def _migrate_storage_json(old_configuration: str, new_filename: str, new_name: str) -> None:

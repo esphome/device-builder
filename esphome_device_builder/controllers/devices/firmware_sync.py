@@ -122,6 +122,9 @@ async def refresh_after_job(
         await controller._persist_expected_config_hash(configuration)
     await controller._scanner.reload(configuration)
     if flashed:
+        # The landed image carries the YAML's own name, so a pre-rename
+        # hostname recorded for it is spent.
+        controller._metadata_store.update(configuration, deployed_name="")
         await controller._sync_deployed_state_after_flash(configuration)
         controller._schedule_version_reprobe(configuration)
     # A real compile moves the build-size cache's freshness
@@ -233,6 +236,9 @@ async def migrate_metadata_then_scan(
     controller: DevicesController, old_configuration: str, new_configuration: str
 ) -> None:
     """Move the renamed device's metadata before the scan rebuilds it."""
+    # Same clear as the flashed branch of ``refresh_after_job``, which a
+    # completed RENAME never reaches.
+    controller._metadata_store.update(old_configuration, deployed_name="")
     await migrate_metadata(controller, old_configuration, new_configuration)
     await rescan_renamed(controller, new_configuration)
 

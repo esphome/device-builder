@@ -377,11 +377,20 @@ async def test_refresh_after_upload_skips_hash_compute(tmp_path: Path, monkeypat
     controller._state_monitor = MagicMock()
     # The flashed branch arms a post-flash re-probe timer.
     controller._reprobe_timers = {}
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_path,
+        data_dir=tmp_path,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
+    controller._metadata_store.update("kitchen.yaml", deployed_name="old-kitchen", delay=0.0)
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=False, flashed=True)
 
     assert compute_calls == []
     assert controller._scanner.calls == [("reload", "kitchen.yaml")]
+    # The landed image carries the YAML's own name.
+    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
     controller._cancel_reprobe_timers()
 
 

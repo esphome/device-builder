@@ -428,7 +428,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         loaded = device.loaded_integrations
         if loaded and "api" not in loaded and "web_server" not in loaded:
             return []
-        return _build_address_cache_args(device, self._state_monitor)
+        deployed_name = self._metadata_store.get(configuration).get("deployed_name", "")
+        return _build_address_cache_args(device, self._state_monitor, deployed_name)
 
     def get_ota_address_cache_args(self, configuration: str, port: str | None) -> list[str]:
         """Return cache args when ``port == "OTA"`` (or ``None`` for always-OTA flows)."""

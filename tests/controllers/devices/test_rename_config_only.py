@@ -446,3 +446,50 @@ async def test_config_only_rename_still_rejects_collision(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "already exists" in excinfo.value.message
+
+
+# ----------------------------------------------------------------------
+# deployed_name: the firmware keeps its old hostname until a flash (#2730)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "configuration", "renames", "expected_filename", "expected_deployed"),
+    [
+        pytest.param(_YAML, "kitchen.yaml", ["livingroom"], "livingroom.yaml", "kitchen", id="one"),
+        # ``esphome.name`` is recorded, which the filename stem can differ from.
+        pytest.param(
+            _UNDERSCORE_YAML, "test-1.yaml", ["test-1"], "test-1.yaml", "test_1", id="in_place"
+        ),
+        # A second flash-free rename still points at what the firmware has.
+        pytest.param(
+            _YAML, "kitchen.yaml", ["livingroom", "hallway"], "hallway.yaml", "kitchen", id="chain"
+        ),
+        # Renaming back to it leaves nothing to redirect.
+        pytest.param(
+            _YAML, "kitchen.yaml", ["livingroom", "kitchen"], "kitchen.yaml", None, id="back"
+        ),
+    ],
+)
+async def test_config_only_rename_records_the_deployed_name(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    text: str,
+    configuration: str,
+    renames: list[str],
+    expected_filename: str,
+    expected_deployed: str | None,
+) -> None:
+    """The hostname the firmware still answers to is recorded under the new filename."""
+    controller = make_controller(tmp_path)
+    (tmp_path / configuration).write_text(text, encoding="utf-8")
+
+    current = configuration
+    for new_name in renames:
+        result = await controller.rename_device(
+            configuration=current, new_name=new_name, config_only=True
+        )
+        current = result["configuration"]
+
+    assert current == expected_filename
+    assert controller._metadata_store.get(current).get("deployed_name") == expected_deployed

@@ -14,7 +14,7 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_config import raise_device_not_found
-from ...helpers.hostname import is_local_hostname, normalize_hostname
+from ...helpers.hostname import default_mdns_address, is_local_hostname, normalize_hostname
 from ...helpers.text import diff_excerpt, same_text
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
@@ -476,8 +476,15 @@ def _gates_on_unconfigured_block(
     return bool(gate) and gate not in configured_blocks
 
 
-def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None) -> list[str]:
-    """Build CLI cache args from the IPs we already have for *device*."""
+def _build_address_cache_args(
+    device: Device, monitor: DeviceStateMonitor | None, deployed_name: str = ""
+) -> list[str]:
+    """
+    Build CLI cache args from the IPs we already have for *device*.
+
+    *deployed_name* is the hostname the firmware still answers to after a
+    flash-free rename; its addresses back the YAML name's key.
+    """
     address = device.address
     if not address:
         return []
@@ -504,6 +511,11 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
         )
         if cached:
             addresses = list(cached)
+        if not addresses and is_local and deployed_name:
+            # Publish the pre-rename name's IPs under the key the CLI looks up.
+            stale = monitor.mdns.get_cached_addresses(default_mdns_address(deployed_name))
+            if stale:
+                addresses = list(stale)
 
     if not addresses and device.ip:
         addresses = [device.ip]
