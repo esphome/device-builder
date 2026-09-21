@@ -126,6 +126,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
         deployed_config_hash = str(store_md.get("deployed_config_hash", ""))
         deployed_version = str(store_md.get("deployed_version", ""))
         queued_update = bool(store_md.get("queued_update", False))
+        deployed_name = str(store_md.get("deployed_name", ""))
         raw_api_encryption = store_md.get("api_encryption_active")
         api_encryption_active = raw_api_encryption if isinstance(raw_api_encryption, str) else None
         return DeviceFileMetadata(
@@ -139,7 +140,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             deployed_version=deployed_version,
             queued_update=queued_update,
             api_encryption_active=api_encryption_active,
-            deployed_name=str(store_md.get("deployed_name", "")),
+            deployed_name=deployed_name,
         )
 
     def _make_metadata_resolver(self) -> MetadataResolver:
@@ -225,7 +226,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
 
         A chained rename keeps the existing record; renaming back to it clears.
         """
-        current = self._metadata_store.get_field(configuration, "deployed_name") or old_name
+        current = str(self._metadata_store.get_field(configuration, "deployed_name") or old_name)
         deployed = "" if current == new_name else current
         self._metadata_store.update(configuration, deployed_name=deployed)
         return deployed

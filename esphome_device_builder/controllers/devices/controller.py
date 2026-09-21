@@ -1329,13 +1329,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         firmware_sync.schedule_version_reprobe(self, configuration)
 
     def _deployed_name(self, device: Device) -> str:
-        """
-        Return the hostname *device*'s firmware still answers to, if any.
-
-        Empty while another config owns that name: whatever answers to
-        it is then somebody else's device, not ours.
-        """
-        return "" if self._devices_by_name(device.deployed_name) else device.deployed_name
+        """Return *device*'s recorded hostname, or ``""`` while another config owns it."""
+        deployed = device.deployed_name
+        return "" if not deployed or self._devices_by_name(deployed) else deployed
 
     def _cancel_reprobe_timers(self) -> None:
         """Cancel any pending post-flash re-probe timers."""

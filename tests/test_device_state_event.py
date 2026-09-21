@@ -10,6 +10,10 @@ other source) flipped a device online — exactly the bug from the
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+
 from esphome_device_builder.models import DeviceState, EventType, ReachabilitySource
 
 from .conftest import make_device, make_devices_controller_with_bus
@@ -60,15 +64,41 @@ def test_state_change_unknown_device_does_not_fire() -> None:
     assert captured == []
 
 
-async def test_mdns_ownership_clears_the_deployed_name() -> None:
-    """An announce under the YAML's name proves the firmware carries it (#2730)."""
-    device = make_device(address="")
-    ctrl, _ = make_devices_controller_with_bus([device])
+@pytest.mark.parametrize(
+    ("devices", "source", "expected"),
+    [
+        pytest.param([{}], ReachabilitySource.MDNS, None, id="mdns_clears"),
+        # Ping reaches the device through the record itself; it proves no name.
+        pytest.param([{}], ReachabilitySource.PING, "asistente", id="ping_keeps"),
+        # A same-path rename carries ``active_source`` forward as mdns.
+        pytest.param(
+            [{"active_source": ReachabilitySource.MDNS}],
+            ReachabilitySource.MDNS,
+            None,
+            id="stale_active_source",
+        ),
+        # Siblings share one broadcast, so it can't prove which was flashed.
+        pytest.param(
+            [{}, {"configuration": "kitchen (1).yaml"}],
+            ReachabilitySource.MDNS,
+            "asistente",
+            id="shared_name_keeps",
+        ),
+    ],
+)
+async def test_mdns_ownership_clears_the_deployed_name(
+    devices: list[dict[str, Any]],
+    source: ReachabilitySource,
+    expected: str | None,
+) -> None:
+    """Only an mDNS announce that identifies one config proves the deployed name (#2730)."""
+    rows = [make_device(address="", **kwargs) for kwargs in devices]
+    ctrl, _ = make_devices_controller_with_bus(rows)
     ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
 
-    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
+    ctrl._on_source_change("kitchen", source)
 
-    assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")
+    assert ctrl._metadata_store.get("kitchen.yaml").get("deployed_name") == expected
 
 
 async def test_mdns_ownership_of_a_ping_online_device_still_clears() -> None:
@@ -81,37 +111,3 @@ async def test_mdns_ownership_of_a_ping_online_device_still_clears() -> None:
     ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
 
     assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")
-
-
-async def test_ping_ownership_keeps_the_deployed_name() -> None:
-    """Ping reaches the device through the record itself; it proves no name."""
-    device = make_device(address="")
-    ctrl, _ = make_devices_controller_with_bus([device])
-    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
-
-    ctrl._on_source_change("kitchen", ReachabilitySource.PING)
-
-    assert ctrl._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"
-
-
-async def test_mdns_ownership_clears_through_a_stale_active_source() -> None:
-    """A same-path rename carries ``active_source`` forward as mdns (#2730)."""
-    device = make_device(address="", active_source=ReachabilitySource.MDNS)
-    ctrl, _ = make_devices_controller_with_bus([device])
-    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
-
-    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
-
-    assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")
-
-
-async def test_mdns_of_a_shared_name_keeps_both_deployed_names() -> None:
-    """Siblings share one broadcast, so it can't prove which one was flashed."""
-    first = make_device(configuration="kitchen.yaml", address="")
-    second = make_device(configuration="kitchen (1).yaml", address="")
-    ctrl, _ = make_devices_controller_with_bus([first, second])
-    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
-
-    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
-
-    assert ctrl._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"

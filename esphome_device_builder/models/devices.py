@@ -177,7 +177,7 @@ class Device(DashboardModel):
     # Hostname the running firmware still answers to after a rename that
     # didn't flash; empty once the YAML's own name is deployed. Backs the
     # OTA address cache and counts as identity for the api reviver.
-    deployed_name: str = ""
+    deployed_name: str = field(default="", metadata={"serialize": "omit"})
     web_port: int | None = None
     current_version: str = ""
     # 8-char hex hash of the YAML as last successfully compiled.

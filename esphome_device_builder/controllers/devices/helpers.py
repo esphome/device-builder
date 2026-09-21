@@ -504,13 +504,11 @@ def _build_address_cache_args(
             if is_local
             else monitor.state.dns_cache.get_cached_addresses(address)
         )
+        if not cached and is_local and deployed_name:
+            # Publish the pre-rename name's IPs under the key the CLI looks up.
+            cached = monitor.mdns.get_cached_addresses(default_mdns_address(deployed_name))
         if cached:
             addresses = list(cached)
-        if not addresses and is_local and deployed_name:
-            # Publish the pre-rename name's IPs under the key the CLI looks up.
-            stale = monitor.mdns.get_cached_addresses(default_mdns_address(deployed_name))
-            if stale:
-                addresses = list(stale)
 
     if not addresses and device.ip:
         addresses = [device.ip]

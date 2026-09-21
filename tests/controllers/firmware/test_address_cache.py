@@ -204,11 +204,10 @@ def _devices_controller_with(
     """Build a thin DevicesController shell with a stubbed scanner + monitor.
 
     ``get_address_cache_args`` reads the scanner's configuration-keyed
-    lookup, the state monitor's cached-addresses lookup, the metadata
-    store's ``deployed_name`` record, and the device's
-    ``loaded_integrations`` field — keep the rest of the controller out
-    of the test surface. ``names_taken`` seeds the name index the
-    reclaimed-record guard consults.
+    lookup, the state monitor's cached-addresses lookup, and the device's
+    ``deployed_name`` / ``loaded_integrations`` fields — keep the rest of
+    the controller out of the test surface. ``names_taken`` seeds the name
+    index the reclaimed-record guard consults.
     """
     controller = DevicesController.__new__(DevicesController)
     scanner = RecordingScanner(devices_by_name={name: [object()] for name in names_taken})
@@ -312,7 +311,7 @@ def test_get_address_cache_args_drops_a_reclaimed_deployed_name() -> None:
 
 
 def test_get_address_cache_args_reads_the_deployed_name_record() -> None:
-    """The controller feeds the store's record into the cache-args build."""
+    """The controller feeds the device's record into the cache-args build."""
     controller = _devices_controller_with(
         _device(loaded_integrations=["api"], deployed_name="asistente"),
         monitor=RecordingStateMonitor(cached_addresses={"asistente.local": ["192.168.1.50"]}),

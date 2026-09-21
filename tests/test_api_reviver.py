@@ -35,6 +35,7 @@ from esphome_device_builder.models import Device, DeviceState, ReachabilitySourc
 
 from .conftest import (
     RecordingMonitorCallbacks,
+    make_device,
     make_state_monitor_with_callbacks,
     make_stuck_offline_device,
 )
@@ -365,6 +366,19 @@ async def test_recorded_pre_rename_name_revives_instead_of_invalidating() -> Non
     assert callbacks.calls_for("on_persisted_ip_invalidated") == []
     assert device.ip == "192.168.1.50"
     assert ("on_state_change", "kitchen", DeviceState.ONLINE, "ping") in callbacks.calls
+
+
+async def test_a_reclaimed_pre_rename_name_is_not_identity() -> None:
+    """Another config owns that name now, so the answer isn't ours to read."""
+    device = make_stuck_offline_device(deployed_name="asistente")
+    sibling = make_device("asistente")
+    _monitor, callbacks, src = _reviver(
+        [device, sibling], worker_result={**_WORKER_MATCH, "name": "asistente"}
+    )
+
+    await src._sweep()
+
+    assert ("on_persisted_ip_invalidated", "kitchen", "192.168.1.50") in callbacks.calls
 
 
 async def test_name_mismatch_invalidates_the_persisted_ip() -> None:
