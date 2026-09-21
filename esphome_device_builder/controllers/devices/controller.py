@@ -428,19 +428,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         loaded = device.loaded_integrations
         if loaded and "api" not in loaded and "web_server" not in loaded:
             return []
-        return _build_address_cache_args(
-            device, self._state_monitor, self._deployed_name(configuration)
-        )
-
-    def _deployed_name(self, configuration: str) -> str:
-        """
-        Return the hostname *configuration*'s firmware still answers to, if any.
-
-        Empty while another config owns that name: whatever answers to
-        it is then somebody else's device, not ours.
-        """
-        deployed_name = self._metadata_store.get_field(configuration, "deployed_name") or ""
-        return "" if self._devices_by_name(deployed_name) else deployed_name
+        return _build_address_cache_args(device, self._state_monitor, self._deployed_name(device))
 
     def get_ota_address_cache_args(self, configuration: str, port: str | None) -> list[str]:
         """Return cache args when ``port == "OTA"`` (or ``None`` for always-OTA flows)."""
@@ -1339,6 +1327,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _schedule_version_reprobe(self, configuration: str) -> None:
         firmware_sync.schedule_version_reprobe(self, configuration)
+
+    def _deployed_name(self, device: Device) -> str:
+        """
+        Return the hostname *device*'s firmware still answers to, if any.
+
+        Empty while another config owns that name: whatever answers to
+        it is then somebody else's device, not ours.
+        """
+        return "" if self._devices_by_name(device.deployed_name) else device.deployed_name
 
     def _cancel_reprobe_timers(self) -> None:
         """Cancel any pending post-flash re-probe timers."""

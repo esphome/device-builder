@@ -139,6 +139,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             deployed_version=deployed_version,
             queued_update=queued_update,
             api_encryption_active=api_encryption_active,
+            deployed_name=str(store_md.get("deployed_name", "")),
         )
 
     def _make_metadata_resolver(self) -> MetadataResolver:

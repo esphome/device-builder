@@ -217,7 +217,9 @@ class ApiReviverSource(ApiSweepSource):
             )
             self._record_dial_failure(key)
             return
-        if reported != device.name:
+        # A device renamed without a flash still answers its recorded
+        # pre-rename name, so that name identifies it just as well.
+        if reported not in (device.name, device.deployed_name):
             # Whatever holds the lease now is a different device; the
             # persisted IP is proven stale — invalidate it so neither the
             # reviver nor the OTA cache trusts it again. ``reported`` is

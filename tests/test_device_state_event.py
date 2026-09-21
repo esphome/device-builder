@@ -103,3 +103,15 @@ async def test_mdns_ownership_clears_through_a_stale_active_source() -> None:
     ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
 
     assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")
+
+
+async def test_mdns_of_a_shared_name_keeps_both_deployed_names() -> None:
+    """Siblings share one broadcast, so it can't prove which one was flashed."""
+    first = make_device(configuration="kitchen.yaml", address="")
+    second = make_device(configuration="kitchen (1).yaml", address="")
+    ctrl, _ = make_devices_controller_with_bus([first, second])
+    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
+
+    assert ctrl._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"

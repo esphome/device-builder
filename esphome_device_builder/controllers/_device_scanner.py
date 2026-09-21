@@ -63,6 +63,8 @@ class DeviceFileMetadata(NamedTuple):
     # absent (plaintext-confirmed); ``None`` means not yet
     # broadcast.
     api_encryption_active: str | None = None
+    # Pre-rename hostname the firmware still answers to, if any.
+    deployed_name: str = ""
 
 
 class ScanChange(StrEnum):
@@ -496,6 +498,7 @@ class DeviceScanner(WakeWorker[str]):
                     deployed_version=metadata.deployed_version,
                     queued_update=metadata.queued_update,
                     api_encryption_active=metadata.api_encryption_active,
+                    deployed_name=metadata.deployed_name,
                     previous=self._index.by_path.get(path),
                     shallow=shallow,
                 )

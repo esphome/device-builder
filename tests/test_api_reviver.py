@@ -353,6 +353,20 @@ async def test_stale_verification_re_dials() -> None:
 # ----------------------------------------------------------------------
 
 
+async def test_recorded_pre_rename_name_revives_instead_of_invalidating() -> None:
+    """A flash-free rename leaves the firmware on its recorded name (#2730)."""
+    device = make_stuck_offline_device(deployed_name="asistente")
+    _monitor, callbacks, src = _reviver(
+        [device], worker_result={**_WORKER_MATCH, "name": "asistente"}
+    )
+
+    await src._sweep()
+
+    assert callbacks.calls_for("on_persisted_ip_invalidated") == []
+    assert device.ip == "192.168.1.50"
+    assert ("on_state_change", "kitchen", DeviceState.ONLINE, "ping") in callbacks.calls
+
+
 async def test_name_mismatch_invalidates_the_persisted_ip() -> None:
     device = make_stuck_offline_device()
     monitor, callbacks, src = _reviver(
