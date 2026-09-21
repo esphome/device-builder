@@ -160,8 +160,8 @@ def _reconcile_rename(
     ):
         return
     # A hand-edited name strands the firmware like a config-only rename.
-    # Never-compiled devices are skipped: the cold-start shallow→deep
-    # refine lands here too, off a filename-stem placeholder.
+    # Gated on build output: the cold-start shallow→deep refine lands
+    # here too, renaming off a filename-stem placeholder.
     if device.loaded_integrations:
         controller._stamp_deployed_name(
             device.configuration, old_name=previous.name, new_name=device.name

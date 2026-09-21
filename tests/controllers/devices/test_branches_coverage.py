@@ -1668,10 +1668,10 @@ async def test_on_scan_change_name_change_records_the_deployed_name(
     assert controller._metadata_store.get(compiled.configuration)["deployed_name"] == "kitchen"
 
 
-async def test_on_scan_change_never_compiled_name_change_records_nothing(
+async def test_on_scan_change_unbuilt_name_change_records_nothing(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """The cold-start refine renames off a placeholder; no firmware answered to it."""
+    """The cold-start refine renames off a placeholder; no build output backs it."""
     controller = make_controller(tmp_path, with_state_monitor=True)
     refined = _device("livingroom")
 

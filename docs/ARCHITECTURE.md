@@ -273,7 +273,7 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   announces its new name (#2730); the record is dropped when another config
   claims that name, since its broadcast is then somebody else's. A
   hand-edited `esphome.name` records the same way, off the scan's name
-  change, for a device that was compiled at least once. A chained flash-free
+  change, for a device with build output. A chained flash-free
   rename keeps the first record; it clears on a rename back to it, on the
   next landed flash or completed rename chain, and on an mDNS ONLINE under
   the device's own name (the self-heal for a flash from outside the
