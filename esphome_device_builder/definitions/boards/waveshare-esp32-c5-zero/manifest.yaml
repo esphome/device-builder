@@ -1,0 +1,142 @@
+id: waveshare-esp32-c5-zero
+name: "Waveshare ESP32-C5-Zero"
+description: |
+  Ultra-compact ESP32-C5 development board with dual-band 2.4/5 GHz
+  Wi-Fi 6, Bluetooth 5 (LE), and IEEE 802.15.4 (Zigbee 3.0/Thread).
+  Castellated module, USB-C, onboard WS2812 RGB LED, BOOT and RESET
+  buttons.
+manufacturer: "Waveshare"
+
+esphome:
+  platform: esp32
+  board: esp32-c5-devkitc-1
+  variant: esp32c5
+  framework: esp-idf
+
+hardware:
+  flash_size: 4MB
+  ram_size: 327680
+  cpu_frequency: 240MHz
+  connectivity: [wifi, bluetooth, thread, zigbee]
+
+tags: [compact, usb-c, rgb-led]
+docs_url: "https://docs.waveshare.com/ESP32-C5-Zero"
+product_url: "https://www.waveshare.com/esp32-c5-zero.htm"
+is_generic: false
+
+images:
+  - "https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-c5-zero-1.jpg"
+  - "https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-c5-zero-2.jpg"
+
+pins:
+  - gpio: 0
+    label: "GPIO0"
+    features: [pwm]
+    available: true
+  - gpio: 1
+    label: "GPIO1"
+    features: [adc, pwm]
+    notes: "ADC1_CH0"
+    available: true
+  - gpio: 2
+    label: "GPIO2"
+    features: [adc, pwm, strapping]
+    notes: "ADC1_CH1 — strapping pin"
+    available: true
+  - gpio: 3
+    label: "GPIO3"
+    features: [adc, pwm]
+    notes: "ADC1_CH2"
+    available: true
+  - gpio: 4
+    label: "GPIO4"
+    features: [adc, pwm]
+    notes: "ADC1_CH3"
+    available: true
+  - gpio: 5
+    label: "GPIO5"
+    features: [adc, pwm]
+    notes: "ADC1_CH4"
+    available: true
+  - gpio: 6
+    label: "GPIO6"
+    features: [adc, pwm]
+    notes: "ADC1_CH5"
+    available: true
+  - gpio: 7
+    label: "GPIO7"
+    features: [pwm, strapping]
+    available: true
+  - gpio: 8
+    label: "GPIO8"
+    features: [pwm, strapping]
+    available: true
+  - gpio: 9
+    label: "GPIO9"
+    features: [pwm, strapping, boot_button]
+    occupied_by: "BOOT button"
+    notes: "Directly connected to BOOT button, usable as input after boot"
+    available: true
+  - gpio: 10
+    label: "GPIO10"
+    features: [pwm]
+    available: true
+  - gpio: 11
+    label: "GPIO11"
+    features: [pwm, uart_tx]
+    notes: "Default UART0 transmit data"
+    available: true
+  - gpio: 12
+    label: "GPIO12"
+    features: [pwm, uart_rx]
+    notes: "Default UART0 receive data"
+    available: true
+  - gpio: 13
+    label: "GPIO13"
+    features: [pwm, usb_dm]
+    occupied_by: "USB D-"
+    notes: "USB Serial/JTAG D-"
+    available: true
+  - gpio: 14
+    label: "GPIO14"
+    features: [pwm, usb_dp]
+    occupied_by: "USB D+"
+    notes: "USB Serial/JTAG D+"
+    available: true
+  - gpio: 23
+    label: "GPIO23"
+    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed, excluded until verified"
+    available: false
+  - gpio: 24
+    label: "GPIO24"
+    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed, excluded until verified"
+    available: false
+  - gpio: 25
+    label: "GPIO25"
+    notes: "Solder pad near the module edge (Waveshare pinout diagram); exact role unconfirmed, excluded until verified"
+    available: false
+  - gpio: 26
+    label: "GPIO26"
+    occupied_by: "Antenna switch"
+    notes: "Used internally to switch between the 2.4 GHz and 5 GHz antennas, not broken out"
+    available: false
+  - gpio: 27
+    label: "GPIO27"
+    features: [pwm, strapping, rgb_led]
+    occupied_by: "WS2812 RGB LED"
+    notes: "Strapping pin — not broken out to header, drives the onboard WS2812 LED"
+    available: false
+  - gpio: 28
+    label: "GPIO28"
+    notes: "Listed on the Waveshare pinout diagram; exact role unconfirmed, excluded until verified"
+    available: false
+
+featured_components:
+  - id: status_rgb
+    component_id: light.esp32_rmt_led_strip
+    name: Onboard RGB LED (WS2812)
+    fields:
+      pin: { value: 27, locked: true }
+      chipset: WS2812
+      num_leds: { value: 1, locked: true }
+      channel_colors: { value: RGB, locked: true }
