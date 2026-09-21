@@ -159,6 +159,11 @@ def _reconcile_rename(
         or previous.name == device.name
     ):
         return
+    # A hand-edited ``esphome.name`` moves the YAML ahead of the firmware
+    # exactly like a config-only rename does.
+    controller._stamp_deployed_name(
+        device.configuration, old_name=previous.name, new_name=device.name
+    )
     # The ADDED retraction keys on the name at add time; the freed old
     # name may have a suppressed announcement worth resurfacing.
     controller._on_importable_removed(device.name)

@@ -177,6 +177,13 @@ def test_deployed_name_miss_falls_back_to_device_ip() -> None:
     assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.99"]
 
 
+def test_deployed_name_cache_beats_the_persisted_ip() -> None:
+    """A live cache entry for the old name is fresher than the persisted IP."""
+    monitor = RecordingStateMonitor(cached_addresses={"asistente.local": ["192.168.1.50"]})
+    args = _build_address_cache_args(_device(ip="192.168.1.99"), monitor, "asistente")
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+
+
 def test_deployed_name_ignored_for_non_local_address() -> None:
     """A renamed ``.local`` name is irrelevant to a DNS-resolved address."""
     monitor = RecordingStateMonitor(cached_addresses={"asistente.local": ["192.168.1.50"]})
@@ -190,7 +197,9 @@ def test_deployed_name_ignored_for_non_local_address() -> None:
 # ----------------------------------------------------------------------
 
 
-def _devices_controller_with(*devices: Device, deployed_name: str = "") -> Any:
+def _devices_controller_with(
+    *devices: Device, deployed_name: str = "", names_taken: tuple[str, ...] = ()
+) -> Any:
     """Build a thin DevicesController shell with a stubbed scanner + monitor.
 
     ``get_address_cache_args`` reads the scanner's configuration-keyed
@@ -200,7 +209,7 @@ def _devices_controller_with(*devices: Device, deployed_name: str = "") -> Any:
     of the test surface.
     """
     controller = DevicesController.__new__(DevicesController)
-    scanner = RecordingScanner()
+    scanner = RecordingScanner(devices_by_name={name: [object()] for name in names_taken})
     scanner.devices = list(devices)
     controller._scanner = scanner
     controller._state_monitor = _monitor(["192.168.1.50"])
@@ -288,6 +297,22 @@ def test_get_address_cache_args_filename_differs_from_device_name() -> None:
         "--mdns-address-cache",
         "esphome-web-0ea4a4.local=10.15.2.199",
     ]
+
+
+def test_get_address_cache_args_drops_a_reclaimed_deployed_name() -> None:
+    """A config that took the old name owns its broadcast; fall back to the IP."""
+    controller = _devices_controller_with(
+        _device(loaded_integrations=["api"], ip="192.168.1.99"),
+        deployed_name="asistente",
+        names_taken=("asistente",),
+    )
+    controller._state_monitor = RecordingStateMonitor(
+        cached_addresses={"asistente.local": ["10.0.0.1"]}
+    )
+
+    args = controller.get_address_cache_args("kitchen.yaml")
+
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.99"]
 
 
 def test_get_ota_address_cache_args_returns_cache_for_ota_port() -> None:

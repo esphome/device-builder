@@ -270,9 +270,12 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   broadcasting the pre-rename hostname. That name is recorded as
   `deployed_name` in the device-metadata store and backs the device's OTA
   address-cache args, so an install still reaches a device that never
-  announces its new name (#2730). A chained flash-free rename keeps the first
-  record, renaming back to it clears it, and it also clears on the next
-  landed flash or completed rename chain.
+  announces its new name (#2730); the record is dropped when another config
+  claims that name, since its broadcast is then somebody else's. A
+  hand-edited `esphome.name` records the same way, off the scan's name
+  change. A chained flash-free rename keeps the first record, renaming back
+  to it clears it, and it also clears on the next landed flash or completed
+  rename chain.
 - Plus a **remote build-server pool** — one more consumer (`run_dispatch_loop`)
   gathered alongside the lane workers. Compiles eligible for a paired server
   hold here (off the single compile lane) and run concurrently, one per

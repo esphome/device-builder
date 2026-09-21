@@ -1614,7 +1614,7 @@ def test_on_scan_change_added_without_importable_row_is_silent(
     assert captured == []
 
 
-def test_on_scan_change_reloaded_name_change_prunes_importable_row(
+async def test_on_scan_change_reloaded_name_change_prunes_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
@@ -1631,7 +1631,7 @@ def test_on_scan_change_reloaded_name_change_prunes_importable_row(
     assert ("revisit_importable", "kitchen-yaml") in controller._state_monitor.calls
 
 
-def test_on_scan_change_updated_name_change_prunes_importable_row(
+async def test_on_scan_change_updated_name_change_prunes_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
@@ -1646,6 +1646,29 @@ def test_on_scan_change_updated_name_change_prunes_importable_row(
     assert "kitchen" not in controller.state.import_result
     assert [e.data["name"] for e in captured] == ["kitchen"]
     assert ("revisit_importable", "old-kitchen") in controller._state_monitor.calls
+
+
+async def test_on_scan_change_name_change_records_the_deployed_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A hand-edited ``esphome.name`` strands the firmware like a config-only rename."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+
+    controller._on_scan_change(ScanChange.UPDATED, _device("livingroom"), _device("kitchen"))
+
+    configuration = _device("livingroom").configuration
+    assert controller._metadata_store.get(configuration)["deployed_name"] == "kitchen"
+
+
+async def test_on_scan_change_same_name_records_nothing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An ordinary edit leaves no record; the firmware still matches the YAML."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+
+    controller._on_scan_change(ScanChange.UPDATED, _device("kitchen"), _device("kitchen"))
+
+    assert controller._metadata_store.get(_device("kitchen").configuration) == {}
 
 
 def test_on_scan_change_reloaded_same_name_skips_importable_prune(
@@ -1665,7 +1688,7 @@ def test_on_scan_change_reloaded_same_name_skips_importable_prune(
     assert ("revisit_importable", "kitchen") not in controller._state_monitor.calls
 
 
-def test_on_scan_change_rename_migrates_monitor_state(
+async def test_on_scan_change_rename_migrates_monitor_state(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A rename probes the corrected name and forgets the freed name's monitor state."""
@@ -1679,7 +1702,7 @@ def test_on_scan_change_rename_migrates_monitor_state(
     assert "old-kitchen" not in controller._reachability._ping_last_seen
 
 
-def test_on_scan_change_rename_keeps_state_for_surviving_sibling(
+async def test_on_scan_change_rename_keeps_state_for_surviving_sibling(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """The freed name's monitor state survives while a sibling YAML still owns it."""

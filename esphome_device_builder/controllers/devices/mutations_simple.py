@@ -340,20 +340,10 @@ async def _config_only_rename(
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
         # Before the migrate, so its immediate flush is the only store write.
-        _stamp_deployed_name(controller, configuration, old_name=old_name, new_name=new_name)
+        controller._stamp_deployed_name(configuration, old_name=old_name, new_name=new_name)
         await migrate_metadata(controller, configuration, new_filename)
     await rescan_renamed(controller, new_filename)
     return {"configuration": new_filename, "job": None}
-
-
-def _stamp_deployed_name(
-    controller: DevicesController, configuration: str, *, old_name: str, new_name: str
-) -> None:
-    """Record the hostname the firmware still answers to after a flash-free rename."""
-    stamped = controller._metadata_store.get(configuration).get("deployed_name") or old_name
-    controller._metadata_store.update(
-        configuration, deployed_name="" if stamped == new_name else stamped
-    )
 
 
 def _migrate_storage_json(old_configuration: str, new_filename: str, new_name: str) -> None:

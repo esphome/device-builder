@@ -429,6 +429,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if loaded and "api" not in loaded and "web_server" not in loaded:
             return []
         deployed_name = self._metadata_store.get(configuration).get("deployed_name", "")
+        if deployed_name and self._scanner.get_by_name(deployed_name):
+            # Another config reclaimed the name, so whatever answers to it
+            # is no longer this device.
+            deployed_name = ""
         return _build_address_cache_args(device, self._state_monitor, deployed_name)
 
     def get_ota_address_cache_args(self, configuration: str, port: str | None) -> list[str]:
