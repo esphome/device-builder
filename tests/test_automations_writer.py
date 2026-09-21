@@ -4019,3 +4019,72 @@ def test_an_aliased_anchor_blocks_the_mapping_rewrite_but_not_a_list() -> None:
     as_list = "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\nother: *shared\n"
     new_text, _diff = render_upsert(as_list, tree=_TICK, location=IntervalLocation(index=1))
     assert new_text.count("- interval:") == 2 and "other: *shared" in new_text
+
+
+def test_an_aliased_anchor_blocks_the_flow_expansion_too() -> None:
+    text = "interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+
+
+def test_a_nested_aliased_anchor_is_named_in_the_refusal() -> None:
+    text = "interval: {interval: 60s, then: &acts [{delay: 1s}]}\nother: *acts\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (
+        err.value.message == "interval: holds an aliased anchor &acts; rewrite it as a list first"
+    )
+
+
+def test_a_nested_anchor_survives_the_mapping_normalisation() -> None:
+    text = "interval:\n  interval: 60s\n  then:\n    - delay: &d 1s\nother: *d\n"
+    new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert "      - delay: &d 1s\n" in new_text
+    assert new_text.endswith("other: *d\n")
+
+
+def test_a_scalar_valued_like_the_domain_does_not_hide_the_header_anchor() -> None:
+    text = "# interval\ncomment: interval\ninterval: &shared\n  interval: 60s\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+
+
+def test_an_alias_as_the_whole_value_is_named_in_the_refusal() -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert("interval: *tick\n", tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == "interval: is an alias; rewrite it as a block first"
+
+
+def test_a_delete_by_index_still_splices_a_draft_that_does_not_parse() -> None:
+    text = "interval:\n  interval: 60s\n  then:\n    - delay: 1s\nbroken: [unclosed\n"
+    new_text, _ = render_delete(text, location=IntervalLocation(index=0))
+    assert new_text == "interval:\nbroken: [unclosed\n"
+
+
+def test_a_quoted_or_commented_star_is_not_an_alias() -> None:
+    text = 'interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: "*shared"  # *shared\n'
+    new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith("interval:\n  - interval: 60s\n")
+    assert new_text.endswith('other: "*shared"  # *shared\n')
+
+
+def test_an_alias_inside_a_flow_value_is_named_in_the_refusal() -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            "interval: {interval: 60s, then: *common}\n",
+            tree=_TICK,
+            location=IntervalLocation(index=1),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: holds an alias inside a flow value; rewrite it as a block first"
+    )

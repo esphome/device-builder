@@ -9,6 +9,15 @@ from typing import Any, Concatenate
 
 from ruamel.yaml import YAMLError
 from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
+from ruamel.yaml.composer import ComposerError
+from ruamel.yaml.events import (
+    AliasEvent,
+    CollectionEndEvent,
+    CollectionStartEvent,
+    Event,
+    NodeEvent,
+    ScalarEvent,
+)
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import _normalize_multi_conf_block
@@ -29,8 +38,8 @@ def in_list_form[**P](
     def run(yaml_text: str, domain: str, *args: P.args, **kwargs: P.kwargs) -> tuple[str, YamlDiff]:
         expanded = _expand_flow_block(yaml_text, domain)
         listed = _normalize_multi_conf_block(expanded, domain) or expanded
-        if listed != expanded:
-            _require_unaliased(expanded, domain)
+        if listed != yaml_text:
+            _require_unaliased(yaml_text, domain, nested=expanded != yaml_text)
         _require_block_style(listed, domain)
         new_text, diff = op(listed, domain, *args, **kwargs)
         if listed == yaml_text:
@@ -96,14 +105,45 @@ def _set_block_style(node: Any) -> None:
         _set_block_style(child)
 
 
-def _require_unaliased(yaml_text: str, domain: str) -> None:
-    """Refuse to rewrite a mapping whose header anchor is aliased; the alias would change shape."""
-    lines = yaml_text.splitlines()
-    idx = find_block_header(lines, domain)
-    anchor = re.search(r":\s*&(\S+)", lines[idx]) if idx is not None else None
-    if anchor and re.search(rf"\*{re.escape(anchor.group(1))}\b", yaml_text):
-        msg = f"{domain}: is anchored as &{anchor.group(1)} and aliased; rewrite it as a list first"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+def _require_unaliased(yaml_text: str, domain: str, *, nested: bool) -> None:
+    """Refuse to rewrite a block whose anchor (any anchor under it when *nested*) is aliased."""
+    try:
+        events = list(make_yaml().parse(yaml_text))
+    except YAMLError:
+        return
+    own, inner = _block_anchors(events, domain)
+    aliased = {event.anchor for event in events if isinstance(event, AliasEvent)}
+    if own in aliased:
+        msg = f"{domain}: is anchored as &{own} and aliased; rewrite it as a list first"
+    elif nested and (hit := next((name for name in inner if name in aliased), None)):
+        msg = f"{domain}: holds an aliased anchor &{hit}; rewrite it as a list first"
+    else:
+        return
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
+def _block_anchors(events: list[Event], domain: str) -> tuple[str | None, list[str]]:
+    """Return the anchor on the top-level ``<domain>:`` value and the anchors declared under it."""
+    depth = 0
+    node = -1
+    key_node: int | None = None
+    anchors: list[str | None] = []
+    for event in events:
+        if isinstance(event, CollectionEndEvent):
+            depth -= 1
+            continue
+        if depth == 1 and isinstance(event, NodeEvent):
+            node += 1
+            is_key = node % 2 == 0 and isinstance(event, ScalarEvent) and event.value == domain
+            if key_node is None and is_key:
+                key_node = node
+        in_value = key_node is not None and node == key_node + 1
+        if in_value and isinstance(event, NodeEvent) and not isinstance(event, AliasEvent):
+            anchors.append(event.anchor)
+        if isinstance(event, CollectionStartEvent):
+            depth += 1
+    own, *inner = anchors or [None]
+    return own, [name for name in inner if name]
 
 
 def _require_block_style(yaml_text: str, domain: str) -> None:
@@ -114,6 +154,12 @@ def _require_block_style(yaml_text: str, domain: str) -> None:
         return
     try:
         value = make_yaml().load(lines[idx])[domain]
+    except ComposerError:
+        msg = (
+            f"{domain}: is an alias; rewrite it as a block first"
+            if re.match(rf"{re.escape(domain)}:\s*\*", lines[idx])
+            else f"{domain}: holds an alias inside a flow value; rewrite it as a block first"
+        )
     except YAMLError:
         msg = (
             f"{domain}: is written in flow style across several lines; rewrite it as a block first"
