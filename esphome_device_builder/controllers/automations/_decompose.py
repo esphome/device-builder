@@ -192,6 +192,11 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
                     conditions = _decompose_condition_list(value)
                     continue
                 params[key] = _render_value(value)
+    elif isinstance(raw_params, str) and action.scalar_shorthand_key in CONDITION_GATE_KEYS:
+        # ``wait_until: api.connected``: esphome reads a string in a condition
+        # position as that condition id with no config.
+        conditions = _decompose_condition_list(raw_params)
+        params = {}
     else:
         # Bare-scalar shorthand (``logger.log: "hi"`` / ``light.turn_on: id``):
         # store the scalar under the entry's collapse key so the writer
@@ -222,14 +227,16 @@ def _decompose_condition_list(body: Any) -> list[ConditionNode]:
     if body is None:
         return []
     if isinstance(body, list):
-        return [_decompose_condition(item) for item in body if isinstance(item, dict)]
-    if isinstance(body, dict):
+        return [_decompose_condition(item) for item in body if isinstance(item, (dict, str))]
+    if isinstance(body, (dict, str)):
         return [_decompose_condition(body)]
     return []
 
 
-def _decompose_condition(raw: dict) -> ConditionNode:
-    """Build one :class:`ConditionNode` from a registry-shaped entry."""
+def _decompose_condition(raw: dict | str) -> ConditionNode:
+    """Build one :class:`ConditionNode` from a registry-shaped entry or a bare condition id."""
+    if isinstance(raw, str):
+        raw = {raw: None}
     if not raw or not isinstance(raw, dict):
         msg = "Empty condition entry"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)

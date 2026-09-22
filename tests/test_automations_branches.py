@@ -16,6 +16,7 @@ from unittest.mock import patch
 import pytest
 from ruamel.yaml.comments import TaggedScalar
 from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.tag import Tag
 
 from esphome_device_builder.controllers.automations import catalog
 from esphome_device_builder.controllers.automations.controller import (
@@ -54,6 +55,7 @@ from esphome_device_builder.controllers.automations.writing import (
     render_upsert,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.automation_keys import CONDITION_GATE_KEYS
 from esphome_device_builder.helpers.yaml import (
     SubEntityRef,
     YamlUpsertNotSupportedError,
@@ -357,9 +359,19 @@ def test_decompose_action_scalar_uses_value_shorthand_key() -> None:
 
 
 def test_decompose_action_scalar_falls_back_to_id_for_gate_keyed_shorthand() -> None:
-    """``wait_until`` (``maybe == "condition"``) must not put the scalar in params."""
-    node = _decompose_action("wait_until", "some_id")
-    assert node.params == {"id": "some_id"}
+    """A non-string scalar under ``wait_until`` is kept as an ``id`` param, never a gate param."""
+    scalar = TaggedScalar(value="return x;")
+    scalar.yaml_set_ctag(Tag(suffix="!lambda"))
+    node = _decompose_action("wait_until", scalar)
+    assert node.params == {"id": {"_lambda": "return x;", "_tag": "!lambda"}}
+    assert node.conditions == []
+
+
+def test_decompose_wait_until_string_is_its_condition() -> None:
+    """``wait_until: api.connected`` decodes the string as the gate's condition id."""
+    node = _decompose_action("wait_until", "api.connected")
+    assert node.params == {}
+    assert [c.condition_id for c in node.conditions] == ["api.connected"]
 
 
 def test_decompose_wait_until_dict_shorthand_is_a_condition() -> None:
@@ -431,7 +443,10 @@ def test_emit_wait_until_scalar_collapses() -> None:
 def test_scalar_shorthand_parses_and_emits_the_same_key() -> None:
     """Every catalog entry's bare scalar emits as a scalar or ``id`` mapping and re-parses."""
     for entry in catalog.all_actions():
-        assert catalog.action_by_id(entry.id) is not None, entry.id
+        action = catalog.action_by_id(entry.id)
+        assert action is not None, entry.id
+        if action.scalar_shorthand_key in CONDITION_GATE_KEYS:
+            continue
         node = _decompose_action(entry.id, "v")
         out = emit_action_node(node)
         assert out[entry.id] in ("v", {"id": "v"}), entry.id
@@ -489,8 +504,15 @@ def test_decompose_condition_list_handles_single_mapping() -> None:
 
 
 def test_decompose_condition_list_returns_empty_for_other_types() -> None:
-    """A scalar / unexpected type decomposes to an empty list."""
-    assert _decompose_condition_list("scalar-not-a-condition") == []
+    """A non-string scalar decomposes to an empty list."""
+    assert _decompose_condition_list(5) == []
+
+
+def test_decompose_condition_list_reads_a_string_as_a_condition_id() -> None:
+    """A bare string, alone or inside a list, is the condition id with no config."""
+    assert [c.condition_id for c in _decompose_condition_list("api.connected")] == ["api.connected"]
+    nodes = _decompose_condition_list(["api.connected", {"switch.is_on": "r1"}])
+    assert [c.condition_id for c in nodes] == ["api.connected", "switch.is_on"]
 
 
 def test_decompose_condition_combinator_with_children() -> None:

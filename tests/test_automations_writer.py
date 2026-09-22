@@ -1072,16 +1072,40 @@ def test_wait_until_shorthand_condition_round_trips_to_full_form() -> None:
     assert "condition:" in new_text
 
 
-def test_wait_until_scalar_round_trips_as_a_scalar() -> None:
-    """A scalar ``wait_until`` re-emits as the same scalar, never an ``id:`` mapping."""
+def test_wait_until_string_condition_round_trips_to_full_form() -> None:
+    """``wait_until: api.connected`` parses the condition and re-emits the gate, never ``id:``."""
     yaml_text = "esphome:\n  name: x\n  on_boot:\n    then:\n      - wait_until: api.connected\n"
+    parsed = parse_device_yaml(yaml_text)[0]
+    assert [c.condition_id for c in parsed.automation.actions[0].conditions] == ["api.connected"]
+    new_text, _diff = render_upsert(
+        yaml_text,
+        tree=parsed.automation,
+        location=parsed.location,
+    )
+    assert "condition:" in new_text
+    assert "api.connected:" in new_text
+    assert "id:" not in new_text
+
+
+def test_if_string_condition_survives_the_round_trip() -> None:
+    """``if: {condition: api.connected}`` keeps its condition on save instead of dropping it."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - if:\n"
+        "          condition: api.connected\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
     parsed = parse_device_yaml(yaml_text)[0]
     new_text, _diff = render_upsert(
         yaml_text,
         tree=parsed.automation,
         location=parsed.location,
     )
-    assert "- wait_until: api.connected" in new_text
+    assert "api.connected" in new_text
 
 
 # ---------------------------------------------------------------------------
