@@ -171,19 +171,7 @@ def test_completed_install_recomputes_hash_and_reloads(tmp_path: Path) -> None:
 
 
 async def test_completed_app_upload_clears_the_deployed_name(tmp_path: Path) -> None:
-    """The app image now carries the YAML's own name (#2730)."""
-    controller, _ = _make_controller(tmp_path)
-    controller._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
-
-    controller._on_firmware_job_completed(
-        Event(EventType.JOB_COMPLETED, {"job": _job(JobType.UPLOAD, JobStatus.COMPLETED)})
-    )
-
-    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
-
-
-async def test_completed_app_upload_clears_the_live_row_too(tmp_path: Path) -> None:
-    """Both readers consult the row, and the clear lands before the background reload."""
+    """The app image now carries the YAML's own name; row and store both clear (#2730)."""
     controller, _ = _make_controller(tmp_path)
     row = make_device(deployed_name="asistente")
     controller._scanner = RecordingScanner()
@@ -194,6 +182,8 @@ async def test_completed_app_upload_clears_the_live_row_too(tmp_path: Path) -> N
         Event(EventType.JOB_COMPLETED, {"job": _job(JobType.UPLOAD, JobStatus.COMPLETED)})
     )
 
+    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
+    # Both readers consult the row, and the clear lands before the background reload.
     assert row.deployed_name == ""
 
 

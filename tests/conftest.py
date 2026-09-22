@@ -77,6 +77,7 @@ from esphome_device_builder.models import (
     ReachabilitySource,
 )
 from tests._mqtt_fixtures import RecordingMonitor
+from tests._recording_scanner import RecordingScanner
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -987,10 +988,9 @@ def make_devices_controller_with_bus(
     only care about a subset filter the list themselves
     (``[e for e in captured if e.event_type == X]``).
 
-    The scanner is a ``MagicMock`` exposing ``devices`` and a
-    ``get_by_name(name)`` lambda derived from *devices*; mirrors
-    the production ``DeviceScanner``'s name-keyed grouping closely
-    enough for the callback paths these tests exercise.
+    The scanner is a ``RecordingScanner`` seeded with *devices* and
+    their name-keyed grouping, so ``get_by_name`` /
+    ``get_by_configuration`` answer like production.
 
     ``create_background_task`` lets callers wire a side-effect
     function (e.g. closing the coroutine to avoid
@@ -1007,15 +1007,11 @@ def make_devices_controller_with_bus(
     if create_background_task is not None:
         controller._db.create_background_task = MagicMock(side_effect=create_background_task)
     controller._db.bus = bus
-    controller._scanner = MagicMock()
-    controller._scanner.devices = devices
-    by_name: dict[str, list[Device]] = {}
+    by_name: dict[str, list[object]] = {}
     for device in devices:
         by_name.setdefault(device.name, []).append(device)
-    controller._scanner.get_by_name = lambda name: by_name.get(name, [])
-    controller._scanner.get_by_configuration = lambda configuration: next(
-        (d for d in devices if d.configuration == configuration), None
-    )
+    controller._scanner = RecordingScanner(devices_by_name=by_name)
+    controller._scanner.devices = list(devices)
     # Real metadata stores anchored at a TemporaryDirectory whose
     # lifetime is pinned to the controller; ``__del__`` cleans up
     # the dir when the test releases its reference.

@@ -82,12 +82,10 @@ def on_state_change(
 def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
     """Update ``active_source`` and fire DEVICE_UPDATED; also clears ``deployed_name``."""
     devices = controller._devices_by_name(name)
-    # An announce under the device's own name proves the firmware carries it;
-    # siblings sharing a name share the broadcast, so it proves nothing there.
-    # Ahead of the loop's dedupe: a same-path rename carries ``active_source``
-    # forward, so the row can already read mdns.
+    # Only an announce that maps to one config proves the firmware carries the name;
+    # above the dedupe since a same-path rename carries ``active_source`` forward.
     if source is ReachabilitySource.MDNS and len(devices) == 1:
-        controller._clear_deployed_name(devices[0].configuration)
+        controller._clear_deployed_name(devices[0].configuration, device=devices[0])
     for device in devices:
         if device.runtime_state.active_source == source:
             continue

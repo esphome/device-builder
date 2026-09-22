@@ -164,7 +164,7 @@ def _reconcile_rename(
     # filename-stem placeholder no firmware answered to.
     if device.loaded_integrations:
         controller._stamp_deployed_name(
-            device.configuration, old_name=previous.name, new_name=device.name
+            device.configuration, old_name=previous.name, new_name=device.name, device=device
         )
     # The ADDED retraction keys on the name at add time; the freed old
     # name may have a suppressed announcement worth resurfacing.

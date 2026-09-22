@@ -217,9 +217,7 @@ class ApiReviverSource(ApiSweepSource):
             )
             self._record_dial_failure(key)
             return
-        # A device renamed without a flash still answers its recorded
-        # pre-rename name, so that name identifies it too — unless another
-        # config has since claimed it, when the answer isn't ours to read.
+        # The recorded pre-rename name is identity too, unless another config owns it.
         recorded = device.deployed_name
         if recorded and monitor._get_devices_by_name(recorded):
             recorded = ""
