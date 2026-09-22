@@ -32,7 +32,7 @@ from . import catalog
 
 
 class UnsupportedActionError(CommandError):
-    """A known action with no structured form (oversized LVGL ``*.update``)."""
+    """A body the tree cannot represent (formless LVGL ``*.update``, a tagged condition gate)."""
 
 
 def _safe_tree(
@@ -49,7 +49,7 @@ def _safe_tree(
     opaque passthrough node.) A document that won't load at all is the
     separate whole-file failure raised by :func:`parse_device_yaml`
     upstream. The third tuple field flags an
-    :class:`UnsupportedActionError` — a known action with no form.
+    :class:`UnsupportedActionError` — a body the tree cannot represent.
     """
     try:
         return build(), None, False

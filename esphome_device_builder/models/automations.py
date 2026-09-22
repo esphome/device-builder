@@ -464,9 +464,10 @@ class ParsedAutomation(DashboardModel):
     still parse, and the frontend renders it read-only rather than
     editing an empty tree. An uncatalogued *action* no longer faults —
     it decomposes to an opaque passthrough node (see ``ActionNode``).
-    ``unsupported`` narrows that: the failure was a *known* action with
-    no structured form (an oversized LVGL ``*.update``), so the frontend
-    shows the neutral "edit in YAML" hint rather than an error alert.
+    ``unsupported`` narrows that: the body is valid YAML the tree cannot
+    represent (an oversized LVGL ``*.update``, a tagged condition gate),
+    so the frontend shows the neutral "edit in YAML" hint rather than an
+    error alert.
     """
 
     location: AutomationLocation
