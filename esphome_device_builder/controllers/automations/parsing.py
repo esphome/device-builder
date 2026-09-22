@@ -230,8 +230,8 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
     scripts, range_of = listed
 
     def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str]:
-        script_id = item.get("id") or f"script_{idx}"
-        return ScriptLocation(id=str(script_id)), f"Script: {script_id}"
+        script_id = instance_id("script", item, idx, is_list=True)
+        return ScriptLocation(id=script_id), f"Script: {script_id}"
 
     return _parse_automation_list(
         scripts,

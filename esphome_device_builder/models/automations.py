@@ -288,7 +288,7 @@ class AutomationCatalogIndex(DashboardModel):
 
 @dataclass
 class ScriptLocation(DashboardModel):
-    """A top-level ``script:`` list item, keyed by the script's ``id``."""
+    """A top-level ``script:`` list item, keyed by its ``id``; ``script_<index>`` when id-less."""
 
     id: str
     kind: Literal["script"] = "script"

@@ -519,12 +519,32 @@ async def test_upsert_with_save_refuses_an_insert_that_is_not_clean(
     assert devices.saved == []
 
 
-async def test_upsert_with_expected_refuses_when_the_writer_would_append_instead(
+async def test_upsert_with_expected_replaces_an_idless_script_under_its_listed_id(
     tmp_path: Path,
 ) -> None:
-    idless = "script:\n  - then:\n      - delay: 1s\n"
+    idless = "script:\n  - then:\n      - delay: 2s\n"
     controller, devices = _setup(tmp_path, idless)
     shown = (await asyncio.to_thread(parsing.parse_device_yaml, idless))[0]
+
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION | {"trigger_id": None},
+        location=shown.location.to_dict(),
+        save=True,
+        expected=shown.raw_yaml,
+    )
+
+    saved = "script:\n  - id: script_0\n    then:\n      - delay: 1s\n"
+    assert devices.saved == [("d.yaml", saved, "Save an automation to d.yaml")]
+
+
+async def test_upsert_with_expected_refuses_a_replace_that_lands_on_another_row(
+    tmp_path: Path,
+) -> None:
+    """A declared ``script_0`` behind an id-less row takes the write; the guard fails closed."""
+    text = "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 2s\n"
+    controller, devices = _setup(tmp_path, text)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, text))[0]
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(
