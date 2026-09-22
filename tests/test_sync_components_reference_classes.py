@@ -365,6 +365,11 @@ def test_shipped_nested_provider_ids_are_outside_its_id_classes() -> None:
     assert all(len(path) > 1 for path in dimmer["provides_id_paths"]["sensor"])
 
 
+def test_shipped_split_platform_leaves_the_declarer_pool() -> None:
+    """bme280_i2c's sensor ids are all nested, so its hub id is never judged or rejected."""
+    assert "id_classes" not in _body("sensor.bme280_i2c")
+
+
 def test_shipped_index_carries_the_declarer_classes() -> None:
     """The frontend reads them off the slim index, without hydrating a body."""
     index = json.loads((_DEFINITIONS / "components.index.json").read_text(encoding="utf-8"))

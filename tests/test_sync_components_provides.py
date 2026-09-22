@@ -12,6 +12,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _implemented_classes,
     _reference_namespace,
     _resolve_provides,
+    _root_entity_classes,
 )
 
 _BODIES_DIR = (
@@ -185,57 +186,180 @@ def test_implemented_classes_empty_without_id_type() -> None:
     )
 
 
-def test_implemented_classes_records_nested_entity_leaf() -> None:
-    """A nested entity-class id (a multi-entity sub-sensor) records its path."""
-    section = {
-        "schemas": {
-            "CONFIG_SCHEMA": {
-                "schema": {
-                    "config_vars": {
-                        "id": {"id_type": {"class": "aht10::AHT10Component", "parents": []}},
-                        "temperature": {
-                            "schema": {
-                                "config_vars": {
-                                    "id": {
-                                        "id_type": {
-                                            "class": "sensor::Sensor",
-                                            "parents": ["EntityBase"],
-                                        }
-                                    }
+def _id(cls: str, *parents: str) -> dict:
+    return {"id_type": {"class": cls, "parents": list(parents)}}
+
+
+def _section(config_vars: dict, extends: list[str] | None = None) -> dict:
+    schema = {"config_vars": config_vars, **({"extends": extends} if extends else {})}
+    return {"schemas": {"CONFIG_SCHEMA": {"schema": schema}}}
+
+
+def _write_bundle(schema_dir: Path, files: dict[str, dict]) -> None:
+    """Write each ``<file>.json`` of a minimal schema bundle."""
+    for name, content in files.items():
+        (schema_dir / f"{name}.json").write_text(json.dumps(content), encoding="utf-8")
+
+
+# ``sensor._SENSOR_SCHEMA`` with the sibling id and automation every entity
+# inherits, and one sensor platform whose root declares ``sensor::Sensor``.
+_ENTITY_BUNDLE = {
+    "sensor": {
+        "sensor": {
+            "schemas": {
+                "_SENSOR_SCHEMA": {
+                    "schema": {
+                        "config_vars": {
+                            "id": _id("sensor::Sensor", "EntityBase"),
+                            "mqtt_id": _id("mqtt::MQTTSensorComponent"),
+                            "on_value": {
+                                "schema": {
+                                    "config_vars": {"trigger_id": _id("sensor::SensorStateTrigger")}
                                 }
-                            }
-                        },
+                            },
+                        }
                     }
                 }
             }
         }
-    }
-    classes = _implemented_classes(section, Path("/unused"))
+    },
+    "template": {
+        "template.sensor": _section(
+            {"id": _id("template_::TemplateSensor", "sensor::Sensor", "Component")},
+            ["sensor._SENSOR_SCHEMA"],
+        )
+    },
+}
+
+
+def test_implemented_classes_records_nested_entity_leaf(tmp_path: Path) -> None:
+    """A nested entity-class id (a multi-entity sub-sensor) records its path."""
+    _write_bundle(tmp_path, _ENTITY_BUNDLE)
+    section = _section(
+        {
+            "id": _id("aht10::AHT10Component"),
+            "temperature": {"schema": {"config_vars": {"id": _id("sensor::Sensor", "EntityBase")}}},
+        }
+    )
+    classes = _implemented_classes(section, tmp_path)
     assert classes["sensor::Sensor"] == [["temperature", "id"]]
     assert classes["aht10::AHT10Component"] == [["id"]]
 
 
 def test_implemented_classes_resolves_inherited_id_through_extends(tmp_path: Path) -> None:
     """A sub-block whose ``id`` lives only on its ``extends`` base still counts."""
-    (tmp_path / "sensor.json").write_text(
-        json.dumps(
-            {
-                "sensor": {
+    _write_bundle(tmp_path, _ENTITY_BUNDLE)
+    section = _section({"temperature": {"schema": {"extends": ["sensor._SENSOR_SCHEMA"]}}})
+    classes = _implemented_classes(section, tmp_path)
+    assert classes["sensor::Sensor"] == [["temperature", "id"]]
+    # An entity block pulls only its inherited ``id``: no sibling id, no automation.
+    assert "mqtt::MQTTSensorComponent" not in classes
+    assert "sensor::SensorStateTrigger" not in classes
+
+
+def test_implemented_classes_inherits_a_hub_roots_sub_blocks(tmp_path: Path) -> None:
+    """A hub root with a local id still reaches the sub-sensors its ``extends`` base declares."""
+    _write_bundle(
+        tmp_path,
+        {
+            **_ENTITY_BUNDLE,
+            "bme280_base": {
+                "bme280_base": {
                     "schemas": {
-                        "_SENSOR_SCHEMA": {
+                        "CONFIG_SCHEMA_BASE": {
                             "schema": {
                                 "config_vars": {
-                                    "id": {
-                                        "id_type": {
-                                            "class": "sensor::Sensor",
-                                            "parents": ["EntityBase"],
-                                        }
+                                    "temperature": {
+                                        "schema": {"extends": ["sensor._SENSOR_SCHEMA"]}
                                     },
-                                    "mqtt_id": {
-                                        "id_type": {
-                                            "class": "mqtt::MQTTSensorComponent",
-                                            "parents": [],
-                                        }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        },
+    )
+    section = _section(
+        {"id": _id("bme280_i2c::BME280I2CComponent", "i2c::I2CDevice")},
+        ["bme280_base.CONFIG_SCHEMA_BASE"],
+    )
+    classes = _implemented_classes(section, tmp_path)
+    assert classes["sensor::Sensor"] == [["temperature", "id"]]
+    assert classes["bme280_i2c::BME280I2CComponent"] == [["id"]]
+    assert "mqtt::MQTTSensorComponent" not in classes
+
+
+def test_implemented_classes_inherits_an_id_less_blocks_sub_blocks(tmp_path: Path) -> None:
+    """A nested block without an id (an ina3221 channel) inherits its base's sub-sensors."""
+    _write_bundle(
+        tmp_path,
+        {
+            **_ENTITY_BUNDLE,
+            "ina3221": {
+                "ina3221.sensor": {
+                    "schemas": {
+                        "INA3221_CHANNEL_SCHEMA": {
+                            "schema": {
+                                "config_vars": {
+                                    "bus_voltage": {
+                                        "schema": {"extends": ["sensor._SENSOR_SCHEMA"]}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+        },
+    )
+    section = _section(
+        {
+            "id": _id("ina3221::INA3221Component", "i2c::I2CDevice"),
+            "channel_1": {"schema": {"extends": ["ina3221.sensor.INA3221_CHANNEL_SCHEMA"]}},
+        }
+    )
+    classes = _implemented_classes(section, tmp_path)
+    assert classes["sensor::Sensor"] == [["channel_1", "bus_voltage", "id"]]
+
+
+def test_implemented_classes_skips_a_nested_class_no_platform_declares(tmp_path: Path) -> None:
+    """``display::DisplayPage`` shares the display namespace but is no display."""
+    _write_bundle(
+        tmp_path,
+        {
+            "ili9xxx": {
+                "ili9xxx.display": _section({"id": _id("ili9xxx::Display", "display::Display")})
+            }
+        },
+    )
+    section = _section(
+        {
+            "id": _id("st7789::Display", "display::Display"),
+            "pages": {
+                "schema": {"config_vars": {"id": _id("display::DisplayPage")}},
+            },
+        }
+    )
+    classes = _implemented_classes(section, tmp_path)
+    assert "display::DisplayPage" not in classes
+    assert classes["display::Display"] == [["id"]]
+
+
+def test_implemented_classes_stops_at_a_self_referential_base(tmp_path: Path) -> None:
+    """A base whose sub-block extends the base again (lvgl widgets) is expanded once per path."""
+    _write_bundle(
+        tmp_path,
+        {
+            "lvgl": {
+                "lvgl": {
+                    "schemas": {
+                        "WIDGET": {
+                            "schema": {
+                                "config_vars": {
+                                    "id": _id("lvgl::Button", "lvgl::LvPseudoButton"),
+                                    "widgets": {
+                                        "schema": {"extends": ["lvgl.WIDGET"]},
                                     },
                                 }
                             }
@@ -243,23 +367,56 @@ def test_implemented_classes_resolves_inherited_id_through_extends(tmp_path: Pat
                     }
                 }
             }
-        )
+        },
     )
-    section = {
-        "schemas": {
-            "CONFIG_SCHEMA": {
-                "schema": {
-                    "config_vars": {
-                        "temperature": {"schema": {"extends": ["sensor._SENSOR_SCHEMA"]}},
+    section = _section(
+        {
+            "id": _id("lvgl::LvglComponent"),
+            "widgets": {"schema": {"extends": ["lvgl.WIDGET"]}},
+        }
+    )
+    classes = _implemented_classes(section, tmp_path)
+    assert classes["lvgl::LvPseudoButton"] == [["widgets", "id"]]
+
+
+def test_root_entity_classes_reads_each_platform_domains_roots(tmp_path: Path) -> None:
+    """A domain's entity classes are those its platforms declare at the root, parents included."""
+    _write_bundle(
+        tmp_path,
+        {
+            **_ENTITY_BUNDLE,
+            "gpio": {
+                "gpio.switch": {
+                    "schemas": {
+                        "CONFIG_SCHEMA": {
+                            "types": {
+                                "a": {"config_vars": {"id": _id("gpio::Switch", "switch_::Switch")}}
+                            }
+                        }
                     }
                 }
-            }
-        }
+            },
+            "light": {
+                "light": {
+                    "schemas": {
+                        "LIGHT_SCHEMA": {
+                            "schema": {"config_vars": {"id": _id("light::LightState")}}
+                        }
+                    }
+                }
+            },
+            "rgb": {
+                "rgb.light": _section(
+                    {"output_id": _id("rgb::RGBLightOutput")}, ["light.LIGHT_SCHEMA"]
+                )
+            },
+        },
+    )
+    assert _root_entity_classes(tmp_path) == {
+        "sensor::Sensor",
+        "switch_::Switch",
+        "light::LightState",
     }
-    classes = _implemented_classes(section, tmp_path)
-    assert classes["sensor::Sensor"] == [["temperature", "id"]]
-    # Only the inherited ``id`` merges; sibling id declarations stay behind.
-    assert "mqtt::MQTTSensorComponent" not in classes
 
 
 # ---------------------------------------------------------------------------
@@ -540,3 +697,33 @@ def test_sprinkler_advertises_all_nested_switch_paths() -> None:
     assert ["auto_advance_switch", "id"] in switch_paths
     assert ["valves", "valve_switch", "id"] in switch_paths
     assert len(switch_paths) > 1
+
+
+def test_split_platform_advertises_inherited_sub_sensor_ids() -> None:
+    """bme280_i2c's sub-sensors live on bme280_base; they are offered and the hub id is not."""
+    body = _load_body("sensor.bme280_i2c")
+    assert body.get("provides") == ["sensor"]
+    assert body.get("provides_id_paths") == {
+        "sensor": [["humidity", "id"], ["pressure", "id"], ["temperature", "id"]]
+    }
+
+
+def test_inherited_channel_block_advertises_its_sub_sensor_ids() -> None:
+    """ina3221's channels inherit their sensors one level down; the two-deep paths are offered."""
+    paths = _load_body("sensor.ina3221")["provides_id_paths"]["sensor"]
+    assert ["channel_1", "bus_voltage", "id"] in paths
+
+
+def test_weikai_hub_advertises_inherited_uart_channels() -> None:
+    """A wk2xxx hub's ``uart`` list comes from the weikai base; each channel is a uart."""
+    body = _load_body("wk2168_i2c")
+    assert body.get("provides") == ["uart"]
+    assert body.get("provides_id_paths") == {"uart": [["uart", "id"]]}
+
+
+def test_no_display_advertises_its_pages() -> None:
+    """``pages[].id`` is a ``display::DisplayPage``, never offered as a display."""
+    for path in _BODIES_DIR.glob("display.*.json"):
+        body = json.loads(path.read_text(encoding="utf-8"))
+        display_paths = body.get("provides_id_paths", {}).get("display", [])
+        assert not any("pages" in id_path for id_path in display_paths), path.name
