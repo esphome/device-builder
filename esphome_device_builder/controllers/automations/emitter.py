@@ -10,14 +10,10 @@ internals.
 Two ergonomic shortcuts the emitter applies on fresh writes (the
 parser accepts both shapes, so the choice is purely cosmetic):
 
-- An action / condition with a single param whose key is the
-  catalog entry's ``scalar_shorthand_key`` (and, for actions, no
-  children / conditions) renders as ``- <id>: <value>`` (registry
-  shortcut) instead of the explicit ``{<key>: <value>}`` mapping.
-  A bare-scalar action with no named field (``delay: 1s``) collapses
-  the same way via its synthetic ``id`` param. An entry whose sole
-  field is a genuine ``id`` mapping (``time.has_time``) has no scalar
-  form and always renders as a mapping. See :func:`_shorthand_key`.
+- An action / condition whose single param is its collapse key
+  (:func:`automation_keys.shorthand_key`) and, for actions, has no
+  children / conditions renders as ``- <id>: <value>`` instead of the
+  explicit ``{<key>: <value>}`` mapping.
 - A condition list of length one collapses to the single condition
   mapping.
 """
@@ -32,18 +28,17 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
 from ...helpers.api import CommandError
+from ...helpers.automation_keys import shorthand_key
 from ...helpers.yaml.scalar import is_custom_yaml_tag, is_lambda_sentinel, is_tagged_sentinel
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
-    AutomationAction,
-    AutomationCondition,
     AutomationTree,
     ConditionNode,
     LightEffect,
 )
 from . import catalog
-from .parsing import DEFAULT_SHORTHAND_KEY, make_yaml
+from .parsing import make_yaml
 
 
 def render_script_item(tree: AutomationTree, script_id: str) -> str:
@@ -119,26 +114,6 @@ def emit_action_seq(actions: list[ActionNode]) -> CommentedSeq:
     return seq
 
 
-def _shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str | None:
-    """Return the collapse key for a bare-scalar form, or ``None`` for mapping-only.
-
-    Most shorthands come straight from the catalog's ``scalar_shorthand_key``
-    (``logger.log`` → ``format``, ``switch.toggle`` → ``id``). The exception is
-    a bare-scalar action with no named field: ``delay: 1s`` has no shorthand key
-    in the schema, and the parser stores the scalar under a synthetic ``id``
-    (``{id: "1s"}``). Collapse that back only when ``id`` is *not* a real config
-    entry — an entry whose sole field is a genuine ``id`` mapping
-    (``time.has_time``) has no scalar form and must stay a mapping.
-    """
-    if entry is None:
-        return None
-    if entry.scalar_shorthand_key:
-        return entry.scalar_shorthand_key
-    if not any(e.key == DEFAULT_SHORTHAND_KEY for e in entry.config_entries):
-        return DEFAULT_SHORTHAND_KEY
-    return None
-
-
 def emit_action_node(node: ActionNode) -> CommentedMap:
     """Build one ``{<action_id>: <body>}`` mapping for an action node."""
     if node.unknown:
@@ -169,7 +144,7 @@ def emit_action_node(node: ActionNode) -> CommentedMap:
     for child_key in sorted(node.children.keys(), key=lambda k: (k != "then", k)):
         body[child_key] = emit_action_seq(node.children[child_key])
     out = CommentedMap()
-    shorthand = _shorthand_key(catalog.action_by_id(node.action_id))
+    shorthand = shorthand_key(catalog.action_by_id(node.action_id))
     if (
         not node.children
         and not node.conditions
@@ -206,7 +181,7 @@ def emit_condition_node(node: ConditionNode) -> CommentedMap:
     if not node.params:
         out[node.condition_id] = None
         return out
-    shorthand = _shorthand_key(catalog.condition_by_id(node.condition_id))
+    shorthand = shorthand_key(catalog.condition_by_id(node.condition_id))
     if len(node.params) == 1 and shorthand is not None and shorthand in node.params:
         out[node.condition_id] = encode_value(node.params[shorthand])
         return out

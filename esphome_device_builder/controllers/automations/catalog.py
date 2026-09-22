@@ -317,6 +317,11 @@ def is_known_action(action_id: str) -> bool:
     return action_id in _ALL_ACTION_IDS
 
 
+def is_known_condition(condition_id: str) -> bool:
+    """Return True when *condition_id* is catalogued."""
+    return condition_id in _CONDITION_IDS
+
+
 def condition_by_id(condition_id: str) -> AutomationCondition | None:
     """Look up one condition's full body by qualified id."""
     return _CONDITION_STORE.get_sync(condition_id)

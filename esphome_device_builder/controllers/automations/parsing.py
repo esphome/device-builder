@@ -54,7 +54,6 @@ from ...models.automations import (
 )
 from . import catalog
 from ._decompose import (
-    DEFAULT_SHORTHAND_KEY,
     _block_tree,
     _collect_api_action_params,
     _collect_block_params,
@@ -72,7 +71,6 @@ from ._ranges import _dump_slice, _estimate_end_line, _item_range, _key_range, _
 from ._yaml import make_yaml
 
 __all__ = [
-    "DEFAULT_SHORTHAND_KEY",
     "_decompose_action",
     "_decompose_action_list",
     "_decompose_condition",
