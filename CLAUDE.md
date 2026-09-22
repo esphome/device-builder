@@ -853,7 +853,8 @@ against legacy behaviour before assuming the simpler version suffices.
   occupied location, a parser-skipped list entry, a stale `expected`,
   the parser's refusal to decompose an uncatalogued id that shares a
   mapping with other keys); field and value semantics come from running
-  `esphome config` (`devices/validate`, the MCP `validate_config` tool),
+  `esphome config` (`devices/validate`, the MCP `validate_config` tool, the
+  bounded run the MCP automation write tools append to their reply),
   and an agent repairs from esphome's own error. Evidence and history:
   docs/ARCHITECTURE.md "Component Catalog".
 - **Never generate invalid configs; fix the source, not the consumer.**
