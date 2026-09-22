@@ -67,6 +67,7 @@ from ._decompose import (
     _render_params,
     _render_value,
     _safe_tree,
+    shorthand_key,
 )
 from ._ranges import _dump_slice, _estimate_end_line, _item_range, _key_range, _pretty_name
 from ._yaml import make_yaml
@@ -92,6 +93,7 @@ __all__ = [
     "platform_subentity_keys",
     "resolve_component_domain",
     "resolve_component_target",
+    "shorthand_key",
     "singleton_component_id",
 ]
 

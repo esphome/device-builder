@@ -1072,6 +1072,25 @@ def test_wait_until_shorthand_condition_round_trips_to_full_form() -> None:
     assert "condition:" in new_text
 
 
+def test_wait_until_scalar_lambda_round_trips_as_a_scalar() -> None:
+    """``wait_until: !lambda ...`` re-emits as the same scalar, never an ``id:`` mapping."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - wait_until: !lambda 'return id(ready);'\n"
+    )
+    parsed = parse_device_yaml(yaml_text)[0]
+    new_text, _diff = render_upsert(
+        yaml_text,
+        tree=parsed.automation,
+        location=parsed.location,
+    )
+    assert "- wait_until: !lambda return id(ready);" in new_text
+    assert "id:" not in new_text
+
+
 # ---------------------------------------------------------------------------
 # Light effects
 # ---------------------------------------------------------------------------
