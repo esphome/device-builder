@@ -15,6 +15,8 @@ from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
+    LOCATION_FIELDS,
+    LOCATION_TYPES,
     AddComponentResponse,
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -38,11 +40,22 @@ from .conftest import (
 )
 
 _DUMMY_ARGUMENT = {"string": "x", "object": {}, "integer": 1, "boolean": True, "array": []}
+
+
+def _minimal(prop: dict[str, Any]) -> Any:
+    """Build a value the schema *prop* accepts, filling only required keys."""
+    if "enum" in prop:
+        return prop["enum"][0]
+    if "properties" in prop:
+        return {key: _minimal(prop["properties"][key]) for key in prop["required"]}
+    return _DUMMY_ARGUMENT[prop["type"]]
+
+
 _SECRET_REFUSING_TOOLS = [
     pytest.param(
         name,
         {
-            key: _DUMMY_ARGUMENT[tool.schema["properties"][key]["type"]]
+            key: _minimal(tool.schema["properties"][key])
             for key in tool.schema["required"]
             if key != "configuration"
         },
@@ -537,7 +550,7 @@ async def test_get_automation_docs_hides_advanced_fields_unless_asked(
 async def test_automation_tools_wrap_the_automation_commands(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    location = {"kind": "script", "index": 0}
+    location = {"kind": "script", "id": "script_0"}
     parsed = [
         {
             "location": location,
@@ -598,7 +611,19 @@ async def test_automation_tools_wrap_the_automation_commands(
 
 
 _UPSERT_LOCATION = {"kind": "device_on", "trigger": "on_boot"}
-_UPSERT_TREE = {"trigger_id": "on_boot", "trigger_params": {}, "actions": []}
+_UPSERT_TREE = {
+    "trigger_params": {"priority": 600},
+    "actions": [
+        {
+            "action_id": "if",
+            "conditions": [
+                {"condition_id": "and", "children": [{"condition_id": "wifi.connected"}]}
+            ],
+            "children": {"then": [{"action_id": "light.turn_on", "params": {"id": "led"}}]},
+        },
+        {"action_id": "my_ext.blink", "unknown": True, "raw_body": {"pin": 4}},
+    ],
+}
 _UPSERT_DIFF = {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"}
 _UPSERT_ARGS = {
     "configuration": "kitchen.yaml",
@@ -781,6 +806,49 @@ async def test_upsert_automation_does_not_validate_a_refused_write(
     validate.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    ("arguments", "fragment"),
+    [
+        pytest.param(
+            {"location": {"kind": "on_boot"}, "automation": _UPSERT_TREE},
+            "Argument location must be an object whose kind is one of " + str(list(LOCATION_TYPES)),
+            id="kind",
+        ),
+        pytest.param(
+            {"location": _UPSERT_LOCATION, "automation": _UPSERT_TREE | {"trigger_id": "on_boot"}},
+            "Argument automation must be an object without trigger_id",
+            id="trigger_id",
+        ),
+        pytest.param(
+            {
+                "location": _UPSERT_LOCATION,
+                "automation": {"actions": [{"action_id": "if", "conditions": [{"params": {}}]}]},
+            },
+            "Argument automation must be an object whose actions is a list whose item 0 is "
+            "an object whose conditions is a list whose item 0 is an object with condition_id",
+            id="condition_id",
+        ),
+    ],
+)
+async def test_upsert_automation_refuses_a_malformed_shape(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, arguments: dict[str, Any], fragment: str
+) -> None:
+    upsert = AsyncMock()
+    mcp_db.command_handlers["automations/upsert"] = upsert
+    is_error, text = await mcp_call(
+        mcp_client, "upsert_automation", {"configuration": "kitchen.yaml"} | arguments
+    )
+    assert is_error
+    assert text == f"invalid_args: {fragment}"
+    upsert.assert_not_awaited()
+
+
+@pytest.mark.parametrize("tool", ["upsert_automation", "delete_automation"])
+def test_location_schema_covers_every_location_field(tool: str) -> None:
+    fields = set().union(*LOCATION_FIELDS.values())
+    assert set(TOOLS[tool].schema["properties"]["location"]["properties"]) == fields
+
+
 async def test_delete_automation_cannot_delete_what_it_was_not_shown(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
@@ -788,7 +856,7 @@ async def test_delete_automation_cannot_delete_what_it_was_not_shown(
         side_effect=CommandError(ErrorCode.PRECONDITION_FAILED, "the automation changed")
     )
     mcp_db.command_handlers["automations/delete"] = delete
-    location = {"kind": "script", "index": 0}
+    location = {"kind": "script", "id": "script_0"}
     is_error, text = await mcp_call(
         mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
     )

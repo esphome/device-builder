@@ -24,20 +24,15 @@ from ...helpers.json import dumps_str
 from ...helpers.text import diff_excerpt, same_text
 from ...models.api import ErrorCode
 from ...models.automations import (
-    ApiActionLocation,
+    LOCATION_FIELDS,
+    LOCATION_TYPES,
     AutomationLocation,
     AutomationTree,
     AvailableAutomations,
     AvailableComponentInstance,
     AvailableScript,
     AvailableScriptParameter,
-    ComponentActionFieldLocation,
-    ComponentOnLocation,
-    DeviceOnLocation,
-    IntervalLocation,
-    LightEffectLocation,
     ParsedAutomation,
-    ScriptLocation,
     UpsertResponse,
     YamlDiff,
 )
@@ -476,31 +471,20 @@ def _component_instance(
     )
 
 
-# Map each discriminator to its concrete location type; ``_decode_location``
-# resolves ``from_dict`` per call. Capturing a bound ``from_dict`` here would,
-# under mashumaro ``lazy_compilation``, hold the one-shot stub and recompile the
-# unpacker on every call; a class-attribute lookup hits the compiled method
-# after first use.
-_LOCATION_TYPES: dict[str, type[AutomationLocation]] = {
-    "script": ScriptLocation,
-    "interval": IntervalLocation,
-    "component_on": ComponentOnLocation,
-    "component_action": ComponentActionFieldLocation,
-    "device_on": DeviceOnLocation,
-    "light_effect": LightEffectLocation,
-    "api_action": ApiActionLocation,
-}
-
-
 def _decode_location(raw: dict) -> AutomationLocation:
     """Convert a wire-shape ``{kind: ...}`` dict into a typed location."""
     if not isinstance(raw, dict) or "kind" not in raw:
         msg = f"location must carry a 'kind' discriminator; got {raw!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     kind = raw["kind"]
-    if not isinstance(kind, str) or (loc_type := _LOCATION_TYPES.get(kind)) is None:
+    if not isinstance(kind, str) or (loc_type := LOCATION_TYPES.get(kind)) is None:
         msg = f"Unknown location kind: {kind!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if extra := set(raw) - LOCATION_FIELDS[kind]:
+        msg = f"{kind} location does not take {sorted(extra)}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    # Resolve ``from_dict`` per call: a bound method captured at import holds
+    # mashumaro's one-shot ``lazy_compilation`` stub and recompiles every call.
     try:
         return loc_type.from_dict(raw)
     except (LookupError, ValueError, TypeError) as err:

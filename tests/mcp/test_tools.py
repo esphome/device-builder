@@ -13,7 +13,9 @@ from esphome_device_builder.mcp import (
     INVALID_ARGS,
     McpToolError,
     ToolRegistry,
+    any_value,
     closed_object,
+    open_object,
 )
 from esphome_device_builder.mcp.tools import validate_args
 
@@ -45,8 +47,15 @@ def test_registered_schema_is_valid_json_schema() -> None:
 
 @pytest.mark.parametrize(
     "prop",
-    [{}, {"type": "enum"}, {"oneOf": []}, {"type": ["string", "null"]}],
-    ids=["none", "enum", "oneOf", "type_list"],
+    [
+        {},
+        {"type": "enum"},
+        {"oneOf": []},
+        {"type": ["string", "null"]},
+        any_value("Anything.") | {"default": 1},
+        any_value("Anything.") | {"minimum": 0},
+    ],
+    ids=["none", "enum", "oneOf", "type_list", "untyped_default", "untyped_minimum"],
 )
 def test_registration_rejects_types_the_validator_cannot_check(prop: dict[str, Any]) -> None:
     tools: ToolRegistry[None] = ToolRegistry()
@@ -247,7 +256,7 @@ def test_closed_object_registers_as_valid_json_schema() -> None:
         ),
         pytest.param(
             {"type": "object", "additionalProperties": False},
-            "additionalProperties true",
+            "closed_object or open_object",
             id="closed_without_properties",
         ),
         pytest.param(
@@ -297,6 +306,8 @@ def test_validate_args_rejects_nested_shapes(arguments: dict[str, Any], fragment
 
 
 _BOUNDED_SCHEMA = closed_object({"limit": {"type": "integer", "minimum": 1, "maximum": 10}})
+_ANY = closed_object({"body": any_value("Anything.")}, ("body",))
+_ANY_VALUES = [1, None, {"a": [1]}]
 
 
 @pytest.mark.parametrize(
@@ -305,6 +316,7 @@ _BOUNDED_SCHEMA = closed_object({"limit": {"type": "integer", "minimum": 1, "max
         *((_NESTED, a) for a in _NESTED_ACCEPTED),
         *((_NESTED, p.values[0]) for p in _NESTED_REJECTED),
         *((_BOUNDED_SCHEMA, {"limit": v}) for v in (5, 5.0, 11, "5", True, 0.5)),
+        *((_ANY, {"body": v}) for v in _ANY_VALUES),
     ],
 )
 def test_validate_args_agrees_with_a_json_schema_validator(
@@ -319,6 +331,11 @@ def test_validate_args_agrees_with_a_json_schema_validator(
     assert jsonschema.Draft202012Validator(schema).is_valid(arguments) is accepted
 
 
+@pytest.mark.parametrize("value", _ANY_VALUES)
+def test_any_value_accepts_every_json_value(value: Any) -> None:
+    assert validate_args(_ANY, {"body": value}) == {"body": value}
+
+
 def test_validate_args_reads_integral_floats_back_as_integers() -> None:
     schema = closed_object(
         {"limit": {"type": "integer"}, "rows": {"type": "array", "items": _BOUNDED_SCHEMA}}
@@ -329,10 +346,13 @@ def test_validate_args_reads_integral_floats_back_as_integers() -> None:
     }
 
 
-def test_registration_accepts_a_declared_open_object() -> None:
+@pytest.mark.parametrize(
+    "schema", [open_object("Any keys."), any_value("Anything.")], ids=["open_object", "any_value"]
+)
+def test_registration_accepts_the_untyped_builders(schema: dict[str, Any]) -> None:
     tools: ToolRegistry[None] = ToolRegistry()
 
-    @tools.tool("t", "desc", {"fields": {"type": "object", "additionalProperties": True}})
+    @tools.tool("t", "desc", {"a": schema}, ("a",))
     async def _t(_context: None, _args: dict[str, Any]) -> str:
         return "ok"
 
