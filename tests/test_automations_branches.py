@@ -447,6 +447,14 @@ def test_scalar_shorthand_parses_and_emits_the_same_key() -> None:
         assert _decompose_condition(out) == node, entry.id
 
 
+def test_emit_known_action_without_a_form_never_collapses() -> None:
+    """A catalogued action with no form body (``lvgl.*.update``) keeps its params as a mapping."""
+    node = ActionNode(action_id="lvgl.label.update", params={"id": "x"})
+    out = dump([emit_action_node(node)])
+    assert "id: x" in out
+    assert "lvgl.label.update: x" not in out
+
+
 def test_emit_uncatalogued_structured_node_is_refused() -> None:
     """An id absent from the catalog can't emit as a structured node — it's a lossy echo."""
     node = ActionNode(action_id="not.a_real_action", params={"id": "x"})
