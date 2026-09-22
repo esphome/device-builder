@@ -15,9 +15,11 @@ from ...helpers.ip import is_unusable_address
 from ...helpers.metadata_sidecar import metadata_transaction
 from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata, MetadataResolver
-from ._metadata_store import STORE_FIELDS
+from ._metadata_store import _DEFAULT_SAVE_DELAY, STORE_FIELDS
 
 if TYPE_CHECKING:
+    from ...models import Device
+    from .._device_scanner import DeviceScanner
     from ..boards import BoardCatalog
     from ._metadata_store import DeviceMetadataStore
     from ._shared_sidecar import SharedSidecarClient
@@ -86,6 +88,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
     # Subclass (``DevicesController``) populates these in ``__init__``.
     _metadata_store: DeviceMetadataStore
     _shared_sidecar: SharedSidecarClient
+    _scanner: DeviceScanner
 
     def _resolve_device_metadata(
         self, config_dir: Path, filename: str, shared_md: dict[str, Any] | None = None
@@ -219,6 +222,41 @@ class DeviceMetadataBase(DeviceBuilderBase):
         """
         await self._metadata_store.rename(old_configuration, new_configuration)
         await self._shared_sidecar.rename(old_configuration, new_configuration)
+
+    def _deployed_name(self, device: Device) -> str:
+        """Return *device*'s recorded hostname, or ``""`` while another config owns it."""
+        deployed = device.deployed_name
+        return "" if not deployed or self._scanner.get_by_name(deployed) else deployed
+
+    def _stamp_deployed_name(
+        self, configuration: str, *, old_name: str, new_name: str, device: Device | None = None
+    ) -> str:
+        """
+        Record the hostname the firmware answers to; returns it (``""`` if cleared).
+
+        A chained rename keeps the existing record; renaming back to it clears.
+        """
+        current = str(self._metadata_store.get_field(configuration, "deployed_name") or old_name)
+        deployed = "" if current == new_name else current
+        self._set_deployed_name(configuration, deployed, device=device)
+        return deployed
+
+    def _clear_deployed_name(self, configuration: str, *, device: Device | None = None) -> None:
+        """Forget the recorded hostname; the firmware carries the YAML's own name."""
+        if self._metadata_store.get_field(configuration, "deployed_name"):
+            self._set_deployed_name(configuration, "", device=device)
+
+    def _set_deployed_name(
+        self, configuration: str, deployed: str, *, device: Device | None = None
+    ) -> None:
+        """Write the record to the live row (*device*, or the indexed one) and the store."""
+        if device is None:
+            device = self._scanner.get_by_configuration(configuration)
+        if device is not None:
+            device.deployed_name = deployed
+        # A lost stamp strands the device; a lost clear self-heals on the next announce.
+        delay = 0.0 if deployed else _DEFAULT_SAVE_DELAY
+        self._metadata_store.update(configuration, deployed_name=deployed, delay=delay)
 
     async def _clear_volatile_device_metadata(self, configuration: str) -> None:
         """Clear archive-volatile fields in both stores (keeps identity).

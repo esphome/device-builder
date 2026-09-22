@@ -104,3 +104,43 @@ async def test_config_only_rename_then_install_targets_the_old_hostname(
     assert device is not None
     assert device.deployed_name == ""
     assert "deployed_name" not in db.devices._metadata_store.get("livingroom.yaml")
+
+
+async def test_announce_under_the_new_name_heals_the_record(dashboard: DeviceBuilder) -> None:
+    """A flash from outside the dashboard: the device announces its new name (#2730)."""
+    db = dashboard
+    assert db.devices is not None
+    monitor = db.devices._state_monitor
+    await db.devices.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+    device = db.devices.get_by_configuration("livingroom.yaml")
+    assert device is not None and device.deployed_name == "kitchen"
+
+    # The production entry point: the monitor's ledger flips to mdns and emits the
+    # source change; a direct callback call would skip that gate.
+    monitor.apply("livingroom", DeviceState.ONLINE, "mdns", claim=True)
+
+    assert device.deployed_name == ""
+    assert "deployed_name" not in db.devices._metadata_store.get("livingroom.yaml")
+
+
+async def test_ping_online_device_still_heals_on_the_mdns_claim(
+    dashboard: DeviceBuilder,
+) -> None:
+    """Already ONLINE via ping, so ``apply`` takes its all-match branch: ownership only."""
+    db = dashboard
+    assert db.devices is not None
+    monitor = db.devices._state_monitor
+    await db.devices.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+    device = db.devices.get_by_configuration("livingroom.yaml")
+    assert device is not None
+    monitor.apply("livingroom", DeviceState.ONLINE, "ping")
+    assert device.deployed_name == "kitchen"
+
+    monitor.apply("livingroom", DeviceState.ONLINE, "mdns", claim=True)
+
+    assert device.deployed_name == ""
+    assert "deployed_name" not in db.devices._metadata_store.get("livingroom.yaml")

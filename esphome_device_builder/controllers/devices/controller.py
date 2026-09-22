@@ -84,7 +84,7 @@ from . import (
 )
 from ._ignored_devices_store import SAVE_DELAY as _IGNORED_DEVICES_SAVE_DELAY
 from ._ignored_devices_store import ignored_devices_store
-from ._metadata_store import _DEFAULT_SAVE_DELAY, DeviceMetadataStore
+from ._metadata_store import DeviceMetadataStore
 from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
@@ -1327,41 +1327,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _schedule_version_reprobe(self, configuration: str) -> None:
         firmware_sync.schedule_version_reprobe(self, configuration)
-
-    def _deployed_name(self, device: Device) -> str:
-        """Return *device*'s recorded hostname, or ``""`` while another config owns it."""
-        deployed = device.deployed_name
-        return "" if not deployed or self._devices_by_name(deployed) else deployed
-
-    def _stamp_deployed_name(
-        self, configuration: str, *, old_name: str, new_name: str, device: Device | None = None
-    ) -> str:
-        """
-        Record the hostname the firmware answers to; returns it (``""`` if cleared).
-
-        A chained rename keeps the existing record; renaming back to it clears.
-        """
-        current = str(self._metadata_store.get_field(configuration, "deployed_name") or old_name)
-        deployed = "" if current == new_name else current
-        self._set_deployed_name(configuration, deployed, device=device)
-        return deployed
-
-    def _clear_deployed_name(self, configuration: str, *, device: Device | None = None) -> None:
-        """Forget the recorded hostname; the firmware carries the YAML's own name."""
-        if self._metadata_store.get_field(configuration, "deployed_name"):
-            self._set_deployed_name(configuration, "", device=device)
-
-    def _set_deployed_name(
-        self, configuration: str, deployed: str, *, device: Device | None = None
-    ) -> None:
-        """Write the record to the live row (*device*, or the indexed one) and the store."""
-        if device is None:
-            device = self._scanner.get_by_configuration(configuration)
-        if device is not None:
-            device.deployed_name = deployed
-        # A lost stamp strands the device; a lost clear self-heals on the next announce.
-        delay = 0.0 if deployed else _DEFAULT_SAVE_DELAY
-        self._metadata_store.update(configuration, deployed_name=deployed, delay=delay)
 
     def _cancel_reprobe_timers(self) -> None:
         """Cancel any pending post-flash re-probe timers."""
