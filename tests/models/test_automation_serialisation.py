@@ -64,6 +64,7 @@ def test_set_flags_and_lists_survive_and_nested_entries_stay_slim() -> None:
         **_DOMAIN_ROW,
         config_entries=[field],
         is_control_flow=True,
+        has_condition_gate=True,
         accepts_action_list=["then"],
         scalar_shorthand_key="then",
     )
@@ -71,6 +72,7 @@ def test_set_flags_and_lists_survive_and_nested_entries_stay_slim() -> None:
     wire = action.to_dict()
 
     assert wire["is_control_flow"] is True
+    assert wire["has_condition_gate"] is True
     assert wire["accepts_action_list"] == ["then"]
     assert wire["scalar_shorthand_key"] == "then"
     assert "has_else_branch" not in wire

@@ -79,6 +79,8 @@ class AutomationAction(DashboardModel):
     config_entries: list[ConfigEntry] = field(default_factory=list)
     is_control_flow: bool = False
     has_else_branch: bool = False
+    # True when the action takes a ``condition`` / ``all`` / ``any`` boolean gate.
+    has_condition_gate: bool = False
     accepts_action_list: list[str] = field(default_factory=list)
     # The config key a bare-scalar shorthand maps to (ESPHome's
     # ``maybe_simple_value`` key) — ``logger.log: "hi"`` is ``{format: "hi"}``,
@@ -215,6 +217,7 @@ class AutomationActionIndex(DashboardModel):
     domain: str
     is_control_flow: bool = False
     has_else_branch: bool = False
+    has_condition_gate: bool = False
     accepts_action_list: list[str] = field(default_factory=list)
     # False when the editor should not render this action as a form.
     form_editable: bool = True

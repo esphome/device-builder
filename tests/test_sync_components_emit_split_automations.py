@@ -51,7 +51,7 @@ def test_emit_split_automations_writes_index_and_per_type_bodies(
 
 
 def test_emit_split_automations_index_rows_omit_defaults(tmp_path, monkeypatch) -> None:
-    """An index row carries only non-default fields; ``form_editable`` only when false."""
+    """An index row carries only non-default fields, ``has_condition_gate`` included."""
     monkeypatch.setattr(sync_module, "_AUTOMATIONS_BODIES_DIR", tmp_path / "automations")
     monkeypatch.setattr(sync_module, "_AUTOMATIONS_INDEX_FILE", tmp_path / "automations.index.json")
     row = {"name": "X", "description": "", "docs_url": "", "domain": "core"}
@@ -63,6 +63,7 @@ def test_emit_split_automations_index_rows_omit_defaults(tmp_path, monkeypatch) 
         "triggers": [],
         "actions": [
             {"id": "small", **row, "config_entries": [], "is_control_flow": False},
+            {"id": "gated", **row, "config_entries": [], "has_condition_gate": True},
             {"id": "big", **row, "config_entries": too_many},
         ],
         "conditions": [],
@@ -75,6 +76,7 @@ def test_emit_split_automations_index_rows_omit_defaults(tmp_path, monkeypatch) 
     index = json.loads((tmp_path / "automations.index.json").read_text())
     assert index["actions"] == [
         {"id": "small", **row},
+        {"id": "gated", **row, "has_condition_gate": True},
         {"id": "big", **row, "form_editable": False},
     ]
 

@@ -127,6 +127,9 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 )
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    CONDITION_GATE_KEYS as _CONDITION_GATE_KEYS,
+)
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
     bare_trigger_key,
     is_trigger_key,
 )
@@ -10022,7 +10025,6 @@ _AutomationRegistries = dict[str, dict[str, dict]]
 # ``condition`` / ``all`` / ``any`` on control-flow actions, which
 # the editor renders as a condition tree.
 _ACTION_LIST_KEYS: frozenset[str] = frozenset({"then", "else"})
-_CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 
 # ESPHome registers ``not`` with ``validate_potentially_and_condition``
 # (a single condition or a list wrapped in an implicit ``and``), so its
@@ -10376,6 +10378,7 @@ def _convert_automation_action(
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
+        "has_condition_gate": has_condition_gate,
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
     }

@@ -1,4 +1,4 @@
-"""Shared classifier for inline automation trigger keys."""
+"""Shared classifiers for automation body keys."""
 
 from __future__ import annotations
 
@@ -8,6 +8,9 @@ from __future__ import annotations
 # ``open_action``, ``*_mode``) the component performs on command — edited
 # through the component form's action-list surface, not the trigger picker.
 TRIGGER_KEY_PREFIXES: tuple[str, ...] = ("on_",)
+
+# Action-body keys that introduce a condition gate rather than plain params.
+CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 
 
 def is_trigger_key(key: str) -> bool:
