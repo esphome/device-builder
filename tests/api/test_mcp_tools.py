@@ -548,7 +548,7 @@ async def test_get_automation_docs_hides_advanced_fields_unless_asked(
 async def test_automation_tools_wrap_the_automation_commands(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    location = {"kind": "script", "index": 0}
+    location = {"kind": "script", "id": "script_0"}
     parsed = [
         {
             "location": location,
@@ -712,7 +712,7 @@ async def test_delete_automation_cannot_delete_what_it_was_not_shown(
         side_effect=CommandError(ErrorCode.PRECONDITION_FAILED, "the automation changed")
     )
     mcp_db.command_handlers["automations/delete"] = delete
-    location = {"kind": "script", "index": 0}
+    location = {"kind": "script", "id": "script_0"}
     is_error, text = await mcp_call(
         mcp_client, "delete_automation", {"configuration": "kitchen.yaml", "location": location}
     )
