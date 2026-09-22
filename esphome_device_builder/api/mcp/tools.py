@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
     from ...mcp.tools import ToolHandler
 
 _MESSAGE_ID = "mcp"
+# Share of Home Assistant's 10 s per-call budget an in-call esphome config run may take.
+_VALIDATE_BUDGET = 8.0
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -66,12 +69,13 @@ _CONFIGURATION = _prop(
 )
 _COMPONENT_ID = _prop("string", "Catalog id, e.g. 'sensor.dht' or 'wifi'.")
 _JOB_ID = _prop("string", "Firmware job id returned by compile or install.")
+_DEFAULT_TAIL_LINES = 50
 _TAIL_LINES = {
     "type": "integer",
     "description": "Output lines to keep from the end.",
     "minimum": 0,
     "maximum": 1000,
-    "default": 50,
+    "default": _DEFAULT_TAIL_LINES,
 }
 _LIMIT = {
     "type": "integer",
@@ -159,23 +163,7 @@ async def _add_component(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration",),
 )
 async def _validate_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    client = CollectingClient(tail=args["tail_lines"])
-    await _call(
-        db,
-        "devices/validate",
-        client=client,
-        configuration=args["configuration"],
-        show_secrets=False,
-    )
-    if (result := client.result) is None:
-        _LOGGER.error("MCP validate of %s produced no result frame", args["configuration"])
-        raise McpToolError(INTERNAL_ERROR, "Validation produced no result")
-    return {
-        "success": result["success"],
-        "exit_code": result["code"],
-        "output": plain_lines(list(client.output)),
-        "truncated": client.truncated,
-    }
+    return await _validate(db, args["configuration"], args["tail_lines"])
 
 
 @_tool(
@@ -465,8 +453,10 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "conditions; ids from get_available_automations, fields from get_automation_docs. An "
     "insert must not replace existing YAML; to replace, pass the automation's raw_yaml from "
     "list_automations as expected. The tool checks the shape, not the fields: esphome does "
-    "that, so run validate_config after every write and repair what it reports by "
-    "replacing the automation with expected.",
+    "that, and the reply's validation is the validate_config result for the saved file; "
+    "when validation is null the run did not finish inside the call budget, so run "
+    "validate_config. Repair what esphome reports by replacing the automation, with "
+    "expected from a fresh list_automations.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "Where the automation lives; see the description.")
@@ -487,7 +477,11 @@ async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
         save=True,
         **_only(args, "configuration", "location", "automation", "expected"),
     )
-    return {"configuration": args["configuration"], "yaml_diff": result["yaml_diff"]}
+    return {
+        "configuration": args["configuration"],
+        "yaml_diff": result["yaml_diff"],
+        "validation": await _validate_within_budget(db, args["configuration"]),
+    }
 
 
 @_tool(
@@ -523,6 +517,39 @@ async def _call(
     if handler is None:
         raise CommandError(ErrorCode.UNAVAILABLE, f"{command} is not available")
     return await handler(client=client or CollectingClient(), message_id=_MESSAGE_ID, **args)
+
+
+async def _validate(db: DeviceBuilder, configuration: str, tail: int) -> dict[str, Any]:
+    """Run ``devices/validate`` and shape its stream as the validate_config reply."""
+    client = CollectingClient(tail=tail)
+    await _call(
+        db, "devices/validate", client=client, configuration=configuration, show_secrets=False
+    )
+    if (result := client.result) is None:
+        _LOGGER.error("MCP validate of %s produced no result frame", configuration)
+        raise McpToolError(INTERNAL_ERROR, "Validation produced no result")
+    return {
+        "success": result["success"],
+        "exit_code": result["code"],
+        "output": plain_lines(list(client.output)),
+        "truncated": client.truncated,
+    }
+
+
+async def _validate_within_budget(db: DeviceBuilder, configuration: str) -> dict[str, Any] | None:
+    """Return the validate_config reply for *configuration*, or ``None`` when it ran out of time."""
+    try:
+        async with asyncio.timeout(_VALIDATE_BUDGET):
+            return await _validate(db, configuration, _DEFAULT_TAIL_LINES)
+    except TimeoutError:
+        _LOGGER.info(
+            "MCP validate of %s exceeded %.0fs; left to validate_config",
+            configuration,
+            _VALIDATE_BUDGET,
+        )
+    except (CommandError, McpToolError) as err:
+        _LOGGER.info("MCP validate of %s skipped: %s", configuration, err)
+    return None
 
 
 def _only(args: dict[str, Any], *names: str) -> dict[str, Any]:

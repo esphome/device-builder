@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from unittest.mock import ANY, AsyncMock
 
 import pytest
 
+import esphome_device_builder.api.mcp.tools as mcp_tools
 from esphome_device_builder.api.mcp.tools import TOOLS, _check_configuration
 from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
@@ -582,43 +584,155 @@ async def test_automation_tools_wrap_the_automation_commands(
     }
 
 
+_UPSERT_LOCATION = {"kind": "device_on", "trigger": "on_boot"}
+_UPSERT_TREE = {"trigger_id": "on_boot", "trigger_params": {}, "actions": []}
+_UPSERT_DIFF = {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"}
+_UPSERT_ARGS = {
+    "configuration": "kitchen.yaml",
+    "location": _UPSERT_LOCATION,
+    "automation": _UPSERT_TREE,
+}
+
+
+def _stub_upsert(mcp_db: McpStubDeviceBuilder) -> AsyncMock:
+    upsert = AsyncMock(return_value={"yaml_diff": _UPSERT_DIFF})
+    mcp_db.command_handlers["automations/upsert"] = upsert
+    return upsert
+
+
 async def test_upsert_automation_saves_through_the_command(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
-    upsert = AsyncMock(
-        return_value={"yaml_diff": {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"}}
-    )
-    mcp_db.command_handlers["automations/upsert"] = upsert
-    location = {"kind": "device_on", "trigger": "on_boot"}
-    tree = {"trigger_id": "on_boot", "trigger_params": {}, "actions": []}
-    assert await mcp_call_json(
-        mcp_client,
-        "upsert_automation",
-        {"configuration": "kitchen.yaml", "location": location, "automation": tree},
-    ) == {
+    upsert = _stub_upsert(mcp_db)
+    calls: list[str] = []
+
+    async def record_upsert(**_kwargs: Any) -> dict[str, Any]:
+        calls.append("upsert")
+        return {"yaml_diff": _UPSERT_DIFF}
+
+    upsert.side_effect = record_upsert
+
+    async def validate(
+        *, client: Any, message_id: str, configuration: str, show_secrets: bool
+    ) -> None:
+        calls.append(f"validate {configuration}")
+        assert show_secrets is False
+        await client.send_event(message_id, StreamEvent.OUTPUT, "INFO Configuration is valid!")
+        await client.send_event(message_id, StreamEvent.RESULT, {"success": True, "code": 0})
+
+    mcp_db.command_handlers["devices/validate"] = validate
+    assert await mcp_call_json(mcp_client, "upsert_automation", _UPSERT_ARGS) == {
         "configuration": "kitchen.yaml",
-        "yaml_diff": {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"},
+        "yaml_diff": _UPSERT_DIFF,
+        "validation": {
+            "success": True,
+            "exit_code": 0,
+            "output": ["INFO Configuration is valid!"],
+            "truncated": False,
+        },
     }
+    assert calls == ["upsert", "validate kitchen.yaml"]
     assert upsert.await_args.kwargs == {
         "client": ANY,
         "message_id": ANY,
         "configuration": "kitchen.yaml",
-        "location": location,
-        "automation": tree,
+        "location": _UPSERT_LOCATION,
+        "automation": _UPSERT_TREE,
         "save": True,
     }
     upsert.side_effect = CommandError(ErrorCode.PRECONDITION_FAILED, "already holds one")
     assert await mcp_call(
-        mcp_client,
-        "upsert_automation",
-        {
-            "configuration": "kitchen.yaml",
-            "location": location,
-            "automation": tree,
-            "expected": "stale\n",
-        },
+        mcp_client, "upsert_automation", {**_UPSERT_ARGS, "expected": "stale\n"}
     ) == (True, "precondition_failed: already holds one")
     assert upsert.await_args.kwargs["expected"] == "stale\n"
+
+
+async def test_upsert_automation_reports_esphome_errors(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    _stub_upsert(mcp_db)
+    mcp_db.command_handlers["devices/validate"] = validate_stub(
+        [
+            (StreamEvent.OUTPUT, "\x1b[31m[switch_id] is an invalid option for [switch.turn_off]"),
+            (StreamEvent.RESULT, {"success": False, "code": 2}),
+        ]
+    )
+    reply = await mcp_call_json(mcp_client, "upsert_automation", _UPSERT_ARGS)
+    assert reply["yaml_diff"] == _UPSERT_DIFF
+    assert reply["validation"] == {
+        "success": False,
+        "exit_code": 2,
+        "output": ["[switch_id] is an invalid option for [switch.turn_off]"],
+        "truncated": False,
+    }
+
+
+async def test_upsert_automation_validation_is_null_past_the_budget(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mcp_tools, "_VALIDATE_BUDGET", 0.05)
+    _stub_upsert(mcp_db)
+    outcome: list[str] = []
+
+    async def validate(**_kwargs: Any) -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            outcome.append("cancelled")
+            raise
+        outcome.append("finished")
+
+    mcp_db.command_handlers["devices/validate"] = validate
+    assert await mcp_call_json(mcp_client, "upsert_automation", _UPSERT_ARGS) == {
+        "configuration": "kitchen.yaml",
+        "yaml_diff": _UPSERT_DIFF,
+        "validation": None,
+    }
+    assert outcome == ["cancelled"]
+
+
+@pytest.mark.parametrize(
+    "frames",
+    [
+        pytest.param([(StreamEvent.OUTPUT, "Waiting for a free slot…")], id="no_verdict"),
+        pytest.param([], id="silent"),
+    ],
+)
+async def test_upsert_automation_validation_is_null_without_a_verdict(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, frames: list[tuple[str, Any]]
+) -> None:
+    _stub_upsert(mcp_db)
+    mcp_db.command_handlers["devices/validate"] = validate_stub(frames)
+    reply = await mcp_call_json(mcp_client, "upsert_automation", _UPSERT_ARGS)
+    assert reply["yaml_diff"] == _UPSERT_DIFF
+    assert reply["validation"] is None
+
+
+async def test_upsert_automation_validation_is_null_when_the_pool_is_full(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    _stub_upsert(mcp_db)
+    mcp_db.command_handlers["devices/validate"] = AsyncMock(
+        side_effect=CommandError(ErrorCode.UNAVAILABLE, "Too many concurrent runs; retry shortly")
+    )
+    reply = await mcp_call_json(mcp_client, "upsert_automation", _UPSERT_ARGS)
+    assert reply["yaml_diff"] == _UPSERT_DIFF
+    assert reply["validation"] is None
+
+
+async def test_upsert_automation_does_not_validate_a_refused_write(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["automations/upsert"] = AsyncMock(
+        side_effect=CommandError(ErrorCode.PRECONDITION_FAILED, "already holds one")
+    )
+    validate = AsyncMock()
+    mcp_db.command_handlers["devices/validate"] = validate
+    assert await mcp_call(mcp_client, "upsert_automation", _UPSERT_ARGS) == (
+        True,
+        "precondition_failed: already holds one",
+    )
+    validate.assert_not_awaited()
 
 
 async def test_delete_automation_cannot_delete_what_it_was_not_shown(

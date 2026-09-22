@@ -334,8 +334,9 @@ entry, a stale `expected`, and the parser's refusal to decompose an
 uncatalogued id that shares a mapping with other keys (`_uncatalogued_action`),
 which keeps a save from restructuring a body it cannot read back. Field
 semantics come from `esphome config`, and an agent
-repairs from esphome's own error (PR #2793 was closed on this; issue #2797
-has the MCP follow-up).
+repairs from esphome's own error (PR #2793 was closed on this): the MCP
+`upsert_automation` tool appends a budget-bounded `esphome config` run to its
+reply, so the agent sees that error in the same call.
 
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)
