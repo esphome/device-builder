@@ -92,13 +92,15 @@ async def test_mdns_ownership_clears_the_deployed_name(
     expected: str | None,
 ) -> None:
     """Only an mDNS announce that identifies one config proves the deployed name (#2730)."""
-    rows = [make_device(address="", **kwargs) for kwargs in devices]
+    rows = [make_device(address="", deployed_name="asistente", **kwargs) for kwargs in devices]
     ctrl, _ = make_devices_controller_with_bus(rows)
     ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
 
     ctrl._on_source_change("kitchen", source)
 
     assert ctrl._metadata_store.get("kitchen.yaml").get("deployed_name") == expected
+    # Both readers consult the row, and no reload follows this clear.
+    assert rows[0].deployed_name == (expected or "")
 
 
 async def test_mdns_ownership_of_a_ping_online_device_still_clears() -> None:

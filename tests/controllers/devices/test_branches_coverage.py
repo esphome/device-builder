@@ -1662,10 +1662,13 @@ async def test_on_scan_change_name_change_records_the_deployed_name(
     controller = make_controller(tmp_path, with_state_monitor=True)
 
     compiled = _device("livingroom", loaded_integrations=["api"])
+    # The scanner indexes the row before it notifies; the stamp must reach it.
+    controller._scanner.devices = [compiled]
 
     controller._on_scan_change(ScanChange.UPDATED, compiled, _device("kitchen"))
 
     assert controller._metadata_store.get(compiled.configuration)["deployed_name"] == "kitchen"
+    assert compiled.deployed_name == "kitchen"
 
 
 async def test_on_scan_change_unbuilt_name_change_records_nothing(

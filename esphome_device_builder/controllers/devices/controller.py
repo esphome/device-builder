@@ -1333,6 +1333,30 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         deployed = device.deployed_name
         return "" if not deployed or self._devices_by_name(deployed) else deployed
 
+    def _stamp_deployed_name(self, configuration: str, *, old_name: str, new_name: str) -> str:
+        """
+        Record the hostname the firmware answers to; returns it (``""`` if cleared).
+
+        A chained rename keeps the existing record; renaming back to it clears.
+        """
+        current = str(self._metadata_store.get_field(configuration, "deployed_name") or old_name)
+        deployed = "" if current == new_name else current
+        self._set_deployed_name(configuration, deployed)
+        return deployed
+
+    def _clear_deployed_name(self, configuration: str) -> None:
+        """Forget the recorded hostname; the firmware carries the YAML's own name."""
+        if self._metadata_store.get_field(configuration, "deployed_name"):
+            self._set_deployed_name(configuration, "")
+
+    def _set_deployed_name(self, configuration: str, deployed: str) -> None:
+        """Write the record to the live row and the store; readers consult the row."""
+        device = self._scanner.get_by_configuration(configuration)
+        if device is not None:
+            device.deployed_name = deployed
+        # Renames are rare and the YAML is already durable; don't debounce the record.
+        self._metadata_store.update(configuration, deployed_name=deployed, delay=0.0)
+
     def _cancel_reprobe_timers(self) -> None:
         """Cancel any pending post-flash re-probe timers."""
         for handle in self._reprobe_timers.values():

@@ -1013,6 +1013,9 @@ def make_devices_controller_with_bus(
     for device in devices:
         by_name.setdefault(device.name, []).append(device)
     controller._scanner.get_by_name = lambda name: by_name.get(name, [])
+    controller._scanner.get_by_configuration = lambda configuration: next(
+        (d for d in devices if d.configuration == configuration), None
+    )
     # Real metadata stores anchored at a TemporaryDirectory whose
     # lifetime is pinned to the controller; ``__del__`` cleans up
     # the dir when the test releases its reference.

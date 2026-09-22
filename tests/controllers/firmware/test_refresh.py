@@ -182,6 +182,21 @@ async def test_completed_app_upload_clears_the_deployed_name(tmp_path: Path) -> 
     assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
 
 
+async def test_completed_app_upload_clears_the_live_row_too(tmp_path: Path) -> None:
+    """Both readers consult the row, and the clear lands before the background reload."""
+    controller, _ = _make_controller(tmp_path)
+    row = make_device(deployed_name="asistente")
+    controller._scanner = RecordingScanner()
+    controller._scanner.devices = [row]
+    controller._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    controller._on_firmware_job_completed(
+        Event(EventType.JOB_COMPLETED, {"job": _job(JobType.UPLOAD, JobStatus.COMPLETED)})
+    )
+
+    assert row.deployed_name == ""
+
+
 async def test_completed_bootloader_upload_keeps_the_deployed_name(tmp_path: Path) -> None:
     """``--bootloader`` replaces no app, so the recorded hostname still stands."""
     controller, _ = _make_controller(tmp_path)

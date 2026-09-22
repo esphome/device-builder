@@ -339,7 +339,7 @@ async def _config_only_rename(
         for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
-        # Before the migrate, so its immediate flush carries the record.
+        # Before the migrate, so a moved file carries the record with it.
         deployed_name = controller._stamp_deployed_name(
             configuration, old_name=old_name, new_name=new_name
         )
