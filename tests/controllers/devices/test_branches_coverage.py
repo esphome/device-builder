@@ -65,12 +65,19 @@ from .conftest import (
 )
 
 
-def _device(name: str, *, ip: str = "", ip_addresses: list[str] | None = None) -> Device:
+def _device(
+    name: str,
+    *,
+    ip: str = "",
+    ip_addresses: list[str] | None = None,
+    loaded_integrations: list[str] | None = None,
+) -> Device:
     return make_device(
         name=name,
         state=DeviceState.ONLINE,
         ip=ip,
         ip_addresses=list(ip_addresses) if ip_addresses else [],
+        loaded_integrations=loaded_integrations or [],
     )
 
 
@@ -1614,7 +1621,7 @@ def test_on_scan_change_added_without_importable_row_is_silent(
     assert captured == []
 
 
-def test_on_scan_change_reloaded_name_change_prunes_importable_row(
+async def test_on_scan_change_reloaded_name_change_prunes_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
@@ -1631,7 +1638,7 @@ def test_on_scan_change_reloaded_name_change_prunes_importable_row(
     assert ("revisit_importable", "kitchen-yaml") in controller._state_monitor.calls
 
 
-def test_on_scan_change_updated_name_change_prunes_importable_row(
+async def test_on_scan_change_updated_name_change_prunes_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
@@ -1646,6 +1653,45 @@ def test_on_scan_change_updated_name_change_prunes_importable_row(
     assert "kitchen" not in controller.state.import_result
     assert [e.data["name"] for e in captured] == ["kitchen"]
     assert ("revisit_importable", "old-kitchen") in controller._state_monitor.calls
+
+
+async def test_on_scan_change_name_change_records_the_deployed_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A hand-edited ``esphome.name`` strands the firmware like a config-only rename."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+
+    compiled = _device("livingroom", loaded_integrations=["api"])
+    # The scanner indexes the row before it notifies; the stamp must reach it.
+    controller._scanner.devices = [compiled]
+
+    controller._on_scan_change(ScanChange.UPDATED, compiled, _device("kitchen"))
+
+    assert controller._metadata_store.get(compiled.configuration)["deployed_name"] == "kitchen"
+    assert compiled.deployed_name == "kitchen"
+
+
+async def test_on_scan_change_unbuilt_name_change_records_nothing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The cold-start refine renames off a placeholder; no build output backs it."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    refined = _device("livingroom")
+
+    controller._on_scan_change(ScanChange.RELOADED, refined, _device("livingroom-yaml"))
+
+    assert controller._metadata_store.get(refined.configuration) == {}
+
+
+async def test_on_scan_change_same_name_records_nothing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An ordinary edit leaves no record; the firmware still matches the YAML."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+
+    controller._on_scan_change(ScanChange.UPDATED, _device("kitchen"), _device("kitchen"))
+
+    assert controller._metadata_store.get(_device("kitchen").configuration) == {}
 
 
 def test_on_scan_change_reloaded_same_name_skips_importable_prune(
@@ -1665,7 +1711,7 @@ def test_on_scan_change_reloaded_same_name_skips_importable_prune(
     assert ("revisit_importable", "kitchen") not in controller._state_monitor.calls
 
 
-def test_on_scan_change_rename_migrates_monitor_state(
+async def test_on_scan_change_rename_migrates_monitor_state(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A rename probes the corrected name and forgets the freed name's monitor state."""
@@ -1679,7 +1725,7 @@ def test_on_scan_change_rename_migrates_monitor_state(
     assert "old-kitchen" not in controller._reachability._ping_last_seen
 
 
-def test_on_scan_change_rename_keeps_state_for_surviving_sibling(
+async def test_on_scan_change_rename_keeps_state_for_surviving_sibling(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """The freed name's monitor state survives while a sibling YAML still owns it."""

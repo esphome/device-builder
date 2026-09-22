@@ -77,6 +77,7 @@ from esphome_device_builder.models import (
     ReachabilitySource,
 )
 from tests._mqtt_fixtures import RecordingMonitor
+from tests._recording_scanner import RecordingScanner
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -957,6 +958,16 @@ async def release_and_drain_advertise(db: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+def attach_metadata_store(controller: Any, directory: Path) -> None:
+    """Wire a real ``DeviceMetadataStore`` (and its shutdown list) onto *controller*."""
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=directory,
+        data_dir=directory,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
+
+
 def make_devices_controller_with_bus(
     devices: list[Device],
     *,
@@ -977,10 +988,9 @@ def make_devices_controller_with_bus(
     only care about a subset filter the list themselves
     (``[e for e in captured if e.event_type == X]``).
 
-    The scanner is a ``MagicMock`` exposing ``devices`` and a
-    ``get_by_name(name)`` lambda derived from *devices*; mirrors
-    the production ``DeviceScanner``'s name-keyed grouping closely
-    enough for the callback paths these tests exercise.
+    The scanner is a ``RecordingScanner`` seeded with *devices* and
+    their name-keyed grouping, so ``get_by_name`` /
+    ``get_by_configuration`` answer like production.
 
     ``create_background_task`` lets callers wire a side-effect
     function (e.g. closing the coroutine to avoid
@@ -997,24 +1007,18 @@ def make_devices_controller_with_bus(
     if create_background_task is not None:
         controller._db.create_background_task = MagicMock(side_effect=create_background_task)
     controller._db.bus = bus
-    controller._scanner = MagicMock()
-    controller._scanner.devices = devices
-    by_name: dict[str, list[Device]] = {}
+    by_name: dict[str, list[object]] = {}
     for device in devices:
         by_name.setdefault(device.name, []).append(device)
-    controller._scanner.get_by_name = lambda name: by_name.get(name, [])
+    controller._scanner = RecordingScanner(devices_by_name=by_name)
+    controller._scanner.devices = list(devices)
     # Real metadata stores anchored at a TemporaryDirectory whose
     # lifetime is pinned to the controller; ``__del__`` cleans up
     # the dir when the test releases its reference.
     tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
     tmp_dir = Path(tmp_dir_obj.name)
     controller._tmpdir = tmp_dir_obj  # keep alive
-    controller._shutdown_callbacks = []
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_dir,
-        data_dir=tmp_dir,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, tmp_dir)
     controller._shared_sidecar = SharedSidecarClient(tmp_dir)
     return controller, captured
 

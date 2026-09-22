@@ -79,6 +79,7 @@ def load_device_from_storage(
     deployed_version: str = "",
     queued_update: bool = False,
     api_encryption_active: str | None = None,
+    deployed_name: str = "",
     previous: Device | None = None,
     shallow: bool = False,
 ) -> Device:
@@ -353,6 +354,7 @@ def load_device_from_storage(
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         content_fingerprint=extract_config_content_fingerprint(yaml_content),
         ip=ip,
+        deployed_name=deployed_name,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
         expected_config_hash=expected_config_hash,

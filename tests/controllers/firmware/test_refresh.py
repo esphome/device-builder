@@ -39,7 +39,6 @@ from esphome_device_builder.controllers._device_scanner import (
     ScanChange,
 )
 from esphome_device_builder.controllers.devices import DevicesController, firmware_sync
-from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     Device,
@@ -51,7 +50,7 @@ from esphome_device_builder.models import (
 )
 from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
-from tests.conftest import make_device
+from tests.conftest import attach_metadata_store, make_device
 
 
 def _stub_metadata(_config_dir: object, _filename: object) -> DeviceFileMetadata:
@@ -115,7 +114,7 @@ async def test_reload_unknown_filename_is_noop(tmp_path: Path) -> None:
 # ----------------------------------------------------------------------
 
 
-def _make_controller() -> tuple[Any, list[tuple[str, bool, bool]]]:
+def _make_controller(tmp_path: Path) -> tuple[Any, list[tuple[str, bool, bool]]]:
     """Build a partially-initialised controller and a capture list.
 
     ``_refresh_after_firmware_job`` is patched with a sync stub that
@@ -145,6 +144,7 @@ def _make_controller() -> tuple[Any, list[tuple[str, bool, bool]]]:
     # without needing the full worker lifecycle.
     controller._build_size = MagicMock()
     controller._refresh_after_firmware_job = _capturing_refresh  # type: ignore[method-assign]
+    attach_metadata_store(controller, tmp_path)
     return controller, captured
 
 
@@ -157,9 +157,9 @@ def _job(job_type: JobType, status: JobStatus, configuration: str = "kitchen.yam
     )
 
 
-def test_completed_install_recomputes_hash_and_reloads() -> None:
+def test_completed_install_recomputes_hash_and_reloads(tmp_path: Path) -> None:
     """A successful INSTALL recompiles + flashes → hash is fresh, persist it."""
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(JobType.INSTALL, JobStatus.COMPLETED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
@@ -170,9 +170,50 @@ def test_completed_install_recomputes_hash_and_reloads() -> None:
     assert captured == [("kitchen.yaml", True, True)]
 
 
-def test_completed_compile_recomputes_hash_and_reloads() -> None:
+async def test_completed_app_upload_clears_the_deployed_name(tmp_path: Path) -> None:
+    """The app image now carries the YAML's own name; row and store both clear (#2730)."""
+    controller, _ = _make_controller(tmp_path)
+    row = make_device(deployed_name="asistente")
+    controller._scanner = RecordingScanner()
+    controller._scanner.devices = [row]
+    controller._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    controller._on_firmware_job_completed(
+        Event(EventType.JOB_COMPLETED, {"job": _job(JobType.UPLOAD, JobStatus.COMPLETED)})
+    )
+
+    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
+    # Both readers consult the row, and the clear lands before the background reload.
+    assert row.deployed_name == ""
+
+
+async def test_completed_install_clears_even_with_the_bootloader_flag(tmp_path: Path) -> None:
+    """The CLI honours ``--bootloader`` for UPLOAD only; an INSTALL always flashes the app."""
+    controller, _ = _make_controller(tmp_path)
+    controller._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+    job = _job(JobType.INSTALL, JobStatus.COMPLETED)
+    job.flash_bootloader = True
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
+
+
+async def test_completed_bootloader_upload_keeps_the_deployed_name(tmp_path: Path) -> None:
+    """``--bootloader`` replaces no app, so the recorded hostname still stands."""
+    controller, _ = _make_controller(tmp_path)
+    controller._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+    job = _job(JobType.UPLOAD, JobStatus.COMPLETED)
+    job.flash_bootloader = True
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert controller._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"
+
+
+def test_completed_compile_recomputes_hash_and_reloads(tmp_path: Path) -> None:
     """COMPILE produces a new binary tied to a (potentially) new YAML hash."""
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(JobType.COMPILE, JobStatus.COMPLETED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
@@ -183,9 +224,9 @@ def test_completed_compile_recomputes_hash_and_reloads() -> None:
     assert captured == [("kitchen.yaml", True, False)]
 
 
-def test_completed_upload_reloads_without_recomputing_hash() -> None:
+def test_completed_upload_reloads_without_recomputing_hash(tmp_path: Path) -> None:
     """UPLOAD doesn't recompile — the persisted hash from prior compile still applies."""
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(JobType.UPLOAD, JobStatus.COMPLETED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
@@ -196,9 +237,9 @@ def test_completed_upload_reloads_without_recomputing_hash() -> None:
     assert captured == [("kitchen.yaml", False, True)]
 
 
-def test_failed_job_does_not_schedule_refresh() -> None:
+def test_failed_job_does_not_schedule_refresh(tmp_path: Path) -> None:
     """FAILED jobs leave the device's pending state alone."""
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(JobType.INSTALL, JobStatus.FAILED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
@@ -206,7 +247,7 @@ def test_failed_job_does_not_schedule_refresh() -> None:
     assert captured == []
 
 
-def test_clean_job_skips_full_refresh_but_pokes_build_size() -> None:
+def test_clean_job_skips_full_refresh_but_pokes_build_size(tmp_path: Path) -> None:
     """CLEAN skips the hash / flash bookkeeping path but pokes the build-size cache.
 
     The build tree has just been wiped, so the cached
@@ -217,7 +258,7 @@ def test_clean_job_skips_full_refresh_but_pokes_build_size() -> None:
     cache. ``_refresh_after_firmware_job`` (hash recompute,
     optimistic flash sync) doesn't apply to CLEAN.
     """
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(JobType.CLEAN, JobStatus.COMPLETED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
@@ -226,9 +267,9 @@ def test_clean_job_skips_full_refresh_but_pokes_build_size() -> None:
     controller._build_size.request.assert_called_once_with("kitchen.yaml")
 
 
-def test_reset_build_env_does_not_schedule_refresh() -> None:
+def test_reset_build_env_does_not_schedule_refresh(tmp_path: Path) -> None:
     """RESET_BUILD_ENV has no per-device configuration to refresh."""
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(JobType.RESET_BUILD_ENV, JobStatus.COMPLETED, configuration="")
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
@@ -236,9 +277,9 @@ def test_reset_build_env_does_not_schedule_refresh() -> None:
     assert captured == []
 
 
-def test_receiver_side_remote_build_job_skips_refresh() -> None:
+def test_receiver_side_remote_build_job_skips_refresh(tmp_path: Path) -> None:
     """Remote-build configurations skip the refresh and build-size hooks."""
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(
         JobType.INSTALL,
         JobStatus.COMPLETED,
@@ -251,7 +292,7 @@ def test_receiver_side_remote_build_job_skips_refresh() -> None:
     controller._build_size.request.assert_not_called()
 
 
-def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
+def test_unhandled_job_type_with_configuration_falls_through_silently(tmp_path: Path) -> None:
     """Job types outside CLEAN/COMPILE/UPLOAD/INSTALL/RENAME bail at the type check.
 
     Belt-and-braces test for the post-CLEAN dispatch table — a
@@ -261,7 +302,7 @@ def test_unhandled_job_type_with_configuration_falls_through_silently() -> None:
     *after* the empty-configuration short-circuit, leaving the
     refresh + build-size hooks alone.
     """
-    controller, captured = _make_controller()
+    controller, captured = _make_controller(tmp_path)
     job = _job(
         JobType.RESET_BUILD_ENV,
         JobStatus.COMPLETED,
@@ -302,12 +343,7 @@ async def test_refresh_after_compile_persists_hash_and_reloads(
     controller._db = db
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
-    controller._shutdown_callbacks = []
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_path,
-        data_dir=tmp_path,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, tmp_path)
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
@@ -336,15 +372,9 @@ async def test_refresh_after_compile_skips_persist_on_hash_failure(
     controller._db = db
     controller._scanner = RecordingScanner()
     controller._build_size = MagicMock()
-    controller._shutdown_callbacks = []
     tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
-    tmp_dir = Path(tmp_dir_obj.name)
     controller._tmpdir = tmp_dir_obj  # keep alive
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_dir,
-        data_dir=tmp_dir,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, Path(tmp_dir_obj.name))
 
     await controller._refresh_after_firmware_job("kitchen.yaml", recompute_hash=True, flashed=False)
 
@@ -443,15 +473,9 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
     controller._db = db
     controller._scanner = scanner
     controller._state_monitor = state_monitor
-    controller._shutdown_callbacks = []
     tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
-    tmp_dir = Path(tmp_dir_obj.name)
     controller._tmpdir = tmp_dir_obj  # keep alive
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_dir,
-        data_dir=tmp_dir,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, Path(tmp_dir_obj.name))
     return controller, fired
 
 

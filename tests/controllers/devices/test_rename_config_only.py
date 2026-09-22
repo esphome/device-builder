@@ -9,11 +9,13 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from esphome.storage_json import StorageJSON
 
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import mutations_simple
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import read_yaml_scalar
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import make_device
 
 from .conftest import MakeControllerFactory, wifi_ap_block
 
@@ -446,3 +448,91 @@ async def test_config_only_rename_still_rejects_collision(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "already exists" in excinfo.value.message
+
+
+# ----------------------------------------------------------------------
+# deployed_name: the firmware keeps its old hostname until a flash (#2730)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "configuration", "renames", "expected_filename", "expected_deployed"),
+    [
+        pytest.param(_YAML, "kitchen.yaml", ["livingroom"], "livingroom.yaml", "kitchen", id="one"),
+        # ``esphome.name`` is recorded, which the filename stem can differ from.
+        pytest.param(
+            _UNDERSCORE_YAML, "test-1.yaml", ["test-1"], "test-1.yaml", "test_1", id="in_place"
+        ),
+        # A second flash-free rename still points at what the firmware has.
+        pytest.param(
+            _YAML, "kitchen.yaml", ["livingroom", "hallway"], "hallway.yaml", "kitchen", id="chain"
+        ),
+        # Renaming back to it leaves nothing to redirect.
+        pytest.param(
+            _YAML, "kitchen.yaml", ["livingroom", "kitchen"], "kitchen.yaml", None, id="back"
+        ),
+    ],
+)
+async def test_config_only_rename_records_the_deployed_name(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    text: str,
+    configuration: str,
+    renames: list[str],
+    expected_filename: str,
+    expected_deployed: str | None,
+) -> None:
+    """The hostname the firmware still answers to is recorded under the new filename."""
+    controller = make_controller(tmp_path)
+    (tmp_path / configuration).write_text(text, encoding="utf-8")
+
+    current = configuration
+    for new_name in renames:
+        result = await controller.rename_device(
+            configuration=current, new_name=new_name, config_only=True
+        )
+        current = result["configuration"]
+
+    assert current == expected_filename
+    assert controller._metadata_store.get(current).get("deployed_name") == expected_deployed
+
+
+async def test_in_place_rename_back_survives_the_rescan_stamp(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The rescan re-enters the scan-change stamp with the pre-rename name (#2730)."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(
+        _YAML.replace("name: kitchen", "name: livingroom"), encoding="utf-8"
+    )
+    # The state a hand-edit leaves: the firmware still answers to kitchen.
+    controller._metadata_store.update("kitchen.yaml", deployed_name="kitchen", delay=0.0)
+
+    async def _rescan_fires_scan_change(_controller: object, configuration: str) -> None:
+        controller._on_scan_change(
+            ScanChange.RELOADED,
+            make_device(configuration=configuration, name="kitchen", loaded_integrations=["api"]),
+            make_device(configuration=configuration, name="livingroom"),
+        )
+
+    with patch.object(mutations_simple, "rescan_renamed", _rescan_fires_scan_change):
+        await controller.rename_device(
+            configuration="kitchen.yaml", new_name="kitchen", config_only=True
+        )
+
+    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
+
+
+async def test_config_only_rename_records_the_name_even_if_the_migration_fails(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``migrate_metadata`` logs and continues, so the stamp is re-asserted under the new file."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    controller._migrate_device_metadata = AsyncMock(side_effect=OSError("disk"))
+
+    await controller.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+
+    assert controller._metadata_store.get("livingroom.yaml")["deployed_name"] == "kitchen"

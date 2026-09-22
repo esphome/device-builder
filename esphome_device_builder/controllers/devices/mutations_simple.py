@@ -244,7 +244,8 @@ async def rename_device(
     # a stem compare wrongly rejects the legitimate ``test_1`` -> ``test-1``
     # rename and wrongly accepts a real no-op whose filename differs from its
     # name.
-    if new_name == resolved_device_name(old_meta, configuration):
+    old_name = resolved_device_name(old_meta, configuration)
+    if new_name == old_name:
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "new_name must differ from the current device name",
@@ -276,6 +277,7 @@ async def rename_device(
             content=content,
             new_content=new_content,
             in_place=in_place,
+            old_name=old_name,
         )
 
     firmware = controller._db.firmware
@@ -296,13 +298,15 @@ async def _config_only_rename(
     content: str,
     new_content: str,
     in_place: bool,
+    old_name: str,
 ) -> dict[str, Any]:
     """
     Land the rewritten YAML with no compile or OTA.
 
     Validates *new_content* before touching disk, writes the new file
-    atomically, removes the old, and migrates the StorageJSON + sidecar
-    metadata. Refuses with ``PRECONDITION_FAILED`` when the file no longer
+    atomically, removes the old, records the pre-rename hostname, and
+    migrates the StorageJSON + sidecar metadata. Refuses with
+    ``PRECONDITION_FAILED`` when the file no longer
     holds *content*, and never replaces a target another writer created.
     Returns ``job: None`` (nothing is queued). When *in_place*
     the target filename is the device's own file: the rewrite lands on it
@@ -335,8 +339,18 @@ async def _config_only_rename(
         for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
+        deployed_name = controller._stamp_deployed_name(
+            configuration, old_name=old_name, new_name=new_name
+        )
         await migrate_metadata(controller, configuration, new_filename)
+        # The migration is best-effort and its merge lets a stale target entry win.
+        controller._set_deployed_name(new_filename, deployed_name)
     await rescan_renamed(controller, new_filename)
+    # An in-place rescan re-stamps the pre-rename name over a record this
+    # rename just cleared. Only the clear is re-asserted, so this can't
+    # overwrite a fresher mDNS or concurrent-rename value.
+    if not deployed_name:
+        controller._clear_deployed_name(new_filename)
     return {"configuration": new_filename, "job": None}
 
 

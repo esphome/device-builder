@@ -152,13 +152,20 @@ def _reconcile_rename(
     device: Device,
     previous: Device | None,
 ) -> None:
-    """Reconcile importables and per-name monitor state after a name correction."""
+    """Record the old hostname, then reconcile importables and per-name monitor state."""
     if (
         kind not in (ScanChange.UPDATED, ScanChange.RELOADED)
         or previous is None
         or previous.name == device.name
     ):
         return
+    # A hand-edited name strands the firmware like a config-only rename.
+    # Gated on build output: the cold-start refine lands here too, off a
+    # filename-stem placeholder no firmware answered to.
+    if device.loaded_integrations:
+        controller._stamp_deployed_name(
+            device.configuration, old_name=previous.name, new_name=device.name, device=device
+        )
     # The ADDED retraction keys on the name at add time; the freed old
     # name may have a suppressed announcement worth resurfacing.
     controller._on_importable_removed(device.name)

@@ -10,7 +10,11 @@ other source) flipped a device online — exactly the bug from the
 
 from __future__ import annotations
 
-from esphome_device_builder.models import DeviceState, EventType
+from typing import Any
+
+import pytest
+
+from esphome_device_builder.models import DeviceState, EventType, ReachabilitySource
 
 from .conftest import make_device, make_devices_controller_with_bus
 
@@ -58,3 +62,64 @@ def test_state_change_unknown_device_does_not_fire() -> None:
     ctrl._on_state_change("ghost", DeviceState.ONLINE, "mdns")
 
     assert captured == []
+
+
+@pytest.mark.parametrize(
+    ("devices", "source", "expected"),
+    [
+        pytest.param([{}], ReachabilitySource.MDNS, None, id="mdns_clears"),
+        # Ping reaches the device through the record itself; it proves no name.
+        pytest.param([{}], ReachabilitySource.PING, "asistente", id="ping_keeps"),
+        # A same-path rename carries ``active_source`` forward as mdns.
+        pytest.param(
+            [{"active_source": ReachabilitySource.MDNS}],
+            ReachabilitySource.MDNS,
+            None,
+            id="stale_active_source",
+        ),
+        # Siblings share one broadcast, so it can't prove which was flashed.
+        pytest.param(
+            [{}, {"configuration": "kitchen (1).yaml"}],
+            ReachabilitySource.MDNS,
+            "asistente",
+            id="shared_name_keeps",
+        ),
+    ],
+)
+async def test_mdns_ownership_clears_the_deployed_name(
+    devices: list[dict[str, Any]],
+    source: ReachabilitySource,
+    expected: str | None,
+) -> None:
+    """Only an mDNS announce that identifies one config proves the deployed name (#2730)."""
+    rows = [make_device(address="", deployed_name="asistente", **kwargs) for kwargs in devices]
+    ctrl, _ = make_devices_controller_with_bus(rows)
+    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    ctrl._on_source_change("kitchen", source)
+
+    assert ctrl._metadata_store.get("kitchen.yaml").get("deployed_name") == expected
+    # Both readers consult the row, and no reload follows this clear.
+    assert rows[0].deployed_name == (expected or "")
+
+
+async def test_mdns_ownership_clears_a_row_the_store_already_lost() -> None:
+    """An executor load can swap a pre-clear row in after the store was cleared."""
+    row = make_device(address="", deployed_name="asistente")
+    ctrl, _ = make_devices_controller_with_bus([row])
+
+    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
+
+    assert row.deployed_name == ""
+
+
+async def test_mdns_ownership_of_a_ping_online_device_still_clears() -> None:
+    """``apply`` skips the state callback when the device is already ONLINE."""
+    device = make_device(address="", state=DeviceState.ONLINE)
+    ctrl, _ = make_devices_controller_with_bus([device])
+    ctrl._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+
+    ctrl._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
+    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
+
+    assert "deployed_name" not in ctrl._metadata_store.get("kitchen.yaml")

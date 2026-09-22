@@ -80,8 +80,13 @@ def on_state_change(
 
 
 def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
-    """Update ``active_source`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
-    for device in controller._devices_by_name(name):
+    """Update ``active_source`` and fire DEVICE_UPDATED; also clears ``deployed_name``."""
+    devices = controller._devices_by_name(name)
+    # Only an announce that maps to one config proves the firmware carries the name;
+    # above the dedupe since a same-path rename carries ``active_source`` forward.
+    if source is ReachabilitySource.MDNS and len(devices) == 1:
+        controller._clear_deployed_name(devices[0].configuration, device=devices[0])
+    for device in devices:
         if device.runtime_state.active_source == source:
             continue
         device.runtime_state.active_source = source
