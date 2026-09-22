@@ -721,9 +721,9 @@ def test_weikai_hub_advertises_inherited_uart_channels() -> None:
     assert body.get("provides_id_paths") == {"uart": [["uart", "id"]]}
 
 
-def test_no_display_advertises_its_pages() -> None:
-    """``pages[].id`` is a ``display::DisplayPage``, never offered as a display."""
-    for path in _BODIES_DIR.glob("display.*.json"):
+def test_no_shipped_id_path_descends_through_pages() -> None:
+    """``pages[].id`` is a ``display::DisplayPage``, never offered for any interface."""
+    for path in _BODIES_DIR.glob("*.json"):
         body = json.loads(path.read_text(encoding="utf-8"))
-        display_paths = body.get("provides_id_paths", {}).get("display", [])
-        assert not any("pages" in id_path for id_path in display_paths), path.name
+        for id_paths in body.get("provides_id_paths", {}).values():
+            assert not any("pages" in id_path for id_path in id_paths), path.name

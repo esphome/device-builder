@@ -5002,6 +5002,7 @@ def _iter_bundle_sections(schema_dir: Path) -> Iterable[tuple[str, dict]]:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            _LOGGER.warning("Skipping unreadable schema file %s", path.name)
             continue
         if not isinstance(raw, dict):
             continue
