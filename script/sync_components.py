@@ -10376,6 +10376,7 @@ def _convert_automation_action(
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
+        "has_condition_gate": has_condition_gate,
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
     }

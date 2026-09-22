@@ -213,6 +213,7 @@ def test_build_automations_strips_then_from_control_flow_action_params(
     if_action = next(a for a in result["actions"] if a["id"] == "if")
     assert if_action["is_control_flow"] is True
     assert if_action["has_else_branch"] is True
+    assert if_action["has_condition_gate"] is True
     # Stable ordering: ``then`` before ``else``.
     assert if_action["accepts_action_list"] == ["then", "else"]
     # The placeholder keys are stripped from ``config_entries``.
@@ -220,6 +221,74 @@ def test_build_automations_strips_then_from_control_flow_action_params(
     assert "then" not in cfg_keys
     assert "else" not in cfg_keys
     assert "condition" not in cfg_keys
+
+
+def _core_action_schema(tmp_path: Path, name: str, config_vars: dict) -> Path:
+    return _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {
+                    name: {
+                        "schema": {"config_vars": config_vars},
+                        "type": "schema",
+                        "docs": f"{name} docs.",
+                    },
+                },
+                "condition": {},
+            },
+        },
+    )
+
+
+_CONDITION_VAR = {"key": "Required", "registry": "condition", "type": "registry"}
+_THEN_VAR = {"is_list": True, "key": "Optional", "registry": "action", "type": "registry"}
+
+
+def test_build_automations_emits_condition_gate_without_action_list(tmp_path: Path) -> None:
+    """A gate-only action (``wait_until``) carries ``has_condition_gate`` and no action list."""
+    schema_dir = _core_action_schema(
+        tmp_path,
+        "wait_until",
+        {"condition": _CONDITION_VAR, "timeout": {"key": "Optional", "type": "time_period"}},
+    )
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
+    action = next(a for a in result["actions"] if a["id"] == "wait_until")
+    assert action["has_condition_gate"] is True
+    assert action["is_control_flow"] is True
+    assert action["accepts_action_list"] == []
+    assert {e["key"] for e in action["config_entries"]} == {"timeout"}
+
+
+def test_build_automations_emits_condition_gate_beside_action_list(tmp_path: Path) -> None:
+    """``while`` carries both the gate and its ``then`` list."""
+    schema_dir = _core_action_schema(
+        tmp_path, "while", {"condition": _CONDITION_VAR, "then": _THEN_VAR}
+    )
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
+    action = next(a for a in result["actions"] if a["id"] == "while")
+    assert action["has_condition_gate"] is True
+    assert action["accepts_action_list"] == ["then"]
+    assert action["has_else_branch"] is False
+    assert action["config_entries"] == []
+
+
+def test_build_automations_action_list_alone_is_not_a_gate(tmp_path: Path) -> None:
+    """``repeat`` is control flow without a condition gate."""
+    schema_dir = _core_action_schema(
+        tmp_path, "repeat", {"count": {"key": "Required", "type": "integer"}, "then": _THEN_VAR}
+    )
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
+    action = next(a for a in result["actions"] if a["id"] == "repeat")
+    assert action["has_condition_gate"] is False
+    assert action["is_control_flow"] is True
 
 
 def test_build_automations_promotes_inline_trigger_keys_to_action_list(
@@ -264,6 +333,7 @@ def test_build_automations_promotes_inline_trigger_keys_to_action_list(
     # A triggered action is not control flow; it keeps its normal form fields.
     assert action["is_control_flow"] is False
     assert action["has_else_branch"] is False
+    assert action["has_condition_gate"] is False
     cfg_keys = {e["key"] for e in action["config_entries"]}
     assert "ssid" in cfg_keys
     assert "on_connect" not in cfg_keys

@@ -324,7 +324,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `automations/get_triggers` | `{platform?, board_id?}` | `[AutomationTrigger]` | Full trigger catalog. `platform` / `board_id` are reserved for future platform gating and ignored today. |
-| `automations/get_actions` | `{platform?, board_id?}` | `[AutomationAction]` | Full action catalog (includes core control-flow: `if`, `while`, `repeat`, `wait_until`, `delay`, `lambda`). |
+| `automations/get_actions` | `{platform?, board_id?}` | `[AutomationAction]` | Full action catalog (includes core control-flow: `if`, `while`, `repeat`, `wait_until`, `delay`, `lambda`). `has_condition_gate` marks an action that takes a `condition` / `all` / `any` boolean gate (`if`, `while`, `wait_until`); the editor renders the gate's condition tree off it. |
 | `automations/get_conditions` | `{platform?, board_id?}` | `[AutomationCondition]` | Full condition catalog (includes core combinators: `and`, `or`, `all`, `any`, `not`, `xor`, `for`, `lambda`). |
 | `automations/get_light_effects` | `{platform?, board_id?}` | `[LightEffect]` | Full light-effects catalog. |
 | `automations/get_filters` | `{}` | `[Filter]` | Full sensor / binary_sensor / text_sensor filter catalog. Each entry's `applies_to` lists the component domains the filter is valid on; the REGISTRY_LIST renderer uses it to scope the per-row picker. |
