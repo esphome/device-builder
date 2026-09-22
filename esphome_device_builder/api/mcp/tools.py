@@ -563,7 +563,7 @@ async def _validate_by(
             _CALL_BUDGET,
         )
     except (CommandError, McpToolError) as err:
-        _LOGGER.info("MCP validate of %s skipped: %s", configuration, err)
+        _LOGGER.warning("MCP validate of %s skipped: %s", configuration, err)
     except Exception:
         _LOGGER.exception("MCP validate of %s failed after the write", configuration)
     return None
