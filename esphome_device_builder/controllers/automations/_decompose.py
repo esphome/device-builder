@@ -195,7 +195,7 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
     elif (
         isinstance(raw_params, str)
         and action.scalar_shorthand_key in CONDITION_GATE_KEYS
-        and catalog.condition_by_id(raw_params) is not None
+        and catalog.is_known_condition(raw_params)
     ):
         # ``wait_until: api.connected``: esphome reads a string in a condition
         # position as that condition id with no config.

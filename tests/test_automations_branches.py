@@ -374,6 +374,15 @@ def test_decompose_wait_until_string_is_its_condition() -> None:
     assert [c.condition_id for c in node.conditions] == ["api.connected"]
 
 
+def test_emit_wait_until_id_param_naming_a_condition_reparses_as_the_gate() -> None:
+    """``{id: api.connected}`` emits the valid ``wait_until: api.connected``, read as its gate."""
+    out = emit_action_node(ActionNode(action_id="wait_until", params={"id": "api.connected"}))
+    assert out == {"wait_until": "api.connected"}
+    node = _decompose_action("wait_until", out["wait_until"])
+    assert node.params == {}
+    assert [c.condition_id for c in node.conditions] == ["api.connected"]
+
+
 def test_decompose_wait_until_unknown_string_stays_an_id_param() -> None:
     """A string that names no catalogued condition (``${cond}``) keeps the lossless ``id`` param."""
     node = _decompose_action("wait_until", "${cond}")
