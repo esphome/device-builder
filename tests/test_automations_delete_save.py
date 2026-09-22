@@ -519,25 +519,23 @@ async def test_upsert_with_save_refuses_an_insert_that_is_not_clean(
     assert devices.saved == []
 
 
-async def test_upsert_with_expected_refuses_when_the_writer_would_append_instead(
+async def test_upsert_with_expected_replaces_an_idless_script_under_its_listed_id(
     tmp_path: Path,
 ) -> None:
-    idless = "script:\n  - then:\n      - delay: 1s\n"
+    idless = "script:\n  - then:\n      - delay: 2s\n"
     controller, devices = _setup(tmp_path, idless)
     shown = (await asyncio.to_thread(parsing.parse_device_yaml, idless))[0]
 
-    with pytest.raises(CommandError) as excinfo:
-        await controller.upsert(
-            configuration="d.yaml",
-            automation=_AUTOMATION | {"trigger_id": None},
-            location=shown.location.to_dict(),
-            save=True,
-            expected=shown.raw_yaml,
-        )
+    await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION | {"trigger_id": None},
+        location=shown.location.to_dict(),
+        save=True,
+        expected=shown.raw_yaml,
+    )
 
-    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert "could not be replaced in place" in excinfo.value.message
-    assert devices.saved == []
+    saved = "script:\n  - id: script_0\n    then:\n      - delay: 1s\n"
+    assert devices.saved == [("d.yaml", saved, "Save an automation to d.yaml")]
 
 
 async def test_upsert_with_save_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:

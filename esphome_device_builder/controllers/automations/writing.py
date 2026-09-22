@@ -67,6 +67,7 @@ from .emitter import (
 from .parsing import (
     ComponentTarget,
     component_action_field_paths,
+    instance_id,
     is_mapping_entry,
     make_yaml,
     resolve_action_field_target,
@@ -156,7 +157,7 @@ def _upsert_script(
 ) -> tuple[str, YamlDiff]:
     """Splice or replace a top-level ``script:`` list item."""
     rendered = render_script_item(tree, location.id)
-    return _upsert_top_level_list(yaml_text, "script", rendered, location.id, "id")
+    return _upsert_top_level_list(yaml_text, "script", rendered, location.id)
 
 
 def _upsert_interval(
@@ -476,21 +477,24 @@ def _upsert_top_level_list(
     domain: str,
     rendered_item: str,
     item_id: str,
-    id_key: str,
 ) -> tuple[str, YamlDiff]:
-    """Insert / replace a list item identified by a string id field."""
-    yaml = make_yaml()
-    data = yaml.load(yaml_text) or {}
-    items = data.get(domain) if isinstance(data, dict) else None
-    existing_idx: int | None = None
-    if isinstance(items, list):
-        for idx, raw in enumerate(items):
-            if isinstance(raw, dict) and str(raw.get(id_key, "")) == item_id:
-                existing_idx = idx
-                break
+    """Insert / replace the list item the parser lists as *item_id*."""
+    existing_idx = _top_level_item_index(yaml_text, domain, item_id)
     if existing_idx is None:
         return _append_top_level_list(yaml_text, domain, rendered_item)
     return _replace_top_level_list_item(yaml_text, domain, existing_idx, rendered_item)
+
+
+def _top_level_item_index(yaml_text: str, domain: str, item_id: str) -> int | None:
+    """Index of the first ``<domain>:`` list item the parser lists as *item_id*."""
+    data = make_yaml().load(yaml_text) or {}
+    items = data.get(domain) if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return None
+    for idx, raw in enumerate(items):
+        if is_mapping_entry(raw) and instance_id(domain, raw, idx, is_list=True) == item_id:
+            return idx
+    return None
 
 
 @in_list_form
@@ -596,7 +600,7 @@ def _delete_top_level(
 ) -> tuple[str, YamlDiff]:
     """Drop a top-level script / interval / device-on block."""
     if isinstance(location, ScriptLocation):
-        return _delete_top_level_list_by_id(yaml_text, "script", "id", location.id)
+        return _delete_top_level_list_by_id(yaml_text, "script", location.id)
     if isinstance(location, IntervalLocation):
         return _delete_top_level_list_by_index(yaml_text, "interval", location.index)
     if isinstance(location, DeviceOnLocation):
@@ -615,21 +619,14 @@ def _delete_top_level(
 def _delete_top_level_list_by_id(
     yaml_text: str,
     domain: str,
-    id_key: str,
     item_id: str,
 ) -> tuple[str, YamlDiff]:
-    """Remove the list item under ``<domain>:`` whose ``id`` matches."""
-    yaml = make_yaml()
-    data = yaml.load(yaml_text) or {}
-    items = data.get(domain) if isinstance(data, dict) else None
-    if not isinstance(items, list):
-        msg = f"Block {domain!r} not present; nothing to delete"
+    """Remove the list item under ``<domain>:`` the parser lists as *item_id*."""
+    idx = _top_level_item_index(yaml_text, domain, item_id)
+    if idx is None:
+        msg = f"{domain}:[id={item_id!r}] not present"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    for idx, raw in enumerate(items):
-        if isinstance(raw, dict) and str(raw.get(id_key, "")) == item_id:
-            return _delete_list_item_lines(yaml_text, domain, idx)
-    msg = f"{domain}:[{id_key}={item_id!r}] not present"
-    raise CommandError(ErrorCode.NOT_FOUND, msg)
+    return _delete_list_item_lines(yaml_text, domain, idx)
 
 
 @in_list_form
