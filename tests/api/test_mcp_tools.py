@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any
 from unittest.mock import ANY, AsyncMock
@@ -696,7 +697,12 @@ async def test_upsert_automation_refuses_a_malformed_shape(
 
 def test_delete_automation_takes_the_upsert_location_schema() -> None:
     upsert, delete = TOOLS["upsert_automation"], TOOLS["delete_automation"]
-    assert delete.schema["properties"]["location"] is upsert.schema["properties"]["location"]
+    assert delete.schema["properties"]["location"] == upsert.schema["properties"]["location"]
+
+
+def test_location_schema_covers_every_location_field() -> None:
+    fields = {f.name for cls in LOCATION_TYPES.values() for f in dataclasses.fields(cls)}
+    assert set(TOOLS["upsert_automation"].schema["properties"]["location"]["properties"]) == fields
 
 
 async def test_delete_automation_cannot_delete_what_it_was_not_shown(

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import fields
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -478,6 +479,9 @@ def _decode_location(raw: dict) -> AutomationLocation:
     kind = raw["kind"]
     if not isinstance(kind, str) or (loc_type := LOCATION_TYPES.get(kind)) is None:
         msg = f"Unknown location kind: {kind!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if extra := set(raw) - {f.name for f in fields(loc_type)}:
+        msg = f"{kind} location does not take {sorted(extra)}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     # Resolve ``from_dict`` per call: a bound method captured at import holds
     # mashumaro's one-shot ``lazy_compilation`` stub and recompiles every call.

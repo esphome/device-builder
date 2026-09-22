@@ -18,6 +18,7 @@ from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import apply_yaml_diff
+from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation, YamlDiff
 from tests.conftest import apply_yaml_diff_like_frontend
 
@@ -1102,7 +1103,7 @@ async def test_parse_keeps_uncatalogued_action_as_passthrough(tmp_path: Path) ->
 def test_decode_location_compiles_unpacker_once_per_kind() -> None:
     """Pin compile-once decode: a captured lazy ``from_dict`` stub recompiles per call.
 
-    ``_LOCATION_DECODERS`` must look ``from_dict`` up at call time, not capture
+    ``_decode_location`` must look ``from_dict`` up at call time, not capture
     the bound method, or mashumaro ``lazy_compilation`` rebuilds the unpacker on
     every automation upsert/delete.
     """
@@ -1116,6 +1117,13 @@ def test_decode_location_compiles_unpacker_once_per_kind() -> None:
         assert model.__dict__["__mashumaro_from_dict__"] is once, (
             f"{model.__name__} unpacker recompiled on second decode"
         )
+
+
+def test_decode_location_refuses_a_key_another_kind_takes() -> None:
+    with pytest.raises(CommandError) as err:
+        automations_controller._decode_location({"kind": "script", "id": "s", "field": "on"})
+    assert err.value.code is ErrorCode.INVALID_ARGS
+    assert "script location does not take ['field']" in err.value.message
 
 
 def _apply_diff(text: str, diff: dict) -> str:
