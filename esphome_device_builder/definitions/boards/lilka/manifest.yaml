@@ -216,5 +216,5 @@ source:
   type: esphome-devices
   remote_id: Lilka
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Lilka/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 582d9b5114eec3ed9f633eedaa665eba652ee51ca26ef4c452ef87b90d4c30b4

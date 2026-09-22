@@ -417,5 +417,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-B4M
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-B4M/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: fc5a61e84c9d81dd43827450788fb2ede5867367eaad39e0b02d6d995fb7218a

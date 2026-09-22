@@ -115,5 +115,5 @@ source:
   type: esphome-devices
   remote_id: Nous-A1t
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Nous-A1t/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 4631a413d49172e71ff12240875f2038c33a1146f6cc68aa10fa1476128d0e59

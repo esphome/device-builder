@@ -79,5 +79,5 @@ source:
   type: esphome-devices
   remote_id: Minoston-Outdoor-Smart-Plug-MP22W
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Minoston-Outdoor-Smart-Plug-MP22W/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 7af360db1de27ab3883905b52c008e9c2dabf38e93a24a661771a7eefe8c4f60

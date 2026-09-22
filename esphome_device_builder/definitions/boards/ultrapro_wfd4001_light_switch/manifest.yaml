@@ -46,5 +46,5 @@ source:
   type: esphome-devices
   remote_id: UltraPro-WFD4001-Light-Switch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UltraPro-WFD4001-Light-Switch/index.md
-  upstream_revision: 7ed8ca529f3cd6bd6ffad875ecb97266df710789
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 8984419f25e434a178253c9b33c9fc4d9251a2d63a9be8936e734370fedb88a3

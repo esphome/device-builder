@@ -1,0 +1,79 @@
+id: kincony_co16
+name: KinCony-CO16 (ESP32-S3 16CH Analog Input board)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+  logger_hardware_uart: USB_SERIAL_JTAG
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-CO16/CO16-2.jpg
+tags:
+- relay
+pins:
+- gpio: 1
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 2
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 41
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 42
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 43
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 44
+  available: false
+  occupied_by: Ethernet RESET
+docs_url: https://devices.esphome.io/devices/KinCony-CO16/
+featured_components:
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO1
+      locked: true
+    mosi_pin:
+      value: GPIO2
+      locked: true
+    miso_pin:
+      value: GPIO41
+      locked: true
+    cs_pin:
+      value: GPIO42
+      locked: true
+    interrupt_pin:
+      value: GPIO43
+      locked: true
+    reset_pin:
+      value: GPIO44
+      locked: true
+    clock_speed:
+      value: 16MHz
+      locked: true
+source:
+  type: esphome-devices
+  remote_id: KinCony-CO16
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-CO16/index.md
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  content_hash: 826f54002e5971d1a7bd7aeffd6f3b8e9eb91ecaa94851d4ae855b28522427f1
