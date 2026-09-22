@@ -19,6 +19,7 @@ from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
+from ...helpers.automation_keys import CONDITION_GATE_KEYS
 from ...helpers.yaml.scalar import is_custom_yaml_tag
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -33,9 +34,6 @@ from . import catalog
 class UnsupportedActionError(CommandError):
     """A known action with no structured form (oversized LVGL ``*.update``)."""
 
-
-# Action-body keys that introduce a condition gate rather than plain params.
-_CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 
 # Fallback shorthand key when a catalog entry has no ``scalar_shorthand_key``
 # (id-reference actions / conditions). Shared with the emitter's collapse check.
@@ -195,7 +193,7 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
                 if key in action.accepts_action_list:
                     children[key] = _decompose_action_list(value)
                     continue
-                if key in _CONDITION_GATE_KEYS:
+                if key in CONDITION_GATE_KEYS:
                     conditions = _decompose_condition_list(value)
                     continue
                 params[key] = _render_value(value)
@@ -207,7 +205,7 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
         # ``core.wait_until`` has ``maybe == "condition"``; a shorthand that
         # names a gate / sub-list key must never land in ``params`` — fall
         # back to ``id`` so it round-trips harmlessly.
-        if key in _CONDITION_GATE_KEYS or key in action.accepts_action_list:
+        if key in CONDITION_GATE_KEYS or key in action.accepts_action_list:
             key = DEFAULT_SHORTHAND_KEY
         params = {key: _render_value(raw_params)}
 
@@ -221,10 +219,10 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
 
 def _is_dict_shorthand_condition(action: AutomationAction, body: dict[str, Any]) -> bool:
     """Whether *body* is a ``wait_until``-style condition with the gate key omitted."""
-    if not body or action.scalar_shorthand_key not in _CONDITION_GATE_KEYS:
+    if not body or action.scalar_shorthand_key not in CONDITION_GATE_KEYS:
         return False
     keys = body.keys()
-    if keys & _CONDITION_GATE_KEYS:
+    if keys & CONDITION_GATE_KEYS:
         return False
     known = {e.key for e in action.config_entries} | set(action.accepts_action_list)
     return not (keys & known)
