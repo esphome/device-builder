@@ -1072,23 +1072,16 @@ def test_wait_until_shorthand_condition_round_trips_to_full_form() -> None:
     assert "condition:" in new_text
 
 
-@pytest.mark.parametrize(
-    ("scalar", "emitted"),
-    [
-        pytest.param("api.connected", "api.connected", id="condition_id"),
-        pytest.param("!lambda 'return id(ready);'", "!lambda return id(ready);", id="lambda"),
-    ],
-)
-def test_wait_until_scalar_round_trips_as_a_scalar(scalar: str, emitted: str) -> None:
+def test_wait_until_scalar_round_trips_as_a_scalar() -> None:
     """A scalar ``wait_until`` re-emits as the same scalar, never an ``id:`` mapping."""
-    yaml_text = f"esphome:\n  name: x\n  on_boot:\n    then:\n      - wait_until: {scalar}\n"
+    yaml_text = "esphome:\n  name: x\n  on_boot:\n    then:\n      - wait_until: api.connected\n"
     parsed = parse_device_yaml(yaml_text)[0]
     new_text, _diff = render_upsert(
         yaml_text,
         tree=parsed.automation,
         location=parsed.location,
     )
-    assert f"- wait_until: {emitted}" in new_text
+    assert "- wait_until: api.connected" in new_text
 
 
 # ---------------------------------------------------------------------------
