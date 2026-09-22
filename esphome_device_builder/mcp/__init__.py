@@ -7,8 +7,10 @@ from .tools import (
     INVALID_ARGS,
     McpToolError,
     ToolRegistry,
+    any_value,
     closed_object,
     open_object,
+    prop,
 )
 from .transport import McpServer
 
@@ -18,6 +20,8 @@ __all__ = [
     "McpServer",
     "McpToolError",
     "ToolRegistry",
+    "any_value",
     "closed_object",
     "open_object",
+    "prop",
 ]

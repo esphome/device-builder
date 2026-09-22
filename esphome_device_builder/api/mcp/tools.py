@@ -12,7 +12,15 @@ from ...controllers.devices.helpers import scanned_component_entries
 from ...controllers.firmware.follow import job_report
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
-from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry, closed_object, open_object
+from ...mcp import (
+    INTERNAL_ERROR,
+    McpToolError,
+    ToolRegistry,
+    any_value,
+    closed_object,
+    open_object,
+    prop,
+)
 from ...models import LOCATION_TYPES, ErrorCode
 
 if TYPE_CHECKING:
@@ -56,85 +64,93 @@ def _tool(
     return register
 
 
-def _prop(json_type: str, description: str) -> dict[str, str]:
-    return {"type": json_type, "description": description}
-
-
 _MAX_REFS = 50
-_CONFIGURATION = _prop(
+_CONFIGURATION = prop(
     "string", "Device YAML filename, e.g. 'living-room.yaml' (from list_devices)."
 )
-_COMPONENT_ID = _prop("string", "Catalog id, e.g. 'sensor.dht' or 'wifi'.")
-_JOB_ID = _prop("string", "Firmware job id returned by compile or install.")
-_TAIL_LINES = {
-    "type": "integer",
-    "description": "Output lines to keep from the end.",
-    "minimum": 0,
-    "maximum": 1000,
-    "default": 50,
-}
-_LIMIT = {
-    "type": "integer",
-    "description": "Max results.",
-    "minimum": 1,
-    "maximum": 100,
-    "default": 20,
-}
-
-
-def _name(description: str) -> dict[str, Any]:
-    return _prop("string", description) | {"minLength": 1}
+_COMPONENT_ID = prop("string", "Catalog id, e.g. 'sensor.dht' or 'wifi'.")
+_JOB_ID = prop("string", "Firmware job id returned by compile or install.")
+_TAIL_LINES = prop(
+    "integer", "Output lines to keep from the end.", minimum=0, maximum=1000, default=50
+)
+_LIMIT = prop("integer", "Max results.", minimum=1, maximum=100, default=20)
+_INCLUDE_ADVANCED = prop("boolean", "Include advanced and YAML-only fields.", default=False)
 
 
 # The library has no oneOf or self reference, so which keys a kind takes and the
 # nested trees are described; the WS handler stays the authority on both.
-_LOCATION = closed_object(
-    {
-        "kind": _prop("string", "The location kind; it decides which other keys apply.")
-        | {"enum": list(LOCATION_TYPES)},
-        "component_id": _name(
-            "component_on, component_action, light_effect: the component instance id, "
-            "devices[].id from get_available_automations (not the catalog type in "
-            "devices[].component_id)."
-        ),
-        "trigger": _name("device_on, component_on: the bare on_* YAML key, e.g. 'on_press'."),
-        "index": _prop(
-            "integer",
-            "interval, light_effect: list position; the current list length appends. "
-            "device_on, component_on: only for a list-shaped handler, from list_automations.",
-        )
-        | {"minimum": 0},
-        "id": _name("script: the script id."),
-        "field": _name(
-            "component_action: the action-list field as a dot path from the instance, "
-            "e.g. 'turn_on_action' or 'valves.0.set_action'."
-        ),
-        "action_name": _name("api_action: the action's name."),
-    },
-    ("kind",),
-) | {
-    "description": "Where the automation lives: a location from list_automations, or a new "
-    "one whose keys follow its kind."
+_LOCATION_PROPERTIES = {
+    "kind": prop("string", "The location kind.", enum=list(LOCATION_TYPES)),
+    "component_id": prop(
+        "string",
+        "component_on, component_action, light_effect: the component instance id, "
+        "devices[].id from get_available_automations (not the catalog type in "
+        "devices[].component_id).",
+        minLength=1,
+    ),
+    "trigger": prop(
+        "string",
+        "device_on, component_on: the bare on_* YAML key, e.g. 'on_press'.",
+        minLength=1,
+    ),
+    "index": prop(
+        "integer",
+        "interval, light_effect: list position; the current list length appends. "
+        "device_on, component_on: only for a list-shaped handler, from list_automations.",
+        minimum=0,
+    ),
+    "id": prop("string", "script: the script id.", minLength=1),
+    "field": prop(
+        "string",
+        "component_action: the action-list field as a dot path from the instance, "
+        "e.g. 'turn_on_action' or 'valves.0.set_action'.",
+        minLength=1,
+    ),
+    "action_name": prop("string", "api_action: the action's name.", minLength=1),
 }
+_LOCATION = closed_object(
+    _LOCATION_PROPERTIES,
+    ("kind",),
+    description="Where the automation lives: a location from list_automations, or a new one "
+    "whose keys follow its kind.",
+)
+_LISTED_LOCATION = closed_object(
+    _LOCATION_PROPERTIES,
+    ("kind",),
+    description="The automation's location as returned by list_automations.",
+)
 _CONDITION = closed_object(
     {
-        "condition_id": _name("Condition id from get_available_automations."),
+        "condition_id": prop("string", "Condition id from get_available_automations.", minLength=1),
         "params": open_object("The condition's fields, from get_automation_docs."),
-        "children": _prop("array", "A combinator's sub-conditions, each shaped like this item.")
-        | {"items": open_object("A condition.")},
+        "children": prop(
+            "array",
+            "A combinator's sub-conditions, each shaped like this item.",
+            items=open_object("A condition."),
+        ),
     },
     ("condition_id",),
 )
 _ACTION = closed_object(
     {
-        "action_id": _name("Action id from get_available_automations, e.g. 'light.turn_on'."),
+        "action_id": prop(
+            "string",
+            "Action id from get_available_automations, e.g. 'light.turn_on'; an uncatalogued "
+            "action needs unknown.",
+            minLength=1,
+        ),
         "params": open_object("The action's fields, from get_automation_docs."),
         "children": open_object(
             "Control flow branches: a branch name such as 'then' or 'else' mapped to a list "
             "of actions shaped like this item."
         ),
-        "conditions": _prop("array", "The boolean gate of an if or wait_until.")
-        | {"items": _CONDITION},
+        "conditions": prop("array", "The boolean gate of an if or wait_until.", items=_CONDITION),
+        "unknown": prop(
+            "boolean",
+            "True for an uncatalogued action, such as an external component's: raw_body is "
+            "written verbatim and params, children and conditions are not used.",
+        ),
+        "raw_body": any_value("The uncatalogued action's YAML body, verbatim."),
     },
     ("action_id",),
 )
@@ -145,10 +161,11 @@ _AUTOMATION = closed_object(
             "mode and parameters; api_action's variables; for light_effect exactly one key, "
             "the effect id mapped to its params; nothing for component_action."
         ),
-        "actions": _prop("array", "The actions to run, in order.") | {"items": _ACTION},
+        "actions": prop("array", "The actions to run, in order.", items=_ACTION),
     },
     ("actions",),
-) | {"description": "The automation tree; the location decides the trigger, so no trigger_id."}
+    description="The automation tree; the location decides the trigger, so no trigger_id.",
+)
 
 
 @_tool(
@@ -185,8 +202,8 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "upsert_automation instead. The previous text stays in the dashboard's version history.",
     {
         "configuration": _CONFIGURATION,
-        "content": _prop("string", "The complete new YAML."),
-        "expected": _prop(
+        "content": prop("string", "The complete new YAML."),
+        "expected": prop(
             "string",
             "The text get_config returned, verbatim; the write is refused with "
             "precondition_failed if the file changed since, so nothing is overwritten unseen.",
@@ -265,7 +282,7 @@ async def _compile(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
     "device runs whatever compiles, so read and validate the config first.",
     {
         "configuration": _CONFIGURATION,
-        "port": _prop("string", "'OTA' (default), a serial port, or an IP/hostname."),
+        "port": prop("string", "'OTA' (default), a serial port, or an IP/hostname."),
     },
     ("configuration",),
 )
@@ -318,7 +335,7 @@ async def _cancel_job(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]
     "Search the ESPHome component catalog by name or keyword. total above the number of "
     "rows returned means the query was capped; narrow it.",
     {
-        "query": _prop("string", "Search text."),
+        "query": prop("string", "Search text."),
         "limit": _LIMIT,
     },
     ("query",),
@@ -341,16 +358,15 @@ async def _search_components(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     "are omitted unless include_advanced is true.",
     {
         "component_id": _COMPONENT_ID,
-        "platform": _prop(
+        "platform": prop(
             "string", "Target platform (esp32, esp8266, ...) to resolve platform defaults."
         ),
-        "board_id": _prop(
+        "board_id": prop(
             "string",
             "Board id from search_boards; resolves the chip variant's defaults, which "
             "platform alone cannot.",
         ),
-        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
-        | {"default": False},
+        "include_advanced": _INCLUDE_ADVANCED,
     },
     ("component_id",),
 )
@@ -386,7 +402,7 @@ async def _get_config_components(db: DeviceBuilder, args: dict[str, Any]) -> lis
     "Search the board catalog by name or chip; returns board ids for create_device. total "
     "above the number of rows returned means the query was capped; narrow it.",
     {
-        "query": _prop("string", "Search text, e.g. 'esp32-c3' or 'nodemcu'."),
+        "query": prop("string", "Search text, e.g. 'esp32-c3' or 'nodemcu'."),
         "limit": _LIMIT,
     },
     ("query",),
@@ -410,10 +426,11 @@ async def _list_secret_names(db: DeviceBuilder, _args: dict[str, Any]) -> Any:
     "with overwrite. Replacing is not recoverable: secrets.yaml is kept out of version "
     "history. Reference the secret in YAML as '!secret <name>'.",
     {
-        "name": _prop("string", "Secret name, e.g. 'wifi_password'."),
-        "value": _prop("string", "The secret value."),
-        "overwrite": _prop("boolean", "Replace an existing value; the old one is lost.")
-        | {"default": False},
+        "name": prop("string", "Secret name, e.g. 'wifi_password'."),
+        "value": prop("string", "The secret value."),
+        "overwrite": prop(
+            "boolean", "Replace an existing value; the old one is lost.", default=False
+        ),
     },
     ("name", "value"),
 )
@@ -437,9 +454,9 @@ async def _set_secret(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]
     "'!secret wifi_password' (set them first with set_secret if list_secret_names lacks them); "
     "it takes no Wi-Fi arguments. Returns the new configuration filename.",
     {
-        "name": _prop("string", "Device name (its hostname), e.g. 'living-room-sensor'."),
-        "friendly_name": _prop("string", "Human readable name."),
-        "board_id": _prop("string", "Board id from search_boards, e.g. 'esp32dev'."),
+        "name": prop("string", "Device name (its hostname), e.g. 'living-room-sensor'."),
+        "friendly_name": prop("string", "Human readable name."),
+        "board_id": prop("string", "Board id from search_boards, e.g. 'esp32dev'."),
     },
     ("name",),
 )
@@ -482,20 +499,23 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
     "light effect or filter takes. An omitted flag is false; advanced and YAML-only fields are "
     "omitted unless include_advanced is true.",
     {
-        "refs": _prop("array", "Building blocks to document.")
-        | {
-            "maxItems": _MAX_REFS,
-            "items": closed_object(
+        "refs": prop(
+            "array",
+            "Building blocks to document.",
+            maxItems=_MAX_REFS,
+            items=closed_object(
                 {
-                    "type": _prop("string", "The building block kind.")
-                    | {"enum": list(AUTOMATION_TYPES)},
-                    "id": _name("Its id from get_available_automations, e.g. 'light.turn_on'."),
+                    "type": prop("string", "The building block kind.", enum=list(AUTOMATION_TYPES)),
+                    "id": prop(
+                        "string",
+                        "Its id from get_available_automations, e.g. 'light.turn_on'.",
+                        minLength=1,
+                    ),
                 },
                 ("type", "id"),
             ),
-        },
-        "include_advanced": _prop("boolean", "Include advanced and YAML-only fields.")
-        | {"default": False},
+        ),
+        "include_advanced": _INCLUDE_ADVANCED,
     },
     ("refs",),
 )
@@ -519,7 +539,7 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
         "configuration": _CONFIGURATION,
         "location": _LOCATION,
         "automation": _AUTOMATION,
-        "expected": _prop(
+        "expected": prop(
             "string",
             "When replacing: the automation's raw_yaml exactly as list_automations returned it.",
         ),
@@ -543,8 +563,8 @@ async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     "precondition_failed if the automation changed or moved since it was listed.",
     {
         "configuration": _CONFIGURATION,
-        "location": _LOCATION,
-        "expected": _prop(
+        "location": _LISTED_LOCATION,
+        "expected": prop(
             "string", "The automation's raw_yaml exactly as list_automations returned it."
         ),
     },

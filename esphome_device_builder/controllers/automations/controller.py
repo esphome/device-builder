@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import fields
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +24,7 @@ from ...helpers.json import dumps_str
 from ...helpers.text import diff_excerpt, same_text
 from ...models.api import ErrorCode
 from ...models.automations import (
+    LOCATION_FIELDS,
     LOCATION_TYPES,
     AutomationLocation,
     AutomationTree,
@@ -480,7 +480,7 @@ def _decode_location(raw: dict) -> AutomationLocation:
     if not isinstance(kind, str) or (loc_type := LOCATION_TYPES.get(kind)) is None:
         msg = f"Unknown location kind: {kind!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    if extra := set(raw) - {f.name for f in fields(loc_type)}:
+    if extra := set(raw) - LOCATION_FIELDS[kind]:
         msg = f"{kind} location does not take {sorted(extra)}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     # Resolve ``from_dict`` per call: a bound method captured at import holds

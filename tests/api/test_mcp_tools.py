@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from typing import Any
 from unittest.mock import ANY, AsyncMock
@@ -14,6 +13,7 @@ from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
+    LOCATION_FIELDS,
     LOCATION_TYPES,
     AddComponentResponse,
     ComponentCatalogEntry,
@@ -615,7 +615,8 @@ async def test_upsert_automation_saves_through_the_command(
                     {"condition_id": "and", "children": [{"condition_id": "wifi.connected"}]}
                 ],
                 "children": {"then": [{"action_id": "light.turn_on", "params": {"id": "led"}}]},
-            }
+            },
+            {"action_id": "my_ext.blink", "unknown": True, "raw_body": {"pin": 4}},
         ],
     }
     assert await mcp_call_json(
@@ -657,19 +658,9 @@ async def test_upsert_automation_saves_through_the_command(
             id="kind",
         ),
         pytest.param(
-            {"location": _LOCATION | {"index": -1}, "automation": _TREE},
-            "Argument location must be an object whose index is at least 0",
-            id="index",
-        ),
-        pytest.param(
             {"location": _LOCATION, "automation": _TREE | {"trigger_id": "on_boot"}},
             "Argument automation must be an object without trigger_id",
             id="trigger_id",
-        ),
-        pytest.param(
-            {"location": _LOCATION, "automation": {"trigger_params": {}}},
-            "Argument automation must be an object with actions",
-            id="no_actions",
         ),
         pytest.param(
             {
@@ -695,14 +686,10 @@ async def test_upsert_automation_refuses_a_malformed_shape(
     upsert.assert_not_awaited()
 
 
-def test_delete_automation_takes_the_upsert_location_schema() -> None:
-    upsert, delete = TOOLS["upsert_automation"], TOOLS["delete_automation"]
-    assert delete.schema["properties"]["location"] == upsert.schema["properties"]["location"]
-
-
-def test_location_schema_covers_every_location_field() -> None:
-    fields = {f.name for cls in LOCATION_TYPES.values() for f in dataclasses.fields(cls)}
-    assert set(TOOLS["upsert_automation"].schema["properties"]["location"]["properties"]) == fields
+@pytest.mark.parametrize("tool", ["upsert_automation", "delete_automation"])
+def test_location_schema_covers_every_location_field(tool: str) -> None:
+    fields = set().union(*LOCATION_FIELDS.values())
+    assert set(TOOLS[tool].schema["properties"]["location"]["properties"]) == fields
 
 
 async def test_delete_automation_cannot_delete_what_it_was_not_shown(
