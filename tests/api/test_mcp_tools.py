@@ -555,6 +555,13 @@ async def test_automation_tools_wrap_the_automation_commands(
     mcp_db.command_handlers["automations/get_bodies"] = bodies
     delete = AsyncMock(return_value={"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""}})
     mcp_db.command_handlers["automations/delete"] = delete
+    mcp_db.command_handlers["devices/validate"] = validate_stub(
+        [
+            (StreamEvent.OUTPUT, "  script.execute: blink"),
+            (StreamEvent.OUTPUT, "  Couldn't find ID 'blink'"),
+            (StreamEvent.RESULT, {"success": False, "code": 2}),
+        ]
+    )
 
     listed = await mcp_call_json(mcp_client, "list_automations", {"configuration": "kitchen.yaml"})
     assert listed == [{"location": location, "label": "blink", "raw_yaml": "script:\n"}]
@@ -573,6 +580,12 @@ async def test_automation_tools_wrap_the_automation_commands(
     ) == {
         "configuration": "kitchen.yaml",
         "yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""},
+        "validation": {
+            "success": False,
+            "exit_code": 2,
+            "output": ["  script.execute: blink", "  Couldn't find ID 'blink'"],
+            "truncated": False,
+        },
     }
     assert delete.await_args.kwargs == {
         "client": ANY,
@@ -670,7 +683,7 @@ async def test_upsert_automation_reports_esphome_errors(
 async def test_upsert_automation_validation_is_null_past_the_budget(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(mcp_tools, "_VALIDATE_BUDGET", 0.05)
+    monkeypatch.setattr(mcp_tools, "_CALL_BUDGET", 0.05)
     _stub_upsert(mcp_db)
     outcome: list[str] = []
 
@@ -708,13 +721,46 @@ async def test_upsert_automation_validation_is_null_without_a_verdict(
     assert reply["validation"] is None
 
 
-async def test_upsert_automation_validation_is_null_when_the_pool_is_full(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+async def test_upsert_automation_budget_counts_the_write(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mcp_tools, "_CALL_BUDGET", 0.05)
+
+    async def slow_upsert(**_kwargs: Any) -> dict[str, Any]:
+        await asyncio.sleep(0.1)
+        return {"yaml_diff": _UPSERT_DIFF}
+
+    mcp_db.command_handlers["automations/upsert"] = slow_upsert
+    outcome: list[str] = []
+
+    async def validate(**_kwargs: Any) -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            outcome.append("cancelled")
+            raise
+
+    mcp_db.command_handlers["devices/validate"] = validate
+    reply = await mcp_call_json(mcp_client, "upsert_automation", _UPSERT_ARGS)
+    assert reply == {"configuration": "kitchen.yaml", "yaml_diff": _UPSERT_DIFF, "validation": None}
+    assert outcome == ["cancelled"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(
+            CommandError(ErrorCode.UNAVAILABLE, "Too many concurrent runs; retry shortly"),
+            id="pool_full",
+        ),
+        pytest.param(OSError(24, "Too many open files"), id="spawn_failed"),
+    ],
+)
+async def test_upsert_automation_validation_is_null_when_the_run_fails(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, failure: Exception
 ) -> None:
     _stub_upsert(mcp_db)
-    mcp_db.command_handlers["devices/validate"] = AsyncMock(
-        side_effect=CommandError(ErrorCode.UNAVAILABLE, "Too many concurrent runs; retry shortly")
-    )
+    mcp_db.command_handlers["devices/validate"] = AsyncMock(side_effect=failure)
     reply = await mcp_call_json(mcp_client, "upsert_automation", _UPSERT_ARGS)
     assert reply["yaml_diff"] == _UPSERT_DIFF
     assert reply["validation"] is None

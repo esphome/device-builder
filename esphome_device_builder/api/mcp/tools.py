@@ -21,8 +21,9 @@ if TYPE_CHECKING:
     from ...mcp.tools import ToolHandler
 
 _MESSAGE_ID = "mcp"
-# Share of Home Assistant's 10 s per-call budget an in-call esphome config run may take.
-_VALIDATE_BUDGET = 8.0
+# Share of Home Assistant's 10 s per-call budget a write tool may spend before answering
+# with ``validation: null``; killing a timed-out run can add up to ``logs._REAP_TIMEOUT``.
+_CALL_BUDGET = 8.0
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -471,6 +472,7 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration", "location", "automation"),
 )
 async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
+    deadline = _call_deadline()
     result = await _call(
         db,
         "automations/upsert",
@@ -480,7 +482,7 @@ async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     return {
         "configuration": args["configuration"],
         "yaml_diff": result["yaml_diff"],
-        "validation": await _validate_within_budget(db, args["configuration"]),
+        "validation": await _validate_by(db, args["configuration"], deadline),
     }
 
 
@@ -488,7 +490,8 @@ async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     "delete_automation",
     "Remove one automation from a device config and save it; pass the location and raw_yaml "
     "from list_automations. A location is positional, so the delete is refused with "
-    "precondition_failed if the automation changed or moved since it was listed.",
+    "precondition_failed if the automation changed or moved since it was listed. The "
+    "reply's validation is as on upsert_automation.",
     {
         "configuration": _CONFIGURATION,
         "location": _prop("object", "The automation's location as returned by list_automations.")
@@ -500,13 +503,18 @@ async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     ("configuration", "location", "expected"),
 )
 async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
+    deadline = _call_deadline()
     result = await _call(
         db,
         "automations/delete",
         save=True,
         **_only(args, "configuration", "location", "expected"),
     )
-    return {"configuration": args["configuration"], "yaml_diff": result["yaml_diff"]}
+    return {
+        "configuration": args["configuration"],
+        "yaml_diff": result["yaml_diff"],
+        "validation": await _validate_by(db, args["configuration"], deadline),
+    }
 
 
 async def _call(
@@ -536,19 +544,28 @@ async def _validate(db: DeviceBuilder, configuration: str, tail: int) -> dict[st
     }
 
 
-async def _validate_within_budget(db: DeviceBuilder, configuration: str) -> dict[str, Any] | None:
-    """Return the validate_config reply for *configuration*, or ``None`` when it ran out of time."""
+def _call_deadline() -> float:
+    """Return the loop time by which a write tool must answer."""
+    return asyncio.get_running_loop().time() + _CALL_BUDGET
+
+
+async def _validate_by(
+    db: DeviceBuilder, configuration: str, deadline: float
+) -> dict[str, Any] | None:
+    """Return *configuration*'s validate_config reply, ``None`` past *deadline* or on error."""
     try:
-        async with asyncio.timeout(_VALIDATE_BUDGET):
+        async with asyncio.timeout_at(deadline):
             return await _validate(db, configuration, _DEFAULT_TAIL_LINES)
     except TimeoutError:
         _LOGGER.info(
-            "MCP validate of %s exceeded %.0fs; left to validate_config",
+            "MCP validate of %s ran past the %.0fs call budget; left to validate_config",
             configuration,
-            _VALIDATE_BUDGET,
+            _CALL_BUDGET,
         )
     except (CommandError, McpToolError) as err:
         _LOGGER.info("MCP validate of %s skipped: %s", configuration, err)
+    except Exception:
+        _LOGGER.exception("MCP validate of %s failed after the write", configuration)
     return None
 
 
