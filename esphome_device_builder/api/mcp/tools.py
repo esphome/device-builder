@@ -472,18 +472,11 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     ("configuration", "location", "automation"),
 )
 async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    deadline = _call_deadline()
-    result = await _call(
+    return await _saved_write(
         db,
         "automations/upsert",
-        save=True,
         **_only(args, "configuration", "location", "automation", "expected"),
     )
-    return {
-        "configuration": args["configuration"],
-        "yaml_diff": result["yaml_diff"],
-        "validation": await _validate_by(db, args["configuration"], deadline),
-    }
 
 
 @_tool(
@@ -503,18 +496,9 @@ async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     ("configuration", "location", "expected"),
 )
 async def _delete_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, Any]:
-    deadline = _call_deadline()
-    result = await _call(
-        db,
-        "automations/delete",
-        save=True,
-        **_only(args, "configuration", "location", "expected"),
+    return await _saved_write(
+        db, "automations/delete", **_only(args, "configuration", "location", "expected")
     )
-    return {
-        "configuration": args["configuration"],
-        "yaml_diff": result["yaml_diff"],
-        "validation": await _validate_by(db, args["configuration"], deadline),
-    }
 
 
 async def _call(
@@ -544,9 +528,17 @@ async def _validate(db: DeviceBuilder, configuration: str, tail: int) -> dict[st
     }
 
 
-def _call_deadline() -> float:
-    """Return the loop time by which a write tool must answer."""
-    return asyncio.get_running_loop().time() + _CALL_BUDGET
+async def _saved_write(
+    db: DeviceBuilder, command: str, *, configuration: str, **args: Any
+) -> dict[str, Any]:
+    """Run a saving automation write, then append its bounded validate verdict."""
+    deadline = asyncio.get_running_loop().time() + _CALL_BUDGET
+    result = await _call(db, command, save=True, configuration=configuration, **args)
+    return {
+        "configuration": configuration,
+        "yaml_diff": result["yaml_diff"],
+        "validation": await _validate_by(db, configuration, deadline),
+    }
 
 
 async def _validate_by(

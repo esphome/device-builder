@@ -750,8 +750,8 @@ async def test_upsert_automation_budget_counts_the_write(
     "failure",
     [
         pytest.param(
-            CommandError(ErrorCode.UNAVAILABLE, "Too many concurrent runs; retry shortly"),
-            id="pool_full",
+            CommandError(ErrorCode.UNAVAILABLE, "devices/validate is not available"),
+            id="refused",
         ),
         pytest.param(OSError(24, "Too many open files"), id="spawn_failed"),
     ],
