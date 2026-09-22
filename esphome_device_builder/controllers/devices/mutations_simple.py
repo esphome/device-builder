@@ -339,11 +339,12 @@ async def _config_only_rename(
         for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
-        # Before the migrate, so a moved file carries the record with it.
         deployed_name = controller._stamp_deployed_name(
             configuration, old_name=old_name, new_name=new_name
         )
         await migrate_metadata(controller, configuration, new_filename)
+        # The migration is best-effort and its merge lets a stale target entry win.
+        controller._set_deployed_name(new_filename, deployed_name)
     await rescan_renamed(controller, new_filename)
     # An in-place rescan re-stamps the pre-rename name over a record this
     # rename just cleared. Only the clear is re-asserted, so this can't

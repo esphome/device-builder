@@ -521,3 +521,18 @@ async def test_in_place_rename_back_survives_the_rescan_stamp(
         )
 
     assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
+
+
+async def test_config_only_rename_records_the_name_even_if_the_migration_fails(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``migrate_metadata`` logs and continues, so the stamp is re-asserted under the new file."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    controller._migrate_device_metadata = AsyncMock(side_effect=OSError("disk"))
+
+    await controller.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+
+    assert controller._metadata_store.get("livingroom.yaml")["deployed_name"] == "kitchen"

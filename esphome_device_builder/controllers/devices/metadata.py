@@ -15,7 +15,7 @@ from ...helpers.ip import is_unusable_address
 from ...helpers.metadata_sidecar import metadata_transaction
 from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata, MetadataResolver
-from ._metadata_store import _DEFAULT_SAVE_DELAY, STORE_FIELDS
+from ._metadata_store import STORE_FIELDS
 
 if TYPE_CHECKING:
     from ...models import Device
@@ -243,7 +243,12 @@ class DeviceMetadataBase(DeviceBuilderBase):
 
     def _clear_deployed_name(self, configuration: str, *, device: Device | None = None) -> None:
         """Forget the recorded hostname; the firmware carries the YAML's own name."""
-        if self._metadata_store.get_field(configuration, "deployed_name"):
+        if device is None:
+            device = self._scanner.get_by_configuration(configuration)
+        # Either side may hold it: an executor load can swap a pre-clear row in.
+        if (device is not None and device.deployed_name) or self._metadata_store.get_field(
+            configuration, "deployed_name"
+        ):
             self._set_deployed_name(configuration, "", device=device)
 
     def _set_deployed_name(
@@ -254,9 +259,8 @@ class DeviceMetadataBase(DeviceBuilderBase):
             device = self._scanner.get_by_configuration(configuration)
         if device is not None:
             device.deployed_name = deployed
-        # A lost stamp strands the device; a lost clear self-heals on the next announce.
-        delay = 0.0 if deployed else _DEFAULT_SAVE_DELAY
-        self._metadata_store.update(configuration, deployed_name=deployed, delay=delay)
+        # Record writes are rare and a lost one can't always self-heal; don't debounce.
+        self._metadata_store.update(configuration, deployed_name=deployed, delay=0.0)
 
     async def _clear_volatile_device_metadata(self, configuration: str) -> None:
         """Clear archive-volatile fields in both stores (keeps identity).

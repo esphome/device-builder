@@ -187,6 +187,18 @@ async def test_completed_app_upload_clears_the_deployed_name(tmp_path: Path) -> 
     assert row.deployed_name == ""
 
 
+async def test_completed_install_clears_even_with_the_bootloader_flag(tmp_path: Path) -> None:
+    """The CLI honours ``--bootloader`` for UPLOAD only; an INSTALL always flashes the app."""
+    controller, _ = _make_controller(tmp_path)
+    controller._metadata_store.update("kitchen.yaml", deployed_name="asistente", delay=0.0)
+    job = _job(JobType.INSTALL, JobStatus.COMPLETED)
+    job.flash_bootloader = True
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert "deployed_name" not in controller._metadata_store.get("kitchen.yaml")
+
+
 async def test_completed_bootloader_upload_keeps_the_deployed_name(tmp_path: Path) -> None:
     """``--bootloader`` replaces no app, so the recorded hostname still stands."""
     controller, _ = _make_controller(tmp_path)

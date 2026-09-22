@@ -103,6 +103,16 @@ async def test_mdns_ownership_clears_the_deployed_name(
     assert rows[0].deployed_name == (expected or "")
 
 
+async def test_mdns_ownership_clears_a_row_the_store_already_lost() -> None:
+    """An executor load can swap a pre-clear row in after the store was cleared."""
+    row = make_device(address="", deployed_name="asistente")
+    ctrl, _ = make_devices_controller_with_bus([row])
+
+    ctrl._on_source_change("kitchen", ReachabilitySource.MDNS)
+
+    assert row.deployed_name == ""
+
+
 async def test_mdns_ownership_of_a_ping_online_device_still_clears() -> None:
     """``apply`` skips the state callback when the device is already ONLINE."""
     device = make_device(address="", state=DeviceState.ONLINE)

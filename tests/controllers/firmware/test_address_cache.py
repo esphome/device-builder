@@ -9,8 +9,11 @@ parity test for the new backend.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _build_address_cache_args
@@ -152,11 +155,14 @@ def test_multiple_cached_addresses_sorted() -> None:
 # ----------------------------------------------------------------------
 
 
-def test_deployed_name_cache_backs_the_yaml_name_key() -> None:
-    """The pre-rename name's cached IPs are published under the YAML name's key."""
+def test_deployed_name_cache_backs_the_yaml_name_key(caplog: pytest.LogCaptureFixture) -> None:
+    """The pre-rename name's cached IPs are published under the YAML name's key, and logged."""
     monitor = RecordingStateMonitor(cached_addresses={"asistente.local": ["192.168.1.50"]})
-    args = _build_address_cache_args(_device(), monitor, "asistente")
+    with caplog.at_level(logging.INFO):
+        args = _build_address_cache_args(_device(), monitor, "asistente")
     assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+    # A redirect that reaches the wrong board must be diagnosable after the fact.
+    assert "targets asistente" in caplog.text
 
 
 def test_deployed_name_not_consulted_when_own_name_resolves() -> None:

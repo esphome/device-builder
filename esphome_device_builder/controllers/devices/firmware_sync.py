@@ -90,7 +90,8 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         return
     recompute_hash = job_type in COMPILING_JOB_TYPES
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
-    if flashed and not job.flash_bootloader:
+    bootloader_only = job_type is JobType.UPLOAD and job.flash_bootloader
+    if flashed and not bootloader_only:
         # A bootloader-only upload replaces no app, so its record stands.
         # Cleared here, not in the background refresh, so a following job's
         # address-cache read can't race it.

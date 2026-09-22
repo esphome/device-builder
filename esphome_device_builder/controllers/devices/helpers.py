@@ -507,6 +507,13 @@ def _build_address_cache_args(
         if not cached and is_local and deployed_name:
             # Publish the pre-rename name's IPs under the key the CLI looks up.
             cached = monitor.mdns.get_cached_addresses(default_mdns_address(deployed_name))
+            if cached:
+                _LOGGER.info(
+                    "OTA for %s targets %s, the hostname its firmware still answers to (%s)",
+                    normalized,
+                    deployed_name,
+                    ", ".join(cached),
+                )
         if cached:
             addresses = list(cached)
 
