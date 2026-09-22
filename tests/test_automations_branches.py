@@ -19,6 +19,7 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
 from esphome_device_builder.controllers.automations import catalog
+from esphome_device_builder.controllers.automations._decompose import UnsupportedActionError
 from esphome_device_builder.controllers.automations.controller import (
     _decode_location,
     _scope_from_yaml,
@@ -507,13 +508,15 @@ def test_decompose_condition_list_handles_single_mapping() -> None:
 
 
 def test_decompose_condition_list_faults_on_an_unsupported_body() -> None:
-    """A tagged condition body (``!include``) faults instead of decomposing to no gate."""
+    """A tagged gate (``!include``) is unsupported, a malformed one invalid, none is dropped."""
     body = TaggedScalar(value="gate.yaml")
     body.yaml_set_ctag(Tag(suffix="!include"))
-    with pytest.raises(CommandError, match="TaggedScalar"):
+    with pytest.raises(UnsupportedActionError, match="YAML tag"):
         _decompose_condition_list(body)
-    with pytest.raises(CommandError, match="TaggedScalar"):
+    with pytest.raises(UnsupportedActionError, match="YAML tag"):
         _decompose_condition_list([{"api.connected": None}, body])
+    with pytest.raises(CommandError, match="mapping or a condition id"):
+        _decompose_condition_list(5)
 
 
 def test_decompose_condition_list_reads_a_string_as_a_condition_id() -> None:

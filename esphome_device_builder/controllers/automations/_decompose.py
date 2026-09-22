@@ -239,8 +239,11 @@ def _decompose_condition(raw: Any) -> ConditionNode:
     """Build one :class:`ConditionNode` from a registry-shaped entry or a bare condition id."""
     if isinstance(raw, str):
         raw = {raw: None}
+    if isinstance(raw, TaggedScalar):
+        msg = "Condition uses a YAML tag the editor cannot represent"
+        raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
     if not isinstance(raw, dict):
-        msg = f"Condition must be a mapping or a condition id, got {type(raw).__name__}"
+        msg = "Condition must be a mapping or a condition id"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     if not raw:
         msg = "Empty condition entry"

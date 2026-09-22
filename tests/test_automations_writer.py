@@ -1101,6 +1101,7 @@ def test_if_included_condition_parses_read_only_instead_of_dropping_the_gate() -
     )
     parsed = parse_device_yaml(yaml_text)[0]
     assert parsed.error is not None
+    assert parsed.unsupported is True
     assert parsed.automation.actions == []
 
 
