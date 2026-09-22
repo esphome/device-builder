@@ -150,6 +150,11 @@ def closed_object(properties: dict[str, Any], required: tuple[str, ...] = ()) ->
     }
 
 
+def open_object(description: str) -> dict[str, Any]:
+    """Build an object schema that accepts any keys."""
+    return {"type": "object", "description": description, "additionalProperties": True}
+
+
 class _Keyword(NamedTuple):
     """One enforced keyword: the types it sits on, its registration check and its value check."""
 
@@ -343,7 +348,7 @@ def _object_shape_problem(prop: dict[str, Any]) -> str | None:
     if "properties" in prop:
         return _closed_object_problem(prop)
     if prop.get("additionalProperties") is not True:
-        return "needs a shape: closed_object, or additionalProperties true for an open object"
+        return "needs a shape: closed_object or open_object"
     if "required" in prop:
         return "has required names but no properties; see closed_object"
     return None

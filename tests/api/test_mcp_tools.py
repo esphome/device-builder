@@ -13,6 +13,7 @@ from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
+    LOCATION_TYPES,
     AddComponentResponse,
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -36,11 +37,22 @@ from .conftest import (
 )
 
 _DUMMY_ARGUMENT = {"string": "x", "object": {}, "integer": 1, "boolean": True, "array": []}
+
+
+def _minimal(prop: dict[str, Any]) -> Any:
+    """Build a value the schema *prop* accepts, filling only required keys."""
+    if "enum" in prop:
+        return prop["enum"][0]
+    if "properties" in prop:
+        return {key: _minimal(prop["properties"][key]) for key in prop["required"]}
+    return _DUMMY_ARGUMENT[prop["type"]]
+
+
 _SECRET_REFUSING_TOOLS = [
     pytest.param(
         name,
         {
-            key: _DUMMY_ARGUMENT[tool.schema["properties"][key]["type"]]
+            key: _minimal(tool.schema["properties"][key])
             for key in tool.schema["required"]
             if key != "configuration"
         },
@@ -582,6 +594,10 @@ async def test_automation_tools_wrap_the_automation_commands(
     }
 
 
+_LOCATION = {"kind": "device_on", "trigger": "on_boot"}
+_TREE = {"actions": [{"action_id": "light.turn_on"}]}
+
+
 async def test_upsert_automation_saves_through_the_command(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
@@ -589,12 +605,22 @@ async def test_upsert_automation_saves_through_the_command(
         return_value={"yaml_diff": {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"}}
     )
     mcp_db.command_handlers["automations/upsert"] = upsert
-    location = {"kind": "device_on", "trigger": "on_boot"}
-    tree = {"trigger_id": "on_boot", "trigger_params": {}, "actions": []}
+    tree = {
+        "trigger_params": {"priority": 600},
+        "actions": [
+            {
+                "action_id": "if",
+                "conditions": [
+                    {"condition_id": "and", "children": [{"condition_id": "wifi.connected"}]}
+                ],
+                "children": {"then": [{"action_id": "light.turn_on", "params": {"id": "led"}}]},
+            }
+        ],
+    }
     assert await mcp_call_json(
         mcp_client,
         "upsert_automation",
-        {"configuration": "kitchen.yaml", "location": location, "automation": tree},
+        {"configuration": "kitchen.yaml", "location": _LOCATION, "automation": tree},
     ) == {
         "configuration": "kitchen.yaml",
         "yaml_diff": {"fromLine": 3, "toLine": 2, "replacement": "  on_boot:\n"},
@@ -603,7 +629,7 @@ async def test_upsert_automation_saves_through_the_command(
         "client": ANY,
         "message_id": ANY,
         "configuration": "kitchen.yaml",
-        "location": location,
+        "location": _LOCATION,
         "automation": tree,
         "save": True,
     }
@@ -613,12 +639,64 @@ async def test_upsert_automation_saves_through_the_command(
         "upsert_automation",
         {
             "configuration": "kitchen.yaml",
-            "location": location,
+            "location": _LOCATION,
             "automation": tree,
             "expected": "stale\n",
         },
     ) == (True, "precondition_failed: already holds one")
     assert upsert.await_args.kwargs["expected"] == "stale\n"
+
+
+@pytest.mark.parametrize(
+    ("arguments", "fragment"),
+    [
+        pytest.param(
+            {"location": {"kind": "on_boot"}, "automation": _TREE},
+            "Argument location must be an object whose kind is one of " + str(list(LOCATION_TYPES)),
+            id="kind",
+        ),
+        pytest.param(
+            {"location": _LOCATION | {"index": -1}, "automation": _TREE},
+            "Argument location must be an object whose index is at least 0",
+            id="index",
+        ),
+        pytest.param(
+            {"location": _LOCATION, "automation": _TREE | {"trigger_id": "on_boot"}},
+            "Argument automation must be an object without trigger_id",
+            id="trigger_id",
+        ),
+        pytest.param(
+            {"location": _LOCATION, "automation": {"trigger_params": {}}},
+            "Argument automation must be an object with actions",
+            id="no_actions",
+        ),
+        pytest.param(
+            {
+                "location": _LOCATION,
+                "automation": {"actions": [{"action_id": "if", "conditions": [{"params": {}}]}]},
+            },
+            "Argument automation must be an object whose actions is a list whose item 0 is "
+            "an object whose conditions is a list whose item 0 is an object with condition_id",
+            id="condition_id",
+        ),
+    ],
+)
+async def test_upsert_automation_refuses_a_malformed_shape(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, arguments: dict[str, Any], fragment: str
+) -> None:
+    upsert = AsyncMock()
+    mcp_db.command_handlers["automations/upsert"] = upsert
+    is_error, text = await mcp_call(
+        mcp_client, "upsert_automation", {"configuration": "kitchen.yaml"} | arguments
+    )
+    assert is_error
+    assert text == f"invalid_args: {fragment}"
+    upsert.assert_not_awaited()
+
+
+def test_delete_automation_takes_the_upsert_location_schema() -> None:
+    upsert, delete = TOOLS["upsert_automation"], TOOLS["delete_automation"]
+    assert delete.schema["properties"]["location"] is upsert.schema["properties"]["location"]
 
 
 async def test_delete_automation_cannot_delete_what_it_was_not_shown(

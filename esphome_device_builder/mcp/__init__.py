@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from .tools import INTERNAL_ERROR, INVALID_ARGS, McpToolError, ToolRegistry, closed_object
+from .tools import (
+    INTERNAL_ERROR,
+    INVALID_ARGS,
+    McpToolError,
+    ToolRegistry,
+    closed_object,
+    open_object,
+)
 from .transport import McpServer
 
 __all__ = [
@@ -12,4 +19,5 @@ __all__ = [
     "McpToolError",
     "ToolRegistry",
     "closed_object",
+    "open_object",
 ]

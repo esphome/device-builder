@@ -14,6 +14,7 @@ from esphome_device_builder.mcp import (
     McpToolError,
     ToolRegistry,
     closed_object,
+    open_object,
 )
 from esphome_device_builder.mcp.tools import validate_args
 
@@ -247,7 +248,7 @@ def test_closed_object_registers_as_valid_json_schema() -> None:
         ),
         pytest.param(
             {"type": "object", "additionalProperties": False},
-            "additionalProperties true",
+            "closed_object or open_object",
             id="closed_without_properties",
         ),
         pytest.param(
@@ -332,7 +333,7 @@ def test_validate_args_reads_integral_floats_back_as_integers() -> None:
 def test_registration_accepts_a_declared_open_object() -> None:
     tools: ToolRegistry[None] = ToolRegistry()
 
-    @tools.tool("t", "desc", {"fields": {"type": "object", "additionalProperties": True}})
+    @tools.tool("t", "desc", {"fields": open_object("Any keys.")})
     async def _t(_context: None, _args: dict[str, Any]) -> str:
         return "ok"
 

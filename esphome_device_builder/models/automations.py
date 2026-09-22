@@ -17,7 +17,7 @@ a templatable literal from a templatable lambda body.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from mashumaro.config import BaseConfig
 from mashumaro.types import Discriminator
@@ -391,6 +391,9 @@ AutomationLocation = Annotated[
     | ApiActionLocation,
     Discriminator(field="kind", include_supertypes=True),
 ]
+LOCATION_TYPES: dict[str, type[AutomationLocation]] = {
+    cls.kind: cls for cls in get_args(get_args(AutomationLocation)[0])
+}
 
 
 # ---------------------------------------------------------------------------

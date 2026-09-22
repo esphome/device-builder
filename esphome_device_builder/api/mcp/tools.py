@@ -12,8 +12,8 @@ from ...controllers.devices.helpers import scanned_component_entries
 from ...controllers.firmware.follow import job_report
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
-from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry, closed_object
-from ...models import ErrorCode
+from ...mcp import INTERNAL_ERROR, McpToolError, ToolRegistry, closed_object, open_object
+from ...models import LOCATION_TYPES, ErrorCode
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -82,6 +82,75 @@ _LIMIT = {
 }
 
 
+def _name(description: str) -> dict[str, Any]:
+    return _prop("string", description) | {"minLength": 1}
+
+
+# The library has no oneOf or self reference, so which keys a kind takes and the
+# nested trees are described; the WS handler stays the authority on both.
+_LOCATION = closed_object(
+    {
+        "kind": _prop("string", "The location kind; it decides which other keys apply.")
+        | {"enum": list(LOCATION_TYPES)},
+        "component_id": _name(
+            "component_on, component_action, light_effect: the component instance id, "
+            "devices[].id from get_available_automations (not the catalog type in "
+            "devices[].component_id)."
+        ),
+        "trigger": _name("device_on, component_on: the bare on_* YAML key, e.g. 'on_press'."),
+        "index": _prop(
+            "integer",
+            "interval, light_effect: list position; the current list length appends. "
+            "device_on, component_on: only for a list-shaped handler, from list_automations.",
+        )
+        | {"minimum": 0},
+        "id": _name("script: the script id."),
+        "field": _name(
+            "component_action: the action-list field as a dot path from the instance, "
+            "e.g. 'turn_on_action' or 'valves.0.set_action'."
+        ),
+        "action_name": _name("api_action: the action's name."),
+    },
+    ("kind",),
+) | {
+    "description": "Where the automation lives: a location from list_automations, or a new "
+    "one whose keys follow its kind."
+}
+_CONDITION = closed_object(
+    {
+        "condition_id": _name("Condition id from get_available_automations."),
+        "params": open_object("The condition's fields, from get_automation_docs."),
+        "children": _prop("array", "A combinator's sub-conditions, each shaped like this item.")
+        | {"items": open_object("A condition.")},
+    },
+    ("condition_id",),
+)
+_ACTION = closed_object(
+    {
+        "action_id": _name("Action id from get_available_automations, e.g. 'light.turn_on'."),
+        "params": open_object("The action's fields, from get_automation_docs."),
+        "children": open_object(
+            "Control flow branches: a branch name such as 'then' or 'else' mapped to a list "
+            "of actions shaped like this item."
+        ),
+        "conditions": _prop("array", "The boolean gate of an if or wait_until.")
+        | {"items": _CONDITION},
+    },
+    ("action_id",),
+)
+_AUTOMATION = closed_object(
+    {
+        "trigger_params": open_object(
+            "The block's own keys: a trigger's fields; interval's interval period; script's "
+            "mode and parameters; api_action's variables; for light_effect exactly one key, "
+            "the effect id mapped to its params; nothing for component_action."
+        ),
+        "actions": _prop("array", "The actions to run, in order.") | {"items": _ACTION},
+    },
+    ("actions",),
+) | {"description": "The automation tree; the location decides the trigger, so no trigger_id."}
+
+
 @_tool(
     "list_devices",
     "List configured ESPHome devices with their online state, address and deployed "
@@ -137,10 +206,9 @@ async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
     {
         "configuration": _CONFIGURATION,
         "component_id": _COMPONENT_ID,
-        "fields": _prop(
-            "object", "Config values keyed by field name; nested blocks are nested objects."
-        )
-        | {"additionalProperties": True},
+        "fields": open_object(
+            "Config values keyed by field name; nested blocks are nested objects."
+        ),
     },
     ("configuration", "component_id"),
 )
@@ -421,10 +489,7 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
                 {
                     "type": _prop("string", "The building block kind.")
                     | {"enum": list(AUTOMATION_TYPES)},
-                    "id": _prop(
-                        "string", "Its id from get_available_automations, e.g. 'light.turn_on'."
-                    )
-                    | {"minLength": 1},
+                    "id": _name("Its id from get_available_automations, e.g. 'light.turn_on'."),
                 },
                 ("type", "id"),
             ),
@@ -445,34 +510,15 @@ async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
 @_tool(
     "upsert_automation",
     "Insert or replace one automation in a device config and save it; the backend renders "
-    "the YAML in the right place. location kinds: {kind: 'device_on', trigger} for a device "
-    "level on_* trigger; {kind: 'component_on', component_id, trigger} for a component "
-    "instance's on_* trigger; {kind: 'script', id}; {kind: 'interval', index}; "
-    "{kind: 'component_action', component_id, field} for an action-list field such as "
-    "turn_on_action; {kind: 'light_effect', component_id, index}; {kind: 'api_action', "
-    "action_name}. In a location, component_id is the instance id (devices[].id from "
-    "get_available_automations, not the catalog type in devices[].component_id) and trigger "
-    "is the bare YAML key such as on_press; add index only for a list-shaped handler (from "
-    "list_automations); to append an interval or light_effect, pass index equal to the "
-    "current list length. automation is {trigger_params, actions}: the location decides "
-    "the trigger, so a trigger_id is ignored. trigger_params holds the block's own keys "
-    "(a trigger's fields; for interval its interval period; for script its mode and "
-    "parameters; for api_action its variables; for light_effect exactly one key, the "
-    "effect id mapped to its params; for component_action nothing, it is ignored). Each "
-    "action is {action_id, params, children, "
-    "conditions}, children maps a branch name such as then or else to a list of actions, "
-    "and each condition is {condition_id, params, children} with children a list of "
-    "conditions; ids from get_available_automations, fields from get_automation_docs. An "
-    "insert must not replace existing YAML; to replace, pass the automation's raw_yaml from "
-    "list_automations as expected. The tool checks the shape, not the fields: esphome does "
-    "that, so run validate_config after every write and repair what it reports by "
-    "replacing the automation with expected.",
+    "the YAML in the right place, so never splice YAML by hand. An insert must not replace "
+    "existing YAML; to replace, pass the automation's raw_yaml from list_automations as "
+    "expected. The tool checks the shape, not the fields: esphome does that, so run "
+    "validate_config after every write and repair what it reports by replacing the "
+    "automation with expected.",
     {
         "configuration": _CONFIGURATION,
-        "location": _prop("object", "Where the automation lives; see the description.")
-        | {"additionalProperties": True},
-        "automation": _prop("object", "The automation tree; see the description.")
-        | {"additionalProperties": True},
+        "location": _LOCATION,
+        "automation": _AUTOMATION,
         "expected": _prop(
             "string",
             "When replacing: the automation's raw_yaml exactly as list_automations returned it.",
@@ -497,8 +543,7 @@ async def _upsert_automation(db: DeviceBuilder, args: dict[str, Any]) -> dict[st
     "precondition_failed if the automation changed or moved since it was listed.",
     {
         "configuration": _CONFIGURATION,
-        "location": _prop("object", "The automation's location as returned by list_automations.")
-        | {"additionalProperties": True},
+        "location": _LOCATION,
         "expected": _prop(
             "string", "The automation's raw_yaml exactly as list_automations returned it."
         ),
