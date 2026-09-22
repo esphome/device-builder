@@ -55,7 +55,6 @@ from esphome_device_builder.controllers.automations.writing import (
     render_upsert,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.automation_keys import CONDITION_GATE_KEYS
 from esphome_device_builder.helpers.yaml import (
     SubEntityRef,
     YamlUpsertNotSupportedError,
@@ -374,6 +373,13 @@ def test_decompose_wait_until_string_is_its_condition() -> None:
     assert [c.condition_id for c in node.conditions] == ["api.connected"]
 
 
+def test_decompose_wait_until_unknown_string_stays_an_id_param() -> None:
+    """A string that names no catalogued condition (``${cond}``) keeps the lossless ``id`` param."""
+    node = _decompose_action("wait_until", "${cond}")
+    assert node.params == {"id": "${cond}"}
+    assert node.conditions == []
+
+
 def test_decompose_wait_until_dict_shorthand_is_a_condition() -> None:
     """``wait_until: {api.connected:}`` decodes the omitted-gate condition."""
     node = _decompose_action("wait_until", {"api.connected": None})
@@ -443,10 +449,7 @@ def test_emit_wait_until_scalar_collapses() -> None:
 def test_scalar_shorthand_parses_and_emits_the_same_key() -> None:
     """Every catalog entry's bare scalar emits as a scalar or ``id`` mapping and re-parses."""
     for entry in catalog.all_actions():
-        action = catalog.action_by_id(entry.id)
-        assert action is not None, entry.id
-        if action.scalar_shorthand_key in CONDITION_GATE_KEYS:
-            continue
+        assert catalog.action_by_id(entry.id) is not None, entry.id
         node = _decompose_action(entry.id, "v")
         out = emit_action_node(node)
         assert out[entry.id] in ("v", {"id": "v"}), entry.id
@@ -503,9 +506,14 @@ def test_decompose_condition_list_handles_single_mapping() -> None:
     assert out[0].condition_id == "switch.is_on"
 
 
-def test_decompose_condition_list_returns_empty_for_other_types() -> None:
-    """A non-string scalar decomposes to an empty list."""
-    assert _decompose_condition_list(5) == []
+def test_decompose_condition_list_faults_on_an_unsupported_body() -> None:
+    """A tagged condition body (``!include``) faults instead of decomposing to no gate."""
+    body = TaggedScalar(value="gate.yaml")
+    body.yaml_set_ctag(Tag(suffix="!include"))
+    with pytest.raises(CommandError, match="TaggedScalar"):
+        _decompose_condition_list(body)
+    with pytest.raises(CommandError, match="TaggedScalar"):
+        _decompose_condition_list([{"api.connected": None}, body])
 
 
 def test_decompose_condition_list_reads_a_string_as_a_condition_id() -> None:

@@ -192,7 +192,11 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
                     conditions = _decompose_condition_list(value)
                     continue
                 params[key] = _render_value(value)
-    elif isinstance(raw_params, str) and action.scalar_shorthand_key in CONDITION_GATE_KEYS:
+    elif (
+        isinstance(raw_params, str)
+        and action.scalar_shorthand_key in CONDITION_GATE_KEYS
+        and catalog.condition_by_id(raw_params) is not None
+    ):
         # ``wait_until: api.connected``: esphome reads a string in a condition
         # position as that condition id with no config.
         conditions = _decompose_condition_list(raw_params)
@@ -227,17 +231,18 @@ def _decompose_condition_list(body: Any) -> list[ConditionNode]:
     if body is None:
         return []
     if isinstance(body, list):
-        return [_decompose_condition(item) for item in body if isinstance(item, (dict, str))]
-    if isinstance(body, (dict, str)):
-        return [_decompose_condition(body)]
-    return []
+        return [_decompose_condition(item) for item in body]
+    return [_decompose_condition(body)]
 
 
-def _decompose_condition(raw: dict | str) -> ConditionNode:
+def _decompose_condition(raw: Any) -> ConditionNode:
     """Build one :class:`ConditionNode` from a registry-shaped entry or a bare condition id."""
     if isinstance(raw, str):
         raw = {raw: None}
-    if not raw or not isinstance(raw, dict):
+    if not isinstance(raw, dict):
+        msg = f"Condition must be a mapping or a condition id, got {type(raw).__name__}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if not raw:
         msg = "Empty condition entry"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     if len(raw) != 1:

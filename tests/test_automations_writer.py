@@ -1087,6 +1087,23 @@ def test_wait_until_string_condition_round_trips_to_full_form() -> None:
     assert "id:" not in new_text
 
 
+def test_if_included_condition_parses_read_only_instead_of_dropping_the_gate() -> None:
+    """``if: {condition: !include ...}`` flags the automation rather than saving it gateless."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - if:\n"
+        "          condition: !include gate.yaml\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(yaml_text)[0]
+    assert parsed.error is not None
+    assert parsed.automation.actions == []
+
+
 def test_if_string_condition_survives_the_round_trip() -> None:
     """``if: {condition: api.connected}`` keeps its condition on save instead of dropping it."""
     yaml_text = (
