@@ -1002,6 +1002,42 @@ def test_while_emits_condition_before_then() -> None:
     assert text.index("condition:") < text.index("then:")
 
 
+def test_while_gate_edit_round_trips_through_upsert() -> None:
+    """A condition added to a parsed ``while`` gate lands under ``condition:`` on upsert."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - while:\n"
+        "          condition:\n"
+        "            switch.is_on: relay1\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(yaml_text)[0]
+    assert parsed.error is None
+    tree = parsed.automation
+    tree.actions[0].conditions.append(
+        ConditionNode(condition_id="binary_sensor.is_on", params={"id": "occ"})
+    )
+    new_text, _diff = render_upsert(yaml_text, tree=tree, location=parsed.location)
+    reparsed = parse_device_yaml(new_text)[0]
+    assert reparsed.error is None
+    gate = reparsed.automation.actions[0]
+    assert gate.action_id == "while"
+    assert [c.condition_id for c in gate.conditions] == ["switch.is_on", "binary_sensor.is_on"]
+    assert [a.action_id for a in gate.children["then"]] == ["delay"]
+    assert new_text.endswith(
+        "      - while:\n"
+        "          condition:\n"
+        "            - switch.is_on: relay1\n"
+        "            - binary_sensor.is_on: occ\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
+
+
 def test_wait_until_emits_condition_before_timeout() -> None:
     """``wait_until`` emits ``condition:`` ahead of its ``timeout:`` param."""
     node = ActionNode(
