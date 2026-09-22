@@ -67,6 +67,7 @@ from .emitter import (
 from .parsing import (
     ComponentTarget,
     component_action_field_paths,
+    declares_id,
     instance_id,
     is_mapping_entry,
     make_yaml,
@@ -486,13 +487,17 @@ def _upsert_top_level_list(
 
 
 def _top_level_item_index(yaml_text: str, domain: str, item_id: str) -> int | None:
-    """Index of the first ``<domain>:`` list item the parser lists as *item_id*."""
+    """Index of the ``<domain>:`` item declaring *item_id*, else the id-less one listed as it."""
     data = make_yaml().load(yaml_text) or {}
     items = data.get(domain) if isinstance(data, dict) else None
     if not isinstance(items, list):
         return None
-    for idx, raw in enumerate(items):
-        if is_mapping_entry(raw) and instance_id(domain, raw, idx, is_list=True) == item_id:
+    entries = [(idx, raw) for idx, raw in enumerate(items) if is_mapping_entry(raw)]
+    for idx, raw in entries:
+        if declares_id(raw) and str(raw["id"]) == item_id:
+            return idx
+    for idx, raw in entries:
+        if instance_id(domain, raw, idx, is_list=True) == item_id:
             return idx
     return None
 

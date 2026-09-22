@@ -2261,7 +2261,7 @@ def test_upsert_idless_script_replaces_the_row_listed_under_its_synthetic_id(
     script_id: str, gone: str
 ) -> None:
     """A ``script_<index>`` id lands on that id-less row and writes the id onto it."""
-    new_text, _diff = render_upsert(
+    new_text, diff = render_upsert(
         _IDLESS_SCRIPTS,
         tree=AutomationTree(
             trigger_id=None,
@@ -2269,23 +2269,41 @@ def test_upsert_idless_script_replaces_the_row_listed_under_its_synthetic_id(
         ),
         location=ScriptLocation(id=script_id),
     )
+    assert _apply_diff(_IDLESS_SCRIPTS, diff) == new_text
     assert gone not in new_text
     assert f"- id: {script_id}" in new_text
     assert _script_ids(new_text) == ["script_0", "keep", "script_2"]
 
 
+def test_upsert_script_prefers_the_row_declaring_the_id_over_an_idless_one() -> None:
+    """A declared ``script_0`` wins over the id-less row the parser also lists as ``script_0``."""
+    text = "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 2s\n"
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(actions=[ActionNode(action_id="delay", params={"id": "9s"})]),
+        location=ScriptLocation(id="script_0"),
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert (
+        new_text
+        == "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 9s\n"
+    )
+
+
 def test_upsert_idless_script_past_the_end_appends() -> None:
     """A synthetic id with no row behind it is a new script."""
-    new_text, _diff = render_upsert(
+    new_text, diff = render_upsert(
         _IDLESS_SCRIPTS,
         tree=AutomationTree(actions=[ActionNode(action_id="delay", params={"id": "4s"})]),
         location=ScriptLocation(id="script_7"),
     )
+    assert _apply_diff(_IDLESS_SCRIPTS, diff) == new_text
     assert _script_ids(new_text) == ["script_0", "keep", "script_2", "script_7"]
 
 
 def test_delete_idless_script_removes_the_row_listed_under_its_synthetic_id() -> None:
-    new_text, _diff = render_delete(_IDLESS_SCRIPTS, location=ScriptLocation(id="script_2"))
+    new_text, diff = render_delete(_IDLESS_SCRIPTS, location=ScriptLocation(id="script_2"))
+    assert _apply_diff(_IDLESS_SCRIPTS, diff) == new_text
     assert "delay: 3s" not in new_text
     assert _script_ids(new_text) == ["script_0", "keep"]
 

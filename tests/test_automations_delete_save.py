@@ -538,6 +538,28 @@ async def test_upsert_with_expected_replaces_an_idless_script_under_its_listed_i
     assert devices.saved == [("d.yaml", saved, "Save an automation to d.yaml")]
 
 
+async def test_upsert_with_expected_refuses_a_replace_that_lands_on_another_row(
+    tmp_path: Path,
+) -> None:
+    """A declared ``script_0`` behind an id-less row takes the write; the guard fails closed."""
+    text = "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 2s\n"
+    controller, devices = _setup(tmp_path, text)
+    shown = (await asyncio.to_thread(parsing.parse_device_yaml, text))[0]
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION | {"trigger_id": None},
+            location=shown.location.to_dict(),
+            save=True,
+            expected=shown.raw_yaml,
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "could not be replaced in place" in excinfo.value.message
+    assert devices.saved == []
+
+
 async def test_upsert_with_save_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:
     controller, devices = _setup(tmp_path, "esphome: [\n")
 
