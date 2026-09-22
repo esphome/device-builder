@@ -10,14 +10,10 @@ internals.
 Two ergonomic shortcuts the emitter applies on fresh writes (the
 parser accepts both shapes, so the choice is purely cosmetic):
 
-- An action / condition with a single param whose key is the
-  catalog entry's ``scalar_shorthand_key`` (and, for actions, no
-  children / conditions) renders as ``- <id>: <value>`` (registry
-  shortcut) instead of the explicit ``{<key>: <value>}`` mapping.
-  A bare-scalar action with no named field (``delay: 1s``) collapses
-  the same way via its synthetic ``id`` param. An entry whose sole
-  field is a genuine ``id`` mapping (``time.has_time``) has no scalar
-  form and always renders as a mapping. See :func:`parsing.shorthand_key`.
+- An action / condition whose single param is its collapse key
+  (:func:`automation_keys.shorthand_key`) and, for actions, has no
+  children / conditions renders as ``- <id>: <value>`` instead of the
+  explicit ``{<key>: <value>}`` mapping.
 - A condition list of length one collapses to the single condition
   mapping.
 """
@@ -32,6 +28,7 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
 from ...helpers.api import CommandError
+from ...helpers.automation_keys import shorthand_key
 from ...helpers.yaml.scalar import is_custom_yaml_tag, is_lambda_sentinel, is_tagged_sentinel
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -41,7 +38,7 @@ from ...models.automations import (
     LightEffect,
 )
 from . import catalog
-from .parsing import make_yaml, shorthand_key
+from .parsing import make_yaml
 
 
 def render_script_item(tree: AutomationTree, script_id: str) -> str:

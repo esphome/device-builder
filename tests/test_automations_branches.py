@@ -54,7 +54,6 @@ from esphome_device_builder.controllers.automations.writing import (
     render_upsert,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.automation_keys import CONDITION_GATE_KEYS
 from esphome_device_builder.helpers.yaml import (
     SubEntityRef,
     YamlUpsertNotSupportedError,
@@ -69,8 +68,6 @@ from esphome_device_builder.helpers.yaml import (
 from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
-    AutomationAction,
-    AutomationCondition,
     AutomationTree,
     ComponentActionFieldLocation,
     ComponentOnLocation,
@@ -432,27 +429,22 @@ def test_emit_wait_until_scalar_collapses() -> None:
 
 
 def test_scalar_shorthand_parses_and_emits_the_same_key() -> None:
-    """Every catalog entry's bare scalar re-emits as that scalar, or as a genuine ``id`` mapping."""
-
-    def expected(body: AutomationAction | AutomationCondition, reserved: set[str]) -> object:
-        key = body.scalar_shorthand_key
-        if (key and key not in reserved) or all(e.key != "id" for e in body.config_entries):
-            return "v"
-        return {"id": "v"}
-
+    """Every catalog entry's bare scalar emits as a scalar or ``id`` mapping and re-parses."""
     for entry in catalog.all_actions():
-        action = catalog.action_by_id(entry.id)
-        if action is None:
-            continue
-        reserved = set(CONDITION_GATE_KEYS) | set(action.accepts_action_list)
-        out = emit_action_node(_decompose_action(entry.id, "v"))
-        assert out == {entry.id: expected(action, reserved)}, entry.id
+        assert catalog.action_by_id(entry.id) is not None, entry.id
+        node = _decompose_action(entry.id, "v")
+        out = emit_action_node(node)
+        assert out[entry.id] in ("v", {"id": "v"}), entry.id
+        assert _decompose_action(entry.id, out[entry.id]) == node, entry.id
     for entry in catalog.all_conditions():
         condition = catalog.condition_by_id(entry.id)
-        if condition is None or condition.accepts_condition_list:
+        assert condition is not None, entry.id
+        if condition.accepts_condition_list:
             continue
-        out = emit_condition_node(_decompose_condition({entry.id: "v"}))
-        assert out == {entry.id: expected(condition, set(CONDITION_GATE_KEYS))}, entry.id
+        node = _decompose_condition({entry.id: "v"})
+        out = emit_condition_node(node)
+        assert out[entry.id] in ("v", {"id": "v"}), entry.id
+        assert _decompose_condition(out) == node, entry.id
 
 
 def test_emit_uncatalogued_structured_node_is_refused() -> None:

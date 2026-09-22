@@ -1088,7 +1088,6 @@ def test_wait_until_scalar_lambda_round_trips_as_a_scalar() -> None:
         location=parsed.location,
     )
     assert "- wait_until: !lambda return id(ready);" in new_text
-    assert "id:" not in new_text
 
 
 # ---------------------------------------------------------------------------

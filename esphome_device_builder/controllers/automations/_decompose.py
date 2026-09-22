@@ -19,13 +19,12 @@ from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
-from ...helpers.automation_keys import CONDITION_GATE_KEYS
+from ...helpers.automation_keys import CONDITION_GATE_KEYS, scalar_param_key
 from ...helpers.yaml.scalar import is_custom_yaml_tag
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     AutomationAction,
-    AutomationCondition,
     AutomationTree,
     ConditionNode,
 )
@@ -34,31 +33,6 @@ from . import catalog
 
 class UnsupportedActionError(CommandError):
     """A known action with no structured form (oversized LVGL ``*.update``)."""
-
-
-# Fallback shorthand key when a catalog entry has no ``scalar_shorthand_key``
-# (id-reference actions / conditions). Shared with the emitter's collapse check.
-DEFAULT_SHORTHAND_KEY = "id"
-
-
-def shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str | None:
-    """
-    Return the key a bare scalar collapses to, or ``None`` for a mapping-only entry.
-
-    A catalog shorthand that names a condition gate or an action-list key is
-    not a param key; it falls back to ``id`` unless ``id`` is a genuine config
-    entry, which has no scalar form.
-    """
-    if entry is None:
-        return None
-    reserved = set(CONDITION_GATE_KEYS)
-    if isinstance(entry, AutomationAction):
-        reserved.update(entry.accepts_action_list)
-    if (key := entry.scalar_shorthand_key) and key not in reserved:
-        return key
-    if any(e.key == DEFAULT_SHORTHAND_KEY for e in entry.config_entries):
-        return None
-    return DEFAULT_SHORTHAND_KEY
 
 
 def _safe_tree(
@@ -220,10 +194,9 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
                 params[key] = _render_value(value)
     else:
         # Bare-scalar shorthand (``logger.log: "hi"`` / ``light.turn_on: id``):
-        # surface the scalar under the action's own ``maybe_simple_value`` key
-        # so the writer reconstructs the short form on round-trip.
-        key = shorthand_key(action) or DEFAULT_SHORTHAND_KEY
-        params = {key: _render_value(raw_params)}
+        # store the scalar under the entry's collapse key so the writer
+        # reconstructs the short form on round-trip.
+        params = {scalar_param_key(action): _render_value(raw_params)}
 
     return ActionNode(
         action_id=action_id,
@@ -275,8 +248,7 @@ def _decompose_condition(raw: dict) -> ConditionNode:
     elif isinstance(value, dict):
         params = {k: _render_value(v) for k, v in value.items()}
     elif value is not None:
-        key = shorthand_key(catalog_entry) or DEFAULT_SHORTHAND_KEY
-        params = {key: _render_value(value)}
+        params = {scalar_param_key(catalog_entry): _render_value(value)}
     return ConditionNode(
         condition_id=str(cond_id),
         params=params,
