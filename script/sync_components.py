@@ -4842,47 +4842,73 @@ def _implemented_classes(section: dict, schema_dir: Path) -> dict[str, list[list
     Walks the whole ``CONFIG_SCHEMA`` subtree (nested objects/lists plus
     ``types`` variants, which are flattened in YAML so add no path segment);
     a class may appear at several paths and all are kept. Matched against
-    referenced classes by full class, not namespace. An ``id`` declared
-    only on an ``extends`` base (``sensor._SENSOR_SCHEMA``) is resolved in,
-    so multi-entity sub-blocks count. See :func:`_record_id_classes` for
+    referenced classes by full class, not namespace. A block inherits the
+    ``id`` and the sub-blocks of its ``extends`` bases, so multi-entity
+    sub-blocks count wherever they are declared (``sensor._SENSOR_SCHEMA``,
+    ``bme280_base.CONFIG_SCHEMA_BASE``). See :func:`_record_id_classes` for
     which classes a path contributes.
     """
     config_schema = _config_schema(section)
+    entity_classes = _root_entity_classes(schema_dir)
     out: dict[str, list[list[str]]] = {}
-    # (config_vars, path) frontier. A typed variant shares its parent's
-    # path (the ``types`` discriminator is flattened in YAML).
-    frontier: list[tuple[Any, list[str]]] = []
+    frontier: list[_WalkFrame] = []
     _push_config_vars(frontier, config_schema, [], schema_dir)
     while frontier:
-        config_vars, path = frontier.pop()
-        if not isinstance(config_vars, dict):
+        frame = frontier.pop()
+        if not isinstance(frame.config_vars, dict):
             continue
-        for name, field_def in config_vars.items():
+        for name, field_def in frame.config_vars.items():
             if not isinstance(field_def, dict):
                 continue
-            field_path = [*path, name]
-            _record_id_classes(out, field_def, field_path)
-            _push_config_vars(frontier, field_def, field_path, schema_dir)
+            field_path = [*frame.path, name]
+            _record_id_classes(out, field_def, field_path, entity_classes)
+            ref = frame.inherited.get(name)
+            seen = frame.seen if ref is None else frame.seen | {ref}
+            _push_config_vars(frontier, field_def, field_path, schema_dir, seen)
     return out
 
 
+class _WalkFrame(NamedTuple):
+    """One ``config_vars`` mapping queued for the id walk, under *path*."""
+
+    config_vars: Any
+    path: list[str]
+    # ``extends`` refs expanded up the path, so a self-referential base (lvgl
+    # widgets) is not expanded again; ``inherited`` maps a key drawn from a
+    # base to the ref it came through.
+    seen: frozenset[str]
+    inherited: dict[str, str]
+
+
 def _push_config_vars(
-    frontier: list[tuple[Any, list[str]]], node: dict, path: list[str], schema_dir: Path
+    frontier: list[_WalkFrame],
+    node: dict,
+    path: list[str],
+    schema_dir: Path,
+    seen: frozenset[str] = frozenset(),
 ) -> None:
     """Queue *node*'s own and per-variant ``config_vars`` for the walk, under *path*."""
     config_vars = _schema_config_vars(node)
     base = config_vars if isinstance(config_vars, dict) else {}
     schema = node.get("schema")
-    # Pull ONLY the inherited ``id`` from extends bases (a sub-entity block
-    # declares its id on ``sensor._SENSOR_SCHEMA``). Merging every inherited
-    # field would also record the parent classes of sibling id declarations
-    # (``mqtt_id``, ``zigbee_sensor``) at this path.
-    if "id" not in base and isinstance(schema, dict) and schema.get("extends"):
-        inherited_id = _merge_extends_config_vars(schema, schema_dir)[0].get("id")
-        if isinstance(inherited_id, dict):
-            config_vars = {**base, "id": inherited_id}
-    frontier.append((config_vars, path))
-    frontier.extend((cv, path) for cv in _variant_config_vars(node))
+    inherited: dict[str, str] = {}
+    # Only the inherited ``id`` and sub-blocks merge. A flat inherited field
+    # would record a sibling id declaration (``mqtt_id``) at this path.
+    if isinstance(schema, dict) and schema.get("extends"):
+        merged, origin = _merge_extends_config_vars(schema, schema_dir, seen)
+        inherited = {
+            key: ref for key, ref in origin.items() if key == "id" or _has_sub_schema(merged[key])
+        }
+        config_vars = {**{key: merged[key] for key in inherited}, **base}
+    frontier.append(_WalkFrame(config_vars, path, seen, inherited))
+    frontier.extend(_WalkFrame(cv, path, seen, {}) for cv in _variant_config_vars(node))
+
+
+def _has_sub_schema(field_def: Any) -> bool:
+    """Whether *field_def* carries a ``schema`` or ``types`` mapping the walk descends into."""
+    return isinstance(field_def, dict) and (
+        isinstance(field_def.get("schema"), dict) or isinstance(field_def.get("types"), dict)
+    )
 
 
 def _schema_config_vars(node: dict) -> Any:
@@ -4899,39 +4925,97 @@ def _variant_config_vars(node: dict) -> list[Any]:
     return [v.get("config_vars") for v in types.values() if isinstance(v, dict)]
 
 
-def _record_id_classes(out: dict[str, list[list[str]]], field_def: dict, path: list[str]) -> None:
+def _record_id_classes(
+    out: dict[str, list[list[str]]],
+    field_def: dict,
+    path: list[str],
+    entity_classes: frozenset[str],
+) -> None:
     """
     Append *path* to ``out`` for each id-creation class *field_def* declares.
 
     Parent (interface) classes count at any depth; the leaf own-class counts
     at the component root (``len(path) == 1``, not the literal ``"id"`` key,
     which can be ``output_id`` / ``raw_data_id`` / ...) and, nested, only
-    for entity (platform-domain) classes — a sub-entity's ``sensor::Sensor``.
+    when it is one of *entity_classes* — a sub-entity's ``sensor::Sensor``.
     """
-    id_type = field_def.get("id_type")
-    if not isinstance(id_type, dict) or "use_id_type" in field_def:
+    id_type = _own_id_type(field_def)
+    if id_type is None:
         return
-    classes = [p for p in id_type.get("parents") or [] if isinstance(p, str)]
+    classes = _declared_classes(id_type)
+    own = id_type.get("class")
     # A nested non-entity own-class id stays unrecorded; advertising it
-    # would conflate same-namespace classes (a ``pipsolar`` output posing
-    # as the ``pipsolar`` hub a ``pipsolar_id`` wants).
-    if isinstance(id_type.get("class"), str) and (
-        len(path) == 1 or _reference_namespace(id_type["class"]) in _PLATFORM_DOMAINS
-    ):
-        classes.append(id_type["class"])
+    # would conflate same-namespace classes (a ``display::DisplayPage``
+    # posing as the display a ``display_id`` wants).
+    if len(path) > 1 and own in classes and own not in entity_classes:
+        classes.remove(own)
     for cls in classes:
         out.setdefault(cls, []).append(path)
+
+
+def _own_id_type(field_def: Any) -> dict | None:
+    """Return the ``id_type`` of an id declaration; None for a reference or a plain field."""
+    if not isinstance(field_def, dict) or "use_id_type" in field_def:
+        return None
+    id_type = field_def.get("id_type")
+    return id_type if isinstance(id_type, dict) else None
+
+
+def _declared_classes(id_type: dict) -> list[str]:
+    """Return the ``class`` then ``parents`` of an ``id_type``, strings only."""
+    return [
+        cls
+        for cls in [id_type.get("class"), *(id_type.get("parents") or [])]
+        if isinstance(cls, str)
+    ]
+
+
+@cache
+def _root_entity_classes(schema_dir: Path) -> frozenset[str]:
+    """Every class some platform of the class's own domain declares at its root."""
+    classes: set[str] = set()
+    for top_key, section in _iter_bundle_sections(schema_dir):
+        domain, _stem = _split_qualified_key(top_key)
+        if domain in _PLATFORM_DOMAINS:
+            classes.update(_root_domain_classes(section, domain, schema_dir))
+    return frozenset(classes)
+
+
+def _root_domain_classes(section: dict, domain: str, schema_dir: Path) -> set[str]:
+    """Return the *domain*-namespaced classes *section* declares at its root."""
+    frontier: list[_WalkFrame] = []
+    _push_config_vars(frontier, _config_schema(section), [], schema_dir)
+    return {
+        cls
+        for frame in frontier
+        if isinstance(frame.config_vars, dict)
+        for field_def in frame.config_vars.values()
+        if (id_type := _own_id_type(field_def)) is not None
+        for cls in _declared_classes(id_type)
+        if _reference_namespace(cls) == domain
+    }
+
+
+def _iter_bundle_sections(schema_dir: Path) -> Iterable[tuple[str, dict]]:
+    """Yield every ``(top_key, section)`` mapping in the bundle, skipping unreadable files."""
+    for path in iter_schema_files(schema_dir):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _LOGGER.warning("Skipping unreadable schema file %s", path.name)
+            continue
+        if not isinstance(raw, dict):
+            continue
+        for top_key, section in raw.items():
+            if isinstance(section, dict):
+                yield top_key, section
 
 
 def _collect_referenced_classes(schema_dir: Path) -> set[str]:
     """Every full ``ns::Class`` named by a ``use_id`` reference in the bundle."""
     referenced: set[str] = set()
-    for path in iter_schema_files(schema_dir):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        stack: list[Any] = [raw]
+    for _top_key, section in _iter_bundle_sections(schema_dir):
+        stack: list[Any] = [section]
         while stack:
             node = stack.pop()
             if isinstance(node, dict):
