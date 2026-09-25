@@ -224,6 +224,16 @@ def test_completed_compile_recomputes_hash_and_reloads(tmp_path: Path) -> None:
     assert captured == [("kitchen.yaml", True, False)]
 
 
+def test_completed_analyze_memory_recomputes_hash_like_a_compile(tmp_path: Path) -> None:
+    """ANALYZE_MEMORY compiles first, so the hash and build size refresh as after a compile."""
+    controller, captured = _make_controller(tmp_path)
+    job = _job(JobType.ANALYZE_MEMORY, JobStatus.COMPLETED)
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert captured == [("kitchen.yaml", True, False)]
+
+
 def test_completed_upload_reloads_without_recomputing_hash(tmp_path: Path) -> None:
     """UPLOAD doesn't recompile — the persisted hash from prior compile still applies."""
     controller, captured = _make_controller(tmp_path)

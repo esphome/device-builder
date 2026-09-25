@@ -252,6 +252,22 @@ _MAX_OUTPUT_LINES_RETAINED = 2000
 # trim — never a second round of context loss.
 _MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
 _INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
+# ``analyze-memory`` prints its report after the compile, with the
+# per-component summary at the head and long symbol lists after it,
+# often more than the general keep window. The report is the point of
+# the job and the job is dropped once terminal, so its in-flight
+# buffer is wide enough to hold the whole run for a follower that
+# reconnects mid-way.
+_ANALYZE_MEMORY_OUTPUT_LINES = 20_000
+
+
+def _inflight_output_limits(job_type: JobType) -> tuple[int, int]:
+    """Return the in-flight ``(cap, keep)`` line budget for *job_type*."""
+    if job_type is JobType.ANALYZE_MEMORY:
+        return _ANALYZE_MEMORY_OUTPUT_LINES * 2, _ANALYZE_MEMORY_OUTPUT_LINES
+    return _MAX_OUTPUT_LINES_INFLIGHT, _INFLIGHT_TRIM_KEEP
+
+
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
 
 # Error stamped on a dependent (an install's UPLOAD) when its prerequisite

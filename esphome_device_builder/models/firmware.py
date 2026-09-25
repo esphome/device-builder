@@ -63,12 +63,18 @@ class JobType(StrEnum):
     # RENAME with no ``depends_on`` predates the decomposition and
     # still runs the fused ``esphome rename`` CLI.
     RENAME = "rename"
+    # ``esphome analyze-memory``: validates, compiles (a relink when nothing
+    # changed), then prints the flash / RAM report per component into the job
+    # output. Shown live and never kept in history (see ``prune_history``).
+    ANALYZE_MEMORY = "analyze_memory"
 
 
 # Job types that compile firmware from source (INSTALL is a fused compile +
 # flash; UPLOAD only flashes an existing binary), so the config hash changes
 # and a version-mismatched remote build must provision the offloader's esphome.
-COMPILING_JOB_TYPES: frozenset[JobType] = frozenset({JobType.COMPILE, JobType.INSTALL})
+COMPILING_JOB_TYPES: frozenset[JobType] = frozenset(
+    {JobType.COMPILE, JobType.INSTALL, JobType.ANALYZE_MEMORY}
+)
 
 
 class JobSource(StrEnum):

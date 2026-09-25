@@ -261,6 +261,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             self._db.devices.clear_queued_update(configuration)
         return await clean_mod.clean(self, configuration=configuration)
 
+    @api_command("firmware/analyze_memory")
+    async def analyze_memory(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
+        """Queue ``esphome analyze-memory`` for one device; supersedes its active job like clean."""
+        await self._validate_configuration_boundary(configuration)
+        return await self._enqueue(self._create_job(configuration, JobType.ANALYZE_MEMORY))
+
     @api_command("firmware/clear_queued_update")
     async def clear_queued_update(self, *, configuration: str, **kwargs: Any) -> None:
         """Manually clear the queued_update flag for a device."""

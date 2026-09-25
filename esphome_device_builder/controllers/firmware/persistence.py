@@ -64,8 +64,10 @@ def prune_history(controller: FirmwareController) -> None:
     dependent UPLOAD share a config) so the build log stays
     reachable, not just the flash log. Terminal clean / reset
     jobs are kept in a separate pool capped at
-    :data:`_MAX_AUX_TERMINAL_JOBS`. Caller persists the result;
-    sidecars of dropped jobs are reaped by ``persist_jobs``.
+    :data:`_MAX_AUX_TERMINAL_JOBS`. A terminal ``analyze_memory``
+    job is dropped outright: its report was shown live and is not
+    an artifact to keep. Caller persists the result; sidecars of
+    dropped jobs are reaped by ``persist_jobs``.
     """
     active: list[FirmwareJob] = []
     primary: list[FirmwareJob] = []
@@ -73,6 +75,8 @@ def prune_history(controller: FirmwareController) -> None:
     for job in controller.state.jobs.values():
         if not job.is_terminal:
             active.append(job)
+        elif job.job_type is JobType.ANALYZE_MEMORY:
+            continue
         elif job.job_type in _PRIMARY_JOB_TYPES:
             primary.append(job)
         else:

@@ -67,6 +67,24 @@ async def test_terminal_output_flushed_to_sidecar_and_stripped_from_blob(
     assert "output" not in entries[0]
 
 
+async def test_terminal_analyze_memory_job_is_neither_persisted_nor_given_a_sidecar(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A finished analysis is pruned before the persist: no blob entry, no log on disk."""
+    controller = firmware_controller_factory(
+        with_real_persistence=True, with_queue=True, with_terminate=True
+    )
+    job = await controller.analyze_memory(configuration="kitchen.yaml")
+    job.output = ["line a\n"]
+
+    await controller.cancel(job_id=job.job_id)
+    await controller._persist_jobs()
+
+    assert all(entry["job_type"] != "analyze_memory" for entry in _blob_jobs(tmp_path))
+    assert await asyncio.to_thread(read_job_output, job.job_id) == []
+
+
 async def test_active_output_kept_in_ram_and_inline_in_blob(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,

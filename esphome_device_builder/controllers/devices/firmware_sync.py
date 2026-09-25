@@ -86,7 +86,12 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         # so the drawer / table flip back to the placeholder.
         controller._build_size.request(configuration)
         return
-    if job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
+    if job_type not in (
+        JobType.COMPILE,
+        JobType.UPLOAD,
+        JobType.INSTALL,
+        JobType.ANALYZE_MEMORY,
+    ):
         return
     recompute_hash = job_type in COMPILING_JOB_TYPES
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)

@@ -37,14 +37,13 @@ from .constants import (
     _COMPILE_BRACKET_PERCENT,
     _COMPILE_END_PATTERN,
     _COMPILE_PHASE_WORD_PATTERN,
-    _INFLIGHT_TRIM_KEEP,
-    _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
     _NINJA_MIN_TOTAL,
     _NINJA_PROGRESS_PATTERN,
     _NO_ESPHOME_MODULE_MARKER,
     _OUTPUT_TRIM_NOTICE_PREFIX,
     _PROGRESS_PATTERNS,
+    _inflight_output_limits,
 )
 
 if TYPE_CHECKING:
@@ -337,8 +336,9 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
         job.output[-1] = line
     else:
         job.output.append(line)
-    if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
-        _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
+    cap, keep = _inflight_output_limits(job.job_type)
+    if len(job.output) > cap:
+        _trim_job_output(job, keep=keep)
     out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
     bus.fire(EventType.JOB_OUTPUT, out_payload)
     _stamp_compile_phase(job, line)

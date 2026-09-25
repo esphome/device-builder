@@ -21,6 +21,7 @@ from esphome_device_builder.controllers.firmware.constants import (
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
     _OUTPUT_TRIM_NOTICE_PREFIX,
+    _inflight_output_limits,
 )
 from esphome_device_builder.controllers.firmware.helpers import (
     _is_no_module_named_esphome,
@@ -68,6 +69,17 @@ def test_inflight_cap_invariants() -> None:
     """
     assert _MAX_OUTPUT_LINES_INFLIGHT > _INFLIGHT_TRIM_KEEP
     assert _INFLIGHT_TRIM_KEEP >= _MAX_OUTPUT_LINES_RETAINED
+
+
+def test_inflight_limits_widen_only_for_analyze_memory() -> None:
+    """The analysis keeps its whole report in flight; every other kind keeps the general window."""
+    cap, keep = _inflight_output_limits(JobType.ANALYZE_MEMORY)
+    assert keep > _MAX_OUTPUT_LINES_RETAINED
+    assert cap > keep
+    assert _inflight_output_limits(JobType.COMPILE) == (
+        _MAX_OUTPUT_LINES_INFLIGHT,
+        _INFLIGHT_TRIM_KEEP,
+    )
 
 
 def test_trim_with_keep_inflight_preserves_keep_window() -> None:
