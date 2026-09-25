@@ -1,10 +1,4 @@
-"""Coverage for ``FirmwareController.analyze_memory``.
-
-Same shape as ``test_clean.py``: configuration in, queued
-``ANALYZE_MEMORY`` job out, with the boundary gate, the enqueue
-order, the job map and the same-device supersede pinned. The CLI
-argv is pinned the way ``test_reset_build_env.py`` does.
-"""
+"""Coverage for ``FirmwareController.analyze_memory`` and its CLI argv."""
 
 from __future__ import annotations
 
@@ -87,7 +81,7 @@ async def test_analyze_memory_cancels_active_build_for_same_configuration(
     firmware_controller_factory: FirmwareControllerFactory,
     active_type: str,
 ) -> None:
-    """One active job per device: the analysis supersedes the device's build, as clean does."""
+    """One active job per device: the analysis supersedes the device's build."""
     (tmp_path / "kitchen.yaml").write_text("")
     controller = firmware_controller_factory(with_queue=True)
     if active_type == "compile":

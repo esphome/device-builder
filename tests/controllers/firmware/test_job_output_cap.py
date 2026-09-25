@@ -72,7 +72,7 @@ def test_inflight_cap_invariants() -> None:
 
 
 def test_inflight_limits_widen_only_for_analyze_memory() -> None:
-    """The analysis keeps its whole report in flight; every other kind keeps the general window."""
+    """Only ``ANALYZE_MEMORY`` gets the wider in-flight window."""
     cap, keep = _inflight_output_limits(JobType.ANALYZE_MEMORY)
     assert keep > _MAX_OUTPUT_LINES_RETAINED
     assert cap > keep

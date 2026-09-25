@@ -220,7 +220,11 @@ async def persist_jobs(controller: FirmwareController) -> None:
 
 async def _persist_jobs_locked(controller: FirmwareController) -> None:
     config_dir = controller._db.settings.config_dir
-    jobs = list(controller.state.jobs.values())
+    # A memory analysis never reaches disk, active or not: its report is
+    # shown live, and a restart must not re-run it for nobody.
+    jobs = [
+        job for job in controller.state.jobs.values() if job.job_type is not JobType.ANALYZE_MEMORY
+    ]
 
     def _save() -> None:
         # Flush each terminal job's RAM buffer to its sidecar, then

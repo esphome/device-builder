@@ -648,9 +648,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         Return the esphome CLI invocation to run *job* with.
 
         For a remote job whose ``target_esphome_version`` differs from ours:
-        COMPILE / INSTALL provision that version's venv (raising
-        :class:`EnvProvisionError` if unavailable); CLEAN reuses it only when
-        already provisioned. Everything else uses the installed esphome.
+        the compiling job types (:data:`COMPILING_JOB_TYPES`) provision that
+        version's venv (raising :class:`EnvProvisionError` if unavailable);
+        CLEAN reuses it only when already provisioned. Everything else uses
+        the installed esphome.
         """
         version = job.target_esphome_version
         if not version or version == _installed_esphome_version:

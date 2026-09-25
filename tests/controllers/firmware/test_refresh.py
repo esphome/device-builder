@@ -225,7 +225,7 @@ def test_completed_compile_recomputes_hash_and_reloads(tmp_path: Path) -> None:
 
 
 def test_completed_analyze_memory_recomputes_hash_like_a_compile(tmp_path: Path) -> None:
-    """ANALYZE_MEMORY compiles first, so the hash and build size refresh as after a compile."""
+    """A terminal ``ANALYZE_MEMORY`` job recomputes the hash without marking the device flashed."""
     controller, captured = _make_controller(tmp_path)
     job = _job(JobType.ANALYZE_MEMORY, JobStatus.COMPLETED)
 

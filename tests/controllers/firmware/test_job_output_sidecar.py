@@ -107,6 +107,27 @@ async def test_active_output_kept_in_ram_and_inline_in_blob(
     assert entries[0]["output"] == ["building…\n"]
 
 
+async def test_active_analyze_memory_job_is_kept_out_of_the_blob(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A running ``ANALYZE_MEMORY`` job is never written to the jobs file, output or not."""
+    job = FirmwareJob(
+        job_id="a1",
+        configuration="kitchen.yaml",
+        job_type=JobType.ANALYZE_MEMORY,
+        status=JobStatus.RUNNING,
+        output=["Component  Flash  RAM\n"],
+    )
+    controller = firmware_controller_factory(job, with_real_persistence=True, with_queue=True)
+
+    await controller._persist_jobs()
+
+    assert job.output == ["Component  Flash  RAM\n"]
+    assert _blob_jobs(tmp_path) == []
+    assert await asyncio.to_thread(read_job_output, "a1") == []
+
+
 def test_sidecar_round_trip_preserves_terminators() -> None:
     r"""Lines carrying ``\n`` / ``\r`` / no terminator survive write→read unchanged."""
     lines = ["plain\n", "progress\r", "bare-final"]

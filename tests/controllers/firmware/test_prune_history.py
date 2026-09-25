@@ -45,11 +45,7 @@ async def _cancel_all(controller: FirmwareController, job_ids: list[str]) -> Non
 async def test_terminal_analyze_memory_job_is_dropped_from_history(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """An ``ANALYZE_MEMORY`` job leaves the map once terminal; an active one stays.
-
-    The report is shown live and is not an artifact to keep, so the
-    prune drops it instead of filing it in either pool.
-    """
+    """An ``ANALYZE_MEMORY`` job leaves the map once terminal; an active one stays."""
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     first = await controller.analyze_memory(configuration="device-0.yaml")
     second = await controller.analyze_memory(configuration="device-1.yaml")
