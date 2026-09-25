@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from ...controllers.remote_build.env_provisioner import EnvProvisionError
+from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.async_ import run_in_executor
 from ...helpers.subprocess import create_subprocess_exec
 from ...models import (
@@ -150,6 +151,8 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
 
         def _check_error(text: str) -> None:
             nonlocal has_error_in_output, saw_no_esphome_module
+            if ANSI_CSI_RE.sub("", text).lstrip().startswith("WARNING "):
+                return
             if not saw_no_esphome_module and _is_no_module_named_esphome(text):
                 saw_no_esphome_module = True
             if has_error_in_output:

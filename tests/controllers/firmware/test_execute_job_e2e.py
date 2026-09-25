@@ -57,6 +57,7 @@ from tests.controllers.firmware.conftest import (
 from tests.controllers.firmware.conftest import (
     run_until_terminal as _run_until_terminal,
 )
+from tests.controllers.firmware.conftest import upload_of as _upload_of
 from tests.controllers.firmware.conftest import (
     wire_real_queue as _wire_real_queue,
 )
@@ -65,6 +66,13 @@ from ...conftest import running_task
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
+
+
+_HANDLED_NANOPB_WARNING = (
+    "WARNING PIO extra-script /data/pio_components/nanopb/platformio_generator.py "
+    "(in Nanopb) raised ModuleNotFoundError(\"No module named 'SCons'\"); "
+    "ignoring its output"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +262,75 @@ async def test_compile_platformio_no_module_named_pip_shrug_is_not_failure(
     assert job.error is None
     assert captured["job_completed"]
     assert captured["job_failed"] == []
+
+
+@pytest.mark.parametrize(
+    "warning",
+    [
+        pytest.param(_HANDLED_NANOPB_WARNING, id="plain"),
+        pytest.param(f"\x1b[33m{_HANDLED_NANOPB_WARNING}\x1b[0m", id="ansi"),
+        pytest.param(f"\\033[33m{_HANDLED_NANOPB_WARNING}\\033[0m", id="dashboard_literal"),
+    ],
+)
+async def test_install_continues_after_handled_module_warning(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path, warning: str
+) -> None:
+    """A handled PlatformIO warning does not block the dependent upload."""
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        "import sys\n"
+        "if 'compile' in sys.argv:\n"
+        f"    print({warning!r})\n"
+        "    print('INFO Successfully compiled program.')\n"
+        "else:\n    print('INFO OTA successful')\n"
+        "sys.exit(0)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    upload_job = _upload_of(controller, compile_job)
+    captured = await _run_until_terminal(controller)
+
+    assert compile_job.status == JobStatus.COMPLETED
+    assert compile_job.exit_code == 0
+    assert upload_job.status == JobStatus.COMPLETED
+    assert upload_job.exit_code == 0
+    assert "OTA successful" in "".join(upload_job.output)
+    assert len(captured["job_completed"]) == 2
+    assert captured["job_failed"] == []
+
+
+@pytest.mark.parametrize(
+    ("tail", "exit_code"),
+    [
+        pytest.param("ModuleNotFoundError: No module named 'cryptography'", 0, id="real_error"),
+        pytest.param("INFO Build interrupted", 7, id="nonzero_exit"),
+    ],
+)
+async def test_compile_warning_does_not_hide_real_failure(
+    firmware_controller_factory: FirmwareControllerFactory,
+    tmp_path: Path,
+    tail: str,
+    exit_code: int,
+) -> None:
+    """A later error or nonzero exit still fails after a handled warning."""
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        f"import sys\nprint({_HANDLED_NANOPB_WARNING!r})\nprint({tail!r})\nsys.exit({exit_code})\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    captured = await _run_until_terminal(controller)
+
+    assert job.status == JobStatus.FAILED
+    assert job.exit_code == exit_code
+    assert captured["job_completed"] == []
+    assert captured["job_failed"]
 
 
 async def test_compile_no_module_named_esphome_renders_actionable_hint(
