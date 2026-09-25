@@ -264,8 +264,16 @@ async def test_compile_platformio_no_module_named_pip_shrug_is_not_failure(
     assert captured["job_failed"] == []
 
 
+@pytest.mark.parametrize(
+    "warning",
+    [
+        pytest.param(_HANDLED_NANOPB_WARNING, id="plain"),
+        pytest.param(f"\x1b[33m{_HANDLED_NANOPB_WARNING}\x1b[0m", id="ansi"),
+        pytest.param(f"\\033[33m{_HANDLED_NANOPB_WARNING}\\033[0m", id="dashboard_literal"),
+    ],
+)
 async def test_install_continues_after_handled_module_warning(
-    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path, warning: str
 ) -> None:
     """A handled PlatformIO warning does not block the dependent upload."""
     controller = firmware_controller_factory(with_queue=True)
@@ -274,7 +282,7 @@ async def test_install_continues_after_handled_module_warning(
         controller,
         "import sys\n"
         "if 'compile' in sys.argv:\n"
-        f"    print({_HANDLED_NANOPB_WARNING!r})\n"
+        f"    print({warning!r})\n"
         "    print('INFO Successfully compiled program.')\n"
         "else:\n    print('INFO OTA successful')\n"
         "sys.exit(0)\n",
