@@ -211,26 +211,19 @@ async def test_completed_bootloader_upload_keeps_the_deployed_name(tmp_path: Pat
     assert controller._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"
 
 
-def test_completed_compile_recomputes_hash_and_reloads(tmp_path: Path) -> None:
-    """COMPILE produces a new binary tied to a (potentially) new YAML hash."""
+@pytest.mark.parametrize(
+    "job_type", [JobType.COMPILE, JobType.ANALYZE_MEMORY], ids=["compile", "analyze_memory"]
+)
+def test_completed_compile_recomputes_hash_and_reloads(tmp_path: Path, job_type: JobType) -> None:
+    """A compiling job produces a new binary tied to a (potentially) new YAML hash."""
     controller, captured = _make_controller(tmp_path)
-    job = _job(JobType.COMPILE, JobStatus.COMPLETED)
+    job = _job(job_type, JobStatus.COMPLETED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     # COMPILE-only didn't push firmware, so ``flashed=False`` — the
     # device on the network still runs the old image and its
     # broadcast hash is still authoritative.
-    assert captured == [("kitchen.yaml", True, False)]
-
-
-def test_completed_analyze_memory_recomputes_hash_like_a_compile(tmp_path: Path) -> None:
-    """A terminal ``ANALYZE_MEMORY`` job recomputes the hash without marking the device flashed."""
-    controller, captured = _make_controller(tmp_path)
-    job = _job(JobType.ANALYZE_MEMORY, JobStatus.COMPLETED)
-
-    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
-
     assert captured == [("kitchen.yaml", True, False)]
 
 

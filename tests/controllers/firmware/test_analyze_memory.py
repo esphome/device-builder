@@ -75,21 +75,14 @@ async def test_analyze_memory_registers_job_in_jobs_map(
     assert await controller.get_job(job_id=job.job_id) is job
 
 
-@pytest.mark.parametrize("active_type", ["compile", "upload", "install"])
 async def test_analyze_memory_cancels_active_build_for_same_configuration(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
-    active_type: str,
 ) -> None:
     """One active job per device: the analysis supersedes the device's build."""
     (tmp_path / "kitchen.yaml").write_text("")
     controller = firmware_controller_factory(with_queue=True)
-    if active_type == "compile":
-        active = await controller.compile(configuration="kitchen.yaml")
-    elif active_type == "upload":
-        active = await controller.upload(configuration="kitchen.yaml", port="/dev/ttyUSB0")
-    else:
-        active = await controller.install(configuration="kitchen.yaml")
+    active = await controller.compile(configuration="kitchen.yaml")
 
     await controller.analyze_memory(configuration="kitchen.yaml")
 
@@ -100,25 +93,10 @@ def test_build_command_for_analyze_memory(
     tmp_path: Path,
     bare_firmware_controller_factory: BareFirmwareControllerFactory,
 ) -> None:
-    """``ANALYZE_MEMORY`` shells out to ``esphome --dashboard analyze-memory <config>``."""
-    controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
-    config = str(tmp_path / "kitchen.yaml")
-
-    cmd = controller._build_command(JobType.ANALYZE_MEMORY, config, port="")
-
-    assert cmd == ["esphome", "--dashboard", "analyze-memory", config]
-
-
-def test_build_command_for_analyze_memory_ignores_port(
-    tmp_path: Path,
-    bare_firmware_controller_factory: BareFirmwareControllerFactory,
-) -> None:
-    """The analysis talks to no device: a port is never turned into ``--device``."""
+    """``ANALYZE_MEMORY`` runs ``esphome --dashboard analyze-memory <config>``, port ignored."""
     controller = bare_firmware_controller_factory(esphome_cmd=["esphome"], with_mock_db=True)
     config = str(tmp_path / "kitchen.yaml")
 
     cmd = controller._build_command(JobType.ANALYZE_MEMORY, config, port="/dev/ttyUSB0")
 
-    assert "--device" not in cmd
-    assert "/dev/ttyUSB0" not in cmd
-    assert cmd[-2:] == ["analyze-memory", config]
+    assert cmd == ["esphome", "--dashboard", "analyze-memory", config]

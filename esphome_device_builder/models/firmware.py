@@ -63,9 +63,8 @@ class JobType(StrEnum):
     # RENAME with no ``depends_on`` predates the decomposition and
     # still runs the fused ``esphome rename`` CLI.
     RENAME = "rename"
-    # ``esphome analyze-memory``: validates, compiles (a relink when nothing
-    # changed), then prints the flash / RAM report per component into the job
-    # output. Shown live and never kept in history (see ``prune_history``).
+    # ``esphome analyze-memory``: compiles, then prints a per-component
+    # flash / RAM report.
     ANALYZE_MEMORY = "analyze_memory"
 
 

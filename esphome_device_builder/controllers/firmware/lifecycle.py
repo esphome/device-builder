@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 from ...helpers.process import terminate_subtree_with_grace
 from ...models import EventType, FirmwareJob, JobStatus, JobType
 from . import rename_flow
-from .constants import _PREREQUISITE_FAILED_ERROR, _TARGET_OFFLINE_DEFERRED_ERROR
+from .constants import (
+    _EPHEMERAL_JOB_TYPES,
+    _PREREQUISITE_FAILED_ERROR,
+    _TARGET_OFFLINE_DEFERRED_ERROR,
+)
 from .helpers import _fire_job_lifecycle, _target_is_offline, _trim_job_output
 
 if TYPE_CHECKING:
@@ -72,7 +76,8 @@ async def end_run(controller: FirmwareController, job: FirmwareJob) -> None:
     own slot (lane ``active`` entry / pool entry) first.
     """
     if job.is_terminal:
-        _trim_job_output(job)
+        if job.job_type not in _EPHEMERAL_JOB_TYPES:
+            _trim_job_output(job)
         controller._prune_history()
     await controller._persist_jobs()
 

@@ -24,7 +24,7 @@ from esphome_device_builder.controllers.firmware.persistence import (
     read_job_output,
 )
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType, StreamEvent
-from tests.conftest import FakeWebSocketClient
+from tests.conftest import FakeWebSocketClient, make_job
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -112,13 +112,7 @@ async def test_active_analyze_memory_job_is_kept_out_of_the_blob(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """A running ``ANALYZE_MEMORY`` job is never written to the jobs file, output or not."""
-    job = FirmwareJob(
-        job_id="a1",
-        configuration="kitchen.yaml",
-        job_type=JobType.ANALYZE_MEMORY,
-        status=JobStatus.RUNNING,
-        output=["Component  Flash  RAM\n"],
-    )
+    job = make_job("a1", job_type=JobType.ANALYZE_MEMORY, output=["Component  Flash  RAM\n"])
     controller = firmware_controller_factory(job, with_real_persistence=True, with_queue=True)
 
     await controller._persist_jobs()

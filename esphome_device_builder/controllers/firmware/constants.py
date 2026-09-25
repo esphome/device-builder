@@ -208,12 +208,15 @@ _COMPILE_END_PATTERN: re.Pattern[str] = re.compile(
 #     fleets, not the normal limiter — it must clear a full batch.
 #   - "Aux" = CLEAN / RESET_BUILD_ENV: kept in a separate small pool
 #     so they don't crowd out the device history.
-# Active (queued/running) jobs are exempt from both pools.
+#   - "Ephemeral" = ANALYZE_MEMORY: never written to the jobs file,
+#     dropped from RAM once terminal.
+# Active (queued/running) jobs are exempt from the pools.
 _MAX_PRIMARY_TERMINAL_JOBS = 500
 _MAX_AUX_TERMINAL_JOBS = 5
 _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
 )
+_EPHEMERAL_JOB_TYPES: frozenset[JobType] = frozenset({JobType.ANALYZE_MEMORY})
 
 # Job types eligible for ``--mdns/--dns-address-cache`` forwarding.
 _OTA_ADDRESS_CACHE_JOB_TYPES: frozenset[JobType] = frozenset(
@@ -252,20 +255,10 @@ _MAX_OUTPUT_LINES_RETAINED = 2000
 # trim — never a second round of context loss.
 _MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
 _INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
-# ``analyze-memory`` prints its report after the compile, with the
-# per-component summary at the head and long symbol lists after it,
-# often more than the general keep window. The report is the point of
-# the job and the job is dropped once terminal, so its in-flight
-# buffer is wide enough to hold the whole run for a follower that
-# reconnects mid-way.
-_ANALYZE_MEMORY_OUTPUT_LINES = 20_000
-
-
-def _inflight_output_limits(job_type: JobType) -> tuple[int, int]:
-    """Return the in-flight ``(cap, keep)`` line budget for *job_type*."""
-    if job_type is JobType.ANALYZE_MEMORY:
-        return _ANALYZE_MEMORY_OUTPUT_LINES * 2, _ANALYZE_MEMORY_OUTPUT_LINES
-    return _MAX_OUTPUT_LINES_INFLIGHT, _INFLIGHT_TRIM_KEEP
+# Per-type in-flight keep (cap is always twice it). analyze-memory's
+# symbol lists run past the general window and the job is dropped once
+# terminal, so the whole run stays in flight for a mid-way follower.
+_INFLIGHT_KEEP_BY_TYPE: dict[JobType, int] = {JobType.ANALYZE_MEMORY: 20_000}
 
 
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"

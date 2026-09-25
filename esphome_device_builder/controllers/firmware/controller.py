@@ -263,7 +263,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     @api_command("firmware/analyze_memory")
     async def analyze_memory(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
-        """Queue ``esphome analyze-memory`` for one device; supersedes its active job like clean."""
+        """Queue ``esphome analyze-memory`` for one device."""
         await self._validate_configuration_boundary(configuration)
         return await self._enqueue(self._create_job(configuration, JobType.ANALYZE_MEMORY))
 
