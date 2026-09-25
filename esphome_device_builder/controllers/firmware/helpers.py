@@ -37,8 +37,9 @@ from .constants import (
     _COMPILE_BRACKET_PERCENT,
     _COMPILE_END_PATTERN,
     _COMPILE_PHASE_WORD_PATTERN,
+    _INFLIGHT_HYSTERESIS,
+    _INFLIGHT_KEEP_BY_TYPE,
     _INFLIGHT_TRIM_KEEP,
-    _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
     _NINJA_MIN_TOTAL,
     _NINJA_PROGRESS_PATTERN,
@@ -86,17 +87,12 @@ def _trim_job_output(job: FirmwareJob, *, keep: int = _MAX_OUTPUT_LINES_RETAINED
     job — already-trimmed output stays stable and the elided count
     keeps growing as new lines are dropped.
 
-    ``keep`` is the same value (``_MAX_OUTPUT_LINES_RETAINED``) for
-    both the in-flight and post-completion call sites. The two
-    paths differ only in their *trigger*: the in-flight path
-    invokes this from the streaming loop when ``len(job.output)``
-    crosses ``_MAX_OUTPUT_LINES_INFLIGHT`` (=``2 * keep``), so
-    every trim drops back to ``keep`` and leaves a ``keep``-line
-    headroom before the next trim fires. The post-completion call
-    uses the default keep, so a build that finished under the
-    in-flight cap is trimmed once on exit; a build that already
-    triggered the in-flight trim is at ``keep`` lines plus the
-    elided notice and this final call is a no-op for it.
+    The streaming loop passes its per-type keep
+    (``_INFLIGHT_KEEP_BY_TYPE``, default ``_INFLIGHT_TRIM_KEEP``) and
+    fires at ``_INFLIGHT_HYSTERESIS`` times it, so every trim leaves a
+    keep-sized headroom before the next. The post-completion call uses
+    the default keep; a build already trimmed in flight sits at that
+    size plus the elided notice, so the exit-time call is a no-op for it.
     """
     output = job.output
     extra_elided = 0
@@ -337,8 +333,9 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
         job.output[-1] = line
     else:
         job.output.append(line)
-    if len(job.output) > _MAX_OUTPUT_LINES_INFLIGHT:
-        _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
+    keep = _INFLIGHT_KEEP_BY_TYPE.get(job.job_type, _INFLIGHT_TRIM_KEEP)
+    if len(job.output) > keep * _INFLIGHT_HYSTERESIS:
+        _trim_job_output(job, keep=keep)
     out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
     bus.fire(EventType.JOB_OUTPUT, out_payload)
     _stamp_compile_phase(job, line)

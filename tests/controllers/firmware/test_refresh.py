@@ -211,10 +211,13 @@ async def test_completed_bootloader_upload_keeps_the_deployed_name(tmp_path: Pat
     assert controller._metadata_store.get("kitchen.yaml")["deployed_name"] == "asistente"
 
 
-def test_completed_compile_recomputes_hash_and_reloads(tmp_path: Path) -> None:
-    """COMPILE produces a new binary tied to a (potentially) new YAML hash."""
+@pytest.mark.parametrize(
+    "job_type", [JobType.COMPILE, JobType.ANALYZE_MEMORY], ids=["compile", "analyze_memory"]
+)
+def test_completed_compile_recomputes_hash_and_reloads(tmp_path: Path, job_type: JobType) -> None:
+    """A compiling job produces a new binary tied to a (potentially) new YAML hash."""
     controller, captured = _make_controller(tmp_path)
-    job = _job(JobType.COMPILE, JobStatus.COMPLETED)
+    job = _job(job_type, JobStatus.COMPLETED)
 
     controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 

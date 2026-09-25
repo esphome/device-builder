@@ -86,10 +86,10 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         # so the drawer / table flip back to the placeholder.
         controller._build_size.request(configuration)
         return
-    if job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
-        return
     recompute_hash = job_type in COMPILING_JOB_TYPES
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
+    if not (recompute_hash or flashed):
+        return
     bootloader_only = job_type is JobType.UPLOAD and job.flash_bootloader
     if flashed and not bootloader_only:
         # A bootloader-only upload replaces no app, so its record stands.

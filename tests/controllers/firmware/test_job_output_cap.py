@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from esphome_device_builder.controllers.firmware.constants import (
     _ERROR_PATTERNS,
+    _INFLIGHT_HYSTERESIS,
+    _INFLIGHT_KEEP_BY_TYPE,
     _INFLIGHT_TRIM_KEEP,
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
@@ -57,17 +59,23 @@ def test_inflight_cap_invariants() -> None:
     Two rules locked in one block so a future tweak inverting either
     surfaces immediately:
 
-    - ``_MAX_OUTPUT_LINES_INFLIGHT`` > ``_INFLIGHT_TRIM_KEEP`` is the
-      hysteresis gap. Equality means every line above the cap pays
-      an O(cap) slice copy.
+    - ``_INFLIGHT_HYSTERESIS`` > 1 is the hysteresis gap. A factor of
+      one means every line above the cap pays an O(cap) slice copy.
     - ``_INFLIGHT_TRIM_KEEP`` >= ``_MAX_OUTPUT_LINES_RETAINED`` so the
       post-completion trim is at most a no-op for builds that
       already triggered the in-flight trim — never a second round of
       context loss. Equality is fine; ``keep`` smaller than
       ``retained`` is the regression we're guarding against.
     """
-    assert _MAX_OUTPUT_LINES_INFLIGHT > _INFLIGHT_TRIM_KEEP
+    assert _INFLIGHT_HYSTERESIS > 1
+    assert _MAX_OUTPUT_LINES_INFLIGHT == _INFLIGHT_TRIM_KEEP * _INFLIGHT_HYSTERESIS
     assert _INFLIGHT_TRIM_KEEP >= _MAX_OUTPUT_LINES_RETAINED
+
+
+def test_inflight_keep_widens_only_for_analyze_memory() -> None:
+    """Only ``ANALYZE_MEMORY`` gets the wider in-flight window."""
+    assert _INFLIGHT_KEEP_BY_TYPE[JobType.ANALYZE_MEMORY] > _INFLIGHT_TRIM_KEEP
+    assert _INFLIGHT_KEEP_BY_TYPE.keys() == {JobType.ANALYZE_MEMORY}
 
 
 def test_trim_with_keep_inflight_preserves_keep_window() -> None:

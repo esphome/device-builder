@@ -42,6 +42,20 @@ async def _cancel_all(controller: FirmwareController, job_ids: list[str]) -> Non
         await controller.cancel(job_id=job_id)
 
 
+async def test_terminal_analyze_memory_job_is_dropped_from_history(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An ``ANALYZE_MEMORY`` job leaves the map once terminal; an active one stays."""
+    controller = firmware_controller_factory(with_queue=True, with_terminate=True)
+    first = await controller.analyze_memory(configuration="device-0.yaml")
+    second = await controller.analyze_memory(configuration="device-1.yaml")
+
+    await controller.cancel(job_id=first.job_id)
+
+    assert first.job_id not in controller.state.jobs
+    assert controller.state.jobs[second.job_id] is second
+
+
 async def test_cancelling_aux_jobs_below_cap_keeps_them_all(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

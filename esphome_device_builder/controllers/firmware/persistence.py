@@ -31,6 +31,7 @@ from ...models import (
 )
 from . import rename_flow
 from .constants import (
+    _EPHEMERAL_JOB_TYPES,
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
     _MAX_PRIMARY_TERMINAL_JOBS,
@@ -64,8 +65,10 @@ def prune_history(controller: FirmwareController) -> None:
     dependent UPLOAD share a config) so the build log stays
     reachable, not just the flash log. Terminal clean / reset
     jobs are kept in a separate pool capped at
-    :data:`_MAX_AUX_TERMINAL_JOBS`. Caller persists the result;
-    sidecars of dropped jobs are reaped by ``persist_jobs``.
+    :data:`_MAX_AUX_TERMINAL_JOBS`. Terminal ephemeral jobs
+    (:data:`_EPHEMERAL_JOB_TYPES`) are dropped outright. Caller
+    persists the result; sidecars of
+    dropped jobs are reaped by ``persist_jobs``.
     """
     active: list[FirmwareJob] = []
     primary: list[FirmwareJob] = []
@@ -73,6 +76,8 @@ def prune_history(controller: FirmwareController) -> None:
     for job in controller.state.jobs.values():
         if not job.is_terminal:
             active.append(job)
+        elif job.job_type in _EPHEMERAL_JOB_TYPES:
+            continue
         elif job.job_type in _PRIMARY_JOB_TYPES:
             primary.append(job)
         else:
@@ -216,7 +221,11 @@ async def persist_jobs(controller: FirmwareController) -> None:
 
 async def _persist_jobs_locked(controller: FirmwareController) -> None:
     config_dir = controller._db.settings.config_dir
-    jobs = list(controller.state.jobs.values())
+    # Ephemeral jobs never reach disk: a restart must not resume an
+    # analysis nobody is watching.
+    jobs = [
+        job for job in controller.state.jobs.values() if job.job_type not in _EPHEMERAL_JOB_TYPES
+    ]
 
     def _save() -> None:
         # Flush each terminal job's RAM buffer to its sidecar, then

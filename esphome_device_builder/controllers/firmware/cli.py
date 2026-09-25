@@ -61,6 +61,7 @@ def build_command(
         JobType.INSTALL: "run",
         JobType.CLEAN: "clean",
         JobType.RENAME: "rename",
+        JobType.ANALYZE_MEMORY: "analyze-memory",
         # ``clean-all`` takes the config *directory* as its positional,
         # not a YAML file. ``reset_build_env`` queues with
         # ``configuration=""`` so ``rel_path("")`` resolves back to
