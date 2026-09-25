@@ -253,12 +253,15 @@ _MAX_OUTPUT_LINES_RETAINED = 2000
 # ``keep == _MAX_OUTPUT_LINES_RETAINED`` makes the post-completion
 # trim a no-op for builds that already triggered the in-flight
 # trim — never a second round of context loss.
-_MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
 _INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
-# Per-type in-flight keep (cap is always twice it). analyze-memory's
-# symbol lists run past the general window and the job is dropped once
-# terminal, so the whole run stays in flight for a mid-way follower.
+# The in-flight trim fires at this multiple of the keep.
+_INFLIGHT_HYSTERESIS = 2
+# Per-type in-flight keep. analyze-memory's symbol lists run past the
+# general window and the job is dropped once terminal, so the whole run
+# stays in flight for a mid-way follower.
 _INFLIGHT_KEEP_BY_TYPE: dict[JobType, int] = {JobType.ANALYZE_MEMORY: 20_000}
+# The default in-flight cap (job types outside ``_INFLIGHT_KEEP_BY_TYPE``).
+_MAX_OUTPUT_LINES_INFLIGHT = _INFLIGHT_TRIM_KEEP * _INFLIGHT_HYSTERESIS
 
 
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
