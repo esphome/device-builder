@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -475,6 +476,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """List all configured and importable devices."""
         await self._scanner.scan()
         configured = self._scanner.devices
+        self._stamp_offline_seconds(configured)
         configured_names = {d.name for d in configured}
         # ``import_result`` is already pre-filtered against configured
         # devices when the discovery callback fires; this guard catches
@@ -1234,6 +1236,19 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self, kind: ScanChange, device: Device, previous: Device | None = None
     ) -> None:
         scan_change.on_scan_change(self, kind, device, previous)
+
+    def _stamp_offline_seconds(self, devices: list[Device]) -> None:
+        """Persist queued ``offline_since`` changes, then project them onto runtime state."""
+        pending = self.state.pending_offline_since
+        while pending:
+            configuration, stamp = pending.popitem()
+            self._metadata_store.set_field(configuration, "offline_since", stamp)
+        now = time.time()
+        for device in devices:
+            stamp = self._metadata_store.get_field(device.configuration, "offline_since")
+            device.runtime_state.offline_seconds = (
+                max(0.0, now - stamp) if isinstance(stamp, (int, float)) else None
+            )
 
     def _devices_by_name(self, name: str) -> list[Device]:
         """Every configured device whose ``name`` field matches ``name``.
