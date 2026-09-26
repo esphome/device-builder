@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +59,8 @@ def on_state_change(
     for device in controller._devices_by_name(name):
         old_state = device.runtime_state.state
         device.runtime_state.state = state
+        _stamp_offline_since(controller, device, old_state, state)
+        device.runtime_state.offline_since = _resolve_offline_since(controller, device)
         _LOGGER.info(
             "Device %s (%s): %s → %s (via %s)",
             name,
@@ -75,6 +78,7 @@ def on_state_change(
             DeviceStateChangedData(
                 configuration=device.configuration,
                 state=state.value,
+                offline_since=device.runtime_state.offline_since,
             ),
         )
 
@@ -234,3 +238,43 @@ def on_config_hash_change(controller: DevicesController, name: str, config_hash:
         log_label="config_hash",
         on_change=_flip_pending,
     )
+
+
+def _resolve_offline_since(controller: DevicesController, device: Device) -> float | None:
+    """Read the device's offline anchor: the queued value first, then the stored one."""
+    configuration = device.configuration
+    pending = controller.state.pending_offline_since
+    stamp = (
+        pending[configuration]
+        if configuration in pending
+        else controller._metadata_store.get_field(configuration, "offline_since")
+    )
+    return float(stamp) if isinstance(stamp, (int, float)) else None
+
+
+def _stamp_offline_since(
+    controller: DevicesController,
+    device: Device,
+    old_state: DeviceState,
+    state: DeviceState,
+) -> None:
+    """Queue the ``offline_since`` change for *device*; ``devices/list`` persists it."""
+    configuration = device.configuration
+    stored = controller._metadata_store.get_field(configuration, "offline_since")
+    if state is DeviceState.ONLINE:
+        if stored or controller.state.pending_offline_since.get(configuration):
+            controller.state.pending_offline_since[configuration] = None
+        return
+    if old_state is DeviceState.ONLINE:
+        controller.state.pending_offline_since[configuration] = time.time()
+        return
+    # Startup settle: the device was already unreachable when this process
+    # came up, so there is nothing to measure -- ``now`` would time the
+    # dashboard's own uptime, not the outage, and every already-offline
+    # device would report the same figure. Fall back to the last contact a
+    # previous run recorded; with neither, report nothing at all.
+    if stored or configuration in controller.state.pending_offline_since:
+        return
+    last_seen = controller._metadata_store.get_field(configuration, "last_seen")
+    if isinstance(last_seen, (int, float)):
+        controller.state.pending_offline_since[configuration] = float(last_seen)

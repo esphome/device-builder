@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -97,6 +98,9 @@ if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
     from ...models import AdoptableDevice, BoardCatalogEntry
 
+# Observations arrive every sweep; the stamp only has to be good enough to
+# anchor an outage across a restart, so a minute's granularity is plenty.
+_LAST_SEEN_WRITE_INTERVAL = 60.0
 _LOGGER = logging.getLogger(__name__)
 
 # Keeps the fleet-wide build-tree walk out of the cold-start window
@@ -338,6 +342,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._scanner.stop()
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
+        # Last chance to record where each device had got to; a restart
+        # otherwise has no anchor for a device that is offline throughout.
+        self.flush_last_seen()
         await drain_shutdown_callbacks(self._shutdown_callbacks)
 
     async def poll(self) -> None:
@@ -475,6 +482,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """List all configured and importable devices."""
         await self._scanner.scan()
         configured = self._scanner.devices
+        self._stamp_offline_since(configured)
         configured_names = {d.name for d in configured}
         # ``import_result`` is already pre-filtered against configured
         # devices when the discovery callback fires; this guard catches
@@ -1235,6 +1243,33 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     ) -> None:
         scan_change.on_scan_change(self, kind, device, previous)
 
+    def flush_last_seen(self) -> None:
+        """Drain queued last-contact stamps to the store, coarsely.
+
+        Rate-limited because the value only has to survive a restart, while
+        observations arrive every sweep for every reachable device.
+        """
+        pending = self.state.pending_last_seen
+        while pending:
+            configuration, stamp = pending.popitem()
+            previous = self._metadata_store.get_field(configuration, "last_seen")
+            if isinstance(previous, (int, float)) and stamp - previous < _LAST_SEEN_WRITE_INTERVAL:
+                continue
+            self._metadata_store.set_field(configuration, "last_seen", stamp)
+
+    def _stamp_offline_since(self, devices: list[Device]) -> None:
+        """Persist queued offline anchors, then project them onto runtime state."""
+        self.flush_last_seen()
+        pending = self.state.pending_offline_since
+        while pending:
+            configuration, stamp = pending.popitem()
+            self._metadata_store.set_field(configuration, "offline_since", stamp)
+        for device in devices:
+            stamp = self._metadata_store.get_field(device.configuration, "offline_since")
+            device.runtime_state.offline_since = (
+                float(stamp) if isinstance(stamp, (int, float)) else None
+            )
+
     def _devices_by_name(self, name: str) -> list[Device]:
         """Every configured device whose ``name`` field matches ``name``.
 
@@ -1253,6 +1288,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         return reachability.build_snapshot(self, name)
 
     def _on_reachability_observation(self, name: str) -> None:
+        now = time.time()
+        for device in self._devices_by_name(name):
+            self.state.pending_last_seen[device.configuration] = now
         reachability.on_observation(self, name)
 
     def get_reachability_snapshot(self, name: str) -> DeviceReachabilityData | None:

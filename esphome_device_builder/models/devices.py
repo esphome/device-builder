@@ -80,6 +80,11 @@ class DeviceRuntimeState(DashboardModel):
     # just the one address they know. ``Device.ip`` always holds the
     # primary picked for OTA cache args.
     ip_addresses: list[str] = field(default_factory=list)
+    # Epoch seconds at which the device stopped being reachable, or ``None``
+    # while it is online or nothing is known. Absolute rather than an age so
+    # a client can tick it forward without a per-response anchor, and so
+    # every surface showing it agrees by construction. Survives a restart.
+    offline_since: float | None = None
     deployed_version: str = ""
     # 8-char hex hash of the running firmware, read from the mDNS
     # ``config_hash`` TXT record (esphome/esphome#16145). When this
@@ -508,6 +513,10 @@ class DeviceStateChangedData(TypedDict):
 
     configuration: str
     state: str
+    # Mirrors ``DeviceRuntimeState.offline_since`` so a client folding this
+    # narrow event doesn't carry a previous outage's value, or miss a fresh
+    # one until the next full listing.
+    offline_since: float | None
 
 
 class DeviceReachabilityData(TypedDict):

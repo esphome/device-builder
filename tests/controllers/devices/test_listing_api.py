@@ -25,6 +25,7 @@ production.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from esphome_device_builder.models import (
@@ -54,6 +55,12 @@ def _adoptable(name: str = "kitchen-1a2b3c") -> AdoptableDevice:
         network="wifi",
         ignored=False,
     )
+
+
+def _seed(controller: object, *devices: Device) -> None:
+    """Put *devices* in both the scanner's list and its name index."""
+    controller._scanner.devices = list(devices)
+    controller._scanner._devices_by_name = {d.name: [d] for d in devices}
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +262,190 @@ def test_get_importable_devices_filters_already_configured(
     seed = controller.get_importable_devices()
 
     assert [d.name for d in seed] == ["bedroom-d4e5f6"]
+
+
+# ---------------------------------------------------------------------------
+# offline duration
+# ---------------------------------------------------------------------------
+
+
+async def test_list_devices_reports_offline_duration(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``devices/list`` projects the persisted ``offline_since`` onto each device."""
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen", state=DeviceState.OFFLINE)]
+    controller._metadata_store.set_field("kitchen.yaml", "offline_since", time.time() - 7200)
+
+    response = await controller.list_devices()
+
+    offline_since = response.configured[0].runtime_state.offline_since
+    assert offline_since is not None
+    assert abs((time.time() - offline_since) - 7200) < 10
+
+
+async def test_list_devices_leaves_offline_duration_null_without_a_stamp(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """No stamp means no honest duration to report."""
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen", state=DeviceState.OFFLINE)]
+
+    response = await controller.list_devices()
+
+    assert response.configured[0].runtime_state.offline_since is None
+
+
+async def test_going_offline_stamps_offline_since(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Leaving ONLINE anchors the clock the pill counts from."""
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.ONLINE))
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+    await controller.list_devices()
+
+    stamp = controller._metadata_store.get_field("kitchen.yaml", "offline_since")
+    assert stamp is not None
+    assert abs(time.time() - stamp) < 5
+
+
+async def test_coming_back_online_clears_offline_since(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A device that is back has no offline duration to show."""
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.OFFLINE))
+    controller._metadata_store.set_field("kitchen.yaml", "offline_since", time.time() - 60)
+
+    controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
+    await controller.list_devices()
+
+    assert not controller._metadata_store.get_field("kitchen.yaml", "offline_since")
+
+
+async def test_startup_does_not_restart_the_offline_clock(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An UNKNOWN -> OFFLINE settle keeps a stamp from a previous run.
+
+    This is the case the feature exists for: a battery device asleep across
+    a dashboard restart must not have its duration reset to zero.
+    """
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
+    earlier = time.time() - 86400
+    controller._metadata_store.set_field("kitchen.yaml", "offline_since", earlier)
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+    await controller.list_devices()
+
+    assert controller._metadata_store.get_field("kitchen.yaml", "offline_since") == earlier
+
+
+async def test_startup_reports_nothing_without_a_previous_anchor(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An already-offline device with no history reports no duration.
+
+    Anchoring on "now" here would time the dashboard's own uptime, and
+    every device offline at startup would report the identical figure.
+    """
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+    response = await controller.list_devices()
+
+    assert controller._metadata_store.get_field("kitchen.yaml", "offline_since") is None
+    assert response.configured[0].runtime_state.offline_since is None
+
+
+async def test_startup_anchors_on_the_last_contact_a_previous_run_recorded(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """With a persisted last contact, the outage is measured from it."""
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
+    controller._metadata_store.set_field("kitchen.yaml", "last_seen", time.time() - 7200)
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+    response = await controller.list_devices()
+
+    offline_since = response.configured[0].runtime_state.offline_since
+    assert offline_since is not None
+    assert abs((time.time() - offline_since) - 7200) < 10
+
+
+async def test_two_devices_offline_at_startup_report_different_durations(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Distinct last-contact times must not collapse to one shared figure."""
+    controller = make_controller(tmp_path)
+    kitchen = _device("kitchen", state=DeviceState.UNKNOWN)
+    bedroom = _device("bedroom", state=DeviceState.UNKNOWN)
+    _seed(controller, kitchen, bedroom)
+    now = time.time()
+    controller._metadata_store.set_field("kitchen.yaml", "last_seen", now - 3600)
+    controller._metadata_store.set_field("bedroom.yaml", "last_seen", now - 60)
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+    controller._on_state_change("bedroom", DeviceState.OFFLINE, "ping")
+    response = await controller.list_devices()
+
+    by_name = {d.name: d.runtime_state.offline_since for d in response.configured}
+    assert by_name["kitchen"] is not None and by_name["bedroom"] is not None
+    assert by_name["bedroom"] - by_name["kitchen"] > 3000
+
+
+async def test_queued_last_contact_reaches_the_store(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A queued observation is persisted, so a restart has an anchor."""
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.ONLINE))
+    now = time.time()
+    controller.state.pending_last_seen["kitchen.yaml"] = now
+
+    await controller.list_devices()
+
+    assert controller._metadata_store.get_field("kitchen.yaml", "last_seen") == now
+
+
+async def test_last_contact_writes_are_rate_limited(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A second observation moments later doesn't rewrite the stamp."""
+    controller = make_controller(tmp_path)
+    first = time.time()
+    controller._metadata_store.set_field("kitchen.yaml", "last_seen", first)
+
+    controller.state.pending_last_seen["kitchen.yaml"] = first + 5
+    controller.flush_last_seen()
+
+    assert controller._metadata_store.get_field("kitchen.yaml", "last_seen") == first
+
+
+async def test_state_change_event_carries_the_offline_anchor(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A device going offline publishes its anchor on the narrow event.
+
+    Without it a client folding ``DEVICE_STATE_CHANGED`` keeps whatever
+    ``offline_since`` it last saw — nothing on a fresh outage, and the
+    previous outage's value after a flap.
+    """
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.ONLINE))
+    captured = capture_devices_events(controller, EventType.DEVICE_STATE_CHANGED)
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+
+    stamps = [
+        e.data["offline_since"] for e in captured if e.event_type is EventType.DEVICE_STATE_CHANGED
+    ]
+    assert stamps and stamps[0] is not None
+    assert abs(time.time() - stamps[0]) < 5
