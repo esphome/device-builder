@@ -26,6 +26,7 @@ _EMPTY: dict[str, Any] = {}
 STORE_FIELDS: frozenset[str] = frozenset(
     {
         "ip",
+        "offline_since",
         "deployed_config_hash",
         "deployed_version",
         "deployed_name",

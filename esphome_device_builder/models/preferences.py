@@ -100,6 +100,10 @@ class UserPreferences(DashboardModel):
     # and skips repo creation; the toggle is an expert-only surface.
     version_history_enabled: bool = True
 
+    # Show how long an offline device has been offline on its status
+    # pill, rather than a bare "Offline".
+    offline_duration_visible: bool = False
+
     # Highest onboarding-flow version the user has acknowledged.
     # Default 0 ⇒ never gone through onboarding; the dashboard
     # surfaces the wizard on next load. See

@@ -111,6 +111,12 @@ class DevicesState:
     ignored_devices: set[str] = field(default_factory=set)
     adopting: set[str] = field(default_factory=set)
 
+    # ``configuration`` -> epoch seconds the device stopped being reachable,
+    # or ``None`` for "back online, clear the stamp". Written by the sync
+    # state callback (which cannot schedule a store write — no running loop
+    # in unit tests) and drained to the metadata store by ``devices/list``.
+    pending_offline_since: dict[str, float | None] = field(default_factory=dict)
+
     # ``esphome config`` verdicts of "no api:" for the HA key handoff, keyed by
     # configuration and stamped with the YAML's ``(mtime_ns, size)``; a repeat
     # push against an unchanged file answers without a second spawn.

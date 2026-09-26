@@ -80,6 +80,9 @@ class DeviceRuntimeState(DashboardModel):
     # just the one address they know. ``Device.ip`` always holds the
     # primary picked for OTA cache args.
     ip_addresses: list[str] = field(default_factory=list)
+    # Seconds since the device stopped being reachable, or ``None`` while it
+    # is online or has never been observed. Survives a dashboard restart.
+    offline_seconds: float | None = None
     deployed_version: str = ""
     # 8-char hex hash of the running firmware, read from the mDNS
     # ``config_hash`` TXT record (esphome/esphome#16145). When this

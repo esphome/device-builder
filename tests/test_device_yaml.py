@@ -3793,6 +3793,7 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "state": "unknown",
         "active_source": "unknown",
         "ip_addresses": [],
+        "offline_seconds": None,
         "deployed_version": "",
         "deployed_config_hash": "",
         "queued_update": False,
