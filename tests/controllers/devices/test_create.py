@@ -515,6 +515,23 @@ async def test_create_device_quotes_friendly_name_with_yaml_metachars(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_quotes_all_digit_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An all-digit name is written quoted so it parses back as a string."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    result = await ctrl.create_device(name="8266")
+
+    assert result.configuration == "8266.yaml"
+    content = (tmp_path / "8266.yaml").read_text("utf-8")
+    assert '  name: "8266"\n' in content
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_rejects_name_with_no_hostname_safe_characters(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
