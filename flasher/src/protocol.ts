@@ -70,17 +70,18 @@ export interface FirmwareMessage {
   // A receiver refuses a frame whose flasher it did not list, and the id may
   // be one a newer opener knows and the receiver does not.
   // For 'rtl-ambz2' and 'rp2-picoboot' the parts are the UF2 as one part at
-  // address 0, which the receiver parses into flash runs itself.
+  // address 0, which the receiver parses into flash runs itself; for 'nrf-dfu'
+  // the DFU package the same way, which the receiver unpacks.
   flasher?: HandoffFlasher;
   parts: FlashPart[];
 }
 
 // The flasher a hand-off is for, by an id both apps share: 'esp' is esptool
 // (ESP32 / ESP8266), 'rtl-ambz2' the RTL8720C ROM downloader, 'rp2-picoboot'
-// PICOBOOT for the RP2040. Named after the flasher, not the platform: rtl87xx
-// covers the RTL8710B too, whose ROM speaks another protocol and gets its own
-// id when it lands.
-export type HandoffFlasher = "esp" | "rtl-ambz2" | "rp2-picoboot";
+// PICOBOOT for the RP2040, 'nrf-dfu' Nordic legacy DFU for the nRF52. Named
+// after the flasher, not the platform: rtl87xx covers the RTL8710B too, whose
+// ROM speaks another protocol and gets its own id when it lands.
+export type HandoffFlasher = "esp" | "rtl-ambz2" | "rp2-picoboot" | "nrf-dfu";
 
 export type FlashState =
   | "connecting"
