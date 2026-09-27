@@ -674,7 +674,7 @@
 {"applies_to":["sensor"],"id":"delta","name":"Sensor → Delta"},
 {"applies_to":["sensor"],"id":"exponential_moving_average","name":"Sensor → Exponential Moving Average"},
 {"applies_to":["sensor"],"id":"filter_out","name":"Sensor → Filter Out","templatable":true},
-{"applies_to":["sensor"],"id":"heartbeat","name":"Sensor → Heartbeat"},
+{"applies_to":["sensor"],"duration_min_unit":"ms","id":"heartbeat","name":"Sensor → Heartbeat","value_type":"time_period"},
 {"applies_to":["sensor"],"id":"max","name":"Sensor → Max"},
 {"applies_to":["sensor"],"id":"median","name":"Sensor → Median"},
 {"applies_to":["sensor"],"id":"min","name":"Sensor → Min"},

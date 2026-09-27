@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -131,6 +132,55 @@ def test_registry_entry_stamps_duration_min_unit() -> None:
     assert entry is not None
     assert entry["value_type"] == "time_period"
     assert entry["duration_min_unit"] == "ms"
+
+
+def test_scalar_or_referenced_mapping_filter_keeps_both_shapes(tmp_path: Path) -> None:
+    """``heartbeat: 60s`` or its mapping, whose fields sit behind an ``extends`` ref."""
+    schema_dir = tmp_path / "schema"
+    schema_dir.mkdir()
+    (schema_dir / "sensor.json").write_text(
+        json.dumps(
+            {
+                "sensor": {
+                    "schemas": {
+                        "HEARTBEAT_SCHEMA": {
+                            "type": "schema",
+                            "schema": {
+                                "config_vars": {
+                                    "period": {
+                                        "key": "Required",
+                                        "type": "schema",
+                                        "schema": {
+                                            "extends": ["core.positive_time_period_milliseconds"]
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        )
+    )
+    entry = _convert_registry_entry(
+        name="heartbeat",
+        body={
+            "schema": {
+                "extends": [
+                    "core.positive_time_period_milliseconds",
+                    "sensor.HEARTBEAT_SCHEMA",
+                ],
+            },
+            "type": "schema",
+        },
+        label_domain="sensor",
+        applies_to=["sensor"],
+        schema_dir=schema_dir,
+    )
+    assert entry is not None
+    assert entry["value_type"] == "time_period"
+    assert entry["duration_min_unit"] == "ms"
+    assert [e["key"] for e in entry["config_entries"]] == ["period"]
 
 
 def _core_entry(convert: Callable[..., dict | None], name: str, body: dict) -> dict | None:

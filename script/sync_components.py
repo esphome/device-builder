@@ -10725,29 +10725,18 @@ def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
     """
     Return the scalar primitive the schema accepts, or None.
 
-    Covers two shapes: a pure scalar (``delayed_on: 50ms``) where the
-    schema has only ``extends`` to a scalar primitive, and the
-    polymorphic ``cv.Any(scalar, Schema({...}))`` form
-    (``delayed_on_off: 50ms`` OR ``delayed_on_off: {time_on, time_off}``)
-    where the schema carries both ``extends`` to a scalar primitive
-    AND a mapping in ``config_vars``. Both cases signal "the frontend
-    should accept the scalar shorthand"; the polymorphic case still
-    has ``config_entries`` extracted from the ``config_vars`` (see
-    ``_convert_registry_entry``).
+    Covers a pure scalar (``delayed_on: 50ms``), whose schema only
+    ``extends`` a scalar primitive, and the polymorphic
+    ``cv.Any(scalar, Schema({...}))`` form, whose mapping side sits in
+    ``config_vars`` (``delayed_on_off``) or behind another ``extends`` ref
+    (``heartbeat``). The mapping side still yields ``config_entries``.
     """
     if name == _LAMBDA_REGISTRY_ID and not schema:
         return _LAMBDA_REGISTRY_ID
-    if not schema:
-        return None
-    extends = schema.get("extends") or []
-    if not extends:
-        return None
-    types = [_scalar_type_for_extends_ref(ref) for ref in extends]
-    # All extends must resolve to a scalar primitive; a single
-    # mapping-shaped extends (sensor.DELTA_SCHEMA etc.) disqualifies.
-    if any(t is None for t in types):
-        return None
-    return types[0]
+    for ref in (schema or {}).get("extends") or []:
+        if (scalar := _scalar_type_for_extends_ref(ref)) is not None:
+            return scalar
+    return None
 
 
 # ``vol.Coerce`` target type -> the ``value_type`` string; the whole
@@ -10852,15 +10841,9 @@ def _convert_registry_entry(
     docs = clean_docs(body.get("docs"))
     schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
     value_type = _scalar_value_type_for_schema(name, schema) or live_value_type
-    has_config_vars = bool(schema and schema.get("config_vars"))
-    if value_type is not None and not has_config_vars:
-        # Pure scalar shorthand (``delayed_on: 50ms``).
-        config_entries: list[dict] = []
-    else:
-        # Pure mapping OR polymorphic mapping+scalar
-        # (``cv.Any(time_period, Schema({...}))`` for delayed_on_off).
-        config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
-        config_entries = _apply_field_overrides(name, config_entries)
+    # A pure scalar (``delayed_on: 50ms``) has no mapping side, so no entries.
+    config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
+    config_entries = _apply_field_overrides(name, config_entries)
     # ``templatable`` lets the frontend offer a lambda toggle on the scalar
     # value (``multiply: !lambda``). Omitted when false.
     return {
