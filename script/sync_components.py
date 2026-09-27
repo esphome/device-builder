@@ -3401,13 +3401,15 @@ def _scalar_type_for_extends_ref(ref: str) -> str | None:
     return None
 
 
-# ``core.positive_time_period_<precision>`` ref suffix -> finest accepted unit.
-_DURATION_MIN_UNIT_BY_REF_SUFFIX: dict[str, str] = {
-    "_nanoseconds": "ns",
-    "_microseconds": "us",
-    "_milliseconds": "ms",
-    "_seconds": "s",
-    "_minutes": "min",
+# ESPHome's precision word -> finest accepted unit. The word ends a bundle ref
+# (``core.positive_time_period_<word>``) and names the live check
+# (``cv.time_period_in_<word>_``).
+_DURATION_UNIT_BY_PRECISION: dict[str, str] = {
+    "nanoseconds": "ns",
+    "microseconds": "us",
+    "milliseconds": "ms",
+    "seconds": "s",
+    "minutes": "min",
 }
 
 
@@ -3415,10 +3417,7 @@ def _duration_min_unit_for_extends_ref(ref: str) -> str | None:
     """Return the finest unit a time-period *ref* accepts, or None when it names no precision."""
     if "time_period" not in ref:
         return None
-    for suffix, unit in _DURATION_MIN_UNIT_BY_REF_SUFFIX.items():
-        if ref.endswith(suffix):
-            return unit
-    return None
+    return _DURATION_UNIT_BY_PRECISION.get(ref.rsplit("_", 1)[-1])
 
 
 def _duration_min_unit_for_schema(schema: dict | None) -> str | None:
@@ -6900,30 +6899,23 @@ def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, Ref
     return by_identity, by_name
 
 
-# ``cv`` precision checks (and ``update_interval``, which wraps the
-# millisecond one in a plain function) -> finest accepted unit.
-_DURATION_PRECISION_VALIDATORS: dict[str, str] = {
-    "time_period_in_nanoseconds_": "ns",
-    "time_period_in_microseconds_": "us",
-    "time_period_in_milliseconds_": "ms",
-    "time_period_in_seconds_": "s",
-    "time_period_in_minutes_": "min",
-    "update_interval": "ms",
-}
-
-
 @cache
 def _duration_precision_table() -> dict[int, str]:
     """Map the identity of each live ``cv`` precision validator to its unit."""
     from esphome import config_validation as cv
 
+    units_by_attr = {
+        f"time_period_in_{word}_": unit for word, unit in _DURATION_UNIT_BY_PRECISION.items()
+    }
+    # A plain function wrapping the millisecond check, so there is nothing to peel.
+    units_by_attr["update_interval"] = "ms"
     table: dict[int, str] = {}
-    for attr, unit in _DURATION_PRECISION_VALIDATORS.items():
+    for attr, unit in units_by_attr.items():
         obj = getattr(cv, attr, None)
         if obj is None:
             raise SystemExit(
                 f"time-period validator cv.{attr} is gone — renamed upstream? "
-                "Update _DURATION_PRECISION_VALIDATORS."
+                "Update _DURATION_UNIT_BY_PRECISION."
             )
         table[id(obj)] = unit
     return table
@@ -10711,21 +10703,22 @@ def _resolve_automation_lambda(
     return config_entries, _scalar_shorthand_key(body, schema_dir)
 
 
-def _scalar_body_fields(schema: dict | None, body: dict) -> dict[str, Any]:
-    """
-    Return the catalog fields of an action / condition whose whole body is one scalar.
-
-    ``delay: 2s`` extends only a scalar primitive, so it has a value rather
-    than fields. Empty for a mapping body.
-    """
-    if not _is_scalar_extends_schema(schema):
-        return {}
-    fields: dict[str, Any] = {"value_type": _scalar_value_type_for_schema("", schema)}
+def _scalar_value_extras(value_type: str | None, schema: dict | None, body: dict) -> dict:
+    """Return the ``templatable`` / ``duration_min_unit`` fields of a scalar value."""
+    extras: dict[str, Any] = {}
     if body.get("templatable"):
-        fields["templatable"] = True
-    if (unit := _duration_min_unit_for_schema(schema)) is not None:
-        fields["duration_min_unit"] = unit
-    return fields
+        extras["templatable"] = True
+    if value_type == "time_period" and (unit := _duration_min_unit_for_schema(schema)):
+        extras["duration_min_unit"] = unit
+    return extras
+
+
+def _scalar_body_fields(schema: dict | None, body: dict) -> dict[str, Any]:
+    """Return the value fields of a scalar-bodied action / condition, else ``{}``."""
+    if schema is None or not _is_scalar_extends_schema(schema):
+        return {}
+    value_type = _scalar_type_for_extends_ref(schema["extends"][0])
+    return {"value_type": value_type, **_scalar_value_extras(value_type, schema, body)}
 
 
 def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
@@ -10866,29 +10859,18 @@ def _convert_registry_entry(
     else:
         # Pure mapping OR polymorphic mapping+scalar
         # (``cv.Any(time_period, Schema({...}))`` for delayed_on_off).
-        # In the polymorphic case strip ``extends`` before extraction
-        # so the scalar primitive's unit-parts
-        # (days/hours/minutes/...) don't leak in alongside the
-        # ``config_vars`` mapping fields.
-        extract_schema: dict | None = schema
-        if value_type is not None and has_config_vars and schema is not None:
-            extract_schema = {k: v for k, v in schema.items() if k != "extends"}
-        config_entries, _alist, _hcg = _extract_automation_param_schema(extract_schema, schema_dir)
+        config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
         config_entries = _apply_field_overrides(name, config_entries)
-    entry = {
+    # ``templatable`` lets the frontend offer a lambda toggle on the scalar
+    # value (``multiply: !lambda``). Omitted when false.
+    return {
         "id": name,
         "name": _automation_label(label_domain, name, docs.name),
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "applies_to": applies_to,
         "value_type": value_type,
+        **_scalar_value_extras(value_type, schema, body),
     }
-    # Surface the bundle's templatable flag so the frontend offers a lambda
-    # toggle on the scalar value (``multiply: !lambda``). Omitted when false.
-    if body.get("templatable"):
-        entry["templatable"] = True
-    if value_type == "time_period" and (unit := _duration_min_unit_for_schema(schema)):
-        entry["duration_min_unit"] = unit
-    return entry
 
 
 # Shared by `_automation_label` (producer) and `_dedupe_filters`

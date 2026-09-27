@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -132,6 +133,17 @@ def test_registry_entry_stamps_duration_min_unit() -> None:
     assert entry["duration_min_unit"] == "ms"
 
 
+def _core_entry(convert: Callable[..., dict | None], name: str, body: dict) -> dict | None:
+    return convert(
+        top_key="core",
+        domain="core",
+        wire_prefix="core",
+        name=name,
+        body=body,
+        schema_dir=_UNUSED_SCHEMA_DIR,
+    )
+
+
 def _delay_body() -> dict:
     return {
         "schema": {"extends": ["core.positive_time_period_milliseconds"]},
@@ -143,14 +155,7 @@ def _delay_body() -> dict:
 
 def test_scalar_bodied_action_has_a_value_not_fields() -> None:
     """``delay`` is one templatable duration, not six unit fields."""
-    action = _convert_automation_action(
-        top_key="core",
-        domain="core",
-        wire_prefix="core",
-        name="delay",
-        body=_delay_body(),
-        schema_dir=_UNUSED_SCHEMA_DIR,
-    )
+    action = _core_entry(_convert_automation_action, "delay", _delay_body())
     assert action is not None
     assert action["config_entries"] == []
     assert action["value_type"] == "time_period"
@@ -161,14 +166,7 @@ def test_scalar_bodied_action_has_a_value_not_fields() -> None:
 
 def test_scalar_bodied_condition_has_a_value_not_fields() -> None:
     """A condition whose body is one scalar gets the same shape."""
-    condition = _convert_automation_condition(
-        top_key="core",
-        domain="core",
-        wire_prefix="core",
-        name="elapsed",
-        body=_delay_body(),
-        schema_dir=_UNUSED_SCHEMA_DIR,
-    )
+    condition = _core_entry(_convert_automation_condition, "elapsed", _delay_body())
     assert condition is not None
     assert condition["config_entries"] == []
     assert condition["value_type"] == "time_period"
@@ -177,12 +175,10 @@ def test_scalar_bodied_condition_has_a_value_not_fields() -> None:
 
 def test_mapping_action_has_no_value_type() -> None:
     """An action with its own fields is not scalar-bodied."""
-    action = _convert_automation_action(
-        top_key="core",
-        domain="core",
-        wire_prefix="core",
-        name="wait",
-        body={
+    action = _core_entry(
+        _convert_automation_action,
+        "wait",
+        {
             "schema": {
                 "config_vars": {
                     "timeout": {
@@ -194,7 +190,6 @@ def test_mapping_action_has_no_value_type() -> None:
             },
             "type": "schema",
         },
-        schema_dir=_UNUSED_SCHEMA_DIR,
     )
     assert action is not None
     assert "value_type" not in action
