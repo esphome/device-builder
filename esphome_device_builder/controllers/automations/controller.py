@@ -37,7 +37,7 @@ from ...models.automations import (
     YamlDiff,
 )
 from . import catalog, parsing, writing
-from .addressing import require_writable
+from .addressing import Names, require_writable
 from .catalog import AutomationBodyRef
 
 if TYPE_CHECKING:
@@ -176,6 +176,7 @@ class AutomationsController:
             conditions=catalog.conditions_for_domains(scoped.domains),
             scripts=scoped.scripts,
             devices=scoped.devices,
+            unnamed_script_ids=scoped.unnamed_script_ids,
         ).to_dict()
 
     @api_command("automations/parse")
@@ -197,7 +198,7 @@ class AutomationsController:
         stale on-disk YAML, fails to find the new automation, and
         the form lands empty.
         """
-        parsed = await self._run_on_config(configuration, yaml, parsing.parse_device_yaml)
+        parsed = await self._run_on_config(configuration, yaml, _parse_with_shared_names)
         return [p.to_dict() for p in parsed]
 
     @api_command("automations/upsert")
@@ -334,17 +335,28 @@ class AutomationsController:
 class _ScopedYaml:
     """Result of scanning a device YAML for available automation targets."""
 
-    __slots__ = ("devices", "domains", "scripts")
+    __slots__ = ("devices", "domains", "scripts", "unnamed_script_ids")
 
     def __init__(
         self,
         domains: set[str],
         scripts: list[AvailableScript],
         devices: list[AvailableComponentInstance],
+        unnamed_script_ids: list[str] | None = None,
     ) -> None:
         self.domains = domains
         self.scripts = scripts
         self.devices = devices
+        self.unnamed_script_ids = unnamed_script_ids or []
+
+
+def _parse_with_shared_names(yaml_text: str) -> list[ParsedAutomation]:
+    """Parse *yaml_text* and mark each automation whose name more than one item carries."""
+    parsed = parsing.parse_device_yaml(yaml_text)
+    names = Names.of(yaml_text)
+    for row in parsed:
+        row.shared_name = names.shares(row.location)
+    return parsed
 
 
 def _scope_from_yaml(text: str) -> _ScopedYaml:
@@ -385,7 +397,12 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
             domain, parsing.catalog_id(domain, section.get("platform"))
         ):
             devices.extend(_scope_singleton_instance(domain, section))
-    return _ScopedYaml(domains=domains, scripts=scripts, devices=devices)
+    names = Names(data)
+    for script in scripts:
+        script.shared_name = names.scripts[script.id] > 1
+    for device in devices:
+        device.shared_name = names.instances[device.id] > 1
+    return _ScopedYaml(domains, scripts, devices, names.unnamed_scripts)
 
 
 def _qualified_domains(domain: str, section: list) -> set[str]:

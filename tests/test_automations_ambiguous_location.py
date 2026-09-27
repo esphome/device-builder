@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers.automations import AutomationsController, parsing
-from esphome_device_builder.controllers.automations.addressing import require_writable
+from esphome_device_builder.controllers.automations.addressing import Names, require_writable
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.automations import (
@@ -327,3 +327,82 @@ def test_a_position_and_a_name_nothing_shares_pass() -> None:
     require_writable(_UNAMBIGUOUS, ScriptLocation(id="script_1"))
     require_writable(_UNAMBIGUOUS, ScriptLocation(id="not_there"))
     require_writable("switch: [\n", ScriptLocation(id="script_0"))
+
+
+@pytest.mark.parametrize(("text", "name", "what"), _SHARED)
+async def test_the_listing_marks_every_automation_sharing_a_name(
+    tmp_path: Path, text: str, name: str, what: str
+) -> None:
+    """Each automation of a name two items share is listed with ``shared_name``."""
+    controller, _devices = _setup(tmp_path, text)
+
+    listed = await controller.parse(configuration="d.yaml")
+
+    assert [row["shared_name"] for row in listed] == [True, True]
+
+
+async def test_the_listing_is_as_before_where_no_name_is_shared(tmp_path: Path) -> None:
+    """An automation with a name of its own is listed without the field."""
+    controller, _devices = _setup(tmp_path, _UNAMBIGUOUS)
+
+    listed = await controller.parse(configuration="d.yaml")
+
+    assert listed == [row.to_dict() for row in await _rows(_UNAMBIGUOUS)]
+    assert not any("shared_name" in row for row in listed)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param(text, id=param.id) for param in _SHARED for text in param.values[:1]]
+    + [pytest.param(_UNAMBIGUOUS, id="nothing-shared"), pytest.param(_NO_ROW_YET, id="no-row")],
+)
+async def test_an_automation_is_marked_exactly_when_a_write_to_it_is_refused(text: str) -> None:
+    """The listing and the refusal agree on every automation."""
+    names = await asyncio.to_thread(Names.of, text)
+
+    for row in await _rows(text):
+        try:
+            await asyncio.to_thread(require_writable, text, row.location)
+        except CommandError:
+            refused = True
+        else:
+            refused = False
+        assert names.shares(row.location) is refused
+
+
+async def test_the_targets_mark_a_shared_id_and_list_the_ids_of_scripts_without_one(
+    tmp_path: Path,
+) -> None:
+    """``get_available`` marks the instances and scripts of a shared id, and the ids in use."""
+    text = _BINARY_SENSORS + _SCRIPTS_DECLARED_FIRST.removeprefix(_HEAD)
+    controller, _devices = _setup(tmp_path, text)
+
+    available = await controller.get_available(configuration="d.yaml")
+
+    assert [(d["id"], d.get("shared_name", False)) for d in available["devices"]] == [
+        ("binary_sensor_0", True),
+        ("binary_sensor_0", True),
+    ]
+    assert [(s["id"], s.get("shared_name", False)) for s in available["scripts"]] == [
+        ("script_1", True)
+    ]
+    assert available["unnamed_script_ids"] == ["script_1"]
+
+
+async def test_the_targets_are_as_before_where_no_name_is_shared(tmp_path: Path) -> None:
+    """Without a shared id no target carries the field, and a script without an id is named."""
+    controller, _devices = _setup(tmp_path, _UNAMBIGUOUS)
+
+    available = await controller.get_available(configuration="d.yaml")
+
+    assert not any("shared_name" in d for d in available["devices"] + available["scripts"])
+    assert [s["id"] for s in available["scripts"]] == ["blink"]
+    assert available["unnamed_script_ids"] == ["script_1"]
+
+
+def test_a_config_that_does_not_load_has_no_names() -> None:
+    """A config that does not load shares no name and has no script without an id."""
+    names = Names.of("switch: [\n")
+
+    assert not names.shares(ScriptLocation(id="script_0"))
+    assert names.unnamed_scripts == []

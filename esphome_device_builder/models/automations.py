@@ -508,6 +508,8 @@ class ParsedAutomation(DashboardModel):
     raw_yaml: str
     error: str | None = None
     unsupported: bool = False
+    # More than one item carries the name of ``location``; a write to it is refused.
+    shared_name: bool = False
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -532,6 +534,8 @@ class AvailableScript(DashboardModel):
 
     id: str
     parameters: list[AvailableScriptParameter] = field(default_factory=list)
+    # A script without an ``id:`` is listed under this id too.
+    shared_name: bool = False
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -556,6 +560,8 @@ class AvailableComponentInstance(DashboardModel):
     # True only when the YAML declares ``id:``; a synthesized round-trip
     # identity must not be written into reference params.
     has_explicit_id: bool = False
+    # More than one instance is listed under ``id``; a write to it is refused.
+    shared_name: bool = False
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -581,6 +587,8 @@ class AvailableAutomations(DashboardModel):
     conditions: list[AutomationConditionIndex] = field(default_factory=list)
     scripts: list[AvailableScript] = field(default_factory=list)
     devices: list[AvailableComponentInstance] = field(default_factory=list)
+    # The ids the scripts without an ``id:`` are listed under; not free for a new script.
+    unnamed_script_ids: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
