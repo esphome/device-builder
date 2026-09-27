@@ -1160,6 +1160,11 @@ def test_resolve_chip_mcu_reads_the_raw_text_without_a_resolved_config() -> None
     assert resolve_chip_mcu(None, "rp2040:\n  variant: RP2350\n", "rp2") == "rp2350"
     raw = "rtl87xx:\n  board: custom\n  family: RTL8720C\n"
     assert resolve_chip_mcu(None, raw, "rtl87xx") == "rtl8720c"
+    # A trailing comment is not part of the value, as a full load reads it.
+    raw = "rtl87xx:\n  board: bw15  # kitchen plug\n"
+    assert resolve_chip_mcu(None, raw, "rtl87xx") == "rtl8720c"
+    raw = "rtl87xx:\n  board: custom\n  family: 'RTL8720C' # custom module\n"
+    assert resolve_chip_mcu(None, raw, "rtl87xx") == "rtl8720c"
     # The same answer as a full load gives for a substituted board.
     raw = "rtl87xx:\n  board: ${the_board}\n"
     assert resolve_chip_mcu(None, raw, "rtl87xx", {"the_board": "bw15"}) == "rtl8720c"

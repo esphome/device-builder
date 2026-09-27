@@ -138,7 +138,7 @@ def parse_platform_fields(yaml_content: str, keys: tuple[str, ...]) -> tuple[str
             continue
         key, colon, value = line.strip().partition(":")
         if colon and key in fields:
-            fields[key] = value.strip().strip('"').strip("'")
+            fields[key] = _strip_yaml_quotes(_split_value_and_comment(value)[0])
     return platform, fields
 
 
