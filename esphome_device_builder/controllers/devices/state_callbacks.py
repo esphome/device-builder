@@ -248,7 +248,7 @@ def on_config_hash_change(controller: DevicesController, name: str, config_hash:
 
 
 def record_last_seen(controller: DevicesController, name: str) -> None:
-    """Persist a coarse last-contact stamp; it anchors an outage that spans a restart."""
+    """Persist a rate-limited last-contact stamp for *name*'s devices."""
     now = time.time()
     store = controller._metadata_store
     for device in controller._devices_by_name(name):
@@ -261,7 +261,7 @@ def record_last_seen(controller: DevicesController, name: str) -> None:
 def _offline_since(
     controller: DevicesController, device: Device, old_state: DeviceState, state: DeviceState
 ) -> float | None:
-    """Epoch the outage *device* is entering began, or ``None`` when unknown or online."""
+    """Return the epoch *device*'s outage began, or ``None`` when online or unknown."""
     if state is DeviceState.ONLINE:
         return None
     if old_state is DeviceState.ONLINE:

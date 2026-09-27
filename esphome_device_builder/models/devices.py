@@ -11,11 +11,7 @@ from .common import DashboardModel
 
 
 def offline_seconds(offline_since: float | None) -> float | None:
-    """Age of an ``offline_since`` stamp, as sent to a client.
-
-    Clients get an age rather than the stamp so they never measure it
-    against their own clock, which is routinely out of sync with ours.
-    """
+    """Return the age of an ``offline_since`` stamp, the form a client is sent."""
     return None if offline_since is None else max(0.0, time.time() - offline_since)
 
 
@@ -119,7 +115,7 @@ class DeviceRuntimeState(DashboardModel):
     deployed_identity_live: bool = False
 
     def __post_serialize__(self, d: dict[Any, Any]) -> dict[Any, Any]:
-        """Send the offline stamp as its age; see :func:`offline_seconds`."""
+        """Replace the ``offline_since`` stamp with its age."""
         d["offline_seconds"] = offline_seconds(d.pop("offline_since"))
         return d
 

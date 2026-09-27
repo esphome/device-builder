@@ -415,6 +415,21 @@ async def test_startup_drops_a_stamp_the_device_was_seen_after(
     assert controller._metadata_store.get_field("kitchen.yaml", "offline_since") == now - 3600
 
 
+async def test_startup_keeps_a_stamp_newer_than_the_last_contact(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A stamp taken after the last contact is the current outage."""
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
+    now = time.time()
+    controller._metadata_store.set_field("kitchen.yaml", "offline_since", now - 3600)
+    controller._metadata_store.set_field("kitchen.yaml", "last_seen", now - 3660)
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+
+    assert controller._metadata_store.get_field("kitchen.yaml", "offline_since") == now - 3600
+
+
 async def test_an_observation_records_the_last_contact(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
