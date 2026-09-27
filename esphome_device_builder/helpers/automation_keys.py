@@ -17,6 +17,11 @@ CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 # Fallback collapse key for an entry with no usable scalar shorthand.
 DEFAULT_SHORTHAND_KEY = "id"
 
+# Keys of a time period's mapping form (esphome ``cv.time_period_dict``).
+DURATION_UNIT_KEYS: frozenset[str] = frozenset(
+    {"days", "hours", "minutes", "seconds", "milliseconds", "microseconds"}
+)
+
 
 def is_trigger_key(key: str) -> bool:
     """Return True when *key* names an inline automation trigger (``on_*``)."""

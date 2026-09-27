@@ -28,7 +28,12 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
 from ...helpers.api import CommandError
-from ...helpers.automation_keys import is_scalar_bodied, scalar_param_key, shorthand_key
+from ...helpers.automation_keys import (
+    DURATION_UNIT_KEYS,
+    is_scalar_bodied,
+    scalar_param_key,
+    shorthand_key,
+)
 from ...helpers.yaml.scalar import is_custom_yaml_tag, is_lambda_sentinel, is_tagged_sentinel
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -106,27 +111,6 @@ def emit_trigger_list_item(tree: AutomationTree) -> CommentedMap:
         item[key] = encode_value(value)
     item["then"] = emit_action_seq(tree.actions)
     return item
-
-
-def _value_slot_params(
-    entry: AutomationAction | AutomationCondition | None, entry_id: str, params: dict[str, Any]
-) -> dict[str, Any]:
-    """
-    Return *params* with a scalar-bodied entry's value in its one slot.
-
-    A body sent as bare fields (``{"seconds": 2}``) is the value's mapping form.
-    The slot beside other keys is two values for one body, so it is refused.
-    """
-    if entry is None or not params or not is_scalar_bodied(entry):
-        return params
-    key = scalar_param_key(entry)
-    if key not in params:
-        return {key: params}
-    if len(params) > 1:
-        extra = sorted(k for k in params if k != key)
-        msg = f"{entry_id!r} takes one value; got {key!r} beside {extra}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return params
 
 
 def emit_action_seq(actions: list[ActionNode]) -> CommentedSeq:
@@ -315,3 +299,27 @@ def _encode_lambda(body: str, tag: str | None) -> Any:
     if "\n" in body.rstrip("\n"):
         return _tagged_scalar(body if body.endswith("\n") else body + "\n", "!lambda", style="|")
     return _tagged_scalar(body.rstrip("\n"), "!lambda")
+
+
+def _value_slot_params(
+    entry: AutomationAction | AutomationCondition | None, entry_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Return *params* with a scalar-bodied entry's value in its one slot.
+
+    A time period sent as bare unit keys (``{"seconds": 2}``) is the value's
+    mapping form. Any other bare key, or the slot beside other keys, is refused.
+    """
+    if entry is None or not params or not is_scalar_bodied(entry):
+        return params
+    key = scalar_param_key(entry)
+    extra = sorted(k for k in params if k != key)
+    if key in params:
+        if extra:
+            msg = f"{entry_id!r} takes one value; got {key!r} beside {extra}"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        return params
+    if entry.value_type != "time_period" or not DURATION_UNIT_KEYS.issuperset(extra):
+        msg = f"{entry_id!r} takes one value under {key!r}; got {extra}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return {key: params}

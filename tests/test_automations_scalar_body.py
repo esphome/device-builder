@@ -112,3 +112,19 @@ def test_value_slot_beside_other_params_is_refused() -> None:
         emit_action_node(node)
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
     assert "'delay' takes one value" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("params", [{"secs": 2}, {"value": "2s"}, {"seconds": 2, "secs": 1}])
+def test_bare_params_that_are_not_unit_keys_are_refused(params: dict) -> None:
+    """Only a time period's own unit keys can stand in for the value."""
+    node = ActionNode(action_id="delay", params=params)
+    with pytest.raises(CommandError) as excinfo:
+        emit_action_node(node)
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "'delay' takes one value under 'id'" in str(excinfo.value)
+
+
+def test_value_slot_keeps_any_mapping_the_yaml_held() -> None:
+    """The slot itself is written as given, so a parsed body round-trips unchecked."""
+    node = ActionNode(action_id="delay", params={"id": {"entity_state": "room_temp"}})
+    assert dedent(dump([emit_action_node(node)])) == "- delay:\n    entity_state: room_temp\n"
