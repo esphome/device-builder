@@ -13,8 +13,8 @@ from esphome import const
 from esphome.const import CONF_EXTERNAL_COMPONENTS, CONF_PACKAGES, CONF_SUBSTITUTIONS
 
 from ...definitions import load_platform_capabilities_index
-from ...models.boards import RP2_CANONICAL_PLATFORM, RP2_PLATFORM_ALIASES, normalize_platform
-from ..chips import libretiny_family_mcu, normalize_chip_variant
+from ...models.boards import RP2_PLATFORM_ALIASES, normalize_platform
+from ..chips import normalize_chip_variant
 from ..yaml import (
     ESPHOME_NAME_ADD_MAC_SUFFIX_PATH,
     TRUTHY_BOOL_STRINGS,
@@ -650,61 +650,6 @@ def resolve_esp32_variant(
     # Post-compile classic chips legitimately store the bare ``esp32``; with
     # no board to disambiguate the seeded-family case, stay unknowable.
     return None
-
-
-def resolve_chip_mcu(
-    config: dict | None,
-    yaml_content: str,
-    target_platform: str,
-    extra_substitutions: dict[str, str] | None = None,
-) -> str | None:
-    """
-    Chip series of a device on a platform that lumps several chips, else ``None``.
-
-    The chip is what the YAML compiles for, read against the snapshot of
-    ESPHome's own board tables. Source order: the ``board:``, then the chip a
-    board ESPHome does not list has to name itself (LibreTiny ``family:``, rp2
-    ``variant:``), then the platform's only chip when it has just one. The
-    resolved *config* sees packages and substitutions; a shallow scan has only
-    the raw text, which carries the board and the variant.
-    """
-    platform = normalize_platform(target_platform.strip().lower())
-    boards = load_platform_capabilities_index().board_mcus.get(platform)
-    if not boards:
-        return None
-    board, family, variant = _chip_fields(config, yaml_content, platform, extra_substitutions)
-    if board in boards:
-        return boards[board]
-    chips = set(boards.values())
-    named = libretiny_family_mcu(family) if family else normalize_chip_variant(variant)
-    if named in chips:
-        return named
-    return next(iter(chips)) if len(chips) == 1 else None
-
-
-def _chip_fields(
-    config: dict | None,
-    yaml_content: str,
-    platform: str,
-    extra_substitutions: dict[str, str] | None,
-) -> tuple[str, str, str]:
-    """``(board, family, variant)`` of the platform block, empty where absent."""
-    keys = RP2_PLATFORM_ALIASES if platform == RP2_CANONICAL_PLATFORM else (platform,)
-    blocks = [config.get(key) for key in keys] if isinstance(config, dict) else []
-    block = next((found for found in blocks if isinstance(found, dict)), None)
-    if block is None:
-        raw_platform, board, variant = parse_platform_from_yaml(yaml_content)
-        if normalize_platform(raw_platform) != platform:
-            return "", "", ""
-        return board, "", variant
-    subs = extra_substitutions or {}
-
-    def _field(key: str) -> str:
-        return (_resolve_substitutions(_str_or_none(block.get(key)), subs) or "").strip()
-
-    # ``family:`` is LibreTiny's key; rp2 names its chip with ``variant:``.
-    family = "" if platform == RP2_CANONICAL_PLATFORM else _field("family")
-    return _field(const.CONF_BOARD), family, _field(const.CONF_VARIANT)
 
 
 def get_ota_encryption_key(config: dict | None) -> str:

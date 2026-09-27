@@ -6,9 +6,9 @@ the devices controller, the device builder, and any future tool that
 needs to inspect or synthesise an ESPHome config without instantiating
 a controller.
 
-Split across three concern modules — ``_generation`` (synthesise new
-YAML), ``_parsing`` (inspect raw / resolved config), and ``_loading``
-(build :class:`Device` models from disk) — re-exported here so existing
+Split across concern modules — ``_generation`` (synthesise new YAML),
+``_parsing`` (inspect raw / resolved config), ``_chip`` (a device's chip)
+and ``_loading`` (build :class:`Device` models from disk) — re-exported here so existing
 ``helpers.device_yaml`` imports keep working.
 """
 
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from esphome.storage_json import StorageJSON
 
+from ._chip import resolve_chip_mcu
 from ._generation import (
     CAPTIVE_PORTAL_PLATFORMS,
     NETWORK_PROVIDER_COMPONENT_IDS,
@@ -70,7 +71,6 @@ from ._parsing import (
     ota_encryption_block_unresolved,
     parse_esphome_meta,
     parse_platform_from_yaml,
-    resolve_chip_mcu,
     resolved_device_name,
     retarget_fallback_ap_ssid,
     safe_stat_key,

@@ -1158,6 +1158,9 @@ def test_resolve_chip_mcu_reads_the_raw_text_without_a_resolved_config() -> None
     """A shallow scan has no resolved config; the raw text carries board and variant."""
     assert resolve_chip_mcu(None, "rtl87xx:\n  board: bw15\n", "rtl87xx") == "rtl8720c"
     assert resolve_chip_mcu(None, "rp2040:\n  variant: RP2350\n", "rp2") == "rp2350"
+    # The same answer as a full load gives for a substituted board.
+    raw = "rtl87xx:\n  board: ${the_board}\n"
+    assert resolve_chip_mcu(None, raw, "rtl87xx", {"the_board": "bw15"}) == "rtl8720c"
     # The text names another platform than the device's: nothing to read.
     assert resolve_chip_mcu(None, "esp32:\n  board: bw15\n", "rtl87xx") is None
 
