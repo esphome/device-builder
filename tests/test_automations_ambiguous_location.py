@@ -13,6 +13,7 @@ from esphome_device_builder.controllers.automations.addressing import require_un
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.automations import (
+    ApiActionLocation,
     ComponentActionFieldLocation,
     ComponentOnLocation,
     IntervalLocation,
@@ -293,6 +294,30 @@ def test_a_light_effect_is_shared_among_lights_only() -> None:
     )
 
     require_unambiguous(text, LightEffectLocation(component_id="light_0", index=0))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(_HEAD, id="no-api"),
+        pytest.param(_HEAD + "api:\n", id="bare-api"),
+        pytest.param(_HEAD + "api:\n  port: 6053\n", id="no-actions"),
+        pytest.param(
+            _API_ACTIONS.replace("actions:", "services:").replace("action:", "service:", 1),
+            id="one-service-one-action",
+        ),
+    ],
+)
+def test_an_api_action_is_counted_where_the_parser_finds_them(text: str) -> None:
+    """Actions are counted under ``actions:`` or the legacy ``services:``, by either key."""
+    location = ApiActionLocation(action_name="beep")
+
+    if "beep" not in text:
+        require_unambiguous(text, location)
+        return
+    with pytest.raises(CommandError) as excinfo:
+        require_unambiguous(text, location)
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
 
 def test_a_position_and_a_name_nothing_shares_pass() -> None:
