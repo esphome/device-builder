@@ -66,7 +66,10 @@ export interface FirmwareMessage {
   deviceName?: string;
   erase?: boolean;
   // Which flasher writes the parts. Additive (v1): absent means esptool, so
-  // an older dashboard's frame is unchanged and an older receiver ignores it.
+  // an older dashboard's frame is unchanged. An older receiver ignores the
+  // field and would write anything as ESP parts, so an opener sends a
+  // non-esp id only to a receiver whose ReadyMessage.flashers lists it; that
+  // ready-frame gate is the only guard on the receivers already deployed.
   // For 'rtl-ambz2' the parts are the LibreTiny UF2 as one part at address
   // 0, which the receiver parses into flash runs itself.
   flasher?: HandoffFlasher;
@@ -91,6 +94,10 @@ export interface StateMessage {
   type: "esphome-web-flash:state";
   state: FlashState;
   detail?: string;
+  // With 'done': what the user still has to do by hand for the firmware to
+  // start (an RTL8720C on an adapter without control lines needs a reset).
+  // Additive (v1): older flashers omit it and older openers ignore it.
+  note?: string;
 }
 
 export interface ProgressMessage {
