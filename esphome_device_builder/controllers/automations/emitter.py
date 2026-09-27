@@ -28,11 +28,18 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
 from ...helpers.api import CommandError
-from ...helpers.automation_keys import shorthand_key
+from ...helpers.automation_keys import (
+    DURATION_UNIT_KEYS,
+    is_scalar_bodied,
+    scalar_param_key,
+    shorthand_key,
+)
 from ...helpers.yaml.scalar import is_custom_yaml_tag, is_lambda_sentinel, is_tagged_sentinel
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
+    AutomationAction,
+    AutomationCondition,
     AutomationTree,
     ConditionNode,
     LightEffect,
@@ -134,25 +141,27 @@ def emit_action_node(node: ActionNode) -> CommentedMap:
         # null / stripped body and wipe the real params. Fail loud instead.
         msg = f"Cannot write uncatalogued action {node.action_id!r} as a structured node"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    entry = catalog.action_by_id(node.action_id)
+    params = _value_slot_params(entry, node.action_id, node.params)
     body = CommentedMap()
     # Condition gate leads the body: ``if`` / ``while`` want it before
     # ``then`` / ``else``, ``wait_until`` before its ``timeout:`` param.
     if node.conditions:
         body["condition"] = emit_condition_seq(node.conditions)
-    for key, value in node.params.items():
+    for key, value in params.items():
         body[key] = encode_value(value)
     for child_key in sorted(node.children.keys(), key=lambda k: (k != "then", k)):
         body[child_key] = emit_action_seq(node.children[child_key])
     out = CommentedMap()
-    shorthand = shorthand_key(catalog.action_by_id(node.action_id))
+    shorthand = shorthand_key(entry)
     if (
         not node.children
         and not node.conditions
-        and len(node.params) == 1
+        and len(params) == 1
         and shorthand is not None
-        and shorthand in node.params
+        and shorthand in params
     ):
-        out[node.action_id] = encode_value(node.params[shorthand])
+        out[node.action_id] = encode_value(params[shorthand])
         return out
     if not body:
         out[node.action_id] = None
@@ -181,12 +190,14 @@ def emit_condition_node(node: ConditionNode) -> CommentedMap:
     if not node.params:
         out[node.condition_id] = None
         return out
-    shorthand = shorthand_key(catalog.condition_by_id(node.condition_id))
-    if len(node.params) == 1 and shorthand is not None and shorthand in node.params:
-        out[node.condition_id] = encode_value(node.params[shorthand])
+    entry = catalog.condition_by_id(node.condition_id)
+    params = _value_slot_params(entry, node.condition_id, node.params)
+    shorthand = shorthand_key(entry)
+    if len(params) == 1 and shorthand is not None and shorthand in params:
+        out[node.condition_id] = encode_value(params[shorthand])
         return out
     body = CommentedMap()
-    for key, value in node.params.items():
+    for key, value in params.items():
         body[key] = encode_value(value)
     out[node.condition_id] = body
     return out
@@ -288,3 +299,27 @@ def _encode_lambda(body: str, tag: str | None) -> Any:
     if "\n" in body.rstrip("\n"):
         return _tagged_scalar(body if body.endswith("\n") else body + "\n", "!lambda", style="|")
     return _tagged_scalar(body.rstrip("\n"), "!lambda")
+
+
+def _value_slot_params(
+    entry: AutomationAction | AutomationCondition | None, entry_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Return *params* with a scalar-bodied entry's value in its one slot.
+
+    A time period sent as bare unit keys (``{"seconds": 2}``) is the value's
+    mapping form. Any other bare key, or the slot beside other keys, is refused.
+    """
+    if entry is None or not params or not is_scalar_bodied(entry):
+        return params
+    key = scalar_param_key(entry)
+    extra = sorted(k for k in params if k != key)
+    if key in params:
+        if extra:
+            msg = f"{entry_id!r} takes one value; got {key!r} beside {extra}"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        return params
+    if entry.value_type != "time_period" or not DURATION_UNIT_KEYS.issuperset(extra):
+        msg = f"{entry_id!r} takes one value under {key!r}; got {extra}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return {key: params}

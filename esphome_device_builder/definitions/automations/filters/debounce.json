@@ -1,1 +1,1 @@
-{"id":"debounce","name":"Sensor → Debounce","config_entries":[],"applies_to":["sensor"],"value_type":"time_period"}
+{"id":"debounce","name":"Sensor → Debounce","config_entries":[],"applies_to":["sensor"],"value_type":"time_period","duration_min_unit":"ms"}

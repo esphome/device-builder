@@ -17,6 +17,11 @@ CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 # Fallback collapse key for an entry with no usable scalar shorthand.
 DEFAULT_SHORTHAND_KEY = "id"
 
+# Keys of a time period's mapping form (esphome ``cv.time_period_dict``).
+DURATION_UNIT_KEYS: frozenset[str] = frozenset(
+    {"days", "hours", "minutes", "seconds", "milliseconds", "microseconds"}
+)
+
 
 def is_trigger_key(key: str) -> bool:
     """Return True when *key* names an inline automation trigger (``on_*``)."""
@@ -44,3 +49,8 @@ def shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str |
 def scalar_param_key(entry: AutomationAction | AutomationCondition) -> str:
     """Return the param key a parsed bare scalar is stored under."""
     return shorthand_key(entry) or DEFAULT_SHORTHAND_KEY
+
+
+def is_scalar_bodied(entry: AutomationAction | AutomationCondition) -> bool:
+    """Whether *entry*'s whole body is one value (``delay: 2s``), not a mapping of fields."""
+    return entry.value_type is not None and not entry.config_entries

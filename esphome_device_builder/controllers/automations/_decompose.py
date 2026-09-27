@@ -19,12 +19,13 @@ from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
-from ...helpers.automation_keys import CONDITION_GATE_KEYS, scalar_param_key
+from ...helpers.automation_keys import CONDITION_GATE_KEYS, is_scalar_bodied, scalar_param_key
 from ...helpers.yaml.scalar import is_custom_yaml_tag
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     AutomationAction,
+    AutomationCondition,
     AutomationTree,
     ConditionNode,
 )
@@ -175,6 +176,9 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
 
     if raw_params is None:
         params: dict[str, Any] = {}
+    elif isinstance(raw_params, dict) and is_scalar_bodied(action):
+        # ``delay: {seconds: 2}``: the mapping is the value's dict form, not fields.
+        params = {scalar_param_key(action): _render_value(raw_params)}
     elif isinstance(raw_params, dict):
         params = {}
         if _is_dict_shorthand_condition(action, raw_params):
@@ -235,6 +239,15 @@ def _decompose_condition_list(body: Any) -> list[ConditionNode]:
     return [_decompose_condition(body)]
 
 
+def _condition_params(entry: AutomationCondition, value: Any) -> dict[str, Any]:
+    """Return the params a leaf condition's *value* carries."""
+    if value is None:
+        return {}
+    if isinstance(value, dict) and not is_scalar_bodied(entry):
+        return {k: _render_value(v) for k, v in value.items()}
+    return {scalar_param_key(entry): _render_value(value)}
+
+
 def _decompose_condition(raw: Any) -> ConditionNode:
     """Build one :class:`ConditionNode` from a registry-shaped entry or a bare condition id."""
     if isinstance(raw, str):
@@ -260,10 +273,8 @@ def _decompose_condition(raw: Any) -> ConditionNode:
     params: dict[str, Any] = {}
     if catalog_entry.accepts_condition_list:
         children = _decompose_condition_list(value)
-    elif isinstance(value, dict):
-        params = {k: _render_value(v) for k, v in value.items()}
-    elif value is not None:
-        params = {scalar_param_key(catalog_entry): _render_value(value)}
+    else:
+        params = _condition_params(catalog_entry, value)
     return ConditionNode(
         condition_id=str(cond_id),
         params=params,
