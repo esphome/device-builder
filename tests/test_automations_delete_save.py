@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -15,6 +14,8 @@ from esphome_device_builder.controllers.automations import controller as automat
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.automations import AutomationTree, YamlDiff
+
+from .conftest import RecordingAutomationDevices, make_automations_controller
 
 pytestmark = pytest.mark.xdist_group("automations")
 
@@ -29,31 +30,14 @@ _AUTOMATION = {
 }
 
 
-class _Devices:
-    """Stand-in for the devices controller's locked read-rewrite-save."""
-
-    def __init__(self, text: str = _YAML) -> None:
-        self.text = text
-        self.saved: list[tuple[str, str, str]] = []
-
-    async def rewrite_yaml(
-        self, configuration: str, rewrite: Callable[[str], tuple[str, YamlDiff]], *, message: str
-    ) -> YamlDiff:
-        new_text, diff = await asyncio.to_thread(rewrite, self.text)
-        self.saved.append((configuration, new_text, message))
-        return diff
-
-
 def _make_controller(config_dir: Path, *, devices: Any) -> AutomationsController:
-    (config_dir / "d.yaml").write_text(_YAML, encoding="utf-8")
-    db = MagicMock()
-    db.settings.rel_path = config_dir.joinpath
-    db.devices = devices
-    return AutomationsController(db)
+    return make_automations_controller(config_dir, _YAML, devices=devices)
 
 
-def _setup(config_dir: Path, text: str = _YAML) -> tuple[AutomationsController, _Devices]:
-    devices = _Devices(text)
+def _setup(
+    config_dir: Path, text: str = _YAML
+) -> tuple[AutomationsController, RecordingAutomationDevices]:
+    devices = RecordingAutomationDevices(text)
     return _make_controller(config_dir, devices=devices), devices
 
 
@@ -170,7 +154,7 @@ async def test_delete_with_expected_passes_other_parser_errors_through(tmp_path:
 
 
 async def test_delete_refuses_a_non_string_expected(tmp_path: Path) -> None:
-    controller = _make_controller(tmp_path, devices=_Devices())
+    controller = _make_controller(tmp_path, devices=RecordingAutomationDevices(_YAML))
 
     with pytest.raises(CommandError) as excinfo:
         await controller.delete(
@@ -539,7 +523,7 @@ async def test_upsert_with_expected_replaces_an_idless_script_under_its_listed_i
 
 
 def test_guarded_upsert_refuses_a_replace_that_lands_on_another_row() -> None:
-    """A declared ``script_0`` behind an id-less row takes the write; the guard fails closed."""
+    """The guarded replace fails closed when the write lands on another row."""
     text = "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 2s\n"
     shown = parsing.parse_device_yaml(text)[0]
 
@@ -617,7 +601,7 @@ async def test_upsert_with_expected_refuses_a_changed_or_missing_automation(
 
 
 async def test_upsert_with_expected_guards_a_draft_computation_too(tmp_path: Path) -> None:
-    controller = _make_controller(tmp_path, devices=_Devices())
+    controller = _make_controller(tmp_path, devices=RecordingAutomationDevices(_YAML))
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(
@@ -632,7 +616,7 @@ async def test_upsert_with_expected_guards_a_draft_computation_too(tmp_path: Pat
 
 
 async def test_upsert_refuses_save_beside_yaml(tmp_path: Path) -> None:
-    controller = _make_controller(tmp_path, devices=_Devices())
+    controller = _make_controller(tmp_path, devices=RecordingAutomationDevices(_YAML))
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(
@@ -658,7 +642,7 @@ async def test_upsert_refuses_save_beside_yaml(tmp_path: Path) -> None:
 async def test_upsert_refuses_a_malformed_tree_as_invalid_args(
     tmp_path: Path, automation: dict[str, Any]
 ) -> None:
-    controller = _make_controller(tmp_path, devices=_Devices())
+    controller = _make_controller(tmp_path, devices=RecordingAutomationDevices(_YAML))
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(configuration="d.yaml", automation=automation, location=_LOCATION)

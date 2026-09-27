@@ -43,6 +43,7 @@ from esphome_device_builder.controllers._device_mqtt_coordinator import (
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers._device_state_monitor import mdns as _mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as _ping_module
+from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.components._resolve import FeaturedView
@@ -370,6 +371,33 @@ class RemoteBuildTestHandles:
         """Stop both siblings, in the same order ``DeviceBuilder`` does."""
         await self.offloader.stop()
         await self.receiver.stop()
+
+
+class RecordingAutomationDevices:
+    """Stand-in for the devices controller's locked read-rewrite-save."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.saved: list[tuple[str, str, str]] = []
+
+    async def rewrite_yaml(
+        self, configuration: str, rewrite: Callable[[str], tuple[str, Any]], *, message: str
+    ) -> Any:
+        """Run *rewrite* over the text off the loop and record what it would save."""
+        new_text, diff = await asyncio.to_thread(rewrite, self.text)
+        self.saved.append((configuration, new_text, message))
+        return diff
+
+
+def make_automations_controller(
+    config_dir: Path, text: str, *, devices: Any
+) -> AutomationsController:
+    """Build an AutomationsController over ``d.yaml`` holding *text*."""
+    (config_dir / "d.yaml").write_text(text, encoding="utf-8")
+    db = MagicMock()
+    db.settings.rel_path = config_dir.joinpath
+    db.devices = devices
+    return AutomationsController(db)
 
 
 def make_add_component_controller(catalog: ComponentCatalog, config_dir: Path) -> DevicesController:

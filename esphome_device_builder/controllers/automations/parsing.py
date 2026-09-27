@@ -383,7 +383,7 @@ def resolve_component_target(yaml_text: str, component_id: str) -> ComponentTarg
         root = yaml.load(yaml_text)
     except Exception:  # noqa: BLE001 — any load failure falls back to the catalog guess
         return None
-    for _domain, _instance, comp_id, target in _iter_instance_targets(root):
+    for _domain, _instance, comp_id, target in iter_instance_targets(root):
         if comp_id == component_id:
             return target
     return None
@@ -401,15 +401,15 @@ def instance_id(domain: str, instance: dict, idx: int, *, is_list: bool) -> str:
     return singleton_component_id(instance, domain)
 
 
-def _iter_instance_targets(
+def iter_instance_targets(
     root: Any,
 ) -> Iterator[tuple[str, dict, str, ComponentTarget]]:
     """
     Yield ``(domain, instance, comp_id, target)`` for every instance + sub-entity.
 
-    The one document walk shared by :func:`_parse_inline_component_triggers`
-    and :func:`resolve_component_target` (list instances, flat singletons,
-    nested sub-entities).
+    The one document walk shared by :func:`_parse_inline_component_triggers`,
+    :func:`resolve_component_target` and ``addressing`` (list instances, flat
+    singletons, nested sub-entities).
     """
     if not isinstance(root, dict):
         return
@@ -477,7 +477,7 @@ def iter_subentities(
 def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
     """Walk component instances for inline ``on_*:`` handlers."""
     out: list[ParsedAutomation] = []
-    for domain, instance, comp_id, target in _iter_instance_targets(root):
+    for domain, instance, comp_id, target in iter_instance_targets(root):
         if not catalog.hosts_component_triggers(domain, target.trigger_scope):
             continue
         out.extend(
@@ -590,7 +590,7 @@ def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
     inline ``on_*`` handlers (``trigger_id`` is ``None`` — no trigger).
     """
     out: list[ParsedAutomation] = []
-    for domain, instance, comp_id, target in _iter_instance_targets(root):
+    for domain, instance, comp_id, target in iter_instance_targets(root):
         # The shared walk also yields sub-entities (for inline ``on_*``
         # parsing); skip them — a nested field, sub-entity blocks
         # included, is addressed on the *parent* instance via the dotted

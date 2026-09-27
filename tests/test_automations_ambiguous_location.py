@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -15,12 +13,15 @@ from esphome_device_builder.controllers.automations.addressing import require_un
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.automations import (
+    ComponentActionFieldLocation,
     ComponentOnLocation,
     IntervalLocation,
+    LightEffectLocation,
     ParsedAutomation,
     ScriptLocation,
-    YamlDiff,
 )
+
+from .conftest import RecordingAutomationDevices, make_automations_controller
 
 pytestmark = pytest.mark.xdist_group("automations")
 
@@ -86,34 +87,31 @@ _UNAMBIGUOUS = (
 )
 
 
-class _Devices:
-    """Stand-in for the devices controller's locked read-rewrite-save."""
+_SHARED = [
+    pytest.param(_SCRIPTS_IDLESS_FIRST, "script_0", "id", id="script-idless-first"),
+    pytest.param(_SCRIPTS_DECLARED_FIRST, "script_1", "id", id="script-declared-first"),
+    pytest.param(_BINARY_SENSORS, "binary_sensor_0", "id", id="component-handler"),
+    pytest.param(_LIGHTS, "light_0", "id", id="light-effect"),
+    pytest.param(_ACROSS_DOMAINS, "switch_0", "id", id="across-domains"),
+    pytest.param(_API_ACTIONS, "beep", "action name", id="api-action"),
+]
+_AUTOMATION = {
+    "trigger_id": None,
+    "trigger_params": {},
+    "actions": [{"action_id": "delay", "params": {"id": "1s"}, "children": {}, "conditions": []}],
+}
 
-    def __init__(self, text: str) -> None:
-        self.text = text
-        self.saved: list[str] = []
 
-    async def rewrite_yaml(
-        self, configuration: str, rewrite: Callable[[str], tuple[str, YamlDiff]], *, message: str
-    ) -> YamlDiff:
-        new_text, diff = await asyncio.to_thread(rewrite, self.text)
-        self.saved.append(new_text)
-        return diff
-
-
-def _setup(config_dir: Path, text: str) -> tuple[AutomationsController, _Devices]:
-    (config_dir / "d.yaml").write_text(text, encoding="utf-8")
-    db = MagicMock()
-    db.settings.rel_path = config_dir.joinpath
-    db.devices = _Devices(text)
-    return AutomationsController(db), db.devices
+def _setup(config_dir: Path, text: str) -> tuple[AutomationsController, RecordingAutomationDevices]:
+    devices = RecordingAutomationDevices(text)
+    return make_automations_controller(config_dir, text, devices=devices), devices
 
 
 async def _rows(text: str) -> list[ParsedAutomation]:
     return await asyncio.to_thread(parsing.parse_device_yaml, text)
 
 
-def _write_args(row: ParsedAutomation, *, guarded: bool, save: bool) -> dict[str, Any]:
+def _write_args(row: ParsedAutomation, *, guarded: bool, save: bool = True) -> dict[str, Any]:
     args: dict[str, Any] = {"configuration": "d.yaml", "location": row.location.to_dict()}
     if guarded:
         args["expected"] = row.raw_yaml
@@ -122,21 +120,17 @@ def _write_args(row: ParsedAutomation, *, guarded: bool, save: bool) -> dict[str
     return args
 
 
+def _refused(excinfo: pytest.ExceptionInfo[CommandError], name: str, what: str) -> None:
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert f"more than one item in this config is named '{name}'" in excinfo.value.message
+    assert f"its own {what}" in excinfo.value.message
+
+
 @pytest.mark.parametrize("guarded", [True, False])
 @pytest.mark.parametrize("save", [True, False])
-@pytest.mark.parametrize(
-    ("text", "name"),
-    [
-        pytest.param(_SCRIPTS_IDLESS_FIRST, "script_0", id="script-idless-first"),
-        pytest.param(_SCRIPTS_DECLARED_FIRST, "script_1", id="script-declared-first"),
-        pytest.param(_BINARY_SENSORS, "binary_sensor_0", id="component-handler"),
-        pytest.param(_LIGHTS, "light_0", id="light-effect"),
-        pytest.param(_ACROSS_DOMAINS, "switch_0", id="across-domains"),
-        pytest.param(_API_ACTIONS, "beep", id="api-action"),
-    ],
-)
+@pytest.mark.parametrize(("text", "name", "what"), _SHARED)
 async def test_delete_is_refused_for_every_automation_sharing_a_name(
-    tmp_path: Path, text: str, name: str, save: bool, guarded: bool
+    tmp_path: Path, text: str, name: str, what: str, save: bool, guarded: bool
 ) -> None:
     """A delete aimed at a name two items share is refused for each of them, nothing written."""
     controller, devices = _setup(tmp_path, text)
@@ -146,38 +140,28 @@ async def test_delete_is_refused_for_every_automation_sharing_a_name(
     for row in rows:
         with pytest.raises(CommandError) as excinfo:
             await controller.delete(**_write_args(row, guarded=guarded, save=save))
-        assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-        assert f"'{name}' names more than one item" in excinfo.value.message
+        _refused(excinfo, name, what)
 
     assert devices.saved == []
 
 
 @pytest.mark.parametrize("guarded", [True, False])
-@pytest.mark.parametrize(
-    "text",
-    [
-        pytest.param(_SCRIPTS_IDLESS_FIRST, id="script"),
-        pytest.param(_BINARY_SENSORS, id="component-handler"),
-        pytest.param(_LIGHTS, id="light-effect"),
-        pytest.param(_ACROSS_DOMAINS, id="across-domains"),
-        pytest.param(_API_ACTIONS, id="api-action"),
-    ],
-)
+@pytest.mark.parametrize(("text", "name", "what"), _SHARED)
 async def test_replace_is_refused_for_every_automation_sharing_a_name(
-    tmp_path: Path, text: str, guarded: bool
+    tmp_path: Path, text: str, name: str, what: str, guarded: bool
 ) -> None:
     """A replace aimed at a name two items share is refused for each of them, nothing written."""
     controller, devices = _setup(tmp_path, text)
+    rows = await _rows(text)
+    assert len(rows) == 2
 
-    for row in await _rows(text):
+    for row in rows:
         assert row.automation is not None
         with pytest.raises(CommandError) as excinfo:
             await controller.upsert(
-                automation=row.automation.to_dict(),
-                **_write_args(row, guarded=guarded, save=True),
+                automation=row.automation.to_dict(), **_write_args(row, guarded=guarded)
             )
-        assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-        assert "names more than one item" in excinfo.value.message
+        _refused(excinfo, name, what)
 
     assert devices.saved == []
 
@@ -185,49 +169,101 @@ async def test_replace_is_refused_for_every_automation_sharing_a_name(
 async def test_adding_a_handler_to_a_shared_id_is_refused(tmp_path: Path) -> None:
     """An insert on a component whose id two items share is refused before any row exists."""
     controller, devices = _setup(tmp_path, _NO_ROW_YET)
-    automation = {
-        "trigger_id": "on_turn_on",
-        "trigger_params": {},
-        "actions": [
-            {"action_id": "delay", "params": {"id": "1s"}, "children": {}, "conditions": []}
-        ],
-    }
 
     with pytest.raises(CommandError) as excinfo:
         await controller.upsert(
             configuration="d.yaml",
-            automation=automation,
+            automation=_AUTOMATION | {"trigger_id": "on_turn_on"},
             location={"kind": "component_on", "component_id": "switch_0", "trigger": "on_turn_on"},
             save=True,
         )
 
-    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert "'switch_0' names more than one item" in excinfo.value.message
+    _refused(excinfo, "switch_0", "id")
     assert devices.saved == []
 
 
 async def test_every_automation_with_a_name_of_its_own_is_still_deleted(tmp_path: Path) -> None:
-    """Declared ids, the ids of items without one and positions all delete as before."""
+    """Declared ids, the ids of items without one and positions all delete their own row."""
     rows = await _rows(_UNAMBIGUOUS)
     for row in rows:
         controller, devices = _setup(tmp_path, _UNAMBIGUOUS)
 
-        await controller.delete(**_write_args(row, guarded=True, save=True))
+        await controller.delete(**_write_args(row, guarded=True))
 
-        assert len(devices.saved) == 1
-        assert len(await _rows(devices.saved[0])) == len(rows) - 1
+        [(_configuration, saved, _message)] = devices.saved
+        left = [kept.raw_yaml for kept in await _rows(saved)]
+        assert left == [other.raw_yaml for other in rows if other is not row]
 
 
 async def test_a_config_that_does_not_load_is_left_to_the_writer(tmp_path: Path) -> None:
     """An unguarded delete on a config that does not load answers as the writer does."""
-    controller, _devices = _setup(tmp_path, "script: [\n")
+    controller, _devices = _setup(tmp_path, "switch: [\n")
 
     with pytest.raises(CommandError) as excinfo:
         await controller.delete(
-            configuration="d.yaml", location={"kind": "script", "id": "script_0"}
+            configuration="d.yaml",
+            location={"kind": "component_on", "component_id": "switch_0", "trigger": "on_turn_on"},
         )
 
-    assert "names more than one item" not in excinfo.value.message
+    assert excinfo.value.code is not ErrorCode.PRECONDITION_FAILED
+
+
+async def test_adding_a_script_under_the_listed_id_of_one_without_is_refused(
+    tmp_path: Path,
+) -> None:
+    """An unguarded write to the id a script without one is listed under leaves that script."""
+    controller, _devices = _setup(tmp_path, _UNAMBIGUOUS)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.upsert(
+            configuration="d.yaml",
+            automation=_AUTOMATION,
+            location={"kind": "script", "id": "script_1"},
+            yaml=_UNAMBIGUOUS,
+        )
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "'script_1' is the id a script without an id is listed under" in excinfo.value.message
+
+
+@pytest.mark.parametrize("script_id", ["blink", "script_5"])
+async def test_a_script_is_written_under_a_declared_or_a_free_id(
+    tmp_path: Path, script_id: str
+) -> None:
+    """An unguarded write replaces a script that declares the id and adds one under a free id."""
+    controller, _devices = _setup(tmp_path, _UNAMBIGUOUS)
+
+    result = await controller.upsert(
+        configuration="d.yaml",
+        automation=_AUTOMATION,
+        location={"kind": "script", "id": script_id},
+        yaml=_UNAMBIGUOUS,
+    )
+
+    assert f"id: {script_id}" in result["yaml_diff"]["replacement"]
+
+
+async def test_a_script_without_an_id_is_replaced_when_its_text_is_given(tmp_path: Path) -> None:
+    """A replace that carries the listed text of a script without an id still lands on it."""
+    controller, devices = _setup(tmp_path, _UNAMBIGUOUS)
+    script = ScriptLocation("script_1")
+    shown = next(row for row in await _rows(_UNAMBIGUOUS) if row.location == script)
+
+    await controller.upsert(automation=_AUTOMATION, **_write_args(shown, guarded=True))
+
+    [(_configuration, saved, _message)] = devices.saved
+    assert "id: script_1" in saved
+    assert "no id" not in saved
+
+
+def test_an_action_field_on_a_shared_id_is_refused() -> None:
+    """A location that addresses an action field by a shared component id is refused."""
+    location = ComponentActionFieldLocation(component_id="binary_sensor_0", field="on_press")
+
+    with pytest.raises(CommandError) as excinfo:
+        require_unambiguous(_BINARY_SENSORS, location)
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
 
 def test_a_sub_entity_id_that_another_item_declares_is_shared() -> None:
@@ -246,9 +282,23 @@ def test_a_sub_entity_id_that_another_item_declares_is_shared() -> None:
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
 
+def test_a_light_effect_is_shared_among_lights_only() -> None:
+    """A light's effects are found among the lights, so an id another domain declares passes."""
+    text = (
+        _HEAD
+        + "light:\n"
+        + "  - platform: binary\n    output: light_0\n    effects:\n      - strobe:\n"
+        + "output:\n"
+        + "  - platform: template\n    id: light_0\n    type: binary\n"
+    )
+
+    require_unambiguous(text, LightEffectLocation(component_id="light_0", index=0))
+
+
 def test_a_position_and_a_name_nothing_shares_pass() -> None:
     """A location addressed by position, and one whose name a single item has, pass."""
     require_unambiguous(_SCRIPTS_IDLESS_FIRST, IntervalLocation(index=0))
     require_unambiguous(_UNAMBIGUOUS, ScriptLocation(id="blink"))
     require_unambiguous(_UNAMBIGUOUS, ScriptLocation(id="script_1"))
     require_unambiguous(_UNAMBIGUOUS, ScriptLocation(id="not_there"))
+    require_unambiguous("switch: [\n", ScriptLocation(id="script_0"))
