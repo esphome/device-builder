@@ -19,7 +19,7 @@ from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
-from ...helpers.automation_keys import CONDITION_GATE_KEYS, scalar_param_key
+from ...helpers.automation_keys import CONDITION_GATE_KEYS, is_scalar_bodied, scalar_param_key
 from ...helpers.yaml.scalar import is_custom_yaml_tag
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -176,7 +176,7 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
 
     if raw_params is None:
         params: dict[str, Any] = {}
-    elif isinstance(raw_params, dict) and _is_scalar_bodied(action):
+    elif isinstance(raw_params, dict) and is_scalar_bodied(action):
         # ``delay: {seconds: 2}``: the mapping is the value's dict form, not fields.
         params = {scalar_param_key(action): _render_value(raw_params)}
     elif isinstance(raw_params, dict):
@@ -219,11 +219,6 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
     )
 
 
-def _is_scalar_bodied(entry: AutomationAction | AutomationCondition) -> bool:
-    """Whether *entry*'s whole body is one value (``delay: 2s``), not a mapping of fields."""
-    return entry.value_type is not None and not entry.config_entries
-
-
 def _is_dict_shorthand_condition(action: AutomationAction, body: dict[str, Any]) -> bool:
     """Whether *body* is a ``wait_until``-style condition with the gate key omitted."""
     if not body or action.scalar_shorthand_key not in CONDITION_GATE_KEYS:
@@ -248,7 +243,7 @@ def _condition_params(entry: AutomationCondition, value: Any) -> dict[str, Any]:
     """Return the params a leaf condition's *value* carries."""
     if value is None:
         return {}
-    if isinstance(value, dict) and not _is_scalar_bodied(entry):
+    if isinstance(value, dict) and not is_scalar_bodied(entry):
         return {k: _render_value(v) for k, v in value.items()}
     return {scalar_param_key(entry): _render_value(value)}
 

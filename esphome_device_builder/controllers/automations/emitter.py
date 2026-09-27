@@ -28,11 +28,13 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
 from ...helpers.api import CommandError
-from ...helpers.automation_keys import shorthand_key
+from ...helpers.automation_keys import is_scalar_bodied, scalar_param_key, shorthand_key
 from ...helpers.yaml.scalar import is_custom_yaml_tag, is_lambda_sentinel, is_tagged_sentinel
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
+    AutomationAction,
+    AutomationCondition,
     AutomationTree,
     ConditionNode,
     LightEffect,
@@ -106,6 +108,27 @@ def emit_trigger_list_item(tree: AutomationTree) -> CommentedMap:
     return item
 
 
+def _value_slot_params(
+    entry: AutomationAction | AutomationCondition | None, entry_id: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Return *params* with a scalar-bodied entry's value in its one slot.
+
+    A body sent as bare fields (``{"seconds": 2}``) is the value's mapping form.
+    The slot beside other keys is two values for one body, so it is refused.
+    """
+    if entry is None or not params or not is_scalar_bodied(entry):
+        return params
+    key = scalar_param_key(entry)
+    if key not in params:
+        return {key: params}
+    if len(params) > 1:
+        extra = sorted(k for k in params if k != key)
+        msg = f"{entry_id!r} takes one value; got {key!r} beside {extra}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return params
+
+
 def emit_action_seq(actions: list[ActionNode]) -> CommentedSeq:
     """Build a ruamel sequence of single-key action mappings."""
     seq = CommentedSeq()
@@ -134,25 +157,27 @@ def emit_action_node(node: ActionNode) -> CommentedMap:
         # null / stripped body and wipe the real params. Fail loud instead.
         msg = f"Cannot write uncatalogued action {node.action_id!r} as a structured node"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    entry = catalog.action_by_id(node.action_id)
+    params = _value_slot_params(entry, node.action_id, node.params)
     body = CommentedMap()
     # Condition gate leads the body: ``if`` / ``while`` want it before
     # ``then`` / ``else``, ``wait_until`` before its ``timeout:`` param.
     if node.conditions:
         body["condition"] = emit_condition_seq(node.conditions)
-    for key, value in node.params.items():
+    for key, value in params.items():
         body[key] = encode_value(value)
     for child_key in sorted(node.children.keys(), key=lambda k: (k != "then", k)):
         body[child_key] = emit_action_seq(node.children[child_key])
     out = CommentedMap()
-    shorthand = shorthand_key(catalog.action_by_id(node.action_id))
+    shorthand = shorthand_key(entry)
     if (
         not node.children
         and not node.conditions
-        and len(node.params) == 1
+        and len(params) == 1
         and shorthand is not None
-        and shorthand in node.params
+        and shorthand in params
     ):
-        out[node.action_id] = encode_value(node.params[shorthand])
+        out[node.action_id] = encode_value(params[shorthand])
         return out
     if not body:
         out[node.action_id] = None
@@ -181,12 +206,14 @@ def emit_condition_node(node: ConditionNode) -> CommentedMap:
     if not node.params:
         out[node.condition_id] = None
         return out
-    shorthand = shorthand_key(catalog.condition_by_id(node.condition_id))
-    if len(node.params) == 1 and shorthand is not None and shorthand in node.params:
-        out[node.condition_id] = encode_value(node.params[shorthand])
+    entry = catalog.condition_by_id(node.condition_id)
+    params = _value_slot_params(entry, node.condition_id, node.params)
+    shorthand = shorthand_key(entry)
+    if len(params) == 1 and shorthand is not None and shorthand in params:
+        out[node.condition_id] = encode_value(params[shorthand])
         return out
     body = CommentedMap()
-    for key, value in node.params.items():
+    for key, value in params.items():
         body[key] = encode_value(value)
     out[node.condition_id] = body
     return out

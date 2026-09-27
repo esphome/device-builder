@@ -10,6 +10,8 @@ from esphome_device_builder.controllers.automations import catalog
 from esphome_device_builder.controllers.automations.emitter import dump, emit_action_node
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
 from esphome_device_builder.controllers.automations.writing import render_upsert
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import ActionNode
 
 _LAMBDA = {"_lambda": "return 1000;", "_tag": "!lambda"}
@@ -75,8 +77,9 @@ def test_every_delay_form_parses_into_the_value_slot(body: str, value: object) -
             {"id": {"minutes": 1, "seconds": 30}},
             "- delay:\n    minutes: 1\n    seconds: 30\n",
         ),
-        # Unit keys sent as top-level params still write the mapping form.
+        # Unit keys sent as bare params are the value's mapping form.
         ({"seconds": "2"}, "- delay:\n    seconds: '2'\n"),
+        ({"minutes": 1, "seconds": 30}, "- delay:\n    minutes: 1\n    seconds: 30\n"),
     ],
 )
 def test_every_delay_form_writes_back(params: dict, expected: str) -> None:
@@ -100,3 +103,12 @@ def test_delay_round_trips_unchanged(body: str) -> None:
     (parsed,) = parse_device_yaml(text)
     new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
     assert _delay_params(new_text) == _delay_params(text)
+
+
+def test_value_slot_beside_other_params_is_refused() -> None:
+    """Two values for one body would write a mapping ESPHome rejects."""
+    node = ActionNode(action_id="delay", params={"id": "2s", "seconds": 5})
+    with pytest.raises(CommandError) as excinfo:
+        emit_action_node(node)
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "'delay' takes one value" in str(excinfo.value)

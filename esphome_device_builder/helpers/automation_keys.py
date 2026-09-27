@@ -44,3 +44,8 @@ def shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str |
 def scalar_param_key(entry: AutomationAction | AutomationCondition) -> str:
     """Return the param key a parsed bare scalar is stored under."""
     return shorthand_key(entry) or DEFAULT_SHORTHAND_KEY
+
+
+def is_scalar_bodied(entry: AutomationAction | AutomationCondition) -> bool:
+    """Whether *entry*'s whole body is one value (``delay: 2s``), not a mapping of fields."""
+    return entry.value_type is not None and not entry.config_entries
