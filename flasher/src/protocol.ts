@@ -32,10 +32,7 @@ export const PROTOCOL_VERSION = 1;
 export interface ReadyMessage {
   type: "esphome-web-flash:ready";
   version: number;
-  // The flashers this receiver has, by the ids below. Additive (v1): older
-  // receivers omit it, which means esptool only, so a dashboard handing off
-  // anything else declines up front rather than transfer an image the
-  // receiver would fail as a bad ESP one.
+  // Flasher ids this receiver has; absent (older receivers) means ['esp'].
   flashers?: HandoffFlasher[];
   // Whether the flasher's browser can actually flash (Web Serial present).
   // The flasher runs on a secure origin, so it can feature-detect for real,
@@ -70,6 +67,8 @@ export interface FirmwareMessage {
   // field and would write anything as ESP parts, so an opener sends a
   // non-esp id only to a receiver whose ReadyMessage.flashers lists it; that
   // ready-frame gate is the only guard on the receivers already deployed.
+  // A receiver refuses a frame whose flasher it did not list, and the id may
+  // be one a newer opener knows and the receiver does not.
   // For 'rtl-ambz2' the parts are the LibreTiny UF2 as one part at address
   // 0, which the receiver parses into flash runs itself.
   flasher?: HandoffFlasher;

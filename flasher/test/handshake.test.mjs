@@ -116,7 +116,7 @@ try {
   });
   await new Promise((r) => setTimeout(r, 200));
   label = await popup.$eval("#status", (e) => e.textContent);
-  if (!/cannot write rtl-ambz2/i.test(label))
+  if (!/cannot install this firmware \(rtl-ambz2\)/i.test(label))
     fail("unknown flasher not refused: " + label);
   else console.log("PASS: firmware for a flasher this page lacks refused");
 
