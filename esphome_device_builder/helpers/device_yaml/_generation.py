@@ -169,7 +169,7 @@ def generate_adoption_yaml(
     splices *api_encryption_key* in; ``None`` leaves the device's own key alone.
     """
     lines: list[str] = ["substitutions:"]
-    lines.append(f"  name: {name}")
+    lines.append(f"  name: {_safe_yaml_scalar(name)}")
     if friendly_name:
         lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
@@ -216,14 +216,12 @@ def generate_device_yaml(
     # Board reference comment so users can find the source manifest
     lines: list[str] = [*_board_header_lines(board)]
 
-    # ESPHome core. ``name`` arrives already slug-safe (see
-    # ``mutations_create``), but ``friendly_name`` is raw user
-    # input that may contain ``:``, ``#``, leading indicators, or
-    # other YAML metacharacters — route it through the safe-scalar
-    # renderer so a label like ``Bedroom #2`` doesn't truncate at
-    # the comment marker on round trip.
+    # ESPHome core. Both values go through the safe-scalar renderer:
+    # an all-digit ``name`` would parse back as an int, and a
+    # ``friendly_name`` like ``Bedroom #2`` would truncate at the
+    # comment marker.
     lines.append("esphome:")
-    lines.append(f"  name: {name}")
+    lines.append(f"  name: {_safe_yaml_scalar(name)}")
     lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
 
@@ -496,7 +494,7 @@ def generate_minimal_stub_yaml(
     about to edit.
     """
     header = (
-        f"esphome:\n  name: {name}\n"
+        f"esphome:\n  name: {_safe_yaml_scalar(name)}\n"
         f"  friendly_name: {_safe_yaml_scalar(friendly_name)}\n\n"
         "# Replace this with your actual platform if you aren't using ESP32.\n"
         "esp32:\n  board: esp32dev\n\n"

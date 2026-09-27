@@ -146,6 +146,27 @@ def test_generate_minimal_stub_yaml_has_required_blocks() -> None:
     assert "\ncaptive_portal:\n" in out
 
 
+@pytest.mark.parametrize("name", ["8266", "0x1f", "017", "esp-8266"])
+def test_generators_emit_name_as_string(name: str) -> None:
+    """Every generator's ``name`` parses back as a string, even when number-like."""
+    stub = generate_minimal_stub_yaml(name, "Lamp", wifi_secrets_available=False)
+    full = generate_device_yaml(
+        name, "Lamp", _make_esp32_board(), ssid="", psk="", wifi_secrets_available=False
+    )
+    adopt = generate_adoption_yaml(
+        name,
+        "Lamp",
+        "k",
+        "github://x/y.yaml@main",
+        wifi_secrets_available=False,
+        api_encryption_key=None,
+    )
+    for text, section in ((stub, "esphome"), (full, "esphome"), (adopt, "substitutions")):
+        parsed = yaml_util.parse_yaml(Path("x.yaml"), text)[section]["name"]
+        assert isinstance(parsed, str)
+        assert parsed == name
+
+
 def test_generate_minimal_stub_yaml_emits_per_device_encryption_key() -> None:
     """API encryption key is freshly generated each call.
 
