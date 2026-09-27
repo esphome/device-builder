@@ -258,6 +258,20 @@ def test_duration_min_unit_of_live_validators(cv: ModuleType) -> None:
     assert _duration_min_unit_of(vol.All(cv.positive_time_period_seconds, vol.Range(min=1))) == "s"
 
 
+def test_duration_union_is_as_permissive_as_its_loosest_branch(cv: ModuleType) -> None:
+    """An unrestricted time-period branch accepts every unit, so none may be hidden."""
+    union = vol.Any(cv.positive_time_period_milliseconds, cv.positive_time_period)
+    assert _duration_min_unit_of(union) is None
+    assert _duration_min_unit_of(vol.Any(cv.time_period, cv.update_interval)) is None
+    assert _duration_min_unit_of(cv.templatable(union)) is None
+
+
+def test_duration_union_ignores_a_branch_that_is_no_duration(cv: ModuleType) -> None:
+    """``never`` beside a millisecond duration leaves the duration's precision."""
+    union = vol.Any(cv.one_of("never", lower=True), cv.positive_time_period_milliseconds)
+    assert _duration_min_unit_of(union) == "ms"
+
+
 def test_duration_min_unit_of_is_none_without_one_precision(cv: ModuleType) -> None:
     """No precision check, a non-duration, or disagreeing branches yield None."""
     assert _duration_min_unit_of(cv.positive_time_period) is None

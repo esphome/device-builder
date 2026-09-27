@@ -6899,9 +6899,21 @@ def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, Ref
     return by_identity, by_name
 
 
+# Precision of a time period no check narrows: every unit is valid.
+_UNBOUNDED_DURATION = ""
+
+# ``cv`` validators that accept a time period at any precision.
+_UNBOUNDED_DURATION_VALIDATORS = (
+    "time_period",
+    "time_period_str_unit",
+    "time_period_str_colon",
+    "time_period_dict",
+)
+
+
 @cache
 def _duration_precision_table() -> dict[int, str]:
-    """Map the identity of each live ``cv`` precision validator to its unit."""
+    """Map the identity of each live ``cv`` time-period validator to its precision."""
     from esphome import config_validation as cv
 
     units_by_attr = {
@@ -6909,6 +6921,7 @@ def _duration_precision_table() -> dict[int, str]:
     }
     # A plain function wrapping the millisecond check, so there is nothing to peel.
     units_by_attr["update_interval"] = "ms"
+    units_by_attr.update(dict.fromkeys(_UNBOUNDED_DURATION_VALIDATORS, _UNBOUNDED_DURATION))
     table: dict[int, str] = {}
     for attr, unit in units_by_attr.items():
         obj = getattr(cv, attr, None)
@@ -6933,22 +6946,33 @@ def _duration_wrapped_validators(validator: Any) -> tuple[Any, ...]:
     return (inner,)
 
 
-def _duration_min_unit_of(validator: Any, _depth: int = 0) -> str | None:
+def _duration_precision_of(validator: Any, _depth: int = 0) -> str | None:
     """
-    Return the finest unit a live time-period *validator* accepts, or None.
+    Return a live *validator*'s time-period precision, or None when it is no time period.
 
-    Peels wrappers; branches that disagree on the unit yield None.
+    ``_UNBOUNDED_DURATION`` when it accepts every unit. A ``vol.Any`` is as
+    permissive as its most permissive branch; a chain is as strict as its check.
     """
     if validator is None or _depth > 8:
         return None
-    if (unit := _duration_precision_table().get(id(validator))) is not None:
-        return unit
-    units = {
-        found
+    if (known := _duration_precision_table().get(id(validator))) is not None:
+        return known
+    found = {
+        precision
         for child in _duration_wrapped_validators(validator)
-        if (found := _duration_min_unit_of(child, _depth + 1)) is not None
+        if (precision := _duration_precision_of(child, _depth + 1)) is not None
     }
-    return units.pop() if len(units) == 1 else None
+    if len(found) > 1 and not isinstance(validator, vol.Any):
+        # A chain's precision check narrows the time period it wraps.
+        found.discard(_UNBOUNDED_DURATION)
+    if not found:
+        return None
+    return found.pop() if len(found) == 1 else _UNBOUNDED_DURATION
+
+
+def _duration_min_unit_of(validator: Any) -> str | None:
+    """Return the finest unit a live time-period *validator* accepts, or None when unbounded."""
+    return _duration_precision_of(validator) or None
 
 
 def _with_duration_min_unit(refined: RefinedType | None, validator: Any) -> RefinedType | None:
