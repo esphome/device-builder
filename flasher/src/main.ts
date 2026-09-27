@@ -3,6 +3,7 @@ import { validateEspImage } from "./image-magic";
 import { hardResetChip } from "./reset";
 import type {
   FirmwareMessage,
+  HandoffFlasher,
   OutboundMessage,
   FlashState,
 } from "./protocol";
@@ -188,6 +189,15 @@ window.addEventListener("message", (ev: MessageEvent) => {
     setState("error", "Received a malformed firmware payload.");
     return;
   }
+  // A newer dashboard names the flasher; this page only has esptool. It should
+  // have declined on our ready frame, but say so rather than fail the image as
+  // a bad ESP one.
+  const flasher = data.flasher ?? "esp";
+  if (!FLASHERS.includes(flasher)) {
+    stopReadyRetry();
+    setState("error", `This flasher cannot write ${flasher} firmware. Update it and try again.`);
+    return;
+  }
   // The opener origin is now known; stop broadcasting and pin to it.
   if (targetOrigin === "*" && ev.origin && ev.origin !== "null") {
     targetOrigin = ev.origin;
@@ -213,14 +223,18 @@ function stopReadyRetry(): void {
   }
 }
 
+// The flashers this page has (see HandoffFlasher in protocol.ts): esptool only.
+const FLASHERS: HandoffFlasher[] = ["esp"];
+
 function sendReady(): void {
-  // Advertise whether this browser can actually flash so the opener can decline
-  // the handoff up front (see ReadyMessage.webSerial in protocol.ts). Same check
-  // that gates the install button below.
+  // Advertise whether this browser can actually flash, and which flashers it
+  // has, so the opener can decline the handoff up front (see ReadyMessage in
+  // protocol.ts). Same Web Serial check that gates the install button below.
   post({
     type: "esphome-web-flash:ready",
     version: PROTOCOL_VERSION,
     webSerial: "serial" in navigator,
+    flashers: FLASHERS,
   });
 }
 
