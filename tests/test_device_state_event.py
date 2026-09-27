@@ -34,7 +34,7 @@ def test_state_change_event_uses_flat_configuration_state_payload() -> None:
     assert [(e.event_type, e.data) for e in captured] == [
         (
             EventType.DEVICE_STATE_CHANGED,
-            {"configuration": "kitchen.yaml", "state": "online", "offline_since": None},
+            {"configuration": "kitchen.yaml", "state": "online", "offline_seconds": None},
         )
     ]
 

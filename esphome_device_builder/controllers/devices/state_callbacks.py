@@ -16,6 +16,7 @@ from ...models import (
     EventType,
     ReachabilitySource,
 )
+from ...models.devices import offline_seconds
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -78,7 +79,7 @@ def on_state_change(
             DeviceStateChangedData(
                 configuration=device.configuration,
                 state=state.value,
-                offline_since=device.runtime_state.offline_since,
+                offline_seconds=offline_seconds(device.runtime_state.offline_since),
             ),
         )
 

@@ -427,15 +427,15 @@ async def test_last_contact_writes_are_rate_limited(
     assert controller._metadata_store.get_field("kitchen.yaml", "last_seen") == first
 
 
-async def test_state_change_event_carries_the_offline_anchor(
+async def test_state_change_event_carries_the_offline_age(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """A device going offline publishes its anchor on the narrow event.
+    """A device going offline publishes its age on the narrow event.
 
     Without it a client folding ``DEVICE_STATE_CHANGED`` keeps whatever
-    ``offline_since`` it last saw — nothing on a fresh outage, and the
+    ``offline_seconds`` it last saw — nothing on a fresh outage, and the
     previous outage's value after a flap.
     """
     controller = make_controller(tmp_path)
@@ -444,8 +444,30 @@ async def test_state_change_event_carries_the_offline_anchor(
 
     controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
 
-    stamps = [
-        e.data["offline_since"] for e in captured if e.event_type is EventType.DEVICE_STATE_CHANGED
+    ages = [
+        e.data["offline_seconds"]
+        for e in captured
+        if e.event_type is EventType.DEVICE_STATE_CHANGED
     ]
-    assert stamps and stamps[0] is not None
-    assert abs(time.time() - stamps[0]) < 5
+    assert ages and ages[0] is not None
+    assert 0 <= ages[0] < 5
+
+
+async def test_wire_carries_the_offline_age_not_the_stamp(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The serialized device reports an age, so a client never reads our clock."""
+    controller = make_controller(tmp_path)
+    controller._scanner.devices = [_device("kitchen", state=DeviceState.OFFLINE)]
+    controller._metadata_store.set_field("kitchen.yaml", "offline_since", time.time() - 7200)
+
+    response = await controller.list_devices()
+
+    runtime_state = response.configured[0].to_dict()["runtime_state"]
+    assert "offline_since" not in runtime_state
+    assert abs(runtime_state["offline_seconds"] - 7200) < 10
+
+
+def test_wire_offline_age_is_null_without_a_stamp() -> None:
+    """No stamp serializes as an explicit ``null``, not a missing key."""
+    assert _device("kitchen").to_dict()["runtime_state"]["offline_seconds"] is None

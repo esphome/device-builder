@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple, TypedDict
 
 from .common import DashboardModel
+
+
+def offline_seconds(offline_since: float | None) -> float | None:
+    """Age of an ``offline_since`` stamp, as sent to a client.
+
+    Clients get an age rather than the stamp so they never measure it
+    against their own clock, which is routinely out of sync with ours.
+    """
+    return None if offline_since is None else max(0.0, time.time() - offline_since)
 
 
 class DeviceState(StrEnum):
@@ -81,9 +91,8 @@ class DeviceRuntimeState(DashboardModel):
     # primary picked for OTA cache args.
     ip_addresses: list[str] = field(default_factory=list)
     # Epoch seconds at which the device stopped being reachable, or ``None``
-    # while it is online or nothing is known. Absolute rather than an age so
-    # a client can tick it forward without a per-response anchor, and so
-    # every surface showing it agrees by construction. Survives a restart.
+    # while it is online or nothing is known. Survives a restart. Never sent:
+    # the wire carries ``offline_seconds``, its age at serialization.
     offline_since: float | None = None
     deployed_version: str = ""
     # 8-char hex hash of the running firmware, read from the mDNS
@@ -108,6 +117,11 @@ class DeviceRuntimeState(DashboardModel):
     # evidence for the sidecar-seeded values, which is exactly what the
     # flag reports.
     deployed_identity_live: bool = False
+
+    def __post_serialize__(self, d: dict[Any, Any]) -> dict[Any, Any]:
+        """Send the offline stamp as its age; see :func:`offline_seconds`."""
+        d["offline_seconds"] = offline_seconds(d.pop("offline_since"))
+        return d
 
 
 # Canonical name set for routing flat attr names onto ``runtime_state``.
@@ -513,10 +527,10 @@ class DeviceStateChangedData(TypedDict):
 
     configuration: str
     state: str
-    # Mirrors ``DeviceRuntimeState.offline_since`` so a client folding this
-    # narrow event doesn't carry a previous outage's value, or miss a fresh
-    # one until the next full listing.
-    offline_since: float | None
+    # Mirrors the wire's ``runtime_state.offline_seconds`` so a client folding
+    # this narrow event doesn't carry a previous outage's value, or miss a
+    # fresh one until the next full listing.
+    offline_seconds: float | None
 
 
 class DeviceReachabilityData(TypedDict):
