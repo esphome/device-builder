@@ -33,8 +33,10 @@ _NAMED = (
 )
 
 
-def require_unambiguous(yaml_text: str, location: AutomationLocation) -> None:
-    """Raise ``PRECONDITION_FAILED`` when *location* names more than one item of *yaml_text*."""
+def require_writable(
+    yaml_text: str, location: AutomationLocation, *, declared_only: bool = False
+) -> None:
+    """Raise ``PRECONDITION_FAILED`` unless *location* names one item, declared if so asked."""
     if not isinstance(location, _NAMED):
         return
     what, name, items = _items_named(_load(yaml_text), location)
@@ -44,17 +46,10 @@ def require_unambiguous(yaml_text: str, location: AutomationLocation) -> None:
             "in the YAML, then try again. Nothing was written."
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-
-
-def require_declared_script(yaml_text: str, location: AutomationLocation) -> None:
-    """Raise ``PRECONDITION_FAILED`` when *location* is the listed id of a script without one."""
-    if not isinstance(location, ScriptLocation):
-        return
-    items = _scripts_named(_load(yaml_text), location.id)
-    if any(not declares_id(item) for item in items):
+    if declared_only and isinstance(location, ScriptLocation) and not all(map(declares_id, items)):
         msg = (
-            f"'{location.id}' is the id a script without an id is listed under; pick another "
-            "id, or give that script an id in the YAML. Nothing was written."
+            f"'{name}' is the id a script without an id is listed under; pick another id, or "
+            "give that script an id in the YAML. Nothing was written."
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 

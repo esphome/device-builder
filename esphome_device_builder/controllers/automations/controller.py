@@ -37,7 +37,7 @@ from ...models.automations import (
     YamlDiff,
 )
 from . import catalog, parsing, writing
-from .addressing import require_declared_script, require_unambiguous
+from .addressing import require_writable
 from .catalog import AutomationBodyRef
 
 if TYPE_CHECKING:
@@ -242,16 +242,17 @@ class AutomationsController:
             raise CommandError(ErrorCode.INVALID_ARGS, f"Invalid automation: {err}") from err
         loc = _decode_location(location)
         render: Callable[[str], tuple[str, YamlDiff]]
-        if save or expected is not None:
+        guarded = save or expected is not None
+        if guarded:
             render = partial(
                 _render_upsert_if_unchanged, tree=tree, location=loc, expected=expected
             )
         else:
-            render = partial(_render_upsert_on_declared, tree=tree, location=loc)
+            render = partial(writing.render_upsert, tree=tree, location=loc)
         return await self._apply(
             configuration,
             yaml,
-            partial(_render_unambiguous, location=loc, render=render),
+            partial(_render_writable, location=loc, render=render, declared_only=not guarded),
             save=save,
             message=f"Save an automation to {configuration}",
         )
@@ -284,7 +285,7 @@ class AutomationsController:
         return await self._apply(
             configuration,
             yaml,
-            partial(_render_unambiguous, location=loc, render=render),
+            partial(_render_writable, location=loc, render=render),
             save=save,
             message=f"Delete an automation from {configuration}",
         )
@@ -547,23 +548,16 @@ def _require_expected(
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
 
-def _render_unambiguous(
+def _render_writable(
     yaml_text: str,
     *,
     location: AutomationLocation,
     render: Callable[[str], tuple[str, YamlDiff]],
+    declared_only: bool = False,
 ) -> tuple[str, YamlDiff]:
-    """Run *render* only while *location* names one item of *yaml_text*."""
-    require_unambiguous(yaml_text, location)
+    """Run *render* only while *location* names the one item of *yaml_text* it may write."""
+    require_writable(yaml_text, location, declared_only=declared_only)
     return render(yaml_text)
-
-
-def _render_upsert_on_declared(
-    yaml_text: str, *, tree: AutomationTree, location: AutomationLocation
-) -> tuple[str, YamlDiff]:
-    """Insert or replace at *location* unless it is the listed id of a script without one."""
-    require_declared_script(yaml_text, location)
-    return writing.render_upsert(yaml_text, tree=tree, location=location)
 
 
 def _render_delete_if_unchanged(

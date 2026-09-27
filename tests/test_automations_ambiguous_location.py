@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers.automations import AutomationsController, parsing
-from esphome_device_builder.controllers.automations.addressing import require_unambiguous
+from esphome_device_builder.controllers.automations.addressing import require_writable
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.automations import (
@@ -262,7 +262,7 @@ def test_an_action_field_on_a_shared_id_is_refused() -> None:
     location = ComponentActionFieldLocation(component_id="binary_sensor_0", field="on_press")
 
     with pytest.raises(CommandError) as excinfo:
-        require_unambiguous(_BINARY_SENSORS, location)
+        require_writable(_BINARY_SENSORS, location)
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
@@ -278,7 +278,7 @@ def test_a_sub_entity_id_that_another_item_declares_is_shared() -> None:
     location = ComponentOnLocation(component_id="sensor_0_temperature", trigger="on_value")
 
     with pytest.raises(CommandError) as excinfo:
-        require_unambiguous(text, location)
+        require_writable(text, location)
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
@@ -293,7 +293,7 @@ def test_a_light_effect_is_shared_among_lights_only() -> None:
         + "  - platform: template\n    id: light_0\n    type: binary\n"
     )
 
-    require_unambiguous(text, LightEffectLocation(component_id="light_0", index=0))
+    require_writable(text, LightEffectLocation(component_id="light_0", index=0))
 
 
 @pytest.mark.parametrize(
@@ -313,17 +313,17 @@ def test_an_api_action_is_counted_where_the_parser_finds_them(text: str) -> None
     location = ApiActionLocation(action_name="beep")
 
     if "beep" not in text:
-        require_unambiguous(text, location)
+        require_writable(text, location)
         return
     with pytest.raises(CommandError) as excinfo:
-        require_unambiguous(text, location)
+        require_writable(text, location)
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
 
 def test_a_position_and_a_name_nothing_shares_pass() -> None:
     """A location addressed by position, and one whose name a single item has, pass."""
-    require_unambiguous(_SCRIPTS_IDLESS_FIRST, IntervalLocation(index=0))
-    require_unambiguous(_UNAMBIGUOUS, ScriptLocation(id="blink"))
-    require_unambiguous(_UNAMBIGUOUS, ScriptLocation(id="script_1"))
-    require_unambiguous(_UNAMBIGUOUS, ScriptLocation(id="not_there"))
-    require_unambiguous("switch: [\n", ScriptLocation(id="script_0"))
+    require_writable(_SCRIPTS_IDLESS_FIRST, IntervalLocation(index=0))
+    require_writable(_UNAMBIGUOUS, ScriptLocation(id="blink"))
+    require_writable(_UNAMBIGUOUS, ScriptLocation(id="script_1"))
+    require_writable(_UNAMBIGUOUS, ScriptLocation(id="not_there"))
+    require_writable("switch: [\n", ScriptLocation(id="script_0"))
