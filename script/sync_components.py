@@ -3401,6 +3401,34 @@ def _scalar_type_for_extends_ref(ref: str) -> str | None:
     return None
 
 
+# ``core.positive_time_period_<precision>`` ref suffix -> finest accepted unit.
+_DURATION_MIN_UNIT_BY_REF_SUFFIX: dict[str, str] = {
+    "_nanoseconds": "ns",
+    "_microseconds": "us",
+    "_milliseconds": "ms",
+    "_seconds": "s",
+    "_minutes": "min",
+}
+
+
+def _duration_min_unit_for_extends_ref(ref: str) -> str | None:
+    """Return the finest unit a time-period *ref* accepts, or None when it names no precision."""
+    if "time_period" not in ref:
+        return None
+    for suffix, unit in _DURATION_MIN_UNIT_BY_REF_SUFFIX.items():
+        if ref.endswith(suffix):
+            return unit
+    return None
+
+
+def _duration_min_unit_for_schema(schema: dict | None) -> str | None:
+    """Return the finest unit a scalar time-period *schema* accepts, from its ``extends``."""
+    for ref in (schema or {}).get("extends") or []:
+        if (unit := _duration_min_unit_for_extends_ref(ref)) is not None:
+            return unit
+    return None
+
+
 def _extract_config_entries(
     section: dict,
     *,
@@ -3526,7 +3554,9 @@ def _merge_extends_config_vars(
     extended: dict[str, dict] = {}
     origin_ref: dict[str, str] = {}
     for ref in schema_node.get("extends") or []:
-        if ref in _seen_refs:
+        # A scalar primitive (``core.positive_time_period_*``) is a value, not
+        # a mapping base: its dict-form unit keys are not fields of the host.
+        if ref in _seen_refs or _scalar_type_for_extends_ref(ref) is not None:
             continue
         resolved = _resolve_extends(ref, schema_dir)
         extended.update(resolved)
@@ -3984,11 +4014,13 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     # ``extends: ["core.positive_time_period_*"]`` collapses to time_period
     # — even when the schema marked the entry as ``type: schema`` (most
     # _SENSOR_SCHEMA fields like ``expire_after`` come through that way).
+    duration_min_unit: str | None = None
     if extends and not (inner_schema or {}).get("config_vars"):
         for ref in extends:
             scalar = _scalar_type_for_extends_ref(ref)
             if scalar is not None:
                 entry_type = scalar
+                duration_min_unit = _duration_min_unit_for_extends_ref(ref)
                 break
 
     # Docs-prefix hints — fields without explicit type lead with
@@ -4119,6 +4151,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "translation_params": None,
         "platform_type": None,
     }
+    if entry_type == "time_period" and duration_min_unit is not None:
+        entry["duration_min_unit"] = duration_min_unit
 
     # Detect user-keyed maps (``key_type`` set in the raw entry).
     # ``logger.logs``, ``substitutions:`` and similar enumerate every
@@ -6584,6 +6618,7 @@ class RefinedType(NamedTuple):
     unit_options: list[str] | None = None
     display_format: str | None = None
     templatable: bool = False
+    duration_min_unit: str | None = None
 
 
 # Stamp-only refinement: the union is templatable but no plain branch
@@ -6865,6 +6900,73 @@ def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, Ref
     return by_identity, by_name
 
 
+# ``cv`` precision checks (and ``update_interval``, which wraps the
+# millisecond one in a plain function) -> finest accepted unit.
+_DURATION_PRECISION_VALIDATORS: dict[str, str] = {
+    "time_period_in_nanoseconds_": "ns",
+    "time_period_in_microseconds_": "us",
+    "time_period_in_milliseconds_": "ms",
+    "time_period_in_seconds_": "s",
+    "time_period_in_minutes_": "min",
+    "update_interval": "ms",
+}
+
+
+@cache
+def _duration_precision_table() -> dict[int, str]:
+    """Map the identity of each live ``cv`` precision validator to its unit."""
+    from esphome import config_validation as cv
+
+    table: dict[int, str] = {}
+    for attr, unit in _DURATION_PRECISION_VALIDATORS.items():
+        obj = getattr(cv, attr, None)
+        if obj is None:
+            raise SystemExit(
+                f"time-period validator cv.{attr} is gone — renamed upstream? "
+                "Update _DURATION_PRECISION_VALIDATORS."
+            )
+        table[id(obj)] = unit
+    return table
+
+
+def _duration_wrapped_validators(validator: Any) -> tuple[Any, ...]:
+    """Return the validators a ``templatable`` / ``All`` / ``Any`` / ``Schema`` wrapper holds."""
+    if (inner := _templatable_inner(validator)) is not None:
+        return (inner,)
+    if isinstance(validator, (vol.All, vol.Any)):
+        return tuple(validator.validators)
+    inner = getattr(validator, "schema", None)
+    if inner is None or inner is validator or isinstance(inner, dict):
+        return ()
+    return (inner,)
+
+
+def _duration_min_unit_of(validator: Any, _depth: int = 0) -> str | None:
+    """
+    Return the finest unit a live time-period *validator* accepts, or None.
+
+    Peels wrappers; branches that disagree on the unit yield None.
+    """
+    if validator is None or _depth > 8:
+        return None
+    if (unit := _duration_precision_table().get(id(validator))) is not None:
+        return unit
+    units = {
+        found
+        for child in _duration_wrapped_validators(validator)
+        if (found := _duration_min_unit_of(child, _depth + 1)) is not None
+    }
+    return units.pop() if len(units) == 1 else None
+
+
+def _with_duration_min_unit(refined: RefinedType | None, validator: Any) -> RefinedType | None:
+    """Return *refined* carrying *validator*'s time-period precision, when it has one."""
+    unit = _duration_min_unit_of(validator)
+    if unit is None:
+        return refined
+    return (refined or RefinedType("time_period"))._replace(duration_min_unit=unit)
+
+
 def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], RefinedType]:
     """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost."""
     schema = getattr(manifest, "config_schema", None)
@@ -6977,7 +7079,7 @@ def _refined_types_in_schema(  # noqa: C901
         return None
 
     def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
-        t = classify(val)
+        t = _with_duration_min_unit(classify(val), val)
         if t is not None:
             out[path] = t
         elif _is_dict_list_union(val):
@@ -7851,12 +7953,17 @@ def _apply_refined_types(
             entry["templatable"] = True
         if new_type.type:
             _apply_refined_entry_type(entry, new_type)
+        if new_type.duration_min_unit and entry.get("type") == "time_period":
+            entry["duration_min_unit"] = new_type.duration_min_unit
 
     _walk_catalog_entries(entries, visit)
 
 
 def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
     """Apply one refinement's type to *entry* per the override rules above."""
+    if new_type.type == "time_period":
+        # Carries only ``duration_min_unit``; never retypes an entry.
+        return
     if new_type.type == "float_with_unit":
         # Always apply — see the caller's docstring. Carries
         # unit_options the schema bundle can't represent.
@@ -10465,6 +10572,7 @@ def _convert_automation_action(
         "has_condition_gate": has_condition_gate,
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
+        **_scalar_body_fields(schema, body),
     }
 
 
@@ -10510,6 +10618,7 @@ def _convert_automation_condition(
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "accepts_condition_list": accepts_condition_list,
         "scalar_shorthand_key": scalar_shorthand_key,
+        **_scalar_body_fields(schema, body),
     }
 
 
@@ -10600,6 +10709,23 @@ def _resolve_automation_lambda(
         }
         return [entry], _LAMBDA_REGISTRY_ID
     return config_entries, _scalar_shorthand_key(body, schema_dir)
+
+
+def _scalar_body_fields(schema: dict | None, body: dict) -> dict[str, Any]:
+    """
+    Return the catalog fields of an action / condition whose whole body is one scalar.
+
+    ``delay: 2s`` extends only a scalar primitive, so it has a value rather
+    than fields. Empty for a mapping body.
+    """
+    if not _is_scalar_extends_schema(schema):
+        return {}
+    fields: dict[str, Any] = {"value_type": _scalar_value_type_for_schema("", schema)}
+    if body.get("templatable"):
+        fields["templatable"] = True
+    if (unit := _duration_min_unit_for_schema(schema)) is not None:
+        fields["duration_min_unit"] = unit
+    return fields
 
 
 def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
@@ -10760,6 +10886,8 @@ def _convert_registry_entry(
     # toggle on the scalar value (``multiply: !lambda``). Omitted when false.
     if body.get("templatable"):
         entry["templatable"] = True
+    if value_type == "time_period" and (unit := _duration_min_unit_for_schema(schema)):
+        entry["duration_min_unit"] = unit
     return entry
 
 

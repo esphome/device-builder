@@ -201,7 +201,7 @@ async def test_get_bodies_endpoint_returns_full_bodies() -> None:
     )
     assert "triggers/on_boot" in result
     assert "actions/delay" in result
-    assert "config_entries" in result["actions/delay"]
+    assert result["actions/delay"]["value_type"] == "time_period"
 
 
 async def test_get_filters_returns_full_catalog() -> None:

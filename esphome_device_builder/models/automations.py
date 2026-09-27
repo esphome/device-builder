@@ -91,6 +91,12 @@ class AutomationAction(DashboardModel):
     # shape as ``ComponentCatalogEntry.required_groups``. Members are
     # never ``advanced``.
     required_groups: list[RequiredGroup] = field(default_factory=list)
+    # Set when the whole body is one scalar (``delay: 2s``) rather than a
+    # mapping of fields; see :class:`Filter`. ``config_entries`` is empty.
+    value_type: str | None = None
+    templatable: bool = False
+    # See :class:`ConfigEntry.duration_min_unit`; for a ``time_period`` value.
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -119,6 +125,10 @@ class AutomationCondition(DashboardModel):
     # See :class:`AutomationAction.required_groups` — e.g.
     # ``sensor.in_range`` requires at least one of ``above`` / ``below``.
     required_groups: list[RequiredGroup] = field(default_factory=list)
+    # See :class:`AutomationAction.value_type`.
+    value_type: str | None = None
+    templatable: bool = False
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -140,6 +150,8 @@ class LightEffect(DashboardModel):
     value_type: str | None = None
     # ``templatable`` scalar value accepts a lambda; renderer offers the toggle.
     templatable: bool = False
+    # See :class:`ConfigEntry.duration_min_unit`; for a ``time_period`` value.
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -165,6 +177,7 @@ class Filter(DashboardModel):
     applies_to: list[str] = field(default_factory=list)
     value_type: str | None = None
     templatable: bool = False
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -221,6 +234,10 @@ class AutomationActionIndex(DashboardModel):
     accepts_action_list: list[str] = field(default_factory=list)
     # False when the editor should not render this action as a form.
     form_editable: bool = True
+    # See :class:`AutomationAction.value_type`; the editor reads the row.
+    value_type: str | None = None
+    templatable: bool = False
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default, so ``form_editable`` appears only when false."""
@@ -236,6 +253,10 @@ class AutomationConditionIndex(DashboardModel):
     docs_url: str
     domain: str
     accepts_condition_list: bool = False
+    # See :class:`AutomationAction.value_type`; the editor reads the row.
+    value_type: str | None = None
+    templatable: bool = False
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -250,6 +271,7 @@ class LightEffectIndex(DashboardModel):
     applies_to: list[str] = field(default_factory=list)
     value_type: str | None = None
     templatable: bool = False
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -264,6 +286,7 @@ class FilterIndex(DashboardModel):
     applies_to: list[str] = field(default_factory=list)
     value_type: str | None = None
     templatable: bool = False
+    duration_min_unit: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""

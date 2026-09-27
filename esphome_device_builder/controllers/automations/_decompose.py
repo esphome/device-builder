@@ -25,6 +25,7 @@ from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     AutomationAction,
+    AutomationCondition,
     AutomationTree,
     ConditionNode,
 )
@@ -175,6 +176,9 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
 
     if raw_params is None:
         params: dict[str, Any] = {}
+    elif isinstance(raw_params, dict) and _is_scalar_bodied(action):
+        # ``delay: {seconds: 2}``: the mapping is the value's dict form, not fields.
+        params = {scalar_param_key(action): _render_value(raw_params)}
     elif isinstance(raw_params, dict):
         params = {}
         if _is_dict_shorthand_condition(action, raw_params):
@@ -215,6 +219,11 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
     )
 
 
+def _is_scalar_bodied(entry: AutomationAction | AutomationCondition) -> bool:
+    """Whether *entry*'s whole body is one value (``delay: 2s``), not a mapping of fields."""
+    return entry.value_type is not None and not entry.config_entries
+
+
 def _is_dict_shorthand_condition(action: AutomationAction, body: dict[str, Any]) -> bool:
     """Whether *body* is a ``wait_until``-style condition with the gate key omitted."""
     if not body or action.scalar_shorthand_key not in CONDITION_GATE_KEYS:
@@ -233,6 +242,15 @@ def _decompose_condition_list(body: Any) -> list[ConditionNode]:
     if isinstance(body, list):
         return [_decompose_condition(item) for item in body]
     return [_decompose_condition(body)]
+
+
+def _condition_params(entry: AutomationCondition, value: Any) -> dict[str, Any]:
+    """Return the params a leaf condition's *value* carries."""
+    if value is None:
+        return {}
+    if isinstance(value, dict) and not _is_scalar_bodied(entry):
+        return {k: _render_value(v) for k, v in value.items()}
+    return {scalar_param_key(entry): _render_value(value)}
 
 
 def _decompose_condition(raw: Any) -> ConditionNode:
@@ -260,10 +278,8 @@ def _decompose_condition(raw: Any) -> ConditionNode:
     params: dict[str, Any] = {}
     if catalog_entry.accepts_condition_list:
         children = _decompose_condition_list(value)
-    elif isinstance(value, dict):
-        params = {k: _render_value(v) for k, v in value.items()}
-    elif value is not None:
-        params = {scalar_param_key(catalog_entry): _render_value(value)}
+    else:
+        params = _condition_params(catalog_entry, value)
     return ConditionNode(
         condition_id=str(cond_id),
         params=params,

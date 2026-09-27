@@ -490,6 +490,11 @@ class ConfigEntry(DashboardModel):
     # None for non-FLOAT_WITH_UNIT entries.
     unit_options: list[str] | None = None
 
+    # Finest unit a ``TIME_PERIOD`` entry accepts: ``ns`` / ``us`` / ``ms`` /
+    # ``s`` / ``min``. The frontend hides finer units from the unit picker.
+    # None = unknown precision, every unit is offered.
+    duration_min_unit: str | None = None
+
     # When True the field accepts a list of values rather than a single
     # value (e.g. multiple SSIDs, multiple radar targets). Frontend
     # renders an add/remove list of inputs of the declared `type`.
