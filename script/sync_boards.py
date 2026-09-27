@@ -75,7 +75,11 @@ from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
-from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
+from esphome_device_builder.helpers.chips import (  # noqa: E402
+    LIBRETINY_FAMILY_MCU,
+    libretiny_family_mcu,
+    normalize_chip_variant,
+)
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     BoardCatalogEntry,
@@ -122,22 +126,6 @@ _LIBRETINY_FAMILIES: dict[str, tuple[str, str]] = {
     "bk72xx": ("BK72XX_BOARDS", "BK72XX_BOARD_PINS"),
     "rtl87xx": ("RTL87XX_BOARDS", "RTL87XX_BOARD_PINS"),
     "ln882x": ("LN882X_BOARDS", "LN882X_BOARD_PINS"),
-}
-
-# ESPHome LibreTiny board meta carries ``family`` (the chip). Fold it into the
-# picker's per-chip series token (``mcu``): BK7231N/T/Q share one ``bk7231``
-# filter, the rest map 1:1. An unmapped future family falls back to its own
-# lowercased token in _backfill_libretiny_mcu, so a new chip still gets a
-# distinct section (only a frontend chip line is then needed).
-_LIBRETINY_MCU: dict[str, str] = {
-    "BK7231N": "bk7231",
-    "BK7231T": "bk7231",
-    "BK7231Q": "bk7231",
-    "BK7238": "bk7238",
-    "BK7251": "bk7251",
-    "RTL8710B": "rtl8710b",
-    "RTL8720C": "rtl8720c",
-    "LN882H": "ln882h",
 }
 
 # Per-platform documentation page for generated boards (those no manifest
@@ -501,16 +489,16 @@ def _backfill_libretiny_mcu(boards: list[BoardCatalogEntry]) -> None:
         module = importlib.import_module(f"esphome.components.{platform}.boards")
         board_list: dict[str, Any] = getattr(module, boards_attr)
         family_by_board = {board: meta.get("family") for board, meta in board_list.items()}
-        tokens = {_LIBRETINY_MCU[f] for f in family_by_board.values() if f in _LIBRETINY_MCU}
+        tokens = {
+            LIBRETINY_FAMILY_MCU[f] for f in family_by_board.values() if f in LIBRETINY_FAMILY_MCU
+        }
         sole_token = next(iter(tokens)) if len(tokens) == 1 else None
         for board in boards:
             if board.esphome.platform.value != platform:
                 continue
             family = family_by_board.get(board.esphome.board)
-            if family in _LIBRETINY_MCU:
-                board.esphome.mcu = _LIBRETINY_MCU[family]
-            elif family:
-                board.esphome.mcu = re.sub(r"[^a-z0-9]", "", family.lower())
+            if family:
+                board.esphome.mcu = libretiny_family_mcu(family)
             elif sole_token:
                 board.esphome.mcu = sole_token
 

@@ -76,7 +76,12 @@ def test_index_within_installed_esphome() -> None:
         (set(caps.libretiny_families), set(FAMILY_COMPONENT.values())),
         (set(caps.rp2040_no_wifi_boards), installed_no_wifi_boards),
         (set(caps.esp32_board_variants), set(ESP32_BOARDS)),
+        (set(caps.board_mcus["rp2"]), set(BOARDS)),
     ]
+    for platform in caps.libretiny_families:
+        module = importlib.import_module(f"esphome.components.{platform}.boards")
+        boards = getattr(module, f"{platform.upper()}_BOARDS")
+        pairs.append((set(caps.board_mcus[platform]), set(boards)))
     for component in ("esp32", "esp8266", "rp2"):
         module = importlib.import_module(f"esphome.components.{component}")
         upstream = {entry["file"] for entry in module.get_download_types(sentinel)}
@@ -159,6 +164,34 @@ def test_load_coerces_string_maps(tmp_path: Path) -> None:
     assert caps.logger_interface_defaults == {"esp32c3": "USB_SERIAL_JTAG"}
     path.write_bytes(orjson.dumps({"esp32_board_variants": "notadict"}))
     assert _load_platform_capabilities(path).esp32_board_variants == {}
+
+
+def test_load_coerces_board_mcus(tmp_path: Path) -> None:
+    """The nested board→chip map keeps valid pairs; anything else drops."""
+    path = tmp_path / "x.json"
+    path.write_bytes(
+        orjson.dumps(
+            {
+                "board_mcus": {
+                    "rtl87xx": {"bw15": "rtl8720c", "bad": 7},
+                    "rp2": "notadict",
+                }
+            }
+        )
+    )
+    assert _load_platform_capabilities(path).board_mcus == {"rtl87xx": {"bw15": "rtl8720c"}}
+    path.write_bytes(orjson.dumps({"board_mcus": ["notadict"]}))
+    assert _load_platform_capabilities(path).board_mcus == {}
+
+
+def test_board_mcus_name_every_chip_of_the_split_platforms() -> None:
+    """The committed snapshot separates the chips the frontend tells apart."""
+    mcus = load_platform_capabilities_index().board_mcus
+    assert mcus["rtl87xx"]["bw15"] == "rtl8720c"
+    assert set(mcus["rtl87xx"].values()) == {"rtl8710b", "rtl8720c"}
+    assert set(mcus["rp2"].values()) == {"rp2040", "rp2350"}
+    assert set(mcus["ln882x"].values()) == {"ln882h"}
+    assert "esp32" not in mcus
 
 
 def test_parse_download_types_drops_malformed() -> None:

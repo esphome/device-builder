@@ -367,6 +367,12 @@ class Device(DashboardModel):
     # ``None`` ⇒ unknowable (no logger, unknown variant, libretiny runtime
     # default).
     logger_interface: str | None = None
+    # Chip series on the platforms that lump several chips under one key
+    # (``rp2040`` / ``rp2350`` on rp2, ``rtl8710b`` / ``rtl8720c`` on rtl87xx,
+    # the bk72xx and ln882x chips). The frontend offers a browser flasher
+    # only for a chip it can write. ``None`` ⇒ the platform needs no split
+    # (esp32, esp8266, nrf52) or the YAML does not name the chip.
+    mcu: str | None = None
     # esp32 whose ``ota: platform: esphome`` sets ``allow_partition_access``
     # — gates the install dialog's OTA bootloader-update action. Whether the
     # *running* firmware has it compiled in is the frontend's half of the

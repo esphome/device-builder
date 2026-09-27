@@ -677,9 +677,14 @@ class PlatformCapabilities(NamedTuple):
     logger_interface_defaults: dict[str, str]
     # The explicit ``hardware_uart`` values the logger accepts.
     logger_interface_values: list[str]
+    # ``{platform: {pio_board: mcu}}`` for the platforms that lump several
+    # chips under one key (rp2, the LibreTiny families), for resolving a
+    # device's chip from its YAML ``board:``. A platform that is absent needs
+    # no split. Empty until the index is regenerated with the field.
+    board_mcus: dict[str, dict[str, str]]
 
 
-EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [])
+EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [], {})
 
 
 @cache
@@ -731,6 +736,20 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
             if isinstance(item, str) and isinstance(mapped, str)
         }
 
+    def _str_map_of_maps(key: str) -> dict[str, dict[str, str]]:
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            return {}
+        return {
+            outer: {
+                item: mapped
+                for item, mapped in inner.items()
+                if isinstance(item, str) and isinstance(mapped, str)
+            }
+            for outer, inner in value.items()
+            if isinstance(outer, str) and isinstance(inner, dict)
+        }
+
     return PlatformCapabilities(
         esp32_variants=_str_list("esp32_variants"),
         esp32_no_wifi_variants=_str_list("esp32_no_wifi_variants"),
@@ -741,6 +760,7 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
         esp32_board_variants=_str_map("esp32_board_variants"),
         logger_interface_defaults=_str_map("logger_interface_defaults"),
         logger_interface_values=_str_list("logger_interface_values"),
+        board_mcus=_str_map_of_maps("board_mcus"),
     )
 
 

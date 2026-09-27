@@ -47,6 +47,7 @@ from ._parsing import (
     name_add_mac_suffix_enabled,
     ota_encryption_declared,
     parse_esphome_meta,
+    resolve_chip_mcu,
     safe_stat_key,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
@@ -270,6 +271,10 @@ def load_device_from_storage(
         storage_variant=storage.target_platform if storage else None,
     )
 
+    # The chip on the platforms that lump several under one key; the
+    # frontend offers a browser flasher only for a chip it can write.
+    mcu = resolve_chip_mcu(resolved_config, yaml_content, target_platform, extra_subs)
+
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
     loaded_platforms = dotted_loaded_platforms(storage.loaded_platforms) if storage else []
     # Subset of loaded_integrations the user directly wrote — top-
@@ -388,6 +393,7 @@ def load_device_from_storage(
         labels=list(labels),
         logger_baud_rate=logger_baud_rate,
         logger_interface=logger_interface,
+        mcu=mcu,
         # Gates the install dialog's OTA bootloader-update action; esp32-only
         # (the esphome schema rejects the flag elsewhere). Union of two
         # signals: the in-process resolved YAML (immediate on edit) and the
