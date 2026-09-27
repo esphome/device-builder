@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Observations arrive every sweep; the stamp only has to anchor an outage
-# across a restart.
-_LAST_SEEN_WRITE_INTERVAL = 60.0
+# Each write rewrites the whole store file, and the stamp only has to anchor
+# an outage across a restart.
+_LAST_SEEN_WRITE_INTERVAL = 600.0
 
 
 def _apply_logged_observation(
@@ -64,7 +64,7 @@ def on_state_change(
     for device in controller._devices_by_name(name):
         old_state = device.runtime_state.state
         device.runtime_state.state = state
-        offline_since = _offline_since(controller, device, old_state, state)
+        offline_since = _offline_since(device, old_state, state)
         device.runtime_state.offline_since = offline_since
         # ``update`` clears on a falsy value.
         controller._metadata_store.update(device.configuration, offline_since=offline_since or 0)
@@ -85,7 +85,7 @@ def on_state_change(
             DeviceStateChangedData(
                 configuration=device.configuration,
                 state=state.value,
-                offline_seconds=offline_seconds(device.runtime_state.offline_since),
+                offline_seconds=offline_seconds(offline_since),
             ),
         )
 
@@ -258,22 +258,10 @@ def record_last_seen(controller: DevicesController, name: str) -> None:
         store.set_field(device.configuration, "last_seen", now)
 
 
-def _offline_since(
-    controller: DevicesController, device: Device, old_state: DeviceState, state: DeviceState
-) -> float | None:
+def _offline_since(device: Device, old_state: DeviceState, state: DeviceState) -> float | None:
     """Return the epoch *device*'s outage began, or ``None`` when online or unknown."""
     if state is DeviceState.ONLINE:
         return None
     if old_state is DeviceState.ONLINE:
         return time.time()
-    # Startup settle: already unreachable when this process came up, so
-    # ``now`` would time our own uptime. Use what a previous run recorded.
-    store = controller._metadata_store
-    stamp = store.get_field(device.configuration, "offline_since")
-    last_seen = store.get_field(device.configuration, "last_seen")
-    if not isinstance(last_seen, (int, float)):
-        return float(stamp) if isinstance(stamp, (int, float)) else None
-    # Seen after the stamp: that outage ended and its clear never reached disk.
-    if not isinstance(stamp, (int, float)) or last_seen > stamp:
-        return float(last_seen)
-    return float(stamp)
+    return device.runtime_state.offline_since

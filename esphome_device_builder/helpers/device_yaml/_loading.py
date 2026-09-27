@@ -80,6 +80,7 @@ def load_device_from_storage(
     queued_update: bool = False,
     api_encryption_active: str | None = None,
     deployed_name: str = "",
+    offline_since: float | None = None,
     previous: Device | None = None,
     shallow: bool = False,
 ) -> Device:
@@ -205,6 +206,7 @@ def load_device_from_storage(
             deployed_version=deployed_version,
             api_encryption_active=api_encryption_active,
             queued_update=queued_update,
+            offline_since=offline_since,
         )
     )
 

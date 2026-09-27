@@ -65,6 +65,8 @@ class DeviceFileMetadata(NamedTuple):
     api_encryption_active: str | None = None
     # Pre-rename hostname the firmware still answers to, if any.
     deployed_name: str = ""
+    # Epoch the device's last known outage began, if any.
+    offline_since: float | None = None
 
 
 class ScanChange(StrEnum):
@@ -499,6 +501,7 @@ class DeviceScanner(WakeWorker[str]):
                     queued_update=metadata.queued_update,
                     api_encryption_active=metadata.api_encryption_active,
                     deployed_name=metadata.deployed_name,
+                    offline_since=metadata.offline_since,
                     previous=self._index.by_path.get(path),
                     shallow=shallow,
                 )

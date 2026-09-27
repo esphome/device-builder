@@ -132,6 +132,12 @@ class DeviceMetadataBase(DeviceBuilderBase):
         deployed_name = str(store_md.get("deployed_name", ""))
         raw_api_encryption = store_md.get("api_encryption_active")
         api_encryption_active = raw_api_encryption if isinstance(raw_api_encryption, str) else None
+        # A ``last_seen`` past the stamp means that outage's clear never reached disk.
+        stamps = [
+            float(stamp)
+            for key in ("offline_since", "last_seen")
+            if isinstance(stamp := store_md.get(key), (int, float))
+        ]
         return DeviceFileMetadata(
             board_id=board_id,
             ip=ip,
@@ -144,6 +150,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             queued_update=queued_update,
             api_encryption_active=api_encryption_active,
             deployed_name=deployed_name,
+            offline_since=max(stamps, default=None),
         )
 
     def _make_metadata_resolver(self) -> MetadataResolver:

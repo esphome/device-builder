@@ -3804,6 +3804,14 @@ def test_device_to_dict_nests_runtime_state() -> None:
         assert flat_key not in payload
 
 
+def test_device_to_dict_sends_the_outage_as_an_age() -> None:
+    """The wire carries ``offline_seconds``; the stamp itself is never sent."""
+    payload = DeviceRuntimeState(offline_since=time.time() - 7200).to_dict()
+
+    assert "offline_since" not in payload
+    assert abs(payload["offline_seconds"] - 7200) < 5
+
+
 def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
     """An all-default runtime_state still serializes every key; the frontend requires it."""
     payload = Device(
