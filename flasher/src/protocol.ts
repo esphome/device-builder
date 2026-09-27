@@ -21,7 +21,9 @@
 // FirmwareMessage.version from the opener); a peer that sees a higher version
 // than it speaks should proceed with its known subset (and may warn). Bump
 // PROTOCOL_VERSION only for a BREAKING change, and branch on the peer's version
-// at that point; additive changes never bump it.
+// at that point; additive changes never bump it. web.esphome.io deploys on its
+// own, so every dashboard version must keep working against every receiver in
+// both directions; that is what the optional fields' absent-means-v1 defaults are for.
 
 export const PROTOCOL_VERSION = 1;
 
@@ -30,6 +32,11 @@ export const PROTOCOL_VERSION = 1;
 export interface ReadyMessage {
   type: "esphome-web-flash:ready";
   version: number;
+  // The flashers this receiver has, by the ids below. Additive (v1): older
+  // receivers omit it, which means esptool only, so a dashboard handing off
+  // anything else declines up front rather than transfer an image the
+  // receiver would fail as a bad ESP one.
+  flashers?: HandoffFlasher[];
   // Whether the flasher's browser can actually flash (Web Serial present).
   // The flasher runs on a secure origin, so it can feature-detect for real,
   // unlike a dashboard on plain http. Additive (v1): older flashers omit it,
@@ -58,8 +65,19 @@ export interface FirmwareMessage {
   // which device they're for.
   deviceName?: string;
   erase?: boolean;
+  // Which flasher writes the parts. Additive (v1): absent means esptool, so
+  // an older dashboard's frame is unchanged and an older receiver ignores it.
+  // For 'rtl-ambz2' the parts are the LibreTiny UF2 as one part at address
+  // 0, which the receiver parses into flash runs itself.
+  flasher?: HandoffFlasher;
   parts: FlashPart[];
 }
+
+// The flasher a hand-off is for, by an id both apps share: 'esp' is esptool
+// (ESP32 / ESP8266), 'rtl-ambz2' the RTL8720C ROM downloader. Named after the
+// flasher, not the platform: rtl87xx covers the RTL8710B too, whose ROM speaks
+// another protocol and gets its own id when it lands.
+export type HandoffFlasher = "esp" | "rtl-ambz2";
 
 export type FlashState =
   | "connecting"
