@@ -258,6 +258,14 @@ def record_last_seen(controller: DevicesController, name: str) -> None:
         store.set_field(device.configuration, "last_seen", now)
 
 
+def record_last_seen_on_stop(controller: DevicesController) -> None:
+    """Persist the last contact of every device that is online at shutdown."""
+    now = time.time()
+    for device in controller._scanner.devices:
+        if device.runtime_state.state is DeviceState.ONLINE:
+            controller._metadata_store.set_field(device.configuration, "last_seen", now)
+
+
 def _offline_since(device: Device, old_state: DeviceState, state: DeviceState) -> float | None:
     """Return the epoch *device*'s outage began, or ``None`` when online or unknown."""
     if state is DeviceState.ONLINE:

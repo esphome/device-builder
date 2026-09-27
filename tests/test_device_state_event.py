@@ -193,3 +193,17 @@ async def test_last_contact_writes_are_rate_limited() -> None:
     state_callbacks.record_last_seen(ctrl, "kitchen")
 
     assert ctrl._metadata_store.get_field("kitchen.yaml", "last_seen") == first
+
+
+async def test_stopping_records_the_last_contact_of_online_devices() -> None:
+    """A clean stop stamps online devices exactly, past the write interval."""
+    recent = time.time() - 5
+    ctrl, _ = make_devices_controller_with_bus(
+        [make_device("kitchen", state=DeviceState.ONLINE), make_device("bedroom")]
+    )
+    ctrl._metadata_store.set_field("kitchen.yaml", "last_seen", recent)
+
+    state_callbacks.record_last_seen_on_stop(ctrl)
+
+    assert ctrl._metadata_store.get_field("kitchen.yaml", "last_seen") > recent
+    assert ctrl._metadata_store.get_field("bedroom.yaml", "last_seen") is None

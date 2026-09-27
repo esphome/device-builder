@@ -338,6 +338,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._scanner.stop()
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
+        state_callbacks.record_last_seen_on_stop(self)
         await drain_shutdown_callbacks(self._shutdown_callbacks)
 
     async def poll(self) -> None:
