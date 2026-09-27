@@ -194,7 +194,8 @@ window.addEventListener("message", (ev: MessageEvent) => {
   // The opener should have declined on our ready frame; refuse rather than
   // fail the image as a bad ESP one. The id is untrusted and may be one a
   // newer dashboard knows and this page does not.
-  const flasher: unknown = data.flasher ?? "esp";
+  // Only an absent field means esptool; null or anything else fails closed.
+  const flasher: unknown = data.flasher === undefined ? "esp" : data.flasher;
   if (!(FLASHERS as unknown[]).includes(flasher)) {
     setState("error", `This flasher cannot install this firmware (${String(flasher)}).`);
     return;

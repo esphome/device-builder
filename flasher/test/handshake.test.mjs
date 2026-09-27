@@ -120,6 +120,25 @@ try {
     fail("unknown flasher not refused: " + label);
   else console.log("PASS: firmware for a flasher this page lacks refused");
 
+  // 2a-ii. an explicit null is not the absent field: refused, not flashed as ESP
+  await a.evaluate(() => {
+    window.__b.postMessage(
+      {
+        type: "esphome-web-flash:firmware",
+        nonce: "test-nonce-123",
+        name: "bad",
+        flasher: null,
+        parts: [{ address: 0, data: new ArrayBuffer(8) }],
+      },
+      "*",
+    );
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  label = await popup.$eval("#status", (e) => e.textContent);
+  if (!/cannot install this firmware \(null\)/i.test(label))
+    fail("null flasher not refused: " + label);
+  else console.log("PASS: firmware with a null flasher refused");
+
   // 2b. malformed parts (data not an ArrayBuffer) -> error state, not a throw
   await a.evaluate(() => {
     window.__b.postMessage(
