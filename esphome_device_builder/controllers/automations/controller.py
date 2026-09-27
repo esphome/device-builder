@@ -37,6 +37,7 @@ from ...models.automations import (
     YamlDiff,
 )
 from . import catalog, parsing, writing
+from .addressing import require_unambiguous
 from .catalog import AutomationBodyRef
 
 if TYPE_CHECKING:
@@ -248,7 +249,11 @@ class AutomationsController:
         else:
             render = partial(writing.render_upsert, tree=tree, location=loc)
         return await self._apply(
-            configuration, yaml, render, save=save, message=f"Save an automation to {configuration}"
+            configuration,
+            yaml,
+            partial(_render_unambiguous, location=loc, render=render),
+            save=save,
+            message=f"Save an automation to {configuration}",
         )
 
     @api_command("automations/delete")
@@ -279,7 +284,7 @@ class AutomationsController:
         return await self._apply(
             configuration,
             yaml,
-            render,
+            partial(_render_unambiguous, location=loc, render=render),
             save=save,
             message=f"Delete an automation from {configuration}",
         )
@@ -540,6 +545,17 @@ def _require_expected(
             f"written, list again and retry\n{diff_excerpt(expected, row.raw_yaml)}"
         )
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+
+
+def _render_unambiguous(
+    yaml_text: str,
+    *,
+    location: AutomationLocation,
+    render: Callable[[str], tuple[str, YamlDiff]],
+) -> tuple[str, YamlDiff]:
+    """Run *render* only while *location* names one item of *yaml_text*."""
+    require_unambiguous(yaml_text, location)
+    return render(yaml_text)
 
 
 def _render_delete_if_unchanged(

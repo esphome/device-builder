@@ -14,7 +14,7 @@ from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
-from esphome_device_builder.models.automations import YamlDiff
+from esphome_device_builder.models.automations import AutomationTree, YamlDiff
 
 pytestmark = pytest.mark.xdist_group("automations")
 
@@ -538,26 +538,21 @@ async def test_upsert_with_expected_replaces_an_idless_script_under_its_listed_i
     assert devices.saved == [("d.yaml", saved, "Save an automation to d.yaml")]
 
 
-async def test_upsert_with_expected_refuses_a_replace_that_lands_on_another_row(
-    tmp_path: Path,
-) -> None:
+def test_guarded_upsert_refuses_a_replace_that_lands_on_another_row() -> None:
     """A declared ``script_0`` behind an id-less row takes the write; the guard fails closed."""
     text = "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 2s\n"
-    controller, devices = _setup(tmp_path, text)
-    shown = (await asyncio.to_thread(parsing.parse_device_yaml, text))[0]
+    shown = parsing.parse_device_yaml(text)[0]
 
     with pytest.raises(CommandError) as excinfo:
-        await controller.upsert(
-            configuration="d.yaml",
-            automation=_AUTOMATION | {"trigger_id": None},
-            location=shown.location.to_dict(),
-            save=True,
+        automations_controller._render_upsert_if_unchanged(
+            text,
+            tree=AutomationTree.from_dict(_AUTOMATION | {"trigger_id": None}),
+            location=shown.location,
             expected=shown.raw_yaml,
         )
 
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
     assert "could not be replaced in place" in excinfo.value.message
-    assert devices.saved == []
 
 
 async def test_upsert_with_save_refuses_a_file_that_no_longer_loads(tmp_path: Path) -> None:
