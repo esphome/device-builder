@@ -109,8 +109,8 @@ def _setup(config_dir: Path, text: str) -> tuple[AutomationsController, _Devices
     return AutomationsController(db), db.devices
 
 
-def _rows(text: str) -> list[ParsedAutomation]:
-    return parsing.parse_device_yaml(text)
+async def _rows(text: str) -> list[ParsedAutomation]:
+    return await asyncio.to_thread(parsing.parse_device_yaml, text)
 
 
 def _write_args(row: ParsedAutomation, *, guarded: bool, save: bool) -> dict[str, Any]:
@@ -127,12 +127,12 @@ def _write_args(row: ParsedAutomation, *, guarded: bool, save: bool) -> dict[str
 @pytest.mark.parametrize(
     ("text", "name"),
     [
-        (_SCRIPTS_IDLESS_FIRST, "script_0"),
-        (_SCRIPTS_DECLARED_FIRST, "script_1"),
-        (_BINARY_SENSORS, "binary_sensor_0"),
-        (_LIGHTS, "light_0"),
-        (_ACROSS_DOMAINS, "switch_0"),
-        (_API_ACTIONS, "beep"),
+        pytest.param(_SCRIPTS_IDLESS_FIRST, "script_0", id="script-idless-first"),
+        pytest.param(_SCRIPTS_DECLARED_FIRST, "script_1", id="script-declared-first"),
+        pytest.param(_BINARY_SENSORS, "binary_sensor_0", id="component-handler"),
+        pytest.param(_LIGHTS, "light_0", id="light-effect"),
+        pytest.param(_ACROSS_DOMAINS, "switch_0", id="across-domains"),
+        pytest.param(_API_ACTIONS, "beep", id="api-action"),
     ],
 )
 async def test_delete_is_refused_for_every_automation_sharing_a_name(
@@ -140,7 +140,7 @@ async def test_delete_is_refused_for_every_automation_sharing_a_name(
 ) -> None:
     """A delete aimed at a name two items share is refused for each of them, nothing written."""
     controller, devices = _setup(tmp_path, text)
-    rows = _rows(text)
+    rows = await _rows(text)
     assert len(rows) == 2
 
     for row in rows:
@@ -154,7 +154,14 @@ async def test_delete_is_refused_for_every_automation_sharing_a_name(
 
 @pytest.mark.parametrize("guarded", [True, False])
 @pytest.mark.parametrize(
-    "text", [_SCRIPTS_IDLESS_FIRST, _BINARY_SENSORS, _LIGHTS, _ACROSS_DOMAINS, _API_ACTIONS]
+    "text",
+    [
+        pytest.param(_SCRIPTS_IDLESS_FIRST, id="script"),
+        pytest.param(_BINARY_SENSORS, id="component-handler"),
+        pytest.param(_LIGHTS, id="light-effect"),
+        pytest.param(_ACROSS_DOMAINS, id="across-domains"),
+        pytest.param(_API_ACTIONS, id="api-action"),
+    ],
 )
 async def test_replace_is_refused_for_every_automation_sharing_a_name(
     tmp_path: Path, text: str, guarded: bool
@@ -162,7 +169,7 @@ async def test_replace_is_refused_for_every_automation_sharing_a_name(
     """A replace aimed at a name two items share is refused for each of them, nothing written."""
     controller, devices = _setup(tmp_path, text)
 
-    for row in _rows(text):
+    for row in await _rows(text):
         assert row.automation is not None
         with pytest.raises(CommandError) as excinfo:
             await controller.upsert(
@@ -201,13 +208,14 @@ async def test_adding_a_handler_to_a_shared_id_is_refused(tmp_path: Path) -> Non
 
 async def test_every_automation_with_a_name_of_its_own_is_still_deleted(tmp_path: Path) -> None:
     """Declared ids, the ids of items without one and positions all delete as before."""
-    for row in _rows(_UNAMBIGUOUS):
+    rows = await _rows(_UNAMBIGUOUS)
+    for row in rows:
         controller, devices = _setup(tmp_path, _UNAMBIGUOUS)
 
         await controller.delete(**_write_args(row, guarded=True, save=True))
 
         assert len(devices.saved) == 1
-        assert len(_rows(devices.saved[0])) == len(_rows(_UNAMBIGUOUS)) - 1
+        assert len(await _rows(devices.saved[0])) == len(rows) - 1
 
 
 async def test_a_config_that_does_not_load_is_left_to_the_writer(tmp_path: Path) -> None:
