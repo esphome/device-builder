@@ -109,18 +109,22 @@ def configuration_filename(name: str) -> str:
 
 
 def parse_platform_from_yaml(yaml_content: str) -> tuple[str, str, str]:
-    """
-    Extract ``(platform, pio_board, variant)`` from device YAML content.
+    """Extract ``(platform, pio_board, variant)``; see ``parse_platform_fields``."""
+    platform, fields = parse_platform_fields(yaml_content, ("board", "variant"))
+    return platform, fields["board"], fields["variant"]
 
-    Looks at top-level platform keys (``esp32:``, ``esp8266:``, …) and
-    reads the ``board:`` and ``variant:`` fields nested under them.
-    Returns empty strings for fields that aren't present.
+
+def parse_platform_fields(yaml_content: str, keys: tuple[str, ...]) -> tuple[str, dict[str, str]]:
+    """
+    Extract the platform and the *keys* nested under it from device YAML content.
+
+    Looks at top-level platform keys (``esp32:``, ``esp8266:``, …) in the raw
+    text, so it sees neither packages nor substitutions. Every key comes
+    back, empty where the YAML has none.
     """
     platform = ""
-    pio_board = ""
-    variant = ""
+    fields = dict.fromkeys(keys, "")
     in_platform = False
-
     for line in yaml_content.splitlines():
         top_key = _match_top_level_key(line)
         if top_key is not None:
@@ -132,13 +136,10 @@ def parse_platform_from_yaml(yaml_content: str) -> tuple[str, str, str]:
             continue
         if not in_platform:
             continue
-        stripped = line.strip()
-        if stripped.startswith("board:"):
-            pio_board = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-        elif stripped.startswith("variant:"):
-            variant = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-
-    return platform, pio_board, variant
+        key, colon, value = line.strip().partition(":")
+        if colon and key in fields:
+            fields[key] = value.strip().strip('"').strip("'")
+    return platform, fields
 
 
 def detect_platform_from_yaml(yaml_content: str, resolved_config: dict | None) -> str:
