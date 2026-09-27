@@ -680,7 +680,7 @@ class PlatformCapabilities(NamedTuple):
     # ``{platform: {pio_board: mcu}}`` for the platforms that lump several
     # chips under one key (rp2, the LibreTiny families), for resolving a
     # device's chip from its YAML ``board:``. A platform that is absent needs
-    # no split. Empty until the index is regenerated with the field.
+    # no split.
     board_mcus: dict[str, dict[str, str]]
 
 
@@ -726,8 +726,7 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
             return []
         return [str(item) for item in value if isinstance(item, str)]
 
-    def _str_map(key: str) -> dict[str, str]:
-        value = payload.get(key)
+    def _coerce_str_map(value: object) -> dict[str, str]:
         if not isinstance(value, dict):
             return {}
         return {
@@ -736,16 +735,15 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
             if isinstance(item, str) and isinstance(mapped, str)
         }
 
+    def _str_map(key: str) -> dict[str, str]:
+        return _coerce_str_map(payload.get(key))
+
     def _str_map_of_maps(key: str) -> dict[str, dict[str, str]]:
         value = payload.get(key)
         if not isinstance(value, dict):
             return {}
         return {
-            outer: {
-                item: mapped
-                for item, mapped in inner.items()
-                if isinstance(item, str) and isinstance(mapped, str)
-            }
+            outer: _coerce_str_map(inner)
             for outer, inner in value.items()
             if isinstance(outer, str) and isinstance(inner, dict)
         }

@@ -662,11 +662,11 @@ def resolve_chip_mcu(
     Chip series of a device on a platform that lumps several chips, else ``None``.
 
     The chip is what the YAML compiles for, read against the snapshot of
-    ESPHome's own board tables. Source order: the ``board:``, then an explicit
-    LibreTiny ``family:`` or rp2 ``variant:`` (a board ESPHome does not list
-    must carry one), then the platform's only chip when it has just one.
-    The resolved *config* sees packages and substitutions; a shallow scan has
-    only the raw text, which carries the board and the variant.
+    ESPHome's own board tables. Source order: the ``board:``, then the chip a
+    board ESPHome does not list has to name itself (LibreTiny ``family:``, rp2
+    ``variant:``), then the platform's only chip when it has just one. The
+    resolved *config* sees packages and substitutions; a shallow scan has only
+    the raw text, which carries the board and the variant.
     """
     platform = normalize_platform(target_platform.strip().lower())
     boards = load_platform_capabilities_index().board_mcus.get(platform)
@@ -676,10 +676,9 @@ def resolve_chip_mcu(
     if board in boards:
         return boards[board]
     chips = set(boards.values())
-    if family:
-        return libretiny_family_mcu(family)
-    if variant and normalize_chip_variant(variant) in chips:
-        return normalize_chip_variant(variant)
+    named = libretiny_family_mcu(family) if family else normalize_chip_variant(variant)
+    if named in chips:
+        return named
     return next(iter(chips)) if len(chips) == 1 else None
 
 
@@ -703,6 +702,7 @@ def _chip_fields(
     def _field(key: str) -> str:
         return (_resolve_substitutions(_str_or_none(block.get(key)), subs) or "").strip()
 
+    # ``family:`` is LibreTiny's key; rp2 names its chip with ``variant:``.
     family = "" if platform == RP2_CANONICAL_PLATFORM else _field("family")
     return _field(const.CONF_BOARD), family, _field(const.CONF_VARIANT)
 

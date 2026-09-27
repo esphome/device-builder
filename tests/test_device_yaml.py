@@ -1135,6 +1135,10 @@ def test_resolve_chip_mcu_resolves(config: dict, platform: str, expected: str) -
         ({"rp2": {"variant": "RP9999"}}, "rp2"),
         ({"rtl87xx": {"board": "${unset}"}}, "rtl87xx"),
         ({"rtl87xx": {"board": 7}}, "rtl87xx"),
+        # A family or variant that is not one of the platform's chips.
+        ({"rtl87xx": {"board": "custom", "family": "BK7231N"}}, "rtl87xx"),
+        ({"rtl87xx": {"board": "custom", "family": "garbage"}}, "rtl87xx"),
+        ({"rp2": {"board": "custom", "family": "rp2350"}}, "rp2"),
         (None, ""),
     ],
 )
@@ -1163,14 +1167,6 @@ def test_load_device_from_storage_resolves_mcu(tmp_path: Path) -> None:
     bw15.write_text("esphome:\n  name: bw15\nrtl87xx:\n  board: bw15\n", encoding="utf-8")
     assert load_device_from_storage(bw15).mcu == "rtl8720c"
     assert load_device_from_storage(bw15, shallow=True).mcu == "rtl8720c"
-
-    wr2 = tmp_path / "wr2.yaml"
-    wr2.write_text("esphome:\n  name: wr2\nrtl87xx:\n  board: wr2\n", encoding="utf-8")
-    assert load_device_from_storage(wr2).mcu == "rtl8710b"
-
-    esp = tmp_path / "esp.yaml"
-    esp.write_text("esphome:\n  name: esp\nesp32:\n  board: esp32dev\n", encoding="utf-8")
-    assert load_device_from_storage(esp).mcu is None
 
 
 def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> None:

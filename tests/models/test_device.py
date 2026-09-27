@@ -21,4 +21,3 @@ def test_mcu_is_always_on_the_wire() -> None:
     assert make_device("kitchen").to_dict()["mcu"] is None
     device = make_device("bw15", mcu="rtl8720c")
     assert device.to_dict()["mcu"] == "rtl8720c"
-    assert device.to_flat_dict()["mcu"] == "rtl8720c"

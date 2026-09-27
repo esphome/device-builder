@@ -114,6 +114,7 @@ _USER_AGENT = "esphome-device-builder-backend (https://github.com/esphome/device
 # ``controllers/components.py`` for the rationale (issue #325).
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _board_mcus import board_mcus  # noqa: E402
 from _catalog_split import (  # noqa: E402
     emit_body_with_roundtrip,
     prepare_next_bodies_dir,
@@ -133,10 +134,7 @@ from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
     bare_trigger_key,
     is_trigger_key,
 )
-from esphome_device_builder.helpers.chips import (  # noqa: E402
-    libretiny_family_mcu,
-    normalize_chip_variant,
-)
+from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.migration_rule_kinds import (  # noqa: E402
     MIGRATION_RULE_EXTRA_FIELDS,
 )
@@ -4508,7 +4506,8 @@ def _emit_platform_capabilities_index() -> None:
         "esp32_board_variants": {
             board: info[KEY_VARIANT] for board, info in sorted(ESP32_BOARDS.items())
         },
-        "board_mcus": _board_mcus_snapshot(RP2_BOARDS),
+        # The dashboard resolves a device's chip from its YAML ``board:``.
+        "board_mcus": board_mcus(),
         "libretiny_families": list(_libretiny_families()),
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
@@ -4522,30 +4521,6 @@ def _emit_platform_capabilities_index() -> None:
         orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
     )
     next_path.replace(_PLATFORM_CAPABILITIES_INDEX_FILE)
-
-
-def _board_mcus_snapshot(rp2_boards: Mapping[str, Any]) -> dict[str, dict[str, str]]:
-    """
-    Snapshot ``{platform: {pio_board: mcu}}`` for the platforms that lump chips.
-
-    rp2 (rp2040 / rp2350) and the LibreTiny families (rtl87xx is both the
-    RTL8710B and the RTL8720C) need the board to name the chip; the dashboard
-    resolves a device's ``mcu`` from its YAML ``board:`` against this.
-    """
-    snapshot: dict[str, dict[str, str]] = {
-        RP2_CANONICAL_PLATFORM: {
-            board: str(info.get("mcu", "rp2040")) for board, info in sorted(rp2_boards.items())
-        }
-    }
-    for platform in _libretiny_families():
-        module = importlib.import_module(f"esphome.components.{platform}.boards")
-        boards: Mapping[str, Any] = getattr(module, f"{platform.upper()}_BOARDS")
-        snapshot[platform] = {
-            board: libretiny_family_mcu(info["family"])
-            for board, info in sorted(boards.items())
-            if isinstance(info.get("family"), str)
-        }
-    return snapshot
 
 
 def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:

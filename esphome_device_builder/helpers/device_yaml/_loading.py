@@ -271,8 +271,6 @@ def load_device_from_storage(
         storage_variant=storage.target_platform if storage else None,
     )
 
-    # The chip on the platforms that lump several under one key; the
-    # frontend offers a browser flasher only for a chip it can write.
     mcu = resolve_chip_mcu(resolved_config, yaml_content, target_platform, extra_subs)
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []

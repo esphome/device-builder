@@ -25,8 +25,10 @@ from esphome_device_builder.definitions import (
     EMPTY_PLATFORM_CAPABILITIES,
     _load_platform_capabilities,
     _parse_download_types,
+    load_board_index,
     load_platform_capabilities_index,
 )
+from script._board_mcus import board_mcus  # type: ignore[import-not-found]
 from script.sync_components import _logger_interface_snapshot  # type: ignore[import-not-found]
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
@@ -76,12 +78,15 @@ def test_index_within_installed_esphome() -> None:
         (set(caps.libretiny_families), set(FAMILY_COMPONENT.values())),
         (set(caps.rp2040_no_wifi_boards), installed_no_wifi_boards),
         (set(caps.esp32_board_variants), set(ESP32_BOARDS)),
-        (set(caps.board_mcus["rp2"]), set(BOARDS)),
     ]
-    for platform in caps.libretiny_families:
-        module = importlib.import_module(f"esphome.components.{platform}.boards")
-        boards = getattr(module, f"{platform.upper()}_BOARDS")
-        pairs.append((set(caps.board_mcus[platform]), set(boards)))
+    installed_mcus = board_mcus()
+    assert set(caps.board_mcus) == set(installed_mcus)
+    for platform, installed_boards in installed_mcus.items():
+        indexed_boards = caps.board_mcus[platform]
+        pairs.append((set(indexed_boards), set(installed_boards)))
+        # A board both sides list is the same chip on both.
+        shared = set(indexed_boards) & set(installed_boards)
+        assert {b: indexed_boards[b] for b in shared} == {b: installed_boards[b] for b in shared}
     for component in ("esp32", "esp8266", "rp2"):
         module = importlib.import_module(f"esphome.components.{component}")
         upstream = {entry["file"] for entry in module.get_download_types(sentinel)}
@@ -187,11 +192,21 @@ def test_load_coerces_board_mcus(tmp_path: Path) -> None:
 def test_board_mcus_name_every_chip_of_the_split_platforms() -> None:
     """The committed snapshot separates the chips the frontend tells apart."""
     mcus = load_platform_capabilities_index().board_mcus
-    assert mcus["rtl87xx"]["bw15"] == "rtl8720c"
     assert set(mcus["rtl87xx"].values()) == {"rtl8710b", "rtl8720c"}
     assert set(mcus["rp2"].values()) == {"rp2040", "rp2350"}
     assert set(mcus["ln882x"].values()) == {"ln882h"}
     assert "esp32" not in mcus
+    # A board that was renamed still resolves by the id an older YAML names.
+    assert mcus["ln882x"]["generic-ln882hki"] == "ln882h"
+
+
+def test_catalog_and_device_name_the_same_chip() -> None:
+    """The picker's board and a device compiled for it never disagree on the chip."""
+    mcus = load_platform_capabilities_index().board_mcus
+    for board in load_board_index():
+        chip = mcus.get(board.esphome.platform.value, {}).get(board.esphome.board)
+        if chip is not None:
+            assert board.esphome.mcu == chip, board.id
 
 
 def test_parse_download_types_drops_malformed() -> None:

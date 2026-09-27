@@ -61,6 +61,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _board_mcus import board_mcus, catalog_board_mcu  # noqa: E402
 from _catalog_split import (  # noqa: E402
     dumps_envelope_entries_per_line,
     dumps_map_entry_per_line,
@@ -75,11 +76,7 @@ from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
-from esphome_device_builder.helpers.chips import (  # noqa: E402
-    LIBRETINY_FAMILY_MCU,
-    libretiny_family_mcu,
-    normalize_chip_variant,
-)
+from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     BoardCatalogEntry,
@@ -459,48 +456,20 @@ def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
                 board.tags.append(BoardTag.WIFI)
 
 
-def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
+def _backfill_mcu(boards: list[BoardCatalogEntry]) -> None:
     """
-    Set each rp2040 board's chip series ("rp2040" / "rp2350") from ESPHome.
+    Set each board's chip series (``mcu``) on the platforms that lump several.
 
-    ESPHome lumps both chips under the rp2040 platform; ``mcu`` is the only
-    structured discriminator, letting the picker split the filter and badge the
-    real chip. Covers curated and generated boards alike; a backfill (not part of
-    generation) so the manifest-only drift test applies it the same way.
+    rp2 is both the rp2040 and the rp2350, and bk72xx/rtl87xx/ln882x each
+    cover several chips; ``mcu`` is the picker's per-chip discriminator
+    (BK7231N/T/Q fold to ``bk7231``). Covers curated and generated boards; a
+    backfill so the manifest-only drift test applies it the same way.
     """
-    module = importlib.import_module("esphome.components.rp2.boards")
+    table = board_mcus()
     for board in boards:
-        if board.esphome.platform is Platform.RP2:
-            meta = module.BOARDS.get(board.esphome.board)
-            board.esphome.mcu = meta.get("mcu", "rp2040") if isinstance(meta, dict) else "rp2040"
-
-
-def _backfill_libretiny_mcu(boards: list[BoardCatalogEntry]) -> None:
-    """
-    Set each LibreTiny board's chip series (``mcu``) from ESPHome's family.
-
-    bk72xx/rtl87xx/ln882x each lump several chips under one platform; ``mcu`` is
-    the picker's per-chip discriminator (BK7231N/T/Q fold to ``bk7231``). Covers
-    curated and generated boards; a backfill so the manifest-only drift test
-    applies it the same way. A board ESPHome doesn't list falls back to the
-    platform's sole token (ln882x -> ``ln882h``) or stays unset.
-    """
-    for platform, (boards_attr, _pins_attr) in _LIBRETINY_FAMILIES.items():
-        module = importlib.import_module(f"esphome.components.{platform}.boards")
-        board_list: dict[str, Any] = getattr(module, boards_attr)
-        family_by_board = {board: meta.get("family") for board, meta in board_list.items()}
-        tokens = {
-            LIBRETINY_FAMILY_MCU[f] for f in family_by_board.values() if f in LIBRETINY_FAMILY_MCU
-        }
-        sole_token = next(iter(tokens)) if len(tokens) == 1 else None
-        for board in boards:
-            if board.esphome.platform.value != platform:
-                continue
-            family = family_by_board.get(board.esphome.board)
-            if family:
-                board.esphome.mcu = libretiny_family_mcu(family)
-            elif sole_token:
-                board.esphome.mcu = sole_token
+        mcu = catalog_board_mcu(table, board.esphome.platform.value, board.esphome.board)
+        if mcu is not None:
+            board.esphome.mcu = mcu
 
 
 # SPI ethernet pin field -> the occupied_by label shown on the overlaid pin.
@@ -1248,8 +1217,7 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_libretiny_boards(catalog.boards)
     _augment_rp2040_boards(catalog.boards)
     _backfill_rp2040_wifi(catalog.boards)
-    _backfill_rp2040_mcu(catalog.boards)
-    _backfill_libretiny_mcu(catalog.boards)
+    _backfill_mcu(catalog.boards)
     _augment_rp2040_onboard_ethernet_pins(catalog.boards)
     _augment_esp32_boards(catalog.boards)
     _backfill_esp32_engineering_sample(catalog.boards)
