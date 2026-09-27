@@ -329,11 +329,7 @@ async def test_coming_back_online_clears_offline_since(
 async def test_startup_does_not_restart_the_offline_clock(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """An UNKNOWN -> OFFLINE settle keeps a stamp from a previous run.
-
-    This is the case the feature exists for: a battery device asleep across
-    a dashboard restart must not have its duration reset to zero.
-    """
+    """An UNKNOWN -> OFFLINE settle keeps a stamp from a previous run."""
     controller = make_controller(tmp_path)
     _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
     earlier = time.time() - 86400
@@ -348,11 +344,7 @@ async def test_startup_does_not_restart_the_offline_clock(
 async def test_startup_reports_nothing_without_a_previous_anchor(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """An already-offline device with no history reports no duration.
-
-    Anchoring on "now" here would time the dashboard's own uptime, and
-    every device offline at startup would report the identical figure.
-    """
+    """An already-offline device with no history reports no duration."""
     controller = make_controller(tmp_path)
     _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
 
@@ -463,12 +455,7 @@ async def test_state_change_event_carries_the_offline_age(
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """A device going offline publishes its age on the narrow event.
-
-    Without it a client folding ``DEVICE_STATE_CHANGED`` keeps whatever
-    ``offline_seconds`` it last saw — nothing on a fresh outage, and the
-    previous outage's value after a flap.
-    """
+    """A device going offline publishes its age on the narrow event."""
     controller = make_controller(tmp_path)
     _seed(controller, _device("kitchen", state=DeviceState.ONLINE))
     captured = capture_devices_events(controller, EventType.DEVICE_STATE_CHANGED)

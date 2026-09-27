@@ -523,9 +523,7 @@ class DeviceStateChangedData(TypedDict):
 
     configuration: str
     state: str
-    # Mirrors the wire's ``runtime_state.offline_seconds`` so a client folding
-    # this narrow event doesn't carry a previous outage's value, or miss a
-    # fresh one until the next full listing.
+    # Mirrors the wire's ``runtime_state.offline_seconds``.
     offline_seconds: float | None
 
 
