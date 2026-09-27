@@ -28,6 +28,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from esphome_device_builder.controllers.devices import state_callbacks
 from esphome_device_builder.models import (
     AdoptableDevice,
     Device,
@@ -272,11 +273,12 @@ def test_get_importable_devices_filters_already_configured(
 async def test_list_devices_reports_offline_duration(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``devices/list`` projects the persisted ``offline_since`` onto each device."""
+    """A stamp from a previous run is what the listing measures from."""
     controller = make_controller(tmp_path)
-    controller._scanner.devices = [_device("kitchen", state=DeviceState.OFFLINE)]
+    _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
     controller._metadata_store.set_field("kitchen.yaml", "offline_since", time.time() - 7200)
 
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
     response = await controller.list_devices()
 
     offline_since = response.configured[0].runtime_state.offline_since
@@ -304,8 +306,8 @@ async def test_going_offline_stamps_offline_since(
     _seed(controller, _device("kitchen", state=DeviceState.ONLINE))
 
     controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
-    await controller.list_devices()
 
+    # Stored at the transition; a crash before any client lists must not lose it.
     stamp = controller._metadata_store.get_field("kitchen.yaml", "offline_since")
     assert stamp is not None
     assert abs(time.time() - stamp) < 5
@@ -320,9 +322,8 @@ async def test_coming_back_online_clears_offline_since(
     controller._metadata_store.set_field("kitchen.yaml", "offline_since", time.time() - 60)
 
     controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
-    await controller.list_devices()
 
-    assert not controller._metadata_store.get_field("kitchen.yaml", "offline_since")
+    assert controller._metadata_store.get_field("kitchen.yaml", "offline_since") is None
 
 
 async def test_startup_does_not_restart_the_offline_clock(
@@ -399,18 +400,33 @@ async def test_two_devices_offline_at_startup_report_different_durations(
     assert by_name["bedroom"] - by_name["kitchen"] > 3000
 
 
-async def test_queued_last_contact_reaches_the_store(
+async def test_startup_drops_a_stamp_the_device_was_seen_after(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A queued observation is persisted, so a restart has an anchor."""
+    """A stamp older than the last contact is an outage whose clear was lost."""
+    controller = make_controller(tmp_path)
+    _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
+    now = time.time()
+    controller._metadata_store.set_field("kitchen.yaml", "offline_since", now - 86400)
+    controller._metadata_store.set_field("kitchen.yaml", "last_seen", now - 3600)
+
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
+
+    assert controller._metadata_store.get_field("kitchen.yaml", "offline_since") == now - 3600
+
+
+async def test_an_observation_records_the_last_contact(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An observation is persisted, so a restart has an anchor."""
     controller = make_controller(tmp_path)
     _seed(controller, _device("kitchen", state=DeviceState.ONLINE))
-    now = time.time()
-    controller.state.pending_last_seen["kitchen.yaml"] = now
 
-    await controller.list_devices()
+    state_callbacks.record_last_seen(controller, "kitchen")
 
-    assert controller._metadata_store.get_field("kitchen.yaml", "last_seen") == now
+    stamp = controller._metadata_store.get_field("kitchen.yaml", "last_seen")
+    assert stamp is not None
+    assert abs(time.time() - stamp) < 5
 
 
 async def test_last_contact_writes_are_rate_limited(
@@ -418,11 +434,11 @@ async def test_last_contact_writes_are_rate_limited(
 ) -> None:
     """A second observation moments later doesn't rewrite the stamp."""
     controller = make_controller(tmp_path)
-    first = time.time()
+    _seed(controller, _device("kitchen", state=DeviceState.ONLINE))
+    first = time.time() - 5
     controller._metadata_store.set_field("kitchen.yaml", "last_seen", first)
 
-    controller.state.pending_last_seen["kitchen.yaml"] = first + 5
-    controller.flush_last_seen()
+    state_callbacks.record_last_seen(controller, "kitchen")
 
     assert controller._metadata_store.get_field("kitchen.yaml", "last_seen") == first
 
@@ -458,9 +474,10 @@ async def test_wire_carries_the_offline_age_not_the_stamp(
 ) -> None:
     """The serialized device reports an age, so a client never reads our clock."""
     controller = make_controller(tmp_path)
-    controller._scanner.devices = [_device("kitchen", state=DeviceState.OFFLINE)]
+    _seed(controller, _device("kitchen", state=DeviceState.UNKNOWN))
     controller._metadata_store.set_field("kitchen.yaml", "offline_since", time.time() - 7200)
 
+    controller._on_state_change("kitchen", DeviceState.OFFLINE, "ping")
     response = await controller.list_devices()
 
     runtime_state = response.configured[0].to_dict()["runtime_state"]
