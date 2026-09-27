@@ -93,9 +93,10 @@ export interface StateMessage {
   type: "esphome-web-flash:state";
   state: FlashState;
   detail?: string;
-  // With 'done': what the user still has to do by hand for the firmware to
-  // start (an RTL8720C on an adapter without control lines needs a reset).
-  // Additive (v1): older flashers omit it and older openers ignore it.
+  // What the user has to do by hand at this point (strap the board into
+  // download mode, reset it after the write); the opener shows it in place
+  // of its own line. Additive (v1): older flashers omit it and older openers
+  // ignore it.
   note?: string;
 }
 
