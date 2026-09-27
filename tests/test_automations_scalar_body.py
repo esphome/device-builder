@@ -53,6 +53,18 @@ def test_delay_index_row_carries_the_value_shape() -> None:
     assert row.duration_min_unit == "ms"
 
 
+def test_no_action_or_condition_has_both_a_value_and_fields() -> None:
+    """The editor renders the value entry alone, so fields beside it would be hidden."""
+    actions = (catalog.action_by_id(row.id) for row in catalog.all_actions())
+    conditions = (catalog.condition_by_id(row.id) for row in catalog.all_conditions())
+    mixed = [
+        entry.id
+        for entry in (*actions, *conditions)
+        if entry is not None and entry.value_type and entry.config_entries
+    ]
+    assert mixed == []
+
+
 @pytest.mark.parametrize(
     ("body", "value"),
     [
