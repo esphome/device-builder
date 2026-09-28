@@ -48,7 +48,8 @@ def zeroconf_ip_version() -> IPVersion:
     has_v4 = has_v6 = False
     for adapter in ifaddr.get_adapters():
         for ip in adapter.ips:
-            if ip_address(ip.ip[0] if ip.is_IPv6 else ip.ip).is_loopback:
+            address = ip.ip[0] if isinstance(ip.ip, tuple) else ip.ip
+            if ip_address(address).is_loopback:
                 continue
             has_v6 |= ip.is_IPv6
             has_v4 |= not ip.is_IPv6
