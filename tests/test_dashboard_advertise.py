@@ -263,8 +263,18 @@ def test_local_addresses_drops_loopback_ip_on_real_adapter(monkeypatch: pytest.M
         "veth1234abcd",
         "cni0",
         "virbr0",
+        "podman1",
     ],
-    ids=["docker0", "docker-named", "hassio", "br-userdef", "veth-peer", "cni0", "virbr0"],
+    ids=[
+        "docker0",
+        "docker-named",
+        "hassio",
+        "br-userdef",
+        "veth-peer",
+        "cni0",
+        "virbr0",
+        "podman1",
+    ],
 )
 def test_local_addresses_drops_virtual_bridge_by_name(
     monkeypatch: pytest.MonkeyPatch, bridge_name: str
