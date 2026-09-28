@@ -137,6 +137,19 @@ async def test_settle_ticks_use_the_short_delay(monkeypatch: pytest.MonkeyPatch)
     assert delays == [settle, 300, 300, settle, 300, 300]
 
 
+async def test_failed_reconcile_retries_at_the_poll_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persistently failing reconcile retries every interval, not every settle delay."""
+    _scans(monkeypatch, [_HOST_DUAL])
+    zeroconf = _zeroconf([RuntimeError("flap"), RuntimeError("flap"), None])
+
+    delays = await _run_ticks(zeroconf, ticks=5, interval=300)
+
+    assert delays == [im._SETTLE_DELAY, 300, 300, im._SETTLE_DELAY, 300]
+    assert _reconciled(zeroconf) == [_BOUND_DUAL] * 4
+
+
 async def test_survives_reconcile_failure_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     """A reconcile raise is swallowed; the change re-attempts on the next tick.
 

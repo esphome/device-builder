@@ -115,8 +115,12 @@ async def monitor_interfaces(
     ``_SETTLE_DELAY`` after startup and after each change.
     """
     settle = True
+    settle_delay = min(interval, _SETTLE_DELAY)
+    delay = settle_delay
     while True:
-        await asyncio.sleep(min(interval, _SETTLE_DELAY) if settle else interval)
+        await asyncio.sleep(delay)
+        # A failed scan or reconcile retries at the poll interval, not the settle delay.
+        delay = interval
         addresses = await async_scan_host()
         # ``None`` is a failed scan, not "no addresses" — skip so a transient
         # ifaddr error can't be read as every interface disappearing.
@@ -143,6 +147,8 @@ async def monitor_interfaces(
             )
         applied = binding
         settle = changed
+        if settle:
+            delay = settle_delay
 
 
 def _select_ip_version(has_v4: bool, has_v6: bool) -> IPVersion:  # noqa: FBT001
