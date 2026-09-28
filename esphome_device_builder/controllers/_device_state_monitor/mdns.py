@@ -116,7 +116,8 @@ class MdnsSource:
 
     async def start(self) -> None:
         try:
-            self._zeroconf = AsyncEsphomeZeroconf()
+            # python-zeroconf binds IPv4 only by default; IPv6-only devices would be invisible.
+            self._zeroconf = AsyncEsphomeZeroconf(ip_version=IPVersion.All)
         except Exception:
             _LOGGER.exception("Could not start zeroconf — falling back to ping only")
             self._zeroconf = None
