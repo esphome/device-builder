@@ -12,13 +12,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from ipaddress import ip_address
 
 import ifaddr
 from esphome.zeroconf import AsyncEsphomeZeroconf
 from zeroconf import IPVersion
 
 from ...helpers.async_ import run_in_executor
+from ...helpers.ip import is_usable_ip
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,19 +42,18 @@ def zeroconf_ip_version() -> IPVersion:
     """
     Return the IP version the mDNS responder can serve on this host.
 
-    Dual-stack needs a non-loopback IPv6 address, and never applies on
-    darwin / freebsd, where it silently drops IPv4.
+    Dual-stack needs a non-loopback IPv6 address and never applies on darwin / freebsd.
     """
     has_v4 = has_v6 = False
     for adapter in ifaddr.get_adapters():
         for ip in adapter.ips:
             address = ip.ip[0] if isinstance(ip.ip, tuple) else ip.ip
-            if ip_address(address).is_loopback:
+            if not is_usable_ip(address):
                 continue
             has_v6 |= ip.is_IPv6
             has_v4 |= not ip.is_IPv6
     if sys.platform.startswith(("darwin", "freebsd")):
-        return IPVersion.V4Only if has_v4 or not has_v6 else IPVersion.V6Only
+        return IPVersion.V6Only if has_v6 and not has_v4 else IPVersion.V4Only
     return IPVersion.All if has_v6 else IPVersion.V4Only
 
 

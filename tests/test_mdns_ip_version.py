@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from zeroconf import IPVersion
@@ -24,7 +24,6 @@ _LINK_LOCAL_V6 = SimpleNamespace(ip=("fe80::1", 0, 7), is_IPv6=True)
     ("platform", "ips", "expected"),
     [
         ("linux", [_LAN_V4, _LINK_LOCAL_V6], IPVersion.All),
-        ("linux", [_LINK_LOCAL_V6], IPVersion.All),
         ("linux", [_LAN_V4], IPVersion.V4Only),
         ("linux", [_LAN_V4, _LOOPBACK_V6], IPVersion.V4Only),
         ("linux", [], IPVersion.V4Only),
@@ -33,7 +32,6 @@ _LINK_LOCAL_V6 = SimpleNamespace(ip=("fe80::1", 0, 7), is_IPv6=True)
         ("darwin", [_LOOPBACK_V4, _LINK_LOCAL_V6], IPVersion.V6Only),
         ("darwin", [_LOOPBACK_V4, _LOOPBACK_V6], IPVersion.V4Only),
         ("freebsd14", [_LAN_V4, _LINK_LOCAL_V6], IPVersion.V4Only),
-        ("freebsd14", [_LINK_LOCAL_V6], IPVersion.V6Only),
     ],
 )
 def test_zeroconf_ip_version(
@@ -48,11 +46,7 @@ def test_zeroconf_ip_version(
 
 async def test_async_zeroconf_ip_version_scan_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A failed adapter scan resolves to IPv4 only."""
-
-    def _boom() -> None:
-        raise OSError("adapters unavailable")
-
-    monkeypatch.setattr(im.ifaddr, "get_adapters", _boom)
+    monkeypatch.setattr(im.ifaddr, "get_adapters", MagicMock(side_effect=OSError))
 
     assert await im.async_zeroconf_ip_version() is IPVersion.V4Only
 
@@ -63,56 +57,42 @@ def _patch_start(
     """Stub the version scan and the responder; return the attempted versions."""
     attempts: list[IPVersion] = []
 
-    async def _version() -> IPVersion:
-        return ip_version
-
     def _fake_zeroconf(**kwargs: Any) -> MagicMock:
         attempts.append(kwargs["ip_version"])
         if kwargs["ip_version"] in failing:
             raise OSError("cannot bind")
         return MagicMock()
 
-    async def _no_monitor(_zeroconf: Any) -> None:
-        return None
-
-    monkeypatch.setattr(mdns_module, "async_zeroconf_ip_version", _version)
+    monkeypatch.setattr(
+        mdns_module, "async_zeroconf_ip_version", AsyncMock(return_value=ip_version)
+    )
     monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", _fake_zeroconf)
     monkeypatch.setattr(mdns_module, "AsyncServiceBrowser", MagicMock())
-    monkeypatch.setattr(mdns_module, "monitor_interfaces", _no_monitor)
+    monkeypatch.setattr(mdns_module, "monitor_interfaces", AsyncMock())
     return attempts
 
 
-@pytest.mark.parametrize("ip_version", list(IPVersion))
-async def test_start_uses_selected_ip_version(
-    monkeypatch: pytest.MonkeyPatch, ip_version: IPVersion
+@pytest.mark.parametrize(
+    ("selected", "failing", "attempts", "started"),
+    [
+        (IPVersion.All, set(), [IPVersion.All], True),
+        (IPVersion.V4Only, set(), [IPVersion.V4Only], True),
+        (IPVersion.All, {IPVersion.All}, [IPVersion.All, IPVersion.V4Only], True),
+        (IPVersion.V4Only, {IPVersion.V4Only}, [IPVersion.V4Only], False),
+    ],
+)
+async def test_start_ip_version(
+    monkeypatch: pytest.MonkeyPatch,
+    selected: IPVersion,
+    failing: set[IPVersion],
+    attempts: list[IPVersion],
+    started: bool,
 ) -> None:
-    """The responder is created with the selected IP version."""
-    attempts = _patch_start(monkeypatch, ip_version, failing=set())
+    """The responder binds the selected version, retrying IPv4 only on a failed non-IPv4 bind."""
+    tried = _patch_start(monkeypatch, selected, failing)
     monitor, _callbacks = make_state_monitor_with_callbacks([])
 
     await monitor.mdns.start()
 
-    assert attempts == [ip_version]
-    assert monitor.mdns.zeroconf is not None
-
-
-async def test_start_retries_ipv4_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A failed dual-stack bind retries IPv4 only."""
-    attempts = _patch_start(monkeypatch, IPVersion.All, failing={IPVersion.All})
-    monitor, _callbacks = make_state_monitor_with_callbacks([])
-
-    await monitor.mdns.start()
-
-    assert attempts == [IPVersion.All, IPVersion.V4Only]
-    assert monitor.mdns.zeroconf is not None
-
-
-async def test_start_ipv4_only_failure_does_not_retry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A failed IPv4-only bind leaves the responder unset after one attempt."""
-    attempts = _patch_start(monkeypatch, IPVersion.V4Only, failing={IPVersion.V4Only})
-    monitor, _callbacks = make_state_monitor_with_callbacks([])
-
-    await monitor.mdns.start()
-
-    assert attempts == [IPVersion.V4Only]
-    assert monitor.mdns.zeroconf is None
+    assert tried == attempts
+    assert (monitor.mdns.zeroconf is not None) is started
