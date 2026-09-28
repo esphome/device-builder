@@ -12,10 +12,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from ipaddress import ip_address
+from typing import NamedTuple
 
 import ifaddr
 from esphome.zeroconf import AsyncEsphomeZeroconf
-from zeroconf import IPVersion
+from zeroconf import InterfaceChoice, IPVersion
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.ip import is_usable_ip
@@ -38,32 +40,53 @@ def address_snapshot() -> frozenset[tuple[str, int]]:
     )
 
 
-def zeroconf_ip_version() -> IPVersion:
-    """
-    Return the IP version the mDNS responder can serve on this host.
+class ZeroconfBinding(NamedTuple):
+    """Interfaces and IP version the mDNS responder binds."""
 
-    Dual-stack needs a non-loopback IPv6 address and never applies on darwin / freebsd.
+    interfaces: list[str] | InterfaceChoice
+    ip_version: IPVersion
+
+
+def zeroconf_binding(pinned_ip_version: IPVersion | None = None) -> ZeroconfBinding:
     """
-    has_v4 = has_v6 = False
+    Return the addresses and IP version the mDNS responder binds on this host.
+
+    Non-loopback IPv4 and link-local IPv6 addresses; every interface when none
+    qualify. Dual-stack never applies on darwin / freebsd.
+    """
+    v4: list[str] = []
+    v6: list[str] = []
     for adapter in ifaddr.get_adapters():
         for ip in adapter.ips:
-            address = ip.ip[0] if isinstance(ip.ip, tuple) else ip.ip
-            if not is_usable_ip(address):
-                continue
-            has_v6 |= ip.is_IPv6
-            has_v4 |= not ip.is_IPv6
-    if sys.platform.startswith(("darwin", "freebsd")):
-        return IPVersion.V6Only if has_v6 and not has_v4 else IPVersion.V4Only
-    return IPVersion.All if has_v6 else IPVersion.V4Only
+            address = _ip_to_str(ip.ip)
+            if isinstance(ip.ip, tuple):
+                if ip_address(address).is_link_local:
+                    v6.append(address)
+            elif is_usable_ip(address):
+                v4.append(address)
+    ip_version = pinned_ip_version or _select_ip_version(bool(v4), bool(v6))
+    if ip_version is IPVersion.V4Only:
+        v6 = []
+    elif ip_version is IPVersion.V6Only:
+        v4 = []
+    return ZeroconfBinding(list(dict.fromkeys(v4 + v6)) or InterfaceChoice.All, ip_version)
 
 
-async def async_zeroconf_ip_version() -> IPVersion:
-    """Resolve ``zeroconf_ip_version`` off the event loop; ``V4Only`` when the scan fails."""
+def ipv4_only_binding(binding: ZeroconfBinding) -> ZeroconfBinding:
+    """Return *binding* narrowed to its IPv4 addresses."""
+    if isinstance(binding.interfaces, InterfaceChoice):
+        return ZeroconfBinding(binding.interfaces, IPVersion.V4Only)
+    v4 = [address for address in binding.interfaces if ":" not in address]
+    return ZeroconfBinding(v4 or InterfaceChoice.All, IPVersion.V4Only)
+
+
+async def async_zeroconf_binding() -> ZeroconfBinding:
+    """Resolve ``zeroconf_binding`` off the event loop; every interface, IPv4 only, on failure."""
     try:
-        return await run_in_executor(zeroconf_ip_version)
+        return await run_in_executor(zeroconf_binding)
     except Exception:
         _LOGGER.exception("host address scan failed; mDNS responder stays IPv4 only")
-        return IPVersion.V4Only
+        return ZeroconfBinding(InterfaceChoice.All, IPVersion.V4Only)
 
 
 async def monitor_interfaces(
@@ -87,18 +110,26 @@ async def monitor_interfaces(
         try:
             # A failed scan raises rather than resolving to ``V4Only``, so a
             # transient ifaddr error can't downgrade a dual-stack responder.
-            ip_version = pinned_ip_version or await run_in_executor(zeroconf_ip_version)
-            # Reuses the construction-time ``InterfaceChoice.All``, so this
-            # rescans every interface; a no-op when nothing actually moved.
-            await zeroconf.async_update_interfaces(ip_version=ip_version)
+            binding = await run_in_executor(zeroconf_binding, pinned_ip_version)
+            # A no-op when nothing the responder binds actually moved.
+            await zeroconf.async_update_interfaces(
+                interfaces=binding.interfaces, ip_version=binding.ip_version
+            )
         except Exception:
             # Log and retry next tick; leave ``previous`` so the change re-attempts.
             _LOGGER.exception("zeroconf interface reconcile failed; will retry")
         else:
             _LOGGER.info(
-                "Network interfaces changed; reconciled zeroconf sockets with %s", ip_version
+                "Network interfaces changed; reconciled zeroconf sockets with %s",
+                binding.ip_version,
             )
             previous = current
+
+
+def _select_ip_version(has_v4: bool, has_v6: bool) -> IPVersion:  # noqa: FBT001
+    if sys.platform.startswith(("darwin", "freebsd")):
+        return IPVersion.V6Only if has_v6 and not has_v4 else IPVersion.V4Only
+    return IPVersion.All if has_v6 else IPVersion.V4Only
 
 
 def _ip_to_str(ip: str | tuple[str, int, int]) -> str:

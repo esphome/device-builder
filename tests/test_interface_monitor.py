@@ -162,40 +162,52 @@ def test_address_snapshot_normalizes_ipv4_and_ipv6_scope(monkeypatch: pytest.Mon
     assert all(isinstance(addr, str) and "(" not in addr for addr, _prefix in snap)
 
 
-async def test_reconcile_reselects_ip_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An address change reconciles with the freshly selected IP version."""
+_DUAL = im.ZeroconfBinding(["10.0.0.5", "fe80::1%7"], IPVersion.All)
+_V4 = im.ZeroconfBinding(["10.0.0.5"], IPVersion.V4Only)
+
+
+async def test_reconcile_reselects_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An address change reconciles with the freshly selected interfaces and IP version."""
     _snapshots(monkeypatch, [_A, _B])
-    monkeypatch.setattr(im, "zeroconf_ip_version", lambda: IPVersion.All)
+    select = MagicMock(return_value=_DUAL)
+    monkeypatch.setattr(im, "zeroconf_binding", select)
     zeroconf = MagicMock()
     zeroconf.async_update_interfaces = AsyncMock()
 
     await _run_ticks(zeroconf, ticks=2)
 
-    zeroconf.async_update_interfaces.assert_awaited_once_with(ip_version=IPVersion.All)
+    select.assert_called_once_with(None)
+    zeroconf.async_update_interfaces.assert_awaited_once_with(
+        interfaces=_DUAL.interfaces, ip_version=IPVersion.All
+    )
 
 
-async def test_reconcile_keeps_pinned_ip_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A pinned IP version is reused without re-selecting."""
+async def test_reconcile_passes_pinned_ip_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pinned IP version is handed to the selection."""
     _snapshots(monkeypatch, [_A, _B])
-    select = MagicMock(return_value=IPVersion.All)
-    monkeypatch.setattr(im, "zeroconf_ip_version", select)
+    select = MagicMock(return_value=_V4)
+    monkeypatch.setattr(im, "zeroconf_binding", select)
     zeroconf = MagicMock()
     zeroconf.async_update_interfaces = AsyncMock()
 
     await _run_ticks(zeroconf, ticks=2, pinned_ip_version=IPVersion.V4Only)
 
-    zeroconf.async_update_interfaces.assert_awaited_once_with(ip_version=IPVersion.V4Only)
-    select.assert_not_called()
+    select.assert_called_once_with(IPVersion.V4Only)
+    zeroconf.async_update_interfaces.assert_awaited_once_with(
+        interfaces=_V4.interfaces, ip_version=IPVersion.V4Only
+    )
 
 
-async def test_failed_ip_version_scan_skips_reconcile(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A failed IP version scan skips the reconcile and retries on the next tick."""
+async def test_failed_binding_scan_skips_reconcile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed binding scan skips the reconcile and retries on the next tick."""
     _snapshots(monkeypatch, [_A, _B, _B])
-    select = MagicMock(side_effect=[OSError("adapters unavailable"), IPVersion.All])
-    monkeypatch.setattr(im, "zeroconf_ip_version", select)
+    select = MagicMock(side_effect=[OSError("adapters unavailable"), _DUAL])
+    monkeypatch.setattr(im, "zeroconf_binding", select)
     zeroconf = MagicMock()
     zeroconf.async_update_interfaces = AsyncMock()
 
     await _run_ticks(zeroconf, ticks=3)
 
-    zeroconf.async_update_interfaces.assert_awaited_once_with(ip_version=IPVersion.All)
+    zeroconf.async_update_interfaces.assert_awaited_once_with(
+        interfaces=_DUAL.interfaces, ip_version=IPVersion.All
+    )
