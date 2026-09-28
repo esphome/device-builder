@@ -73,12 +73,12 @@ def _patch_start(
 
 
 @pytest.mark.parametrize(
-    ("selected", "failing", "attempts", "started"),
+    ("selected", "failing", "attempts", "started", "pinned"),
     [
-        (IPVersion.All, set(), [IPVersion.All], True),
-        (IPVersion.V4Only, set(), [IPVersion.V4Only], True),
-        (IPVersion.All, {IPVersion.All}, [IPVersion.All, IPVersion.V4Only], True),
-        (IPVersion.V4Only, {IPVersion.V4Only}, [IPVersion.V4Only], False),
+        (IPVersion.All, set(), [IPVersion.All], True, None),
+        (IPVersion.V4Only, set(), [IPVersion.V4Only], True, None),
+        (IPVersion.All, {IPVersion.All}, [IPVersion.All, IPVersion.V4Only], True, IPVersion.V4Only),
+        (IPVersion.V4Only, {IPVersion.V4Only}, [IPVersion.V4Only], False, None),
     ],
 )
 async def test_start_ip_version(
@@ -87,8 +87,9 @@ async def test_start_ip_version(
     failing: set[IPVersion],
     attempts: list[IPVersion],
     started: bool,
+    pinned: IPVersion | None,
 ) -> None:
-    """The responder binds the selected version, retrying IPv4 only on a failed non-IPv4 bind."""
+    """A failed non-IPv4 bind retries IPv4 only and pins the interface monitor to it."""
     tried = _patch_start(monkeypatch, selected, failing)
     monitor, _callbacks = make_state_monitor_with_callbacks([])
 
@@ -96,3 +97,5 @@ async def test_start_ip_version(
 
     assert tried == attempts
     assert (monitor.mdns.zeroconf is not None) is started
+    if started:
+        mdns_module.monitor_interfaces.assert_called_once_with(monitor.mdns.zeroconf, pinned)

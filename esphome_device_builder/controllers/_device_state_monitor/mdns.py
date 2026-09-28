@@ -115,7 +115,7 @@ class MdnsSource:
         return self._zeroconf
 
     async def start(self) -> None:
-        self._zeroconf = self._create_zeroconf(await async_zeroconf_ip_version())
+        self._zeroconf, pinned_ip_version = self._create_zeroconf(await async_zeroconf_ip_version())
         if self._zeroconf is None:
             return
 
@@ -137,7 +137,7 @@ class MdnsSource:
         # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
         if self._zeroconf is not None:
             self._interface_monitor_task = create_logged_task(
-                monitor_interfaces(self._zeroconf), name="Interface monitor"
+                monitor_interfaces(self._zeroconf, pinned_ip_version), name="Interface monitor"
             )
 
     async def cancel_browser(self) -> None:
@@ -458,20 +458,26 @@ class MdnsSource:
             return
         self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
 
-    def _create_zeroconf(self, ip_version: IPVersion) -> AsyncEsphomeZeroconf | None:
-        """Create the responder, retrying IPv4 only when *ip_version* can't bind."""
+    def _create_zeroconf(
+        self, ip_version: IPVersion
+    ) -> tuple[AsyncEsphomeZeroconf | None, IPVersion | None]:
+        """
+        Create the responder, retrying IPv4 only when *ip_version* can't bind.
+
+        The second item pins the interface monitor to IPv4 only after such a retry.
+        """
         try:
             zeroconf = AsyncEsphomeZeroconf(ip_version=ip_version)
         except Exception:
             if ip_version is IPVersion.V4Only:
                 _LOGGER.exception("Could not start zeroconf — falling back to ping only")
-                return None
+                return None, None
             _LOGGER.warning(
                 "Could not start zeroconf with %s; retrying IPv4 only", ip_version, exc_info=True
             )
-            return self._create_zeroconf(IPVersion.V4Only)
+            return self._create_zeroconf(IPVersion.V4Only)[0], IPVersion.V4Only
         _LOGGER.info("mDNS responder started with %s", ip_version)
-        return zeroconf
+        return zeroconf, None
 
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange

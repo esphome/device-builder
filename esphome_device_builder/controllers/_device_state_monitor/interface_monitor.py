@@ -67,9 +67,15 @@ async def async_zeroconf_ip_version() -> IPVersion:
 
 
 async def monitor_interfaces(
-    zeroconf: AsyncEsphomeZeroconf, interval: float = _INTERFACE_POLL_INTERVAL
+    zeroconf: AsyncEsphomeZeroconf,
+    pinned_ip_version: IPVersion | None = None,
+    interval: float = _INTERFACE_POLL_INTERVAL,
 ) -> None:
-    """Reconcile zeroconf sockets whenever the host's addresses change, until cancelled."""
+    """
+    Reconcile zeroconf sockets whenever the host's addresses change, until cancelled.
+
+    The IP version is re-selected on each change unless *pinned_ip_version* is set.
+    """
     previous = await _safe_snapshot()
     while True:
         await asyncio.sleep(interval)
@@ -79,15 +85,19 @@ async def monitor_interfaces(
         if current is None or current == previous:
             continue
         try:
-            # No-arg reuses the construction-time ``InterfaceChoice.All`` and IP
-            # version, so this rescans every interface; a no-op when nothing
-            # actually moved.
-            await zeroconf.async_update_interfaces()
+            # A failed scan raises rather than resolving to ``V4Only``, so a
+            # transient ifaddr error can't downgrade a dual-stack responder.
+            ip_version = pinned_ip_version or await run_in_executor(zeroconf_ip_version)
+            # Reuses the construction-time ``InterfaceChoice.All``, so this
+            # rescans every interface; a no-op when nothing actually moved.
+            await zeroconf.async_update_interfaces(ip_version=ip_version)
         except Exception:
             # Log and retry next tick; leave ``previous`` so the change re-attempts.
             _LOGGER.exception("zeroconf interface reconcile failed; will retry")
         else:
-            _LOGGER.info("Network interfaces changed; reconciled zeroconf sockets")
+            _LOGGER.info(
+                "Network interfaces changed; reconciled zeroconf sockets with %s", ip_version
+            )
             previous = current
 
 
