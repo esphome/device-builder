@@ -39,7 +39,7 @@ from .helpers import (
     _decode_mdns_txt_records,
     device_name_from_service,
 )
-from .interface_monitor import monitor_interfaces
+from .interface_monitor import async_zeroconf_ip_version, monitor_interfaces
 from .shared import _MDNS_HOSTNAME_RESOLVE_TIMEOUT, apply_resolved_addresses
 
 if TYPE_CHECKING:
@@ -115,12 +115,8 @@ class MdnsSource:
         return self._zeroconf
 
     async def start(self) -> None:
-        try:
-            # python-zeroconf binds IPv4 only by default; IPv6-only devices would be invisible.
-            self._zeroconf = AsyncEsphomeZeroconf(ip_version=IPVersion.All)
-        except Exception:
-            _LOGGER.exception("Could not start zeroconf — falling back to ping only")
-            self._zeroconf = None
+        self._zeroconf = self._create_zeroconf(await async_zeroconf_ip_version())
+        if self._zeroconf is None:
             return
 
         try:
@@ -461,6 +457,21 @@ class MdnsSource:
                 applier(device_name, info)
             return
         self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
+
+    def _create_zeroconf(self, ip_version: IPVersion) -> AsyncEsphomeZeroconf | None:
+        """Create the responder, retrying IPv4 only when *ip_version* can't bind."""
+        try:
+            zeroconf = AsyncEsphomeZeroconf(ip_version=ip_version)
+        except Exception:
+            if ip_version is IPVersion.V4Only:
+                _LOGGER.exception("Could not start zeroconf — falling back to ping only")
+                return None
+            _LOGGER.warning(
+                "Could not start zeroconf with %s; retrying IPv4 only", ip_version, exc_info=True
+            )
+            return self._create_zeroconf(IPVersion.V4Only)
+        _LOGGER.info("mDNS responder started with %s", ip_version)
+        return zeroconf
 
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange

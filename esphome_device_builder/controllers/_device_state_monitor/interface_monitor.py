@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+from ipaddress import ip_address
 
 import ifaddr
 from esphome.zeroconf import AsyncEsphomeZeroconf
+from zeroconf import IPVersion
 
 from ...helpers.async_ import run_in_executor
 
@@ -35,6 +38,34 @@ def address_snapshot() -> frozenset[tuple[str, int]]:
     )
 
 
+def zeroconf_ip_version() -> IPVersion:
+    """
+    Return the IP version the mDNS responder can serve on this host.
+
+    Dual-stack needs a non-loopback IPv6 address, and never applies on
+    darwin / freebsd, where it silently drops IPv4.
+    """
+    has_v4 = has_v6 = False
+    for adapter in ifaddr.get_adapters():
+        for ip in adapter.ips:
+            if ip_address(ip.ip[0] if ip.is_IPv6 else ip.ip).is_loopback:
+                continue
+            has_v6 |= ip.is_IPv6
+            has_v4 |= not ip.is_IPv6
+    if sys.platform.startswith(("darwin", "freebsd")):
+        return IPVersion.V4Only if has_v4 or not has_v6 else IPVersion.V6Only
+    return IPVersion.All if has_v6 else IPVersion.V4Only
+
+
+async def async_zeroconf_ip_version() -> IPVersion:
+    """Resolve ``zeroconf_ip_version`` off the event loop; ``V4Only`` when the scan fails."""
+    try:
+        return await run_in_executor(zeroconf_ip_version)
+    except Exception:
+        _LOGGER.exception("host address scan failed; mDNS responder stays IPv4 only")
+        return IPVersion.V4Only
+
+
 async def monitor_interfaces(
     zeroconf: AsyncEsphomeZeroconf, interval: float = _INTERFACE_POLL_INTERVAL
 ) -> None:
@@ -48,8 +79,9 @@ async def monitor_interfaces(
         if current is None or current == previous:
             continue
         try:
-            # No-arg reuses the construction-time ``InterfaceChoice.All``, so this
-            # rescans every interface; a no-op when nothing actually moved.
+            # No-arg reuses the construction-time ``InterfaceChoice.All`` and IP
+            # version, so this rescans every interface; a no-op when nothing
+            # actually moved.
             await zeroconf.async_update_interfaces()
         except Exception:
             # Log and retry next tick; leave ``previous`` so the change re-attempts.
