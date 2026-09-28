@@ -41,9 +41,9 @@ from .helpers import (
 )
 from .interface_monitor import (
     ZeroconfBinding,
-    async_zeroconf_binding,
-    ipv4_only_binding,
+    async_scan_host,
     monitor_interfaces,
+    startup_bindings,
 )
 from .shared import _MDNS_HOSTNAME_RESOLVE_TIMEOUT, apply_resolved_addresses
 
@@ -120,7 +120,8 @@ class MdnsSource:
         return self._zeroconf
 
     async def start(self) -> None:
-        self._zeroconf, pinned_ip_version = self._create_zeroconf(await async_zeroconf_binding())
+        attempts = startup_bindings(await async_scan_host())
+        self._zeroconf, applied = self._create_zeroconf(attempts)
         if self._zeroconf is None:
             return
 
@@ -142,7 +143,12 @@ class MdnsSource:
         # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
         if self._zeroconf is not None:
             self._interface_monitor_task = create_logged_task(
-                monitor_interfaces(self._zeroconf, pinned_ip_version), name="Interface monitor"
+                monitor_interfaces(
+                    self._zeroconf,
+                    applied,
+                    None if applied is attempts[0] else IPVersion.V4Only,
+                ),
+                name="Interface monitor",
             )
 
     async def cancel_browser(self) -> None:
@@ -464,29 +470,25 @@ class MdnsSource:
         self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
 
     def _create_zeroconf(
-        self, binding: ZeroconfBinding
-    ) -> tuple[AsyncEsphomeZeroconf | None, IPVersion | None]:
-        """
-        Create the responder, retrying IPv4 only when *binding* can't bind.
-
-        The second item pins the interface monitor to IPv4 only after such a retry.
-        """
-        try:
-            zeroconf = AsyncEsphomeZeroconf(
-                interfaces=binding.interfaces, ip_version=binding.ip_version
+        self, attempts: list[ZeroconfBinding]
+    ) -> tuple[AsyncEsphomeZeroconf | None, ZeroconfBinding | None]:
+        """Create the responder from the first of *attempts* that binds."""
+        for binding in attempts:
+            try:
+                zeroconf = AsyncEsphomeZeroconf(
+                    interfaces=binding.interfaces, ip_version=binding.ip_version
+                )
+            except Exception:
+                _LOGGER.warning(
+                    "Could not start zeroconf with %s", binding.ip_version, exc_info=True
+                )
+                continue
+            _LOGGER.info(
+                "mDNS responder started with %s on %s", binding.ip_version, binding.interfaces
             )
-        except Exception:
-            if binding.ip_version is IPVersion.V4Only:
-                _LOGGER.exception("Could not start zeroconf — falling back to ping only")
-                return None, None
-            _LOGGER.warning(
-                "Could not start zeroconf with %s; retrying IPv4 only",
-                binding.ip_version,
-                exc_info=True,
-            )
-            return self._create_zeroconf(ipv4_only_binding(binding))[0], IPVersion.V4Only
-        _LOGGER.info("mDNS responder started with %s on %s", binding.ip_version, binding.interfaces)
-        return zeroconf, None
+            return zeroconf, binding
+        _LOGGER.error("Could not start zeroconf — falling back to ping only")
+        return None, None
 
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
