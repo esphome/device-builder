@@ -900,6 +900,7 @@ _ACTION_KEY_SUFFIX = "_action"
 _ESP32_ADVANCED_VISIBLE: dict[str, bool | str] = {
     "sram1_as_iram": True,
     "minimum_chip_revision": "0.0",
+    "flash_chip": "generic",
 }
 
 # ---------------------------------------------------------------------------

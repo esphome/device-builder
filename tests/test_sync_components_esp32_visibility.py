@@ -1,9 +1,9 @@
 """
 Pin the esp32 ``framework.advanced`` and ota ``allow_partition_access`` visibility.
 
-``sram1_as_iram`` and ``minimum_chip_revision`` stay surfaced under the Advanced
-disclosure with their siblings hidden; ``allow_partition_access`` stays core and
-esp32-gated.
+``sram1_as_iram``, ``minimum_chip_revision`` and ``flash_chip`` stay surfaced under
+the Advanced disclosure with their siblings hidden; ``allow_partition_access``
+stays core and esp32-gated.
 """
 
 from __future__ import annotations
@@ -12,11 +12,21 @@ from typing import Any
 
 import orjson
 import pytest
+from esphome.const import __version__ as esphome_version
 
+from esphome_device_builder.helpers.version_compat import version_at_least
 from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
+    _OUTPUT_INDEX_FILE,
     _esp32_variant_gate,
     _surface_esp32_advanced_fields,
+)
+
+# ``framework.advanced.flash_chip`` first ships in esphome 2026.10.0.
+_FLASH_CHIP_SINCE = "2026.10.0b1"
+_INSTALLED_HAS_FLASH_CHIP = version_at_least(esphome_version, _FLASH_CHIP_SINCE)
+_CATALOG_HAS_FLASH_CHIP = version_at_least(
+    orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())["esphome_schema_version"], _FLASH_CHIP_SINCE
 )
 
 
@@ -72,6 +82,19 @@ def test_surface_unhides_curated_fields_and_group_keeps_siblings_hidden() -> Non
     assert adc is not None and adc["hidden"] is True  # untouched
 
 
+@pytest.mark.skipif(not _INSTALLED_HAS_FLASH_CHIP, reason="installed esphome lacks flash_chip")
+def test_surface_unhides_flash_chip_without_variant_gate() -> None:
+    """``flash_chip`` surfaces ungated: ``generic`` validates on every variant."""
+    framework = _framework_with_advanced(child_keys=("flash_chip", "adc_oneshot_in_iram"))
+    _surface_esp32_advanced_fields(framework)
+    advanced = framework["config_entries"][0]
+    assert advanced["hidden"] is False and advanced["advanced"] is False
+    flash_chip = _find(advanced["config_entries"], "flash_chip")
+    assert flash_chip is not None
+    assert flash_chip["hidden"] is False and flash_chip["advanced"] is False
+    assert "depends_on" not in flash_chip
+
+
 def test_surface_no_op_without_promotable_child() -> None:
     """A framework whose advanced group has no allow-listed child is left hidden."""
     framework = _framework_with_advanced(child_keys=("adc_oneshot_in_iram",))
@@ -98,6 +121,14 @@ def test_esp32_catalog_surfaces_curated_fields_under_advanced() -> None:
     min_rev = _find(advanced["config_entries"], "minimum_chip_revision")
     assert min_rev is not None
     assert {o["value"] for o in min_rev["options"]} >= {"0.0", "3.0"}
+    flash_chip = _find(advanced["config_entries"], "flash_chip")
+    if _CATALOG_HAS_FLASH_CHIP:
+        assert flash_chip is not None
+        assert not flash_chip.get("hidden") and not flash_chip.get("advanced")
+        assert "depends_on" not in flash_chip  # valid on every variant
+        assert {o["value"] for o in flash_chip["options"]} >= {"generic", "mxic_opi"}
+    else:
+        assert flash_chip is None  # the field predates the synced schema
     # Scope guard: a sibling expert knob stays hidden (yaml_only).
     adc = _find(advanced["config_entries"], "adc_oneshot_in_iram")
     assert adc is not None and adc.get("hidden") is True
@@ -119,6 +150,12 @@ def test_variant_gate_derived_from_esphome() -> None:
     assert _esp32_variant_gate("minimum_chip_revision", "0.0") == ("esp32", "ESP32")
     # A field with no variant restriction is valid everywhere → no gate stamped.
     assert _esp32_variant_gate("disable_fatfs") is None
+
+
+@pytest.mark.skipif(not _INSTALLED_HAS_FLASH_CHIP, reason="installed esphome lacks flash_chip")
+def test_variant_gate_flash_chip_ungated() -> None:
+    """``flash_chip: generic`` validates on every variant, so no gate is derived."""
+    assert _esp32_variant_gate("flash_chip", "generic") is None
 
 
 def test_variant_gate_fails_loud_when_underivable() -> None:
