@@ -631,6 +631,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         new_name: str = "",
         *,
         flash_bootloader: bool = False,
+        skip_bootloader: bool = False,
         esphome_cmd: list[str] | None = None,
     ) -> list[str]:
         return cli.build_command(
@@ -641,6 +642,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             cache_args,
             new_name,
             flash_bootloader=flash_bootloader,
+            skip_bootloader=skip_bootloader,
         )
 
     async def _resolve_esphome_cmd(self, job: FirmwareJob) -> list[str]:

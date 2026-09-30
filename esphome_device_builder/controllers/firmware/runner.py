@@ -20,7 +20,7 @@ from ...models import (
     JobStatus,
     JobType,
 )
-from . import lifecycle, rename_flow
+from . import cli, lifecycle, rename_flow
 from ._state import SpawnHandle
 from .constants import _ERROR_PATTERNS
 from .helpers import (
@@ -135,6 +135,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
             cache_args,
             job.new_name,
             flash_bootloader=job.flash_bootloader,
+            skip_bootloader=job.skip_bootloader and cli.skip_bootloader_supported(job),
             esphome_cmd=esphome_cmd,
         )
         _LOGGER.debug("Running: %s", " ".join(cmd))

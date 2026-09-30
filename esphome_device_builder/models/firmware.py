@@ -192,6 +192,9 @@ class FirmwareJob(DashboardModel):
     # UPLOAD flashes the bootloader image instead of the app
     # (``esphome upload --bootloader``); OTA-only.
     flash_bootloader: bool = False
+    # COMPILE for an OTA app install: pass ``--skip-bootloader`` so the
+    # bootloader and factory image are not built (esphome 2026.10+).
+    skip_bootloader: bool = False
     # In-memory decision input for the deferred-install completion hook;
     # the durable arm is ``Device.runtime_state.queued_update``.
     is_deferred_install: bool = False

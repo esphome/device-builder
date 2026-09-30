@@ -143,6 +143,9 @@ async def enqueue_install_chain(
     doesn't block the next device's compile.
     """
     compile_job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+    # An OTA app flash never delivers the bootloader, so the compile can
+    # skip building it; anything else keeps the full artifact set.
+    compile_job.skip_bootloader = port == OTA_PORT and not flash_bootloader
     upload_job = create_job(
         controller,
         configuration,
@@ -187,6 +190,8 @@ async def enqueue_install_or_defer(
         _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
         job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
         job.is_deferred_install = True
+        # The wake dispatch flashes the app over OTA, never the bootloader.
+        job.skip_bootloader = True
         return await controller._enqueue(job)
     if port == OTA_PORT and not flash_bootloader and controller._db.devices is not None:
         # A device still in the UNKNOWN startup window gets an immediate
