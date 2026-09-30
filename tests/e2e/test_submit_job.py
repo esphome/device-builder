@@ -94,6 +94,7 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
         remote_job_id: str = "",
         device_name: str = "",
         device_friendly_name: str = "",
+        skip_bootloader: bool = False,
         **_: Any,
     ) -> FirmwareJob:
         job = FirmwareJob(
@@ -104,6 +105,7 @@ def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmwar
             remote_peer=remote_peer,
             remote_peer_label=remote_peer_label,
             remote_job_id=remote_job_id,
+            skip_bootloader=skip_bootloader,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
         )
@@ -377,6 +379,43 @@ async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
         "has something to find"
     )
     assert job.remote_peer_label == expected_label
+
+
+async def test_submit_job_round_trip_forwards_skip_bootloader(
+    paired_instances: PairedInstances,
+) -> None:
+    """The skip request rides the peer link as sent.
+
+    One offloaded compile asks for the skip, one does not; a bootloader
+    flash chain enqueues the second shape, keeping the receiver full.
+    """
+    await paired_instances.wait_until_session_opened()
+    created_jobs = _wire_receiver_firmware_recorder(paired_instances)
+
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
+    ack = await handle.client.submit_job(
+        job_id="off-job-skip",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=make_real_bundle(),
+        skip_bootloader=True,
+    )
+    assert ack["accepted"] is True
+    ack = await handle.client.submit_job(
+        job_id="off-job-full",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle_bytes=make_real_bundle(),
+        skip_bootloader=False,
+    )
+    assert ack["accepted"] is True
+
+    await wait_for_receiver_jobs(paired_instances, 2)
+    by_tag = {job.remote_job_id: job for job in created_jobs}
+    assert by_tag["off-job-skip"].skip_bootloader is True
+    # The bootloader flash chain enqueues its compile without the skip,
+    # so the receiver builds the bootloader it is about to flash.
+    assert by_tag["off-job-full"].skip_bootloader is False
 
 
 async def test_post_ack_extract_failure_finalises_offloader_job_failed(
