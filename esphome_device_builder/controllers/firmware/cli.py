@@ -113,10 +113,9 @@ def build_command(
         # ``--bootloader`` exists only on the ``upload`` subparser (OTA-only).
         cmd.append("--bootloader")
     if job_type == JobType.COMPILE and skip_bootloader:
-        # OTA app installs never flash the bootloader; skipping its build
-        # also drops the factory image, which nothing in this chain reads.
-        # esphome deletes a stale factory image when a tree flips into skip
-        # mode, so the Download menu never serves an outdated factory build.
+        # OTA app installs never flash the bootloader; esphome also drops
+        # the factory image and deletes a stale one on the flip into skip
+        # mode, so downloads never serve an outdated factory build.
         cmd.append("--skip-bootloader")
     if job_type == JobType.RENAME:
         # ``esphome rename`` takes the new name as a positional
