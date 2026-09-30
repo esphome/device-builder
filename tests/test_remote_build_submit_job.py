@@ -804,6 +804,33 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
     assert job.skip_bootloader is True
 
 
+async def test_submit_job_malformed_skip_bootloader_stays_full(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only a JSON true skips; malformed peer values keep the full build."""
+    firmware = _make_firmware_controller()
+    firmware._db = MagicMock()
+    firmware._db.remote_build_receiver.approved_peer_label.return_value = ""
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+    monkeypatch.setattr("esphome.bundle.prepare_bundle_for_compile", _passthrough_prepare)
+    header, chunks = make_submit_job_frames(
+        job_id="off-job-badskip",
+        configuration_filename="kitchen.yaml",
+        target="compile",
+        bundle=bundle,
+    )
+    header["skip_bootloader"] = "false"  # a JSON string, not a bool
+    await receiver.handle_submit_job(session, cast(SubmitJobFrameData, header))
+    for chunk in chunks:
+        await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, chunk))
+    await _drain_extracts(receiver)
+
+    assert _ack_payload(session)["accepted"] is True
+    assert firmware.created_jobs[0].skip_bootloader is False
+
+
 async def test_submit_job_malformed_display_fields_coerce_to_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

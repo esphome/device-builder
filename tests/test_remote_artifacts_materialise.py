@@ -829,10 +829,7 @@ def test_materialise_native_idf_round_trip_without_pio_metadata(
 def test_materialise_drops_stale_flash_images_the_tarball_lacks(
     paired_roots: tuple[Path, Path],
 ) -> None:
-    """Stale flash images must not stay downloadable on the offloader.
-
-    A skip-bootloader remote build ships no factory or bootloader image.
-    """
+    """Flash images the tarball did not carry are removed, not kept."""
     receiver_root, offloader_root = paired_roots
     build_path = offloader_root / ".esphome" / "build" / "kitchen"
     stale_factory = build_path / "build" / "firmware.factory.bin"

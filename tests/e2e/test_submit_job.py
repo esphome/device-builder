@@ -384,11 +384,7 @@ async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
 async def test_submit_job_round_trip_forwards_skip_bootloader(
     paired_instances: PairedInstances,
 ) -> None:
-    """The skip request rides the peer link as sent.
-
-    One offloaded compile asks for the skip, one does not; a bootloader
-    flash chain enqueues the second shape, keeping the receiver full.
-    """
+    """The skip request rides the peer link as sent, in both states."""
     await paired_instances.wait_until_session_opened()
     created_jobs = _wire_receiver_firmware_recorder(paired_instances)
 

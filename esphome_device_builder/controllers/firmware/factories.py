@@ -33,8 +33,8 @@ _LOGGER = logging.getLogger(__name__)
 def _is_ota_app_flash(port: str, *, flash_bootloader: bool) -> bool:
     """Whether the chained flash is a network app update.
 
-    Those never deliver the bootloader, so the compile can skip building
-    it; serial, BOOTSEL and bootloader flashes keep the full artifact set.
+    Those never deliver the bootloader; serial, BOOTSEL and bootloader
+    flashes keep the full artifact set.
     """
     if flash_bootloader or not port:
         return False
