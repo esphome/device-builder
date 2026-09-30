@@ -75,6 +75,18 @@ async def test_install_ota_marks_the_compile_half(
     assert upload.skip_bootloader is False
 
 
+async def test_install_to_an_explicit_address_still_skips(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """The advanced OTA address card is still an app-only network flash."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    compile_job = await controller.install(configuration="kitchen.yaml", port="192.168.1.50")
+
+    assert compile_job.skip_bootloader is True
+
+
 async def test_install_bootloader_keeps_the_full_build(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

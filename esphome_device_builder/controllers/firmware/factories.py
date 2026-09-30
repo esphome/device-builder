@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from esphome.upload_targets import PortType, get_port_type
+
 from ...helpers.api import CommandError
 from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...models import (
@@ -28,6 +30,17 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _is_ota_app_flash(port: str, *, flash_bootloader: bool) -> bool:
+    """Whether the chained flash is a network app update.
+
+    Those never deliver the bootloader, so the compile can skip building
+    it; serial, BOOTSEL and bootloader flashes keep the full artifact set.
+    """
+    if flash_bootloader or not port:
+        return False
+    return get_port_type(port) not in (PortType.SERIAL, PortType.BOOTSEL)
+
+
 def create_job(
     controller: FirmwareController,
     configuration: str,
@@ -44,6 +57,7 @@ def create_job(
     target_esphome_version: str = "",
     *,
     flash_bootloader: bool = False,
+    skip_bootloader: bool = False,
 ) -> FirmwareJob:
     """Create a new job and add it to the in-memory map; *sync*, no I/O.
 
@@ -60,6 +74,7 @@ def create_job(
         created_at=_now_iso(),
         port=port,
         flash_bootloader=flash_bootloader,
+        skip_bootloader=skip_bootloader,
         new_name=new_name,
         depends_on=depends_on,
         remote_peer=remote_peer,
@@ -142,10 +157,13 @@ async def enqueue_install_chain(
     compile succeeds, then runs on the upload lane — so the network flash
     doesn't block the next device's compile.
     """
-    compile_job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
-    # An OTA app flash never delivers the bootloader, so the compile can
-    # skip building it; anything else keeps the full artifact set.
-    compile_job.skip_bootloader = port == OTA_PORT and not flash_bootloader
+    compile_job = create_job(
+        controller,
+        configuration,
+        JobType.COMPILE,
+        build_source=build_source,
+        skip_bootloader=_is_ota_app_flash(port, flash_bootloader=flash_bootloader),
+    )
     upload_job = create_job(
         controller,
         configuration,

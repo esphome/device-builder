@@ -186,6 +186,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
                     },
                     initial_total_bytes=total_bytes,
                 )
+            _drop_stale_flash_images(build_path, set(tar.getnames()))
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
     # A native ESP-IDF tarball (toolchain "esp-idf") ships neither
@@ -261,6 +262,24 @@ def _read_member_required(
     except KeyError as err:
         raise MaterialiseError(f"tarball missing required member: {name!r}") from err
     return read_member(tar, member, total_so_far=total_so_far, error_cls=MaterialiseError)
+
+
+# A skip-bootloader compile ships neither of these; a leftover from an
+# earlier full build must not stay downloadable or flashable.
+_STALE_FLASH_IMAGE_GLOBS = (
+    "build/firmware.factory.bin",
+    "build/bootloader/bootloader.bin",
+    ".pioenvs/*/firmware.factory.bin",
+    ".pioenvs/*/bootloader.bin",
+)
+
+
+def _drop_stale_flash_images(build_path: Path, member_names: set[str]) -> None:
+    """Remove flash images the tarball did not carry."""
+    for pattern in _STALE_FLASH_IMAGE_GLOBS:
+        for path in build_path.glob(pattern):
+            if str(path.relative_to(build_path)) not in member_names:
+                path.unlink(missing_ok=True)
 
 
 def _safe_extract_excluding(

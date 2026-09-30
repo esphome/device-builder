@@ -52,6 +52,7 @@ async def submit_job(
     device_name: str = "",
     device_friendly_name: str = "",
     target_esphome_version: str = "",
+    skip_bootloader: bool = False,
 ) -> SubmitJobAckFrameData:
     """
     Send a ``submit_job`` header + chunked bundle and await the receiver's ack.
@@ -79,6 +80,7 @@ async def submit_job(
             device_name=device_name,
             device_friendly_name=device_friendly_name,
             target_esphome_version=target_esphome_version,
+            skip_bootloader=skip_bootloader,
         )
         return await _await_ack(client, ack_fut, job_id=job_id, label="submit_job")
     finally:
@@ -194,6 +196,7 @@ async def _send_submit_job_frames(
     device_name: str = "",
     device_friendly_name: str = "",
     target_esphome_version: str = "",
+    skip_bootloader: bool = False,
 ) -> None:
     """
     Send the ``submit_job`` header and every chunk frame, in order.
@@ -213,6 +216,7 @@ async def _send_submit_job_frames(
         "device_name": device_name,
         "device_friendly_name": device_friendly_name,
         "target_esphome_version": target_esphome_version,
+        "skip_bootloader": skip_bootloader,
     }
     if not await channel.send_frame(cast(dict[str, Any], header)):
         raise SubmitJobSessionLostError(

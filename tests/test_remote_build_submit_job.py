@@ -73,6 +73,7 @@ def _make_firmware_controller() -> Any:
         remote_peer_label: str = "",
         device_name: str = "",
         device_friendly_name: str = "",
+        skip_bootloader: bool = False,
         **_: Any,
     ) -> Any:
         job = MagicMock()
@@ -83,6 +84,7 @@ def _make_firmware_controller() -> Any:
         job.remote_peer_label = remote_peer_label
         job.device_name = device_name
         job.device_friendly_name = device_friendly_name
+        job.skip_bootloader = skip_bootloader
         created_jobs.append(job)
         return job
 
@@ -785,6 +787,7 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
         bundle=bundle,
         device_name="kitchen",
         device_friendly_name="AC Float Monitor 32",
+        skip_bootloader=True,
     )
     await receiver.handle_submit_job(session, cast(SubmitJobFrameData, header))
     for chunk in chunks:
@@ -797,6 +800,8 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
     assert job.device_name == "kitchen"
     assert job.device_friendly_name == "AC Float Monitor 32"
     assert job.remote_peer_label == "MacBook Pro"
+    # The offloader's skip request rides the same header.
+    assert job.skip_bootloader is True
 
 
 async def test_submit_job_malformed_display_fields_coerce_to_empty(
