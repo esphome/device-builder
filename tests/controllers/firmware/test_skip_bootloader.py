@@ -6,6 +6,7 @@ from pathlib import Path
 
 from esphome_device_builder.controllers.firmware.cli import (
     build_command,
+    effective_skip_bootloader,
     skip_bootloader_supported,
 )
 from esphome_device_builder.models import FirmwareJob, JobType
@@ -50,6 +51,13 @@ def test_skip_bootloader_supported_gates_on_the_release_line() -> None:
     )
     assert skip_bootloader_supported(old) is False
     assert skip_bootloader_supported(new) is True
+    # The runner gate: an enqueued skip never reaches an older esphome's argv.
+    old.skip_bootloader = True
+    new.skip_bootloader = True
+    assert effective_skip_bootloader(old) is False
+    assert effective_skip_bootloader(new) is True
+    new.skip_bootloader = False
+    assert effective_skip_bootloader(new) is False
 
 
 async def test_install_ota_marks_the_compile_half(

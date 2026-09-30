@@ -40,6 +40,11 @@ def skip_bootloader_supported(job: FirmwareJob) -> bool:
     return release_line_at_least(version, _SKIP_BOOTLOADER_RELEASE)
 
 
+def effective_skip_bootloader(job: FirmwareJob) -> bool:
+    """Whether *job*'s spawned compile may carry ``--skip-bootloader``."""
+    return job.skip_bootloader and skip_bootloader_supported(job)
+
+
 def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
     """
     Return the env dict for *job*'s ``esphome`` subprocess.
@@ -110,6 +115,8 @@ def build_command(
     if job_type == JobType.COMPILE and skip_bootloader:
         # OTA app installs never flash the bootloader; skipping its build
         # also drops the factory image, which nothing in this chain reads.
+        # esphome deletes a stale factory image when a tree flips into skip
+        # mode, so the Download menu never serves an outdated factory build.
         cmd.append("--skip-bootloader")
     if job_type == JobType.RENAME:
         # ``esphome rename`` takes the new name as a positional

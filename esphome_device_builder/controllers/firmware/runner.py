@@ -135,7 +135,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
             cache_args,
             job.new_name,
             flash_bootloader=job.flash_bootloader,
-            skip_bootloader=job.skip_bootloader and cli.skip_bootloader_supported(job),
+            skip_bootloader=cli.effective_skip_bootloader(job),
             esphome_cmd=esphome_cmd,
         )
         _LOGGER.debug("Running: %s", " ".join(cmd))

@@ -100,6 +100,8 @@ async def test_install_queues_deferred_compile_for_offline_device(
         called_job = mock_enqueue.call_args[0][0]
         assert called_job.job_type == JobType.COMPILE
         assert called_job.is_deferred_install is True
+        # The wake dispatch flashes the app over OTA, never the bootloader.
+        assert called_job.skip_bootloader is True
 
 
 @pytest.mark.asyncio
