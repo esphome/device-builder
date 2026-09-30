@@ -369,7 +369,7 @@ class SubmitJobReceiver:
             device_name=_coerce_display_field(frame.get("device_name")),
             device_friendly_name=_coerce_display_field(frame.get("device_friendly_name")),
             target_esphome_version=_coerce_version_field(frame.get("target_esphome_version")),
-            skip_bootloader=bool(frame.get("skip_bootloader", False)),
+            skip_bootloader=bool(frame.get("skip_bootloader")),
         )
 
     async def handle_submit_job_chunk(

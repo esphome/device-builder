@@ -206,10 +206,15 @@ async def enqueue_install_or_defer(
     build_source = controller._resolve_install_source(force_local=force_local)
     if offline and port == OTA_PORT:
         _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
-        job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+        job = create_job(
+            controller,
+            configuration,
+            JobType.COMPILE,
+            build_source=build_source,
+            # The wake dispatch flashes the app over OTA, never the bootloader.
+            skip_bootloader=True,
+        )
         job.is_deferred_install = True
-        # The wake dispatch flashes the app over OTA, never the bootloader.
-        job.skip_bootloader = True
         return await controller._enqueue(job)
     if port == OTA_PORT and not flash_bootloader and controller._db.devices is not None:
         # A device still in the UNKNOWN startup window gets an immediate

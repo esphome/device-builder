@@ -7,7 +7,6 @@ from pathlib import Path
 from esphome_device_builder.controllers.firmware.cli import (
     build_command,
     effective_skip_bootloader,
-    skip_bootloader_supported,
 )
 from esphome_device_builder.models import FirmwareJob, JobType
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
@@ -49,8 +48,6 @@ def test_skip_bootloader_supported_gates_on_the_release_line() -> None:
         created_at="",
         target_esphome_version="2026.10.0",
     )
-    assert skip_bootloader_supported(old) is False
-    assert skip_bootloader_supported(new) is True
     # The runner gate: an enqueued skip never reaches an older esphome's argv.
     old.skip_bootloader = True
     new.skip_bootloader = True

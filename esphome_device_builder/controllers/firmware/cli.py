@@ -34,15 +34,10 @@ _LOGGER = logging.getLogger(__name__)
 _SKIP_BOOTLOADER_RELEASE = (2026, 10)
 
 
-def skip_bootloader_supported(job: FirmwareJob) -> bool:
-    """Whether *job*'s effective esphome accepts ``--skip-bootloader``."""
-    version = job.target_esphome_version or _installed_esphome_version
-    return release_line_at_least(version, _SKIP_BOOTLOADER_RELEASE)
-
-
 def effective_skip_bootloader(job: FirmwareJob) -> bool:
     """Whether *job*'s spawned compile may carry ``--skip-bootloader``."""
-    return job.skip_bootloader and skip_bootloader_supported(job)
+    version = job.target_esphome_version or _installed_esphome_version
+    return job.skip_bootloader and release_line_at_least(version, _SKIP_BOOTLOADER_RELEASE)
 
 
 def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
@@ -113,9 +108,8 @@ def build_command(
         # ``--bootloader`` exists only on the ``upload`` subparser (OTA-only).
         cmd.append("--bootloader")
     if job_type == JobType.COMPILE and skip_bootloader:
-        # OTA app installs never flash the bootloader; esphome also drops
-        # the factory image and deletes a stale one on the flip into skip
-        # mode, so downloads never serve an outdated factory build.
+        # OTA app installs never flash the bootloader; esphome cleans
+        # stale factory images itself when a tree flips into skip mode.
         cmd.append("--skip-bootloader")
     if job_type == JobType.RENAME:
         # ``esphome rename`` takes the new name as a positional

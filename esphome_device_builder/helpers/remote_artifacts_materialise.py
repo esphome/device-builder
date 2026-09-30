@@ -265,21 +265,20 @@ def _read_member_required(
 
 
 # A skip-bootloader compile ships neither of these; a leftover from an
-# earlier full build must not stay downloadable or flashable.
-_STALE_FLASH_IMAGE_GLOBS = (
+# earlier full build must not stay downloadable or flashable. Skip mode
+# only exists on native esp32-idf, so only its paths (see
+# artifact_platforms/esp32.py BUILD_FILES) can go stale this way.
+_STALE_FLASH_IMAGE_PATHS = (
     "build/firmware.factory.bin",
     "build/bootloader/bootloader.bin",
-    ".pioenvs/*/firmware.factory.bin",
-    ".pioenvs/*/bootloader.bin",
 )
 
 
 def _drop_stale_flash_images(build_path: Path, member_names: set[str]) -> None:
     """Remove flash images the tarball did not carry."""
-    for pattern in _STALE_FLASH_IMAGE_GLOBS:
-        for path in build_path.glob(pattern):
-            if str(path.relative_to(build_path)) not in member_names:
-                path.unlink(missing_ok=True)
+    for name in _STALE_FLASH_IMAGE_PATHS:
+        if name not in member_names:
+            (build_path / name).unlink(missing_ok=True)
 
 
 def _safe_extract_excluding(
