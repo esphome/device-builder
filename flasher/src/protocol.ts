@@ -73,8 +73,14 @@ export interface FirmwareMessage {
   // part at address 0, which the receiver parses into flash runs itself; for
   // 'nrf-dfu' the DFU package the same way, which the receiver unpacks.
   flasher?: HandoffFlasher;
+  // Where the device's serial logs are, when the opener knows; absent means
+  // elsewhere or unknown.
+  logs?: HandoffLogs;
   parts: FlashPart[];
 }
+
+// 'flash-port': on the port the flash goes over; 'off': the device has none.
+export type HandoffLogs = "flash-port" | "off";
 
 // The flasher a hand-off is for, by an id both apps share: 'esp' is esptool
 // (ESP32 / ESP8266), 'rtl-ambz2' the RTL8720C ROM downloader, 'rp2-picoboot'
