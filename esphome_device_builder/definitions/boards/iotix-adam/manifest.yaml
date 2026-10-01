@@ -1,0 +1,629 @@
+id: iotix-adam
+name: IoTiX Adam
+manufacturer: IoTiX
+description: |
+  ESP32 IoT controller designed in Romania by IoTiX, a "swiss knife" for
+  home automation. It provides **16 digital inputs** and **16 digital
+  outputs** on two onboard PCF8575 I/O expanders (I2C on GPIO21/GPIO22),
+  plus an expansion slot for RS485, Ethernet or KNX daughterboards.
+
+  Works with the IoTiX add-ons: **P8C** (8 x 5 A relays over I2C via RJ45),
+  **NextSwitch** (RS485 wall-switch module) and **NextLight** (4-channel
+  0-10 V dimmer over RS485 or Wi-Fi).
+
+  Inputs and outputs are active-low, so both are configured with
+  `inverted: true`.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- relay
+product_url: https://www.tindie.com/products/iotix/adam/
+docs_url: https://esphome.io/components/pcf8574/
+images:
+- https://img.tindie.com/images/resize/MH52KwU2KA39bkIgygOVt0P1vms=/p/1200x1200/smart/i/087323/products/2021-11-15T20:33:29.745Z-20211115_225717.jpg
+full_config: true
+pins:
+- gpio: 0
+  label: BOOT
+  features:
+  - strapping
+  - boot_button
+  available: false
+  occupied_by: BOOT button
+- gpio: 21
+  label: SDA
+  features:
+  - i2c_sda
+  available: false
+  occupied_by: I2C bus (PCF8575 expanders, P8C)
+- gpio: 22
+  label: SCL
+  features:
+  - i2c_scl
+  available: false
+  occupied_by: I2C bus (PCF8575 expanders, P8C)
+featured_components:
+- id: bus_a
+  component_id: i2c
+  name: I2C bus (onboard)
+  description: Shared by both PCF8575 expanders and the P8C relay add-on.
+  fields:
+    sda:
+      value: 21
+      locked: true
+    scl:
+      value: 22
+      locked: true
+    scan: true
+    frequency: 100kHz
+    id:
+      value: bus_a
+      locked: true
+- id: hub_out
+  component_id: pcf8574
+  name: Outputs expander (PCF8575 @ 0x26)
+  fields:
+    address:
+      value: 38
+      locked: true
+    pcf8575:
+      value: true
+      locked: true
+    id:
+      value: hub_out
+      locked: true
+  requires:
+  - bus_a
+- id: hub_in
+  component_id: pcf8574
+  name: Inputs expander (PCF8575 @ 0x27)
+  fields:
+    address:
+      value: 39
+      locked: true
+    pcf8575:
+      value: true
+      locked: true
+    id:
+      value: hub_in
+      locked: true
+  requires:
+  - bus_a
+- id: do_1
+  component_id: switch.gpio
+  name: Digital output 1
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 0
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_1
+    name: DO1
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_2
+  component_id: switch.gpio
+  name: Digital output 2
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 1
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_2
+    name: DO2
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_3
+  component_id: switch.gpio
+  name: Digital output 3
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 2
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_3
+    name: DO3
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_4
+  component_id: switch.gpio
+  name: Digital output 4
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 3
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_4
+    name: DO4
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_5
+  component_id: switch.gpio
+  name: Digital output 5
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 4
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_5
+    name: DO5
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_6
+  component_id: switch.gpio
+  name: Digital output 6
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 5
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_6
+    name: DO6
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_7
+  component_id: switch.gpio
+  name: Digital output 7
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 6
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_7
+    name: DO7
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_8
+  component_id: switch.gpio
+  name: Digital output 8
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 7
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_8
+    name: DO8
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_9
+  component_id: switch.gpio
+  name: Digital output 9
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_9
+    name: DO9
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_10
+  component_id: switch.gpio
+  name: Digital output 10
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_10
+    name: DO10
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_11
+  component_id: switch.gpio
+  name: Digital output 11
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_11
+    name: DO11
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_12
+  component_id: switch.gpio
+  name: Digital output 12
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_12
+    name: DO12
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_13
+  component_id: switch.gpio
+  name: Digital output 13
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 12
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_13
+    name: DO13
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_14
+  component_id: switch.gpio
+  name: Digital output 14
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 13
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_14
+    name: DO14
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_15
+  component_id: switch.gpio
+  name: Digital output 15
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 14
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_15
+    name: DO15
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: do_16
+  component_id: switch.gpio
+  name: Digital output 16
+  fields:
+    pin:
+      value:
+        pcf8574: hub_out
+        number: 15
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id: do_16
+    name: DO16
+    restore_mode: ALWAYS_OFF
+  requires:
+  - bus_a
+  - hub_out
+- id: di_1
+  component_id: binary_sensor.gpio
+  name: Digital input 1
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 0
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_1
+    name: DI1
+  requires:
+  - bus_a
+  - hub_in
+- id: di_2
+  component_id: binary_sensor.gpio
+  name: Digital input 2
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 1
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_2
+    name: DI2
+  requires:
+  - bus_a
+  - hub_in
+- id: di_3
+  component_id: binary_sensor.gpio
+  name: Digital input 3
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 2
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_3
+    name: DI3
+  requires:
+  - bus_a
+  - hub_in
+- id: di_4
+  component_id: binary_sensor.gpio
+  name: Digital input 4
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 3
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_4
+    name: DI4
+  requires:
+  - bus_a
+  - hub_in
+- id: di_5
+  component_id: binary_sensor.gpio
+  name: Digital input 5
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 4
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_5
+    name: DI5
+  requires:
+  - bus_a
+  - hub_in
+- id: di_6
+  component_id: binary_sensor.gpio
+  name: Digital input 6
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 5
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_6
+    name: DI6
+  requires:
+  - bus_a
+  - hub_in
+- id: di_7
+  component_id: binary_sensor.gpio
+  name: Digital input 7
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 6
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_7
+    name: DI7
+  requires:
+  - bus_a
+  - hub_in
+- id: di_8
+  component_id: binary_sensor.gpio
+  name: Digital input 8
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_8
+    name: DI8
+  requires:
+  - bus_a
+  - hub_in
+- id: di_9
+  component_id: binary_sensor.gpio
+  name: Digital input 9
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_9
+    name: DI9
+  requires:
+  - bus_a
+  - hub_in
+- id: di_10
+  component_id: binary_sensor.gpio
+  name: Digital input 10
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 9
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_10
+    name: DI10
+  requires:
+  - bus_a
+  - hub_in
+- id: di_11
+  component_id: binary_sensor.gpio
+  name: Digital input 11
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 10
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_11
+    name: DI11
+  requires:
+  - bus_a
+  - hub_in
+- id: di_12
+  component_id: binary_sensor.gpio
+  name: Digital input 12
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 11
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_12
+    name: DI12
+  requires:
+  - bus_a
+  - hub_in
+- id: di_13
+  component_id: binary_sensor.gpio
+  name: Digital input 13
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 12
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_13
+    name: DI13
+  requires:
+  - bus_a
+  - hub_in
+- id: di_14
+  component_id: binary_sensor.gpio
+  name: Digital input 14
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 13
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_14
+    name: DI14
+  requires:
+  - bus_a
+  - hub_in
+- id: di_15
+  component_id: binary_sensor.gpio
+  name: Digital input 15
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 14
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_15
+    name: DI15
+  requires:
+  - bus_a
+  - hub_in
+- id: di_16
+  component_id: binary_sensor.gpio
+  name: Digital input 16
+  fields:
+    pin:
+      value:
+        pcf8574: hub_in
+        number: 15
+        mode: INPUT
+        inverted: true
+      locked: true
+    id: di_16
+    name: DI16
+  requires:
+  - bus_a
+  - hub_in
+default_components:
+- bus_a
+- hub_out
+- hub_in
