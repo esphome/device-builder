@@ -73,10 +73,7 @@ export interface FirmwareMessage {
   // part at address 0, which the receiver parses into flash runs itself; for
   // 'nrf-dfu' the DFU package the same way, which the receiver unpacks.
   flasher?: HandoffFlasher;
-  // The device logs on the port the flash goes over, so the receiver opens
-  // them after the install. Additive (v1): sent only when true; absent means
-  // it does not, or the opener does not know. Read for 'bk-uart', whose logs
-  // are otherwise on another UART.
+  // The device logs on the port the flash goes over; absent means no or unknown.
   logsOnFlashPort?: boolean;
   parts: FlashPart[];
 }
