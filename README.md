@@ -580,9 +580,10 @@ So it stays on, quietly, like a backup should.
 - If the directory already is a git repository of its own, it is
   adopted rather than re-initialised. Automatic commits are scoped
   to exactly the files that changed, so your own staged work is
-  never swept into one, and your `.gitignore` is never modified. Device Builder's own
-  machine state (sidecars, keys, pairing files) is kept out of
-  history via the repo-local `.git/info/exclude`.
+  never swept into one, and your `.gitignore` is never modified.
+  Device Builder's own machine state (sidecars, keys, pairing
+  files) is kept out of history via the repo-local
+  `.git/info/exclude`.
 - Your secrets file is never committed.
 - Commits are authored as
   `ESPHome Device Builder <device-builder@esphome.io>`, with hooks
