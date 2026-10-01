@@ -23,10 +23,10 @@ hardware:
   - bluetooth
 tags:
 - relay
-product_url: https://www.tindie.com/products/iotix/adam/
+product_url: https://shop.iotix.ro/product/adam/
 docs_url: https://esphome.io/components/pcf8574/
 images:
-- https://img.tindie.com/images/resize/MH52KwU2KA39bkIgygOVt0P1vms=/p/1200x1200/smart/i/087323/products/2021-11-15T20:33:29.745Z-20211115_225717.jpg
+- https://assets.iotix.ro/adam.png
 full_config: true
 pins:
 - gpio: 0
