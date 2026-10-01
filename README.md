@@ -570,14 +570,17 @@ So it stays on, quietly, like a backup should.
 
 **What it does on disk:**
 
-- If the config directory is not already a git repository, one is
+- If the config directory isn't inside any git repository, one is
   created for it, with a `.gitignore` that keeps `secrets.yaml` out
   of history.
-- If the directory already is a git work tree (or sits inside one,
-  as `/config/esphome` commonly does), it is adopted rather than
-  re-initialised. Automatic commits are scoped to exactly the files
-  that changed, so your own staged work is never swept into one,
-  and your `.gitignore` is never modified. Device Builder's own
+- If the directory sits inside a larger repository rooted higher up,
+  such as a git-tracked `/config`, Device Builder leaves that
+  repository alone: it creates and commits nothing there, logs why
+  once, and version history stays off.
+- If the directory already is a git repository of its own, it is
+  adopted rather than re-initialised. Automatic commits are scoped
+  to exactly the files that changed, so your own staged work is
+  never swept into one, and your `.gitignore` is never modified. Device Builder's own
   machine state (sidecars, keys, pairing files) is kept out of
   history via the repo-local `.git/info/exclude`.
 - Your secrets file is never committed.
