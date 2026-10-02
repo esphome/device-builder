@@ -87,7 +87,7 @@ test = [
 ]
 # Only the SDK interop job installs this: the official client is heavy and test-only.
 mcp-interop = [
-  "mcp>=1.26,<2",
+  "mcp>=1.26,<3",
 ]
 
 [project.urls]
