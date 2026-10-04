@@ -7,7 +7,7 @@ import type {
   OutboundMessage,
   FlashState,
 } from "./protocol";
-import { PROTOCOL_VERSION } from "./protocol";
+import { logBaudRateFor, PROTOCOL_VERSION } from "./protocol";
 
 // One image to write, in the byte form esptool-js 0.6 expects.
 interface FileToFlash {
@@ -354,12 +354,12 @@ async function openLiveLogPort(
 }
 
 // Stream the rebooted device's serial output into the log so a tester can watch
-// the boot end to end. Reads at 115200 (the ESPHome logger default); a board
-// whose logger uses a different baud (or whose USB id changes when running)
-// won't connect, which is surfaced rather than thrown.
+// the boot end to end, at the baud its logger uses. A board whose USB id
+// changes when running won't connect, which is surfaced rather than thrown.
 async function streamSerialLogs(
   oldPort: SerialPort,
   before: SerialPort[],
+  baud: number,
 ): Promise<void> {
   streaming = true;
   logbox.open = true;
@@ -368,7 +368,7 @@ async function streamSerialLogs(
   const { port, error } = await openLiveLogPort(
     oldPort,
     before,
-    115200,
+    baud,
     LOG_REOPEN_TIMEOUT_MS,
   );
   if (stopLogs || !port || !port.readable) {
@@ -423,7 +423,11 @@ async function streamSerialLogs(
   }
 }
 
-async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
+async function runFlash(
+  files: FileToFlash[],
+  erase: boolean,
+  logBaud: number,
+): Promise<void> {
   if (busy) return;
   const invalid = validateEspImage(files);
   if (invalid) {
@@ -501,7 +505,7 @@ async function runFlash(files: FileToFlash[], erase: boolean): Promise<void> {
     } catch {
       // already closed
     }
-    await streamSerialLogs(port, portsBeforeReset);
+    await streamSerialLogs(port, portsBeforeReset, logBaud);
   } catch (err) {
     setState("error", "Installation failed: " + String(err));
   } finally {
@@ -541,7 +545,7 @@ installBtn.addEventListener("click", async () => {
       data: new Uint8Array(p.data),
       address: p.address,
     }));
-    await runFlash(files, firmware.erase !== false);
+    await runFlash(files, firmware.erase !== false, logBaudRateFor(firmware));
     return;
   }
   const file = fileInput.files?.[0];
@@ -550,7 +554,7 @@ installBtn.addEventListener("click", async () => {
     return;
   }
   const data = new Uint8Array(await file.arrayBuffer());
-  await runFlash([{ data, address: 0 }], true);
+  await runFlash([{ data, address: 0 }], true, logBaudRateFor(null));
 });
 
 fileInput.addEventListener("change", () => {
