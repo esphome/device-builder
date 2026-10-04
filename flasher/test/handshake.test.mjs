@@ -217,7 +217,6 @@ try {
         nonce: "test-nonce-123",
         name: "kitchen.factory.bin",
         erase: true,
-        logBaudRate: 9600,
         parts: [{ address: 0, data: new ArrayBuffer(2048) }],
       },
       "*",

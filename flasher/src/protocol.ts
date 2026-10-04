@@ -100,12 +100,6 @@ export const handoffLogBaudRateOf = (value: unknown): number | undefined =>
     ? value
     : undefined;
 
-// The baud to read the flashed device's logs at: the one the opener handed
-// over, else ESPHome's default (a manually picked file, or an opener that did
-// not say).
-export const logBaudRateFor = (firmware: Partial<FirmwareMessage> | null): number =>
-  handoffLogBaudRateOf(firmware?.logBaudRate) ?? LOG_BAUD_RATE;
-
 // 'flash-port': on the port the flash goes over; 'off': the device has none.
 export type HandoffLogs = "flash-port" | "off";
 

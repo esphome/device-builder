@@ -7,7 +7,7 @@ import type {
   OutboundMessage,
   FlashState,
 } from "./protocol";
-import { logBaudRateFor, PROTOCOL_VERSION } from "./protocol";
+import { handoffLogBaudRateOf, LOG_BAUD_RATE, PROTOCOL_VERSION } from "./protocol";
 
 // One image to write, in the byte form esptool-js 0.6 expects.
 interface FileToFlash {
@@ -204,7 +204,8 @@ window.addEventListener("message", (ev: MessageEvent) => {
   if (targetOrigin === "*" && ev.origin && ev.origin !== "null") {
     targetOrigin = ev.origin;
   }
-  firmware = data as FirmwareMessage;
+  // An implausible baud is dropped here, like the other untrusted fields.
+  firmware = { ...data, logBaudRate: handoffLogBaudRateOf(data.logBaudRate) } as FirmwareMessage;
   installBtn.disabled = busy;
   setState(
     "connecting",
@@ -426,7 +427,8 @@ async function streamSerialLogs(
 async function runFlash(
   files: FileToFlash[],
   erase: boolean,
-  logBaud: number,
+  // Null when the device has no serial logs to follow.
+  logBaud: number | null,
 ): Promise<void> {
   if (busy) return;
   const invalid = validateEspImage(files);
@@ -493,6 +495,10 @@ async function runFlash(
     // chip in the stub bootloader (firmware never boots); use a real strategy.
     await hardResetChip(esploader, transport, port);
     flashDone = true;
+    if (logBaud === null) {
+      setState("done", "Installed and rebooting. This device has no serial logs to show.");
+      return;
+    }
     setState(
       "done",
       opener
@@ -545,7 +551,8 @@ installBtn.addEventListener("click", async () => {
       data: new Uint8Array(p.data),
       address: p.address,
     }));
-    await runFlash(files, firmware.erase !== false, logBaudRateFor(firmware));
+    const logBaud = firmware.logs === "off" ? null : (firmware.logBaudRate ?? LOG_BAUD_RATE);
+    await runFlash(files, firmware.erase !== false, logBaud);
     return;
   }
   const file = fileInput.files?.[0];
@@ -554,7 +561,7 @@ installBtn.addEventListener("click", async () => {
     return;
   }
   const data = new Uint8Array(await file.arrayBuffer());
-  await runFlash([{ data, address: 0 }], true, logBaudRateFor(null));
+  await runFlash([{ data, address: 0 }], true, LOG_BAUD_RATE);
 });
 
 fileInput.addEventListener("change", () => {
