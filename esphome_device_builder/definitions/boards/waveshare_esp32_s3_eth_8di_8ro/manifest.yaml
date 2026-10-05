@@ -124,6 +124,8 @@ featured_components:
     interrupt_pin:
       value: GPIO12
       locked: true
+  requires:
+  - onboard_psram
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
