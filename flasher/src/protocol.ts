@@ -100,6 +100,12 @@ export const handoffLogBaudRateOf = (value: unknown): number | undefined =>
     ? value
     : undefined;
 
+// The baud to read a handed-off device's logs at, or null when it has none.
+// 'logBaudRate' is the one already checked when the frame arrived.
+export const handoffLogBaud = (
+  firmware: Pick<FirmwareMessage, "logs" | "logBaudRate">,
+): number | null => (firmware.logs === "off" ? null : (firmware.logBaudRate ?? LOG_BAUD_RATE));
+
 // 'flash-port': on the port the flash goes over; 'off': the device has none.
 export type HandoffLogs = "flash-port" | "off";
 

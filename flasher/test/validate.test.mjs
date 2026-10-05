@@ -13,7 +13,7 @@ const load = async (name) => {
   );
 };
 const { validateEspImage } = await load("image-magic.ts");
-const { handoffLogBaudRateOf } = await load("protocol.ts");
+const { handoffLogBaud, handoffLogBaudRateOf } = await load("protocol.ts");
 
 let ok = true;
 const check = (cond, msg) => {
@@ -58,6 +58,13 @@ for (const baud of [300, 9600, 115200, 4_000_000]) {
 for (const bad of [undefined, null, 0, 299, 4_000_001, 9600.5, "9600", NaN, Infinity]) {
   check(handoffLogBaudRateOf(bad) === undefined, `log baud ignores ${typeof bad} ${String(bad)}`);
 }
+
+// The install reads the logs at the handed-over baud, at the default without
+// one, and not at all for a device whose logger is off.
+check(handoffLogBaud({ logBaudRate: 9600 }) === 9600, "logs open at the baud handed over");
+check(handoffLogBaud({}) === 115200, "logs open at the default without a baud");
+check(handoffLogBaud({ logs: "flash-port" }) === 115200, "logs on the flash port open at the default");
+check(handoffLogBaud({ logs: "off", logBaudRate: 9600 }) === null, "no logs for a device whose logger is off");
 
 console.log(ok ? "\nALL PASS" : "\nFAILURES");
 process.exit(ok ? 0 : 1);

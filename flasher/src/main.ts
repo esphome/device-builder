@@ -7,7 +7,7 @@ import type {
   OutboundMessage,
   FlashState,
 } from "./protocol";
-import { handoffLogBaudRateOf, LOG_BAUD_RATE, PROTOCOL_VERSION } from "./protocol";
+import { handoffLogBaud, handoffLogBaudRateOf, LOG_BAUD_RATE, PROTOCOL_VERSION } from "./protocol";
 
 // One image to write, in the byte form esptool-js 0.6 expects.
 interface FileToFlash {
@@ -551,8 +551,7 @@ installBtn.addEventListener("click", async () => {
       data: new Uint8Array(p.data),
       address: p.address,
     }));
-    const logBaud = firmware.logs === "off" ? null : (firmware.logBaudRate ?? LOG_BAUD_RATE);
-    await runFlash(files, firmware.erase !== false, logBaud);
+    await runFlash(files, firmware.erase !== false, handoffLogBaud(firmware));
     return;
   }
   const file = fileInput.files?.[0];
