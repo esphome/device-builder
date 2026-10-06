@@ -37,6 +37,7 @@ from esphome_device_builder.controllers.automations.writing_lists import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
     SubEntityRef,
+    apply_yaml_diff,
     remove_nested_handler,
     upsert_nested_handler,
 )
@@ -54,7 +55,7 @@ from esphome_device_builder.models.automations import (
     ScriptLocation,
     YamlDiff,
 )
-from tests.conftest import apply_yaml_diff
+from tests.conftest import apply_yaml_diff_like_frontend
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
@@ -64,7 +65,9 @@ def _load(name: str) -> str:
 
 
 def _apply_diff(text: str, diff: YamlDiff) -> str:
-    return apply_yaml_diff(text, diff.fromLine, diff.toLine, diff.replacement)
+    result = apply_yaml_diff_like_frontend(text, diff.fromLine, diff.toLine, diff.replacement)
+    assert apply_yaml_diff(text, diff) == result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1002,42 @@ def test_while_emits_condition_before_then() -> None:
     assert text.index("condition:") < text.index("then:")
 
 
+def test_while_gate_edit_round_trips_through_upsert() -> None:
+    """A condition added to a parsed ``while`` gate lands under ``condition:`` on upsert."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - while:\n"
+        "          condition:\n"
+        "            switch.is_on: relay1\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(yaml_text)[0]
+    assert parsed.error is None
+    tree = parsed.automation
+    tree.actions[0].conditions.append(
+        ConditionNode(condition_id="binary_sensor.is_on", params={"id": "occ"})
+    )
+    new_text, _diff = render_upsert(yaml_text, tree=tree, location=parsed.location)
+    reparsed = parse_device_yaml(new_text)[0]
+    assert reparsed.error is None
+    gate = reparsed.automation.actions[0]
+    assert gate.action_id == "while"
+    assert [c.condition_id for c in gate.conditions] == ["switch.is_on", "binary_sensor.is_on"]
+    assert [a.action_id for a in gate.children["then"]] == ["delay"]
+    assert new_text.endswith(
+        "      - while:\n"
+        "          condition:\n"
+        "            - switch.is_on: relay1\n"
+        "            - binary_sensor.is_on: occ\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
+
+
 def test_wait_until_emits_condition_before_timeout() -> None:
     """``wait_until`` emits ``condition:`` ahead of its ``timeout:`` param."""
     node = ActionNode(
@@ -1031,6 +1070,60 @@ def test_wait_until_shorthand_condition_round_trips_to_full_form() -> None:
         location=parsed.location,
     )
     assert "condition:" in new_text
+
+
+def test_wait_until_string_condition_round_trips_to_full_form() -> None:
+    """``wait_until: api.connected`` parses the condition and re-emits the gate, never ``id:``."""
+    yaml_text = "esphome:\n  name: x\n  on_boot:\n    then:\n      - wait_until: api.connected\n"
+    parsed = parse_device_yaml(yaml_text)[0]
+    assert [c.condition_id for c in parsed.automation.actions[0].conditions] == ["api.connected"]
+    new_text, _diff = render_upsert(
+        yaml_text,
+        tree=parsed.automation,
+        location=parsed.location,
+    )
+    assert "condition:" in new_text
+    assert "api.connected:" in new_text
+    assert "id:" not in new_text
+
+
+def test_if_included_condition_parses_read_only_instead_of_dropping_the_gate() -> None:
+    """``if: {condition: !include ...}`` flags the automation rather than saving it gateless."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - if:\n"
+        "          condition: !include gate.yaml\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(yaml_text)[0]
+    assert parsed.error is not None
+    assert parsed.unsupported is True
+    assert parsed.automation.actions == []
+
+
+def test_if_string_condition_survives_the_round_trip() -> None:
+    """``if: {condition: api.connected}`` keeps its condition on save instead of dropping it."""
+    yaml_text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - if:\n"
+        "          condition: api.connected\n"
+        "          then:\n"
+        "            - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(yaml_text)[0]
+    new_text, _diff = render_upsert(
+        yaml_text,
+        tree=parsed.automation,
+        location=parsed.location,
+    )
+    assert "api.connected" in new_text
 
 
 # ---------------------------------------------------------------------------
@@ -1093,6 +1186,20 @@ def test_upsert_light_effect_out_of_range_raises_invalid_args() -> None:
             location=LightEffectLocation(component_id="my_lamp", index=99),
         )
     assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_upsert_light_effect_refuses_to_overwrite_an_entry_the_parser_skips() -> None:
+    text = (
+        "light:\n  - platform: rgb\n    id: l1\n    red: r\n    green: g\n    blue: b\n"
+        "    effects:\n      - random:\n      - !include eff.yaml\n"
+    )
+    target = _effect_parse(text, 0)
+    with pytest.raises(CommandError) as exc:
+        render_upsert(
+            text, tree=target.automation, location=LightEffectLocation(component_id="l1", index=1)
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert exc.value.message == "effects[1] is not an entry the parser lists; append at 2 instead"
 
 
 def test_upsert_light_effect_non_list_effects_raises_invalid_args() -> None:
@@ -2224,6 +2331,73 @@ def test_upsert_script_with_same_id_replaces_existing_item() -> None:
     assert "delay: 1s" not in new_text
 
 
+_IDLESS_SCRIPTS = (
+    "esphome:\n  name: x\nscript:\n"
+    "  - then:\n      - delay: 1s\n"
+    "  - id: keep\n    then:\n      - delay: 2s\n"
+    "  - then:\n      - delay: 3s\n"
+)
+
+
+def _script_ids(text: str) -> list[str]:
+    rows = parse_device_yaml(text)
+    return [p.location.id for p in rows if isinstance(p.location, ScriptLocation)]
+
+
+@pytest.mark.parametrize(
+    ("script_id", "gone"), [("script_0", "delay: 1s"), ("script_2", "delay: 3s")]
+)
+def test_upsert_idless_script_replaces_the_row_listed_under_its_synthetic_id(
+    script_id: str, gone: str
+) -> None:
+    """A ``script_<index>`` id lands on that id-less row and writes the id onto it."""
+    new_text, diff = render_upsert(
+        _IDLESS_SCRIPTS,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="logger.log", params={"id": "wake"})],
+        ),
+        location=ScriptLocation(id=script_id),
+    )
+    assert _apply_diff(_IDLESS_SCRIPTS, diff) == new_text
+    assert gone not in new_text
+    assert f"- id: {script_id}" in new_text
+    assert _script_ids(new_text) == ["script_0", "keep", "script_2"]
+
+
+def test_upsert_script_prefers_the_row_declaring_the_id_over_an_idless_one() -> None:
+    """A declared ``script_0`` wins over the id-less row the parser also lists as ``script_0``."""
+    text = "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 2s\n"
+    new_text, diff = render_upsert(
+        text,
+        tree=AutomationTree(actions=[ActionNode(action_id="delay", params={"id": "9s"})]),
+        location=ScriptLocation(id="script_0"),
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert (
+        new_text
+        == "script:\n  - then:\n      - delay: 1s\n  - id: script_0\n    then:\n      - delay: 9s\n"
+    )
+
+
+def test_upsert_idless_script_past_the_end_appends() -> None:
+    """A synthetic id with no row behind it is a new script."""
+    new_text, diff = render_upsert(
+        _IDLESS_SCRIPTS,
+        tree=AutomationTree(actions=[ActionNode(action_id="delay", params={"id": "4s"})]),
+        location=ScriptLocation(id="script_7"),
+    )
+    assert _apply_diff(_IDLESS_SCRIPTS, diff) == new_text
+    assert _script_ids(new_text) == ["script_0", "keep", "script_2", "script_7"]
+
+
+def test_delete_idless_script_removes_the_row_listed_under_its_synthetic_id() -> None:
+    new_text, diff = render_delete(_IDLESS_SCRIPTS, location=ScriptLocation(id="script_2"))
+    assert _apply_diff(_IDLESS_SCRIPTS, diff) == new_text
+    assert "delay: 3s" not in new_text
+    assert _script_ids(new_text) == ["script_0", "keep"]
+
+
 def test_upsert_interval_at_existing_index_replaces_in_place() -> None:
     """An indexed interval upsert at a populated index replaces the item."""
     text = "esphome:\n  name: x\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
@@ -2774,6 +2948,19 @@ def test_round_trip_subentity_handler_is_parsed_back() -> None:
     assert [a.action_id for a in parsed[0].automation.actions] == ["light.toggle"]
 
 
+def test_delete_subentity_rejects_a_key_that_is_not_a_catalog_trigger() -> None:
+    """Sub-entity delete validates the key so a config block is never stripped."""
+    text = _AHT10.replace(
+        "      name: Kit Temperature\n",
+        "      name: Kit Temperature\n      filters:\n        - offset: 1\n",
+    )
+    with pytest.raises(CommandError) as excinfo:
+        render_delete(
+            text, location=ComponentOnLocation(component_id="aht20_temperature", trigger="filters")
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+
+
 def test_delete_subentity_handler_round_trips_to_original() -> None:
     """Deleting the sub-entity handler restores the byte-identical original."""
     loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
@@ -2797,6 +2984,122 @@ def test_two_subsensors_on_one_platform_target_independently() -> None:
     targeted = {(p.location.component_id, p.location.trigger) for p in parse_device_yaml(both)}
     assert ("aht20_temperature", "on_value_range") in targeted
     assert ("aht20_humidity", "on_value_range") in targeted
+
+
+_ROTARY = _load("rotary_encoder_triggers.yaml")
+_ROTARY_LOC = ComponentOnLocation(component_id="sensor_rotary_encoder_1", trigger="on_clockwise")
+_ROTARY_ANTI_LOC = ComponentOnLocation(
+    component_id="sensor_rotary_encoder_1", trigger="on_anticlockwise"
+)
+
+
+def _clockwise_tree() -> AutomationTree:
+    return AutomationTree(
+        trigger_id="rotary_encoder.sensor.on_clockwise",
+        trigger_params={},
+        actions=[ActionNode(action_id="logger.log", params={"format": "turned"})],
+    )
+
+
+def test_upsert_platform_scoped_trigger_splices_under_top_level_domain() -> None:
+    """A ``rotary_encoder.sensor.on_clockwise`` handler lands under the ``sensor:`` instance."""
+    without = _ROTARY.replace(
+        "    on_clockwise:\n"
+        "      - logger.log: clockwise\n"
+        "      - light.dim_relative:\n"
+        "          id: light_monochromatic_1\n"
+        "          relative_brightness: 5%\n",
+        "",
+    )
+    assert "on_clockwise" not in without
+    new_text, diff = render_upsert(without, tree=_clockwise_tree(), location=_ROTARY_LOC)
+    assert "sensor.rotary_encoder:" not in new_text
+    assert "    on_clockwise:\n      then:\n        - logger.log: turned\n" in new_text
+    assert _apply_diff(without, diff) == new_text
+    parsed = parse_device_yaml(new_text)
+    assert [(p.automation.trigger_id, p.location) for p in parsed] == [
+        ("rotary_encoder.sensor.on_anticlockwise", _ROTARY_ANTI_LOC),
+        ("rotary_encoder.sensor.on_clockwise", _ROTARY_LOC),
+    ]
+
+
+def test_upsert_platform_scoped_trigger_replaces_existing_handler() -> None:
+    """Re-saving an existing ``on_clockwise`` replaces its body in place."""
+    new_text, _diff = render_upsert(_ROTARY, tree=_clockwise_tree(), location=_ROTARY_LOC)
+    assert "logger.log: clockwise" not in new_text
+    assert "logger.log: turned" in new_text
+    assert "logger.log: anticlockwise" in new_text
+
+
+def test_upsert_platform_scoped_trigger_list_entry_appends() -> None:
+    """``index=1`` on a list-capable platform trigger appends a second entry."""
+    new_text, _diff = render_upsert(
+        _ROTARY,
+        tree=_clockwise_tree(),
+        location=ComponentOnLocation(
+            component_id="sensor_rotary_encoder_1", trigger="on_clockwise", index=1
+        ),
+    )
+    clockwise = [p for p in parse_device_yaml(new_text) if p.location.trigger == "on_clockwise"]
+    assert [p.location.index for p in clockwise] == [0, 1]
+    assert [a.action_id for a in clockwise[1].automation.actions] == ["logger.log"]
+
+
+def test_delete_platform_scoped_trigger_removes_only_that_handler() -> None:
+    """Deleting ``on_clockwise`` leaves the sibling ``on_anticlockwise`` intact."""
+    new_text, diff = render_delete(_ROTARY, location=_ROTARY_LOC)
+    assert "on_clockwise" not in new_text
+    assert "on_anticlockwise:" in new_text
+    assert _apply_diff(_ROTARY, diff) == new_text
+    assert [p.location.trigger for p in parse_device_yaml(new_text)] == ["on_anticlockwise"]
+
+
+def test_delete_rejects_a_key_that_is_not_a_catalog_trigger() -> None:
+    """Delete validates the handler key so a config field is never stripped."""
+    with pytest.raises(CommandError) as excinfo:
+        render_delete(
+            _ROTARY,
+            location=ComponentOnLocation(component_id="sensor_rotary_encoder_1", trigger="pin_a"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "pin_a: GPIO18" in _ROTARY
+
+
+def test_upsert_rejects_parent_platform_trigger_on_subentity() -> None:
+    """A parent platform's scoped key never splices under a nested sub-block."""
+    text = (
+        "esphome:\n  name: x\n"
+        "sensor:\n"
+        "  - platform: ltr_als_ps\n"
+        "    id: ltr\n"
+        "    ambient_light:\n"
+        "      id: ltr_als\n"
+    )
+    tree = AutomationTree(
+        trigger_id="ltr_als_ps.sensor.on_ps_high_threshold",
+        trigger_params={},
+        actions=[ActionNode(action_id="logger.log", params={"format": "bright"})],
+    )
+    with pytest.raises(CommandError) as excinfo:
+        render_upsert(
+            text,
+            tree=tree,
+            location=ComponentOnLocation(component_id="ltr_als", trigger="on_ps_high_threshold"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Unknown trigger id 'on_ps_high_threshold'" in str(excinfo.value)
+
+
+def test_upsert_platform_scoped_trigger_without_instance_names_top_level_domain() -> None:
+    """A missing instance reports the YAML domain, not the trigger's catalog id."""
+    with pytest.raises(CommandError) as excinfo:
+        render_upsert(
+            "esphome:\n  name: x\nsensor: []\n",
+            tree=_clockwise_tree(),
+            location=ComponentOnLocation(component_id="ghost", trigger="on_clockwise"),
+        )
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "not found under 'sensor'" in str(excinfo.value)
 
 
 _AHT10_IDLESS = (
@@ -3639,3 +3942,306 @@ def test_index_free_single_mapping_valves_round_trips() -> None:
     deleted, _d = render_delete(new_text, location=loc)
     assert "set_action" not in deleted
     assert "valve_switch: Only Zone" in deleted
+
+
+# ---------------------------------------------------------------------------
+# Mapping-form top-level blocks
+# ---------------------------------------------------------------------------
+
+_MAPPED_INTERVAL = (
+    "esphome:\n  name: x\ninterval:\n  interval: 60s\n  then:\n    - delay: 1s\nlogger:\n"
+)
+_MAPPED_SCRIPT = "script:\n  id: s1\n  then:\n    - delay: 1s\n"
+_TICK = AutomationTree(
+    trigger_params={"interval": "10s"},
+    actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+)
+
+
+def test_upsert_interval_on_a_mapping_form_block_appends_as_a_one_item_list() -> None:
+    new_text, diff = render_upsert(_MAPPED_INTERVAL, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "esphome:\n  name: x\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\nlogger:\n"
+    )
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_interval_on_a_mapping_form_block_replaces_index_zero() -> None:
+    new_text, diff = render_upsert(_MAPPED_INTERVAL, tree=_TICK, location=IntervalLocation(index=0))
+    assert new_text.count("- interval:") == 1
+    assert "interval: 10s" in new_text and "60s" not in new_text
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+
+
+def test_upsert_script_on_a_mapping_form_block_replaces_by_id_or_appends() -> None:
+    tree = AutomationTree(actions=[ActionNode(action_id="delay", params={"id": "3s"})])
+    replaced, diff = render_upsert(_MAPPED_SCRIPT, tree=tree, location=ScriptLocation(id="s1"))
+    assert replaced.count("- id:") == 1 and "delay: 3s" in replaced
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == replaced
+    appended, diff = render_upsert(_MAPPED_SCRIPT, tree=tree, location=ScriptLocation(id="s2"))
+    assert [p.location.id for p in parse_device_yaml(appended)] == ["s1", "s2"]
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == appended
+
+
+def test_delete_on_a_mapping_form_block_removes_its_one_entry() -> None:
+    new_text, diff = render_delete(_MAPPED_INTERVAL, location=IntervalLocation(index=0))
+    assert "60s" not in new_text and "logger:" in new_text
+    assert _apply_diff(_MAPPED_INTERVAL, diff) == new_text
+    new_text, diff = render_delete(_MAPPED_SCRIPT, location=ScriptLocation(id="s1"))
+    assert "delay" not in new_text
+    assert _apply_diff(_MAPPED_SCRIPT, diff) == new_text
+
+
+def test_listify_keeps_a_column_zero_comment_inside_the_block() -> None:
+    text = "interval:\n  interval: 60s\n# a column-zero note\n  then:\n    - delay: 1s\nlogger:\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith(
+        "interval:\n  - interval: 60s\n    # a column-zero note\n    then:\n      - delay: 1s\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_listify_keeps_comments_and_blank_lines_inside_the_block() -> None:
+    text = "interval:\n  # every minute\n  interval: 60s\n\n  then:\n    - delay: 1s\n"
+    new_text, _diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith(
+        "interval:\n  # every minute\n  - interval: 60s\n\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n"
+    )
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}\nota:\n",
+        "logger:\ninterval: [{interval: 60s, then: [{delay: 1s}]}]\nota:\n",
+    ],
+    ids=["flow_mapping", "flow_list"],
+)
+def test_upsert_expands_a_one_line_flow_block_into_a_block_list(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "logger:\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\nota:\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_upsert_expands_an_empty_flow_list_and_keeps_a_trailing_comment() -> None:
+    new_text, diff = render_upsert(
+        "logger:\ninterval: []\nota:\n", tree=_TICK, location=IntervalLocation(index=0)
+    )
+    assert new_text == "logger:\ninterval:\n  - interval: 10s\n    then:\n      - delay: 2s\nota:\n"
+    assert _apply_diff("logger:\ninterval: []\nota:\n", diff) == new_text
+    for text in (
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}  # note\nota:\n",
+        "logger:\ninterval: [{interval: 60s, then: [{delay: 1s}]}]  # note\nota:\n",
+    ):
+        new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+        assert new_text.startswith("logger:\ninterval:  # note\n  - interval: 60s\n")
+        assert _apply_diff(text, diff) == new_text
+        assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        (
+            "interval: {interval: 60s,\n  then: [{delay: 1s}]}\n",
+            "interval: is written in flow style across several lines; rewrite it as a block first",
+        ),
+        ("interval: 60s\n", "interval: holds a scalar, not an automation block"),
+        (
+            "interval: !include intervals.yaml\n",
+            "interval: is provided by a tag; edit the included file instead",
+        ),
+    ],
+    ids=["multi_line_flow", "inline_scalar", "tagged"],
+)
+def test_upsert_refuses_a_block_it_cannot_expand_naming_its_shape(text: str, message: str) -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == message
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "logger:\ninterval:\n  interval: 60s\n  then:\n    - delay: 1s",
+        "logger:\ninterval: {interval: 60s, then: [{delay: 1s}]}",
+    ],
+    ids=["mapping", "flow"],
+)
+def test_a_rewritten_file_without_a_final_newline_matches_the_splice(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert not new_text.endswith("\n")
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "location",
+    [ScriptLocation(id="s1"), IntervalLocation(index=0)],
+    ids=["script_by_id", "interval_by_index"],
+)
+def test_delete_refuses_a_flow_block_it_cannot_expand(
+    location: ScriptLocation | IntervalLocation,
+) -> None:
+    domain = "script" if isinstance(location, ScriptLocation) else "interval"
+    text = f"{domain}: {{id: s1, interval: 60s,\n  then: [{{delay: 1s}}]}}\n"
+    with pytest.raises(CommandError) as err:
+        render_delete(text, location=location)
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        f"{domain}: is written in flow style across several lines; rewrite it as a block first"
+    )
+
+
+def test_listify_leaves_a_trailing_banner_with_the_next_block() -> None:
+    text = (
+        "interval:\n  interval: 60s\n  then:\n    - delay: 1s\n"
+        "# --- logging ---\nlogger:\n  level: DEBUG\n"
+    )
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text == (
+        "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
+        "  - interval: 10s\n    then:\n      - delay: 2s\n"
+        "# --- logging ---\nlogger:\n  level: DEBUG\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+    deleted, diff = render_delete(new_text, location=IntervalLocation(index=1))
+    assert "# --- logging ---\nlogger:" in deleted
+    assert _apply_diff(new_text, diff) == deleted
+
+
+def test_list_append_lands_above_a_trailing_banner() -> None:
+    text = (
+        "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n# --- logging ---\nlogger:\n"
+    )
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.endswith(
+        "  - interval: 10s\n    then:\n      - delay: 2s\n# --- logging ---\nlogger:\n"
+    )
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "scalar",
+    ['"a # b"', '"a \\" # b"', "'it''s # x'"],
+    ids=["double_quoted", "escaped_double_quote", "doubled_single_quote"],
+)
+def test_upsert_expands_a_flow_block_holding_a_quoted_hash(scalar: str) -> None:
+    text = f"interval: {{interval: 60s, then: [{{logger.log: {scalar}}}]}}\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.count("- interval:") == 2 and "# b" not in new_text.split("logger.log")[1][:1]
+    assert _apply_diff(text, diff) == new_text
+    assert [p.location.index for p in parse_device_yaml(new_text)] == [0, 1]
+
+
+def test_list_append_lands_directly_after_the_last_item_past_a_blank_of_spaces() -> None:
+    text = "interval:\n  - interval: 60s\n    then:\n      - delay: 1s\n   \nlogger:\n"
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert "      - delay: 1s\n  - interval: 10s\n" in new_text
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\n",
+        "interval: &shared\n  interval: 60s\n  then:\n    - delay: 1s\n",
+    ],
+    ids=["anchored_list", "anchored_mapping"],
+)
+def test_an_anchored_header_is_a_block_header(text: str) -> None:
+    new_text, diff = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith("interval: &shared\n  - interval: 60s\n")
+    assert new_text.count("- interval:") == 2
+    assert _apply_diff(text, diff) == new_text
+
+
+def test_an_aliased_anchor_blocks_the_mapping_rewrite_but_not_a_list() -> None:
+    mapping = "interval: &shared\n  interval: 60s\n  then:\n    - delay: 1s\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(mapping, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+    as_list = "interval: &shared\n  - interval: 60s\n    then:\n      - delay: 1s\nother: *shared\n"
+    new_text, _diff = render_upsert(as_list, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.count("- interval:") == 2 and "other: *shared" in new_text
+
+
+def test_an_aliased_anchor_blocks_the_flow_expansion_too() -> None:
+    text = "interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+
+
+def test_a_nested_aliased_anchor_is_named_in_the_refusal() -> None:
+    text = "interval: {interval: 60s, then: &acts [{delay: 1s}]}\nother: *acts\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert (
+        err.value.message == "interval: holds an aliased anchor &acts; rewrite it as a list first"
+    )
+
+
+def test_a_nested_anchor_survives_the_mapping_normalisation() -> None:
+    text = "interval:\n  interval: 60s\n  then:\n    - delay: &d 1s\nother: *d\n"
+    new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert "      - delay: &d 1s\n" in new_text
+    assert new_text.endswith("other: *d\n")
+
+
+def test_a_scalar_valued_like_the_domain_does_not_hide_the_header_anchor() -> None:
+    text = "# interval\ncomment: interval\ninterval: &shared\n  interval: 60s\nother: *shared\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.message == (
+        "interval: is anchored as &shared and aliased; rewrite it as a list first"
+    )
+
+
+def test_an_alias_as_the_whole_value_is_named_in_the_refusal() -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert("interval: *tick\n", tree=_TICK, location=IntervalLocation(index=1))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == "interval: is an alias; rewrite it as a block first"
+
+
+def test_a_delete_by_index_still_splices_a_draft_that_does_not_parse() -> None:
+    text = "interval:\n  interval: 60s\n  then:\n    - delay: 1s\nbroken: [unclosed\n"
+    new_text, _ = render_delete(text, location=IntervalLocation(index=0))
+    assert new_text == "interval:\nbroken: [unclosed\n"
+
+
+def test_a_quoted_or_commented_star_is_not_an_alias() -> None:
+    text = 'interval: &shared {interval: 60s, then: [{delay: 1s}]}\nother: "*shared"  # *shared\n'
+    new_text, _ = render_upsert(text, tree=_TICK, location=IntervalLocation(index=1))
+    assert new_text.startswith("interval:\n  - interval: 60s\n")
+    assert new_text.endswith('other: "*shared"  # *shared\n')
+
+
+def test_an_alias_inside_a_flow_value_is_named_in_the_refusal() -> None:
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            "interval: {interval: 60s, then: *common}\n",
+            tree=_TICK,
+            location=IntervalLocation(index=1),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == (
+        "interval: holds an alias inside a flow value; rewrite it as a block first"
+    )

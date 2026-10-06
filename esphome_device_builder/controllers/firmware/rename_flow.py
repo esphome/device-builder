@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON
 
-from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import remove_device_files
+from ...helpers.device_config import read_device_config
 from ...helpers.device_yaml import (
     configuration_filename,
     parse_esphome_meta,
@@ -19,7 +19,7 @@ from ...helpers.device_yaml import (
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import rewrite_rename_content
-from ...models import ErrorCode, FirmwareJob, JobStatus, JobType
+from ...models import FirmwareJob, JobStatus, JobType
 from . import factories
 
 if TYPE_CHECKING:
@@ -57,23 +57,18 @@ async def begin_rename(
     settings = controller._db.settings
 
     # ``rel_path`` resolves symlinks (blocking) — executor, like the runner.
-    def _read() -> tuple[Path, str | None]:
+    def _read() -> tuple[Path, str]:
         new_path = settings.rel_path(new_filename)
         if content is not None:
             return new_path, content
-        try:
-            return new_path, settings.rel_path(configuration).read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return new_path, None
+        return new_path, read_device_config(settings.rel_path(configuration), configuration)
 
-    new_path, content = await run_in_executor(_read)
-    if content is None:
-        raise CommandError(ErrorCode.INVALID_ARGS, f"Device {configuration} not found")
+    new_path, existing = await run_in_executor(_read)
 
     if new_content is None:
-        new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
+        new_content = rewrite_rename_content(existing, new_name, remedy=RENAME_REMEDY)
     port = await resolve_old_device_address(
-        controller, configuration, resolved_device_name(parse_esphome_meta(content), configuration)
+        controller, configuration, resolved_device_name(parse_esphome_meta(existing), configuration)
     )
     build_source = controller._resolve_install_source()
 

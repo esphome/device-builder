@@ -677,9 +677,14 @@ class PlatformCapabilities(NamedTuple):
     logger_interface_defaults: dict[str, str]
     # The explicit ``hardware_uart`` values the logger accepts.
     logger_interface_values: list[str]
+    # ``{platform: {pio_board: mcu}}`` for the platforms that lump several
+    # chips under one key (rp2, the LibreTiny families), for resolving a
+    # device's chip from its YAML ``board:``. A platform that is absent needs
+    # no split.
+    board_mcus: dict[str, dict[str, str]]
 
 
-EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [])
+EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [], {})
 
 
 @cache
@@ -721,14 +726,26 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
             return []
         return [str(item) for item in value if isinstance(item, str)]
 
-    def _str_map(key: str) -> dict[str, str]:
-        value = payload.get(key)
+    def _coerce_str_map(value: object) -> dict[str, str]:
         if not isinstance(value, dict):
             return {}
         return {
             item: mapped
             for item, mapped in value.items()
             if isinstance(item, str) and isinstance(mapped, str)
+        }
+
+    def _str_map(key: str) -> dict[str, str]:
+        return _coerce_str_map(payload.get(key))
+
+    def _str_map_of_maps(key: str) -> dict[str, dict[str, str]]:
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            return {}
+        return {
+            outer: _coerce_str_map(inner)
+            for outer, inner in value.items()
+            if isinstance(outer, str) and isinstance(inner, dict)
         }
 
     return PlatformCapabilities(
@@ -741,6 +758,7 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
         esp32_board_variants=_str_map("esp32_board_variants"),
         logger_interface_defaults=_str_map("logger_interface_defaults"),
         logger_interface_values=_str_list("logger_interface_values"),
+        board_mcus=_str_map_of_maps("board_mcus"),
     )
 
 

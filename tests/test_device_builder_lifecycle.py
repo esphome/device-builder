@@ -164,6 +164,7 @@ async def test_start_registers_command_handlers_from_every_controller(
         assert "config/version" in db.command_handlers  # ConfigController
         assert "devices/list" in db.command_handlers  # DevicesController
         assert "firmware/compile" in db.command_handlers  # FirmwareController
+        assert "firmware/analyze_memory" in db.command_handlers
         assert "editor/validate_yaml" in db.command_handlers  # EditorController
 
         # Built-in commands wired post-loop.

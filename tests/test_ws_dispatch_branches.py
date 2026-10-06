@@ -10,13 +10,17 @@ error. The tests below pin one assertion per branch.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from esphome_device_builder.api.ws import WebSocketClient
 from esphome_device_builder.controllers.auth import AuthError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
+from tests.conftest import make_job
 
 
 def _make_client(*, authenticated: bool = True) -> tuple[WebSocketClient, AsyncMock]:
@@ -59,25 +63,42 @@ def test_token_property_returns_value_set_by_authenticator() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_send_result_invokes_to_dict_on_dataclass_results() -> None:
-    """``send_result`` flattens ``to_dict``-shaped results before sending.
-
-    Most handler returns are mashumaro dataclasses; the wire layer
-    serialises them via the dataclass's own ``to_dict`` so the
-    JSON shape stays under model control instead of getting
-    auto-derived from ``__dict__``.
-    """
+async def test_send_result_serialises_a_top_level_model() -> None:
     client, ws = _make_client()
+    job = make_job()
 
-    class _Result:
-        def to_dict(self) -> dict[str, str]:
-            return {"flavoured": "yes"}
-
-    await client.send_result("m1", _Result())
+    await client.send_result("m1", job)
 
     payload = _last_payload(ws)
-    assert payload["result"] == {"flavoured": "yes"}
+    assert payload["result"] == job.to_dict()
     assert payload["message_id"] == "m1"
+
+
+@pytest.mark.parametrize(
+    ("wrap", "unwrap"),
+    [
+        pytest.param(lambda job: [job], lambda result: result[0], id="list"),
+        pytest.param(lambda job: {"j": job}, lambda result: result["j"], id="dict"),
+    ],
+)
+async def test_send_result_serialises_models_inside_a_container(
+    wrap: Callable[[Any], Any], unwrap: Callable[[Any], Any]
+) -> None:
+    client, ws = _make_client()
+    job = make_job()
+    job.ninja_total = 7
+
+    await client.send_result("m1", wrap(job))
+
+    sent = unwrap(_last_payload(ws)["result"])
+    assert sent == job.to_dict()
+    assert "ninja_total" not in sent
+
+
+async def test_send_result_passes_plain_values_through() -> None:
+    client, ws = _make_client()
+    await client.send_result("m1", {"names": ["a", "b"], "count": 2})
+    assert _last_payload(ws)["result"] == {"names": ["a", "b"], "count": 2}
 
 
 async def test_send_event_serialises_eventmessage() -> None:

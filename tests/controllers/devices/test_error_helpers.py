@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, NoReturn, cast
 
 import pytest
 
 from esphome_device_builder.controllers.devices.helpers import (
     raise_device_name_exists,
-    raise_device_not_found,
+    require_catalog,
     require_file_exists,
+    require_unchanged,
+    scanned_component_entries,
     write_new_file_exclusive,
 )
 from esphome_device_builder.helpers.api import CommandError
@@ -20,19 +23,56 @@ from esphome_device_builder.models import ErrorCode
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-
-def test_raise_device_not_found_code_and_message() -> None:
-    with pytest.raises(CommandError) as exc_info:
-        raise_device_not_found("living.yaml")
-    assert exc_info.value.code is ErrorCode.NOT_FOUND
-    assert exc_info.value.message == "Device 'living.yaml' not found"
+    from esphome_device_builder.device_builder import DeviceBuilder
 
 
-def test_raise_device_not_found_chains_cause() -> None:
-    cause = FileNotFoundError("gone")
-    with pytest.raises(CommandError) as exc_info:
-        raise_device_not_found("living.yaml", from_exc=cause)
-    assert exc_info.value.__cause__ is cause
+def test_require_catalog_raises_unavailable_when_unloaded() -> None:
+    db = SimpleNamespace(components=None)
+    with pytest.raises(CommandError) as excinfo:
+        require_catalog(cast("DeviceBuilder", db))
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE
+
+    db.components = object()
+    assert require_catalog(cast("DeviceBuilder", db)) is db.components
+
+
+def _scan_db(component_ids: list[str] | None) -> DeviceBuilder:
+    """Build a db whose scan holds ``kitchen.yaml`` with *component_ids* (``None``: no devices)."""
+    entries = {"esphome": object(), "sensor.dht": object()}
+    device = SimpleNamespace(component_ids=component_ids)
+    devices = SimpleNamespace(
+        get_by_configuration=lambda name: device if name == "kitchen.yaml" else None
+    )
+    db = SimpleNamespace(
+        components=SimpleNamespace(index_entry=entries.get),
+        devices=None if component_ids is None else devices,
+    )
+    return cast("DeviceBuilder", db)
+
+
+def test_scanned_component_entries_returns_the_catalogued_ids_in_scan_order() -> None:
+    db = _scan_db(["esphome", "external.thing", "sensor.dht"])
+    entries = scanned_component_entries(db, "kitchen.yaml")
+    assert entries == [
+        db.components.index_entry("esphome"),
+        db.components.index_entry("sensor.dht"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("component_ids", "configuration", "code"),
+    [
+        pytest.param(None, "kitchen.yaml", ErrorCode.UNAVAILABLE, id="devices_not_loaded"),
+        pytest.param(["esphome"], "ghost.yaml", ErrorCode.NOT_FOUND, id="unknown_device"),
+        pytest.param([], "kitchen.yaml", ErrorCode.UNAVAILABLE, id="scan_could_not_load_it"),
+    ],
+)
+def test_scanned_component_entries_refuses(
+    component_ids: list[str] | None, configuration: str, code: ErrorCode
+) -> None:
+    with pytest.raises(CommandError) as excinfo:
+        scanned_component_entries(_scan_db(component_ids), configuration)
+    assert excinfo.value.code is code
 
 
 def test_raise_device_name_exists_code_and_message() -> None:
@@ -104,3 +144,16 @@ async def test_write_new_file_exclusive_reraises_when_on_exists_returns(tmp_path
 
     assert len(seen) == 1
     assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_require_unchanged_passes_the_text_it_started_from() -> None:
+    require_unchanged("a: 1\n", "a: 1\n", "k.yaml")
+    require_unchanged("a: 1\n", "a: 1", "k.yaml")
+
+
+def test_require_unchanged_refuses_a_text_that_moved_on() -> None:
+    with pytest.raises(CommandError) as excinfo:
+        require_unchanged("a: 9\n", "a: 1\n", "k.yaml")
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert excinfo.value.message.startswith("k.yaml differs from the expected text")
+    assert "-a: 1\n+a: 9\n" in excinfo.value.message

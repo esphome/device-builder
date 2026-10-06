@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from esphome import const, yaml_util
 from esphome.components.packages import resolve_packages
+from esphome.config_helpers import Extend, Remove
 from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
@@ -23,15 +24,18 @@ from ..mac_addresses import derive_interface_macs
 from ..migrations import has_pending_migrations
 from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
+from ._chip import resolve_chip_mcu
 from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
+    _UNRESOLVED_SUBSTITUTION_RE,
     _extract_resolved_substitutions,
     _is_valid_esphome_name,
     _pick_meta,
     config_has_top_level_block,
     configuration_stem,
     detect_platform_from_yaml,
+    extract_component_ids,
     extract_config_content_fingerprint,
     extract_directly_referenced_integrations,
     extract_esphome_meta_from_config,
@@ -42,6 +46,7 @@ from ._parsing import (
     has_top_level_block,
     mdns_disabled_enabled,
     name_add_mac_suffix_enabled,
+    ota_encryption_declared,
     parse_esphome_meta,
     safe_stat_key,
     yaml_has_api_encryption,
@@ -49,6 +54,8 @@ from ._parsing import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_DEFERRED_MARKERS = (yaml_util.IncludeFile, Remove, Extend)
 
 # ---------------------------------------------------------------------------
 # Device construction
@@ -73,6 +80,8 @@ def load_device_from_storage(
     deployed_version: str = "",
     queued_update: bool = False,
     api_encryption_active: str | None = None,
+    deployed_name: str = "",
+    offline_since: float | None = None,
     previous: Device | None = None,
     shallow: bool = False,
 ) -> Device:
@@ -198,6 +207,7 @@ def load_device_from_storage(
             deployed_version=deployed_version,
             api_encryption_active=api_encryption_active,
             queued_update=queued_update,
+            offline_since=offline_since,
         )
     )
 
@@ -260,6 +270,8 @@ def load_device_from_storage(
         extra_subs,
         storage_variant=storage.target_platform if storage else None,
     )
+
+    mcu = resolve_chip_mcu(resolved_config, yaml_content, target_platform, extra_subs)
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
     loaded_platforms = dotted_loaded_platforms(storage.loaded_platforms) if storage else []
@@ -347,12 +359,14 @@ def load_device_from_storage(
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         content_fingerprint=extract_config_content_fingerprint(yaml_content),
         ip=ip,
+        deployed_name=deployed_name,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
         expected_config_hash=expected_config_hash,
         loaded_integrations=loaded_integrations,
         loaded_platforms=loaded_platforms,
         directly_referenced_integrations=directly_referenced_integrations,
+        component_ids=extract_component_ids(resolved_config),
         has_pending_changes=has_pending,
         pending_changes_via_hash=pending_via_hash,
         update_available=update_available,
@@ -369,6 +383,7 @@ def load_device_from_storage(
         mdns_disabled=mdns_disabled_enabled(resolved_config, yaml_content),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
+        ota_encryption_required=ota_encryption_declared(resolved_config, yaml_content),
         mac_address=mac_address,
         ethernet_mac=ethernet_mac,
         bluetooth_mac=bluetooth_mac,
@@ -376,6 +391,7 @@ def load_device_from_storage(
         labels=list(labels),
         logger_baud_rate=logger_baud_rate,
         logger_interface=logger_interface,
+        mcu=mcu,
         # Gates the install dialog's OTA bootloader-update action; esp32-only
         # (the esphome schema rejects the flag elsewhere). Union of two
         # signals: the in-process resolved YAML (immediate on edit) and the
@@ -514,7 +530,7 @@ def load_device_yaml(path: Path) -> dict | None:
     # content with no per-repo ``git fetch``. The legacy dashboard read
     # StorageJSON only and never resolved packages, so it did no git work here;
     # real builds refresh via the esphome CLI's own resolve.
-    if isinstance(config.get(CONF_PACKAGES), (dict, list)):
+    if _has_packages_block(config):
         try:
             config = resolve_packages(config)
         except Exception:
@@ -534,6 +550,45 @@ def load_device_yaml(path: Path) -> dict | None:
     # return so the public ``dict | None`` signature is honest
     # without forcing every caller to re-narrow on receive.
     return cast("dict[Any, Any] | None", config)
+
+
+def resolution_incomplete(config: dict | None) -> bool:
+    """Whether the in-process load left work only ``esphome config`` can finish."""
+    return (
+        config is None
+        or _has_packages_block(config)
+        or _holds_deferred_marker(config)
+        or _has_substituted_block(config)
+    )
+
+
+def _has_packages_block(config: dict) -> bool:
+    """Whether *config* carries a ``packages:`` block the loader would try to merge."""
+    return isinstance(config.get(CONF_PACKAGES), (dict, list))
+
+
+def _has_substituted_block(config: dict) -> bool:
+    """Whether a top-level block, or an item of one, is still a substitution string."""
+    # Deferred detection covers block presence only; a value nested inside a
+    # block is a caller's own concern (see importable's OTA guard).
+    for value in config.values():
+        items = value if isinstance(value, list) else [value]
+        if any(
+            isinstance(item, str) and _UNRESOLVED_SUBSTITUTION_RE.search(item) for item in items
+        ):
+            return True
+    return False
+
+
+def _holds_deferred_marker(value: object) -> bool:
+    """Whether an ``!include`` / ``!remove`` / ``!extend`` marker survives anywhere in *value*."""
+    if isinstance(value, _DEFERRED_MARKERS):
+        return True
+    if isinstance(value, dict):
+        return any(_holds_deferred_marker(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_holds_deferred_marker(v) for v in value)
+    return False
 
 
 def compiled_config_has_ota_partition_access(configuration: str) -> bool:

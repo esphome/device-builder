@@ -31,7 +31,7 @@ from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
 
-from ..constants import SECRETS_FILENAME
+from ..constants import SECRETS_FILENAME, SECRETS_FILENAMES
 from ..models import ErrorCode
 from .api import CommandError
 from .async_ import run_in_executor
@@ -100,7 +100,7 @@ def secrets_problem(detail: str) -> str:
     if (
         len(marks) == 2
         and marks[0].path == marks[1].path
-        and cross_os_basename(marks[0].path) == SECRETS_FILENAME
+        and cross_os_basename(marks[0].path).casefold() in SECRETS_FILENAMES
     ):
         key = detail.removeprefix('Duplicate key "').split('"', 1)[0]
         first, second = sorted(mark.line for mark in marks)
@@ -132,12 +132,12 @@ def validate_secrets_content(content: str, path: Path) -> dict:
         # A self-referential ``!secret`` inside secrets.yaml recurses in the
         # loader (it crashes the real reader too); reject instead of 500ing.
         # Nothing derived from the file: the loader's message can quote a secret.
-        _LOGGER.warning("secrets.yaml could not be parsed by the esphome loader; rejecting")
+        _LOGGER.warning("secrets file could not be parsed by the esphome loader; rejecting")
         detail = trim_marks(f"could not be parsed: {err}")
-        raise SecretsContentError(f"secrets.yaml {detail}", problem=detail) from err
+        raise SecretsContentError(f"{path.name} {detail}", problem=detail) from err
     if data is not None and not isinstance(data, dict):
         problem = "must be a top-level mapping of name: value entries"
-        raise SecretsContentError(f"secrets.yaml {problem}", problem=problem)
+        raise SecretsContentError(f"{path.name} {problem}", problem=problem)
     return data or {}
 
 

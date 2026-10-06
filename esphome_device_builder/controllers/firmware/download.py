@@ -71,6 +71,12 @@ def _platform_sets() -> _DownloadRouting:
 _platform_sets()
 
 
+# An nRF52 build with the mcumgr OTA chains MCUboot behind the Adafruit
+# bootloader, so it has a UF2 and this update image; ``get_download_types``
+# lists the image only for a build with no UF2.
+_MCUBOOT_UPDATE_IMAGE = "zephyr/app_update.bin"
+
+
 def _helper_cmd() -> tuple[str, ...]:
     """Argv prefix for the device-builder-helper child (cached by _find_sibling_cli)."""
     return helper_cli_cmd()
@@ -93,8 +99,9 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
 
     The platform's ``get_download_types`` entries that exist, plus a
     ``firmware.elf`` entry when present (``get_download_types`` never
-    lists it). Empty means nothing is built yet. Each ``file`` is fetched
-    over HTTP via ``GET /api/firmware/download`` (see :func:`http_download`).
+    lists it) and the MCUboot update image. Empty means nothing is built
+    yet. Each ``file`` is fetched over HTTP via
+    ``GET /api/firmware/download`` (see :func:`http_download`).
     """
     # ``resolve_storage_path`` collapses to
     # ``<data_dir>/storage/<Path(configuration).name>.json``; a
@@ -120,7 +127,8 @@ def collect_download_entries(
 
     The platform's ``get_download_types`` entries that exist under
     ``firmware_bin_path.parent`` (the build dir, ``.pioenvs/<name>/`` or
-    native-IDF ``build/``), plus ``firmware.elf`` when present. Empty
+    native-IDF ``build/``), plus ``firmware.elf`` and the MCUboot update
+    image when present. Empty
     when nothing is built. The single source of truth for what a build
     offers; ``get_binaries`` is its async wrapper. *label* identifies the
     build in the failure log -- the caller's configuration filename when it
@@ -148,6 +156,16 @@ def collect_download_entries(
                 "title": "ELF (for debugging)",
                 "description": "Debug symbols for the ESP stack trace decoder.",
                 "file": "firmware.elf",
+            }
+        )
+    if (build_dir / _MCUBOOT_UPDATE_IMAGE).is_file() and not any(
+        t["file"] == _MCUBOOT_UPDATE_IMAGE for t in downloads
+    ):
+        downloads.append(
+            {
+                "title": "App update package",
+                "description": "For updating over mcumgr using BLE or USB CDC.",
+                "file": _MCUBOOT_UPDATE_IMAGE,
             }
         )
     for entry in downloads:

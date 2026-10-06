@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -15,6 +16,7 @@ from ...definitions import load_platform_capabilities_index
 from ...models.boards import RP2_PLATFORM_ALIASES, normalize_platform
 from ..chips import normalize_chip_variant
 from ..yaml import (
+    ESPHOME_NAME_ADD_MAC_SUFFIX_PATH,
     TRUTHY_BOOL_STRINGS,
     _split_value_and_comment,
     _strip_yaml_quotes,
@@ -107,18 +109,22 @@ def configuration_filename(name: str) -> str:
 
 
 def parse_platform_from_yaml(yaml_content: str) -> tuple[str, str, str]:
-    """
-    Extract ``(platform, pio_board, variant)`` from device YAML content.
+    """Extract ``(platform, pio_board, variant)``; see ``parse_platform_fields``."""
+    platform, fields = parse_platform_fields(yaml_content, ("board", "variant"))
+    return platform, fields["board"], fields["variant"]
 
-    Looks at top-level platform keys (``esp32:``, ``esp8266:``, …) and
-    reads the ``board:`` and ``variant:`` fields nested under them.
-    Returns empty strings for fields that aren't present.
+
+def parse_platform_fields(yaml_content: str, keys: tuple[str, ...]) -> tuple[str, dict[str, str]]:
+    """
+    Extract the platform and the *keys* nested under it from device YAML content.
+
+    Looks at top-level platform keys (``esp32:``, ``esp8266:``, …) in the raw
+    text, so it sees neither packages nor substitutions. Every key comes
+    back, empty where the YAML has none.
     """
     platform = ""
-    pio_board = ""
-    variant = ""
+    fields = dict.fromkeys(keys, "")
     in_platform = False
-
     for line in yaml_content.splitlines():
         top_key = _match_top_level_key(line)
         if top_key is not None:
@@ -130,13 +136,10 @@ def parse_platform_from_yaml(yaml_content: str) -> tuple[str, str, str]:
             continue
         if not in_platform:
             continue
-        stripped = line.strip()
-        if stripped.startswith("board:"):
-            pio_board = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-        elif stripped.startswith("variant:"):
-            variant = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-
-    return platform, pio_board, variant
+        key, colon, value = line.strip().partition(":")
+        if colon and key in fields:
+            fields[key] = _strip_yaml_quotes(_split_value_and_comment(value)[0])
+    return platform, fields
 
 
 def detect_platform_from_yaml(yaml_content: str, resolved_config: dict | None) -> str:
@@ -225,8 +228,8 @@ def extract_component_source_fingerprint(yaml_content: str) -> str:
     return _digest_lines(lines)
 
 
-_RAW_API_ENCRYPTION_RE = re.compile(
-    # Matches an ``encryption:`` line that's indented under ``api:``
+def _nested_key_re(block: str, key: str) -> re.Pattern[str]:
+    # Matches a *key* line that's indented under top-level *block*
     # (any depth ≥ 1 space). Used as a draft-time heuristic — once
     # ``load_device_yaml`` succeeds, the resolved-config check wins.
     #
@@ -235,9 +238,19 @@ _RAW_API_ENCRYPTION_RE = re.compile(
     # line. No overlap, so the engine can't backtrack between them on a
     # long run of newlines (the previous ``\s*\n`` alternative could
     # also consume a bare ``\n``, which CodeQL flagged as exponential).
-    r"^api:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+encryption:(?:\s|$)",
-    re.MULTILINE,
-)
+    return re.compile(
+        rf"^{block}:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+{key}:(?:\s|$)",
+        re.MULTILINE,
+    )
+
+
+_RAW_API_ENCRYPTION_RE = _nested_key_re("api", "encryption")
+_RAW_OTA_ENCRYPTION_RE = _nested_key_re("ota", "encryption")
+
+
+def yaml_has_ota_encryption(yaml_content: str) -> bool:
+    """Heuristic: True when raw YAML appears to declare ``encryption:`` under ``ota:``."""
+    return "encryption:" in yaml_content and bool(_RAW_OTA_ENCRYPTION_RE.search(yaml_content))
 
 
 def yaml_has_api_encryption(yaml_content: str) -> bool:
@@ -248,7 +261,7 @@ def yaml_has_api_encryption(yaml_content: str) -> bool:
     a syntax error. The resolved-config check is preferred whenever
     available (catches ``!include`` / packages this regex can't see).
     """
-    return bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
+    return "encryption:" in yaml_content and bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
 
 
 def _truthy_child_re(block: str, key: str) -> re.Pattern[str]:
@@ -263,7 +276,7 @@ def _truthy_child_re(block: str, key: str) -> re.Pattern[str]:
     )
 
 
-_RAW_NAME_ADD_MAC_SUFFIX_RE = _truthy_child_re("esphome", "name_add_mac_suffix")
+_RAW_NAME_ADD_MAC_SUFFIX_RE = _truthy_child_re(*ESPHOME_NAME_ADD_MAC_SUFFIX_PATH)
 _RAW_MDNS_DISABLED_RE = _truthy_child_re("mdns", "disabled")
 
 
@@ -312,6 +325,17 @@ def mdns_disabled_enabled(resolved_config: dict | None, yaml_content: str) -> bo
     if resolved_config is not None:
         return _config_truthy_child(resolved_config, "mdns", "disabled")
     return bool(_RAW_MDNS_DISABLED_RE.search(yaml_content))
+
+
+def ota_encryption_declared(resolved_config: dict | None, yaml_content: str) -> bool:
+    """
+    Detect an esphome OTA ``encryption:`` block: resolved config wins, raw text fills in.
+
+    The raw-text fallback applies only when resolution failed.
+    """
+    if resolved_config is not None:
+        return resolved_ota_has_encryption(resolved_config)
+    return yaml_has_ota_encryption(yaml_content)
 
 
 def config_has_top_level_block(config: dict | None, key: str) -> bool:
@@ -383,24 +407,32 @@ def extract_directly_referenced_integrations(
     Non-string ``platform:`` values (templated lambdas, malformed
     drafts) are skipped silently rather than emitting garbage names.
     """
-    if not isinstance(config, dict):
-        return []
     out: set[str] = set()
+    for key, platform in _iter_component_refs(config):
+        out.add(platform or key)
+    return sorted(out)
+
+
+def extract_component_ids(config: dict | None) -> list[str]:
+    """Catalog ids a resolved config references, in YAML order: ``key`` and ``key.platform``."""
+    ids = [
+        f"{key}.{platform}" if platform else key for key, platform in _iter_component_refs(config)
+    ]
+    return list(dict.fromkeys(ids))
+
+
+def _iter_component_refs(config: dict | None) -> Iterator[tuple[str, str | None]]:
+    """Yield ``(key, None)`` per top-level block and ``(key, platform)`` per ``platform:`` ref."""
+    if not isinstance(config, dict):
+        return
     for key, value in config.items():
         if not isinstance(key, str) or is_ignored_top_level_key(key):
             continue
-        out.add(key)
-        if isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict):
-                    platform = item.get("platform")
-                    if isinstance(platform, str) and platform:
-                        out.add(platform)
-        elif isinstance(value, dict):
-            platform = value.get("platform")
+        yield key, None
+        for block in value if isinstance(value, list) else [value]:
+            platform = block.get("platform") if isinstance(block, dict) else None
             if isinstance(platform, str) and platform:
-                out.add(platform)
-    return sorted(out)
+                yield key, platform
 
 
 def parse_esphome_meta(
@@ -621,22 +653,40 @@ def resolve_esp32_variant(
     return None
 
 
-def extract_ota_partition_access(config: dict | None) -> bool:
-    """
-    Report whether an ``ota: platform: esphome`` entry sets ``allow_partition_access``.
+def get_ota_encryption_key(config: dict | None) -> str:
+    """Return the first esphome OTA entry's own ``encryption: key`` (``${var}`` kept) or ``""``."""
+    for entry in _ota_esphome_entries(config):
+        encryption = entry.get("encryption")
+        key = encryption.get("key") if isinstance(encryption, dict) else None
+        if isinstance(key, str) and key:
+            return key
+    return ""
 
-    Accepts both the list-of-platforms form and the legacy single-mapping
-    form (which implies the esphome platform).
-    """
+
+def ota_encryption_block_unresolved(config: dict | None) -> bool:
+    """Whether an esphome OTA entry's ``encryption:`` is a bare string the loader could not read."""
+    return any(isinstance(entry.get("encryption"), str) for entry in _ota_esphome_entries(config))
+
+
+def resolved_ota_has_encryption(config: dict | None) -> bool:
+    """Whether an esphome OTA entry declares ``encryption:``; a bare block parses to ``None``."""
+    return any("encryption" in entry for entry in _ota_esphome_entries(config))
+
+
+def extract_ota_partition_access(config: dict | None) -> bool:
+    """Report whether an esphome OTA entry sets ``allow_partition_access``."""
+    return any(
+        entry.get(_CONF_ALLOW_PARTITION_ACCESS) is True for entry in _ota_esphome_entries(config)
+    )
+
+
+def _ota_esphome_entries(config: dict | None) -> Iterator[dict]:
+    """Yield the esphome-platform ``ota:`` entries; list form and the legacy single mapping."""
     ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
     entries = ota if isinstance(ota, list) else [ota]
     for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        platform = entry.get(const.CONF_PLATFORM, "esphome")
-        if platform == "esphome" and entry.get(_CONF_ALLOW_PARTITION_ACCESS) is True:
-            return True
-    return False
+        if isinstance(entry, dict) and entry.get(const.CONF_PLATFORM, "esphome") == "esphome":
+            yield entry
 
 
 def _str_or_none(value: object) -> str | None:
@@ -847,9 +897,23 @@ def get_api_encryption_key(config: dict | None) -> str:
 
 def get_resolved_api_encryption_key(config: dict | None) -> str:
     """Native API encryption key with ``${var}`` resolved; ``""`` if absent or unresolved."""
-    key = get_api_encryption_key(config)
-    if not key:
-        return ""
+    return _resolve_key(config, get_api_encryption_key(config))
+
+
+def get_resolved_ota_encryption_key(config: dict | None) -> str:
+    """Esphome OTA entry's own key with ``${var}`` resolved; ``""`` if absent or unresolved."""
+    return _resolve_key(config, get_ota_encryption_key(config))
+
+
+def get_resolved_encryption_key(config: dict | None) -> str:
+    """Return the device's one key, api or esphome OTA, ``${var}`` resolved; ``""`` if none."""
+    return get_resolved_api_encryption_key(config) or get_resolved_ota_encryption_key(config)
+
+
+def _resolve_key(config: dict | None, key: str) -> str:
+    """Expand ``${var}`` in *key* against *config*'s substitutions; ``""`` if unresolved."""
+    if "$" not in key:
+        return key
     key = _resolve_substitutions(key, _extract_resolved_substitutions(config)) or ""
     if _UNRESOLVED_SUBSTITUTION_RE.search(key):
         return ""

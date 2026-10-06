@@ -31,6 +31,7 @@ from ...models import (
 )
 from . import rename_flow
 from .constants import (
+    _EPHEMERAL_JOB_TYPES,
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
     _MAX_PRIMARY_TERMINAL_JOBS,
@@ -64,8 +65,10 @@ def prune_history(controller: FirmwareController) -> None:
     dependent UPLOAD share a config) so the build log stays
     reachable, not just the flash log. Terminal clean / reset
     jobs are kept in a separate pool capped at
-    :data:`_MAX_AUX_TERMINAL_JOBS`. Caller persists the result;
-    sidecars of dropped jobs are reaped by ``persist_jobs``.
+    :data:`_MAX_AUX_TERMINAL_JOBS`. Terminal ephemeral jobs
+    (:data:`_EPHEMERAL_JOB_TYPES`) are dropped outright. Caller
+    persists the result; sidecars of
+    dropped jobs are reaped by ``persist_jobs``.
     """
     active: list[FirmwareJob] = []
     primary: list[FirmwareJob] = []
@@ -73,6 +76,8 @@ def prune_history(controller: FirmwareController) -> None:
     for job in controller.state.jobs.values():
         if not job.is_terminal:
             active.append(job)
+        elif job.job_type in _EPHEMERAL_JOB_TYPES:
+            continue
         elif job.job_type in _PRIMARY_JOB_TYPES:
             primary.append(job)
         else:
@@ -216,7 +221,11 @@ async def persist_jobs(controller: FirmwareController) -> None:
 
 async def _persist_jobs_locked(controller: FirmwareController) -> None:
     config_dir = controller._db.settings.config_dir
-    jobs = list(controller.state.jobs.values())
+    # Ephemeral jobs never reach disk: a restart must not resume an
+    # analysis nobody is watching.
+    jobs = [
+        job for job in controller.state.jobs.values() if job.job_type not in _EPHEMERAL_JOB_TYPES
+    ]
 
     def _save() -> None:
         # Flush each terminal job's RAM buffer to its sidecar, then
@@ -240,9 +249,9 @@ def job_dict_without_output(job: FirmwareJob) -> dict:
     return data
 
 
-def read_job_output(job_id: str) -> list[str]:
+def read_job_output(job_id: str) -> list[str] | None:
     r"""
-    Return a job's persisted output lines (terminators preserved), or ``[]``.
+    Return a job's persisted output lines (terminators preserved); ``None`` when unreadable.
 
     ``newline=""`` mirrors the write side so universal-newline
     translation doesn't rewrite a bare ``\r`` terminator to ``\n``;
@@ -250,18 +259,17 @@ def read_job_output(job_id: str) -> list[str]:
     boundaries the ingest path produced (``str.splitlines`` would also
     break on form-feed and other Unicode line boundaries, splitting a
     line the writer kept whole). A missing sidecar is the normal absent-output case
-    and maps to ``[]``; any other read error is logged (and also
-    yields ``[]``) so a genuinely unreadable log surfaces in the logs
-    instead of masquerading as a job with no output.
+    and maps to ``[]``; any other read error is logged and yields ``None`` so a
+    caller can tell an unreadable log from a job with no output.
     """
     try:
         with _job_log_path(job_id).open(encoding="utf-8", newline="") as fh:
             text = fh.read()
     except FileNotFoundError:
         return []
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         _LOGGER.warning("Failed to read job output sidecar for %s", job_id, exc_info=True)
-        return []
+        return None
     return _LINE_RE.findall(text)
 
 

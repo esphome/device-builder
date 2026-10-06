@@ -261,6 +261,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             self._db.devices.clear_queued_update(configuration)
         return await clean_mod.clean(self, configuration=configuration)
 
+    @api_command("firmware/analyze_memory")
+    async def analyze_memory(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
+        """Queue ``esphome analyze-memory`` for one device."""
+        await self._validate_configuration_boundary(configuration)
+        return await self._enqueue(self._create_job(configuration, JobType.ANALYZE_MEMORY))
+
     @api_command("firmware/clear_queued_update")
     async def clear_queued_update(self, *, configuration: str, **kwargs: Any) -> None:
         """Manually clear the queued_update flag for a device."""
@@ -625,6 +631,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         new_name: str = "",
         *,
         flash_bootloader: bool = False,
+        skip_bootloader: bool = False,
         esphome_cmd: list[str] | None = None,
     ) -> list[str]:
         return cli.build_command(
@@ -635,6 +642,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             cache_args,
             new_name,
             flash_bootloader=flash_bootloader,
+            skip_bootloader=skip_bootloader,
         )
 
     async def _resolve_esphome_cmd(self, job: FirmwareJob) -> list[str]:
@@ -642,9 +650,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         Return the esphome CLI invocation to run *job* with.
 
         For a remote job whose ``target_esphome_version`` differs from ours:
-        COMPILE / INSTALL provision that version's venv (raising
-        :class:`EnvProvisionError` if unavailable); CLEAN reuses it only when
-        already provisioned. Everything else uses the installed esphome.
+        the compiling job types (:data:`COMPILING_JOB_TYPES`) provision that
+        version's venv (raising :class:`EnvProvisionError` if unavailable);
+        CLEAN reuses it only when already provisioned. Everything else uses
+        the installed esphome.
         """
         version = job.target_esphome_version
         if not version or version == _installed_esphome_version:
@@ -738,6 +747,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         target_esphome_version: str = "",
         *,
         flash_bootloader: bool = False,
+        skip_bootloader: bool = False,
     ) -> FirmwareJob:
         return factories.create_job(
             self,
@@ -745,6 +755,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             job_type,
             port=port,
             flash_bootloader=flash_bootloader,
+            skip_bootloader=skip_bootloader,
             new_name=new_name,
             remote_peer=remote_peer,
             remote_peer_label=remote_peer_label,

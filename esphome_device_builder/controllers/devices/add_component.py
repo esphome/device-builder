@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import (
     CAPTIVE_PORTAL_PLATFORMS,
     device_ap_label,
@@ -27,7 +28,12 @@ from ...helpers.yaml import (
 )
 from ...models import AddComponentResponse, ErrorCode
 from ...models.boards import normalize_platform
-from .helpers import _apply_featured_presets, _drop_unconfigured_dependent_fields
+from .helpers import (
+    _apply_featured_presets,
+    _drop_unconfigured_dependent_fields,
+    persist_if_unchanged,
+    require_catalog,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -62,19 +68,19 @@ async def add_component(
     saves later). Without it the merge runs against the on-disk YAML
     and is persisted immediately.
     """
-    assert controller._db.components is not None  # type narrowing
+    catalog = require_catalog(controller._db)
 
     fields = dict(fields or {})
     underlying_component_id = component_id
     is_featured = component_id.startswith("featured.")
 
     if is_featured:
-        record = await controller._db.components.get_featured_record(component_id)
+        record = await catalog.get_featured_record(component_id)
         if record is None:
             msg = f"Unknown featured component: {component_id}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
         underlying_component_id = record.underlying_id
-        underlying_body = await controller._db.components.get_body(underlying_component_id)
+        underlying_body = await catalog.get_body(underlying_component_id)
         if underlying_body is None:
             msg = f"Unknown component body for featured ref: {underlying_component_id}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
@@ -87,7 +93,7 @@ async def add_component(
         if isinstance(user_id, str) and "-" in user_id:
             fields["id"] = ""
 
-    component = await controller._db.components.get_component(component_id=underlying_component_id)
+    component = await catalog.get_component(component_id=underlying_component_id)
     if component is None:
         msg = f"Unknown component: {underlying_component_id}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
@@ -102,8 +108,7 @@ async def add_component(
         _require_present_fields(component, fields)
 
     if yaml is None:
-        config_path = controller._db.settings.rel_path(configuration)
-        existing = await controller._read_yaml_async(config_path)
+        existing = await read_device_config_async(controller._db.settings, configuration)
     else:
         existing = yaml
     # Honour each field's ``depends_on_component`` gate against
@@ -114,7 +119,7 @@ async def add_component(
     fields = _drop_unconfigured_dependent_fields(fields, component, existing)
     if underlying_component_id == "wifi":
         new_yaml = await _merge_wifi_with_recovery(
-            controller._db.components,
+            catalog,
             controller._db.settings.config_dir,
             component,
             fields,
@@ -125,8 +130,12 @@ async def add_component(
     if yaml is None:
         # Atomic write; wizard-driven add-component should not be able
         # to corrupt the source YAML on a mid-write crash.
-        await controller._persist_yaml_mutation(
-            configuration, new_yaml, message=f"Add {component.id} to {configuration}"
+        await persist_if_unchanged(
+            controller,
+            configuration,
+            new_yaml,
+            expected=existing,
+            message=f"Add {component.id} to {configuration}",
         )
 
     return AddComponentResponse(yaml=new_yaml)

@@ -38,6 +38,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
     _mapping_body_to_list_item,
+    _normalize_multi_conf_block,
     _safe_yaml_scalar,
     _splice_into_domain_block,
     _splice_into_multi_conf_block,
@@ -1080,9 +1081,63 @@ def test_upsert_api_encryption_key_inserts_into_empty_api_block() -> None:
     assert 'api:\n  encryption:\n    key: "NEW=="\n\nwifi:' in out
 
 
-def test_upsert_api_encryption_key_prepends_block_when_api_missing() -> None:
-    """No ``api:`` block at all → a full block lands above the existing content."""
-    yaml = "substitutions:\n  name: x\n\npackages:\n  a: github://x/y.yaml\n"
+def test_upsert_api_encryption_key_prepends_block_when_no_anchor_block() -> None:
+    """With none of the anchor blocks present, a full block lands above the existing content."""
+    yaml = "wifi:\n  ssid: x\n\nlogger:\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out.startswith('api:\n  encryption:\n    key: "NEW=="\n\n')
+    assert out.endswith(yaml)
+
+
+def test_upsert_api_encryption_key_inserts_block_below_esphome() -> None:
+    """With no ``api:`` block, the new one lands right below the ``esphome:`` block."""
+    yaml = "substitutions:\n  name: x\n\nesphome:\n  name: ${name}\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        "substitutions:\n  name: x\n\nesphome:\n  name: ${name}\n\n"
+        'api:\n  encryption:\n    key: "NEW=="\n\nwifi:\n  ssid: x\n'
+    )
+
+
+def test_upsert_api_encryption_key_inserts_block_after_a_trailing_esphome() -> None:
+    """An ``esphome:`` block that ends the file gets the api block appended below it."""
+    out = upsert_api_encryption_key("esphome:\n  name: x\n", "NEW==")
+    assert out == 'esphome:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n'
+
+
+def test_upsert_api_encryption_key_keeps_a_section_comment_with_the_next_block() -> None:
+    """A column-0 comment above the next block stays with that block; api lands above it."""
+    yaml = "esphome:\n  name: x\n\n# ---- networking ----\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        'esphome:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n\n'
+        "# ---- networking ----\n\nwifi:\n  ssid: x\n"
+    )
+
+
+def test_upsert_api_encryption_key_falls_back_to_the_packages_block() -> None:
+    """With ``esphome:`` living in the package, the block follows ``packages:`` instead."""
+    yaml = "substitutions:\n  name: x\n\npackages:\n  a: github://x/y.yaml\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        "substitutions:\n  name: x\n\npackages:\n  a: github://x/y.yaml\n\n"
+        'api:\n  encryption:\n    key: "NEW=="\n\nwifi:\n  ssid: x\n'
+    )
+
+
+def test_upsert_api_encryption_key_falls_back_to_the_substitutions_block() -> None:
+    """An unreadable ``packages:`` and no ``esphome:`` leave ``substitutions:`` as the anchor."""
+    yaml = "substitutions:\n  name: x\n\npackages: !include pkgs.yaml\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == (
+        'substitutions:\n  name: x\n\napi:\n  encryption:\n    key: "NEW=="\n\n'
+        "packages: !include pkgs.yaml\n\nwifi:\n  ssid: x\n"
+    )
+
+
+def test_upsert_api_encryption_key_prepends_when_esphome_is_an_inline_value() -> None:
+    """An ``esphome:`` header the walker cannot read falls back to prepending the block."""
+    yaml = "esphome: !include base.yaml\n\nwifi:\n  ssid: x\n"
     out = upsert_api_encryption_key(yaml, "NEW==")
     assert out.startswith('api:\n  encryption:\n    key: "NEW=="\n\n')
     assert out.endswith(yaml)
@@ -1695,6 +1750,25 @@ def test_normalize_multi_conf_block_skips_comments_above_list_form() -> None:
     assert result.count("rtttl:\n") == 1
     assert "  - id: rtttl_1" in result
     assert "  - id: rtttl_2" in result
+
+
+def test_merge_component_yaml_lands_above_a_trailing_banner() -> None:
+    component = _component(component_id="rtttl", category=ComponentCategory.MISC, multi_conf=True)
+    existing = "rtttl:\n  - id: rtttl_1\n    output: buzz\n# --- logging ---\nlogger:\n"
+    result = merge_component_yaml(existing, component, {"id": "rtttl_2", "output": "buzz"})
+    assert result.endswith("  - id: rtttl_2\n    output: buzz\n# --- logging ---\nlogger:\n")
+
+
+def test_normalize_multi_conf_block_keeps_a_leading_comment_at_the_marker_indent() -> None:
+    existing = "rtttl:\n  # buzzer notes\n  id: rtttl_1\n  output: buzz\n"
+    assert _normalize_multi_conf_block(existing, "rtttl") == (
+        "rtttl:\n  # buzzer notes\n  - id: rtttl_1\n    output: buzz\n"
+    )
+
+
+def test_normalize_multi_conf_block_leaves_an_empty_body_alone() -> None:
+    existing = "rtttl:\n  # nothing yet\nlogger:\n"
+    assert _normalize_multi_conf_block(existing, "rtttl") is existing
 
 
 def test_normalize_multi_conf_block_treats_bare_dash_as_list_form() -> None:
@@ -2484,9 +2558,17 @@ def test_top_level_key_index_matches_find_block_header() -> None:
         "  fake:\n",
         "ota :\n",
         "sensor:\n",
+        "interval: &shared\n",
     ]
     index = top_level_key_index(lines)
-    assert index == {"esphome": 0, "sensor": 1, "logger": 3, '"quoted"': 4, "a:b": 5}
+    assert index == {
+        "esphome": 0,
+        "sensor": 1,
+        "logger": 3,
+        '"quoted"': 4,
+        "a:b": 5,
+        "interval": 12,
+    }
     for key in (*index, "wifi", "quoted", "a", "nested", "dash", "script", "fake", "ota"):
         assert index.get(key) == find_block_header(lines, key)
 

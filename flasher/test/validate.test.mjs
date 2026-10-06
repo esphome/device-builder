@@ -1,20 +1,19 @@
-// Unit test for the pure image-magic validator. esbuild transforms the TS
+// Unit tests for the pure image-magic validator and hand-off guards. esbuild transforms the TS
 // module to ESM in memory so it can be imported without the DOM-touching entry.
 import { Buffer } from "node:buffer";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import esbuild from "esbuild";
 
-const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "image-magic.ts");
-const built = await esbuild.build({
-  entryPoints: [src],
-  bundle: true,
-  format: "esm",
-  write: false,
-});
-const { validateEspImage } = await import(
-  "data:text/javascript;base64," + Buffer.from(built.outputFiles[0].text).toString("base64")
-);
+const load = async (name) => {
+  const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src", name);
+  const built = await esbuild.build({ entryPoints: [src], bundle: true, format: "esm", write: false });
+  return import(
+    "data:text/javascript;base64," + Buffer.from(built.outputFiles[0].text).toString("base64")
+  );
+};
+const { validateEspImage } = await load("image-magic.ts");
+const { handoffLogBaud, handoffLogBaudRateOf } = await load("protocol.ts");
 
 let ok = true;
 const check = (cond, msg) => {
@@ -51,6 +50,21 @@ check(
   validateEspImage([{ address: 0x10000, data: new Uint8Array([0xe9]) }]) !== null,
   "rejects when no image at 0x0",
 );
+
+// The hand-off's log baud: plausible rates pass, anything else is dropped.
+for (const baud of [300, 9600, 115200, 4_000_000]) {
+  check(handoffLogBaudRateOf(baud) === baud, `log baud accepts ${baud}`);
+}
+for (const bad of [undefined, null, 0, 299, 4_000_001, 9600.5, "9600", NaN, Infinity]) {
+  check(handoffLogBaudRateOf(bad) === undefined, `log baud ignores ${typeof bad} ${String(bad)}`);
+}
+
+// The install reads the logs at the handed-over baud, at the default without
+// one, and not at all for a device whose logger is off.
+check(handoffLogBaud({ logBaudRate: 9600 }) === 9600, "logs open at the baud handed over");
+check(handoffLogBaud({}) === 115200, "logs open at the default without a baud");
+check(handoffLogBaud({ logs: "flash-port" }) === 115200, "logs on the flash port open at the default");
+check(handoffLogBaud({ logs: "off", logBaudRate: 9600 }) === null, "no logs for a device whose logger is off");
 
 console.log(ok ? "\nALL PASS" : "\nFAILURES");
 process.exit(ok ? 0 : 1);

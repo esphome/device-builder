@@ -71,5 +71,5 @@ source:
   type: esphome-devices
   remote_id: Hegg-Dongle
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hegg-Dongle/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 1552207cc5ecd8e3123ded4d7893b9923b9e85ffa1dac5c3a0c9210d5e7bfa59

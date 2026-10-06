@@ -12,10 +12,12 @@ from __future__ import annotations
 import signal
 import sys
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from esphome_device_builder.helpers import process
 from esphome_device_builder.helpers.process import (
     kill_quietly,
     terminate_subtree_with_grace,
@@ -352,3 +354,42 @@ async def test_terminate_subtree_with_grace_without_job_object_uses_taskkill(
 
     assert fake_taskkill.calls == [fake_proc.pid]
     assert fake_proc.kill_calls == 0
+
+
+@posix_only
+def test_kill_subtree_quietly_signals_the_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        process, "_signal_process_group", lambda pid, sig: calls.append((pid, sig)) or True
+    )
+    monkeypatch.setattr(
+        process, "kill_quietly", lambda _p: pytest.fail("group kill must not fall back")
+    )
+    process.kill_subtree_quietly(SimpleNamespace(pid=4242))  # type: ignore[arg-type]
+    assert calls == [(4242, signal.SIGKILL)]
+
+
+def test_kill_subtree_quietly_falls_back_to_the_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    killed: list[Any] = []
+    monkeypatch.setattr(process, "_signal_process_group", lambda _pid, _sig: False)
+    monkeypatch.setattr(process, "kill_quietly", killed.append)
+    proc = SimpleNamespace(pid=4242)
+    process.kill_subtree_quietly(proc)  # type: ignore[arg-type]
+    assert killed == [proc]
+
+
+def test_kill_subtree_quietly_terminates_the_windows_job(
+    monkeypatch: pytest.MonkeyPatch, win32_platform: None
+) -> None:
+    killed: list[Any] = []
+    monkeypatch.setattr(process, "kill_quietly", killed.append)
+    monkeypatch.setattr(
+        process, "_signal_process_group", lambda *_a: pytest.fail("no groups on Windows")
+    )
+    proc = SimpleNamespace(pid=7)
+    process.kill_subtree_quietly(proc, win_job=SimpleNamespace(terminate=lambda: True))  # type: ignore[arg-type]
+    assert killed == []
+    process.kill_subtree_quietly(proc, win_job=SimpleNamespace(terminate=lambda: False))  # type: ignore[arg-type]
+    assert killed == [proc]
+    process.kill_subtree_quietly(proc)  # type: ignore[arg-type]
+    assert killed == [proc, proc]

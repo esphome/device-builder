@@ -1,4 +1,4 @@
-"""RP2040/RP2350 board-pin derivation from ESPHome's ``RP2040_BOARD_PINS``."""
+"""RP2040/RP2350 board-pin derivation from ESPHome's ``RP2_BOARD_PINS``."""
 
 from __future__ import annotations
 

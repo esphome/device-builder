@@ -98,7 +98,10 @@ async def test_cors_middleware_reflects_same_origin(
     assert resp.headers["Access-Control-Allow-Origin"] == origin
     assert resp.headers["Vary"] == "Origin"
     assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
-    assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
+    assert (
+        resp.headers["Access-Control-Allow-Headers"]
+        == "Content-Type, Authorization, MCP-Protocol-Version"
+    )
 
 
 async def test_cors_middleware_reflects_allowlisted_origin(
@@ -166,7 +169,10 @@ async def test_cors_middleware_handles_options_preflight_without_invoking_handle
     assert handler_called == []
     assert resp.headers["Access-Control-Allow-Origin"] == origin
     assert resp.headers["Access-Control-Allow-Methods"] == "GET, POST, PUT, DELETE, OPTIONS"
-    assert resp.headers["Access-Control-Allow-Headers"] == "Content-Type, Authorization"
+    assert (
+        resp.headers["Access-Control-Allow-Headers"]
+        == "Content-Type, Authorization, MCP-Protocol-Version"
+    )
     assert await resp.text() == ""
 
 

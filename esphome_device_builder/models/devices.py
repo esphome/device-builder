@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple, TypedDict
 
 from .common import DashboardModel
+
+
+def offline_seconds(offline_since: float | None) -> float | None:
+    """Return the age of an ``offline_since`` stamp, the form a client is sent."""
+    return None if offline_since is None else max(0.0, time.time() - offline_since)
 
 
 class DeviceState(StrEnum):
@@ -80,6 +86,10 @@ class DeviceRuntimeState(DashboardModel):
     # just the one address they know. ``Device.ip`` always holds the
     # primary picked for OTA cache args.
     ip_addresses: list[str] = field(default_factory=list)
+    # Epoch seconds at which the device stopped being reachable, or ``None``
+    # while it is online or nothing is known. Survives a restart. Never sent:
+    # the wire carries ``offline_seconds``, its age at serialization.
+    offline_since: float | None = None
     deployed_version: str = ""
     # 8-char hex hash of the running firmware, read from the mDNS
     # ``config_hash`` TXT record (esphome/esphome#16145). When this
@@ -103,6 +113,11 @@ class DeviceRuntimeState(DashboardModel):
     # evidence for the sidecar-seeded values, which is exactly what the
     # flag reports.
     deployed_identity_live: bool = False
+
+    def __post_serialize__(self, d: dict[Any, Any]) -> dict[Any, Any]:
+        """Replace the ``offline_since`` stamp with its age."""
+        d["offline_seconds"] = offline_seconds(d.pop("offline_since"))
+        return d
 
 
 # Canonical name set for routing flat attr names onto ``runtime_state``.
@@ -174,6 +189,10 @@ class Device(DashboardModel):
     # Survives a confirmed mDNS Removed (only ``ip_addresses`` clears);
     # dropped only by the reviver's identity-verified invalidation.
     ip: str = ""
+    # Hostname the running firmware still answers to after a rename that
+    # didn't flash; empty once the YAML's own name is deployed. Backs the
+    # OTA address cache and counts as identity for the api reviver.
+    deployed_name: str = field(default="", metadata={"serialize": "omit"})
     web_port: int | None = None
     current_version: str = ""
     # 8-char hex hash of the YAML as last successfully compiled.
@@ -201,6 +220,10 @@ class Device(DashboardModel):
     # (mid-edit drafts) — frontend falls back to rendering the
     # whole ``loaded_integrations`` list flat.
     directly_referenced_integrations: list[str] = field(default_factory=list)
+    # Component refs the resolved YAML makes (``key`` and ``key.platform``, scan order);
+    # in-process consumers only, so it stays off the wire.
+    component_ids: list[str] = field(default_factory=list, metadata={"serialize": "omit"})
+
     # Monitor-observed state; carried whole through rebuilds.
     runtime_state: DeviceRuntimeState = field(default_factory=DeviceRuntimeState)
     has_pending_changes: bool = True  # True until successfully compiled + deployed
@@ -262,9 +285,12 @@ class Device(DashboardModel):
     # as a flatten-to-False signal.
     #
     # The actual key is fetched on demand via
-    # ``devices/get_api_key``.
+    # ``devices/get_encryption_key``.
     api_enabled: bool = False
     api_encrypted: bool = False
+    # esphome shares one key between api and OTA, so a device whose key
+    # lives only under ``ota:`` still has one for ``devices/get_encryption_key``.
+    ota_encryption_required: bool = False
     # Encryption status as observed from the device's
     # ``_esphomelib._tcp.local.`` mDNS broadcast.
     #   None  → mDNS not seen yet. The frontend trusts ``api_encrypted``
@@ -341,11 +367,23 @@ class Device(DashboardModel):
     # ``None`` ⇒ unknowable (no logger, unknown variant, libretiny runtime
     # default).
     logger_interface: str | None = None
+    # Chip series on the platforms that lump several chips under one key
+    # (``rp2040`` / ``rp2350`` on rp2, ``rtl8710b`` / ``rtl8720c`` on rtl87xx,
+    # the bk72xx and ln882x chips). The frontend offers a browser flasher
+    # only for a chip it can write. ``None`` ⇒ the platform needs no split
+    # (esp32, esp8266, nrf52) or the YAML does not name the chip.
+    mcu: str | None = None
     # esp32 whose ``ota: platform: esphome`` sets ``allow_partition_access``
     # — gates the install dialog's OTA bootloader-update action. Whether the
     # *running* firmware has it compiled in is the frontend's half of the
     # gate (deployed hash == expected hash).
     ota_partition_access: bool = False
+
+    def to_flat_dict(self) -> dict[str, Any]:
+        """Serialise with ``runtime_state`` flattened; HA's dashboard API reads the keys flat."""
+        data = self.to_dict()
+        data.update(data.pop("runtime_state"))
+        return data
 
 
 @dataclass
@@ -491,6 +529,8 @@ class DeviceStateChangedData(TypedDict):
 
     configuration: str
     state: str
+    # Mirrors the wire's ``runtime_state.offline_seconds``.
+    offline_seconds: float | None
 
 
 class DeviceReachabilityData(TypedDict):

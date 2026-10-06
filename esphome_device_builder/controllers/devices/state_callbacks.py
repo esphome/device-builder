@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -15,11 +16,16 @@ from ...models import (
     EventType,
     ReachabilitySource,
 )
+from ...models.devices import offline_seconds
 
 if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+# Each write rewrites the whole store file, and the stamp only has to anchor
+# an outage across a restart.
+_LAST_SEEN_WRITE_INTERVAL = 600.0
 
 
 def _apply_logged_observation(
@@ -58,6 +64,10 @@ def on_state_change(
     for device in controller._devices_by_name(name):
         old_state = device.runtime_state.state
         device.runtime_state.state = state
+        offline_since = _offline_since(device, old_state, state)
+        device.runtime_state.offline_since = offline_since
+        # ``update`` clears on a falsy value.
+        controller._metadata_store.update(device.configuration, offline_since=offline_since or 0)
         _LOGGER.info(
             "Device %s (%s): %s → %s (via %s)",
             name,
@@ -75,13 +85,19 @@ def on_state_change(
             DeviceStateChangedData(
                 configuration=device.configuration,
                 state=state.value,
+                offline_seconds=offline_seconds(offline_since),
             ),
         )
 
 
 def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
-    """Update ``active_source`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
-    for device in controller._devices_by_name(name):
+    """Update ``active_source`` and fire DEVICE_UPDATED; also clears ``deployed_name``."""
+    devices = controller._devices_by_name(name)
+    # Only an announce that maps to one config proves the firmware carries the name;
+    # above the dedupe since a same-path rename carries ``active_source`` forward.
+    if source is ReachabilitySource.MDNS and len(devices) == 1:
+        controller._clear_deployed_name(devices[0].configuration, device=devices[0])
+    for device in devices:
         if device.runtime_state.active_source == source:
             continue
         device.runtime_state.active_source = source
@@ -229,3 +245,31 @@ def on_config_hash_change(controller: DevicesController, name: str, config_hash:
         log_label="config_hash",
         on_change=_flip_pending,
     )
+
+
+def record_last_seen(controller: DevicesController, name: str) -> None:
+    """Persist a rate-limited last-contact stamp for *name*'s devices."""
+    now = time.time()
+    store = controller._metadata_store
+    for device in controller._devices_by_name(name):
+        previous = store.get_field(device.configuration, "last_seen")
+        if isinstance(previous, (int, float)) and now - previous < _LAST_SEEN_WRITE_INTERVAL:
+            continue
+        store.set_field(device.configuration, "last_seen", now)
+
+
+def record_last_seen_on_stop(controller: DevicesController) -> None:
+    """Persist the last contact of every device that is online at shutdown."""
+    now = time.time()
+    for device in controller._scanner.devices:
+        if device.runtime_state.state is DeviceState.ONLINE:
+            controller._metadata_store.set_field(device.configuration, "last_seen", now)
+
+
+def _offline_since(device: Device, old_state: DeviceState, state: DeviceState) -> float | None:
+    """Return the epoch *device*'s outage began, or ``None`` when online or unknown."""
+    if state is DeviceState.ONLINE:
+        return None
+    if old_state is DeviceState.ONLINE:
+        return time.time()
+    return device.runtime_state.offline_since

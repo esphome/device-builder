@@ -386,7 +386,7 @@ async def test_subscribe_without_client_returns_silently(
     assert bus._listeners.get(EventType.DEVICE_REACHABILITY, set()) == set()
 
 
-def test_observation_fires_bus_event_for_known_device(
+async def test_observation_fires_bus_event_for_known_device(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A real ``tracker.observe`` fans out to a ``DEVICE_REACHABILITY`` bus event.
@@ -417,7 +417,7 @@ def test_observation_fires_bus_event_for_known_device(
     assert fired[0].data["ping_last_seen_seconds_ago"] is not None
 
 
-def test_observation_with_no_subscriber_skips_snapshot_build(
+async def test_observation_with_no_subscriber_skips_snapshot_build(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """With no drawer listening, the observation short-circuits before the cache walk."""

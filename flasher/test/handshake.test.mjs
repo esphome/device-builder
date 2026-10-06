@@ -67,6 +67,10 @@ try {
   // Headless Chromium on a secure (localhost) origin has Web Serial, so the
   // capability field must be advertised as true, not omitted.
   else if (ready.webSerial !== true) fail("ready did not advertise webSerial: true");
+  // This page only has esptool; a dashboard with another board's firmware
+  // declines on this list instead of sending it.
+  else if (JSON.stringify(ready.flashers) !== '["esp"]')
+    fail("ready did not advertise flashers: [\"esp\"]");
   else console.log("PASS: ready received, no nonce echoed, version", ready.version);
 
   // 1b. ready is re-announced until firmware arrives (handshake robustness)
@@ -96,6 +100,44 @@ try {
   let label = await popup.$eval("#status", (e) => e.textContent);
   if (/firmware ready/i.test(label)) fail("wrong-nonce firmware was accepted");
   else console.log("PASS: wrong-nonce firmware ignored");
+
+  // 2a. a flasher this page lacks -> error state, never treated as ESP firmware
+  await a.evaluate(() => {
+    window.__b.postMessage(
+      {
+        type: "esphome-web-flash:firmware",
+        nonce: "test-nonce-123",
+        name: "bad",
+        flasher: "rtl-ambz2",
+        parts: [{ address: 0, data: new ArrayBuffer(8) }],
+      },
+      "*",
+    );
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  label = await popup.$eval("#status", (e) => e.textContent);
+  if (!/cannot install this firmware \(rtl-ambz2\)/i.test(label))
+    fail("unknown flasher not refused: " + label);
+  else console.log("PASS: firmware for a flasher this page lacks refused");
+
+  // 2a-ii. an explicit null is not the absent field: refused, not flashed as ESP
+  await a.evaluate(() => {
+    window.__b.postMessage(
+      {
+        type: "esphome-web-flash:firmware",
+        nonce: "test-nonce-123",
+        name: "bad",
+        flasher: null,
+        parts: [{ address: 0, data: new ArrayBuffer(8) }],
+      },
+      "*",
+    );
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  label = await popup.$eval("#status", (e) => e.textContent);
+  if (!/cannot install this firmware \(null\)/i.test(label))
+    fail("null flasher not refused: " + label);
+  else console.log("PASS: firmware with a null flasher refused");
 
   // 2b. malformed parts (data not an ArrayBuffer) -> error state, not a throw
   await a.evaluate(() => {

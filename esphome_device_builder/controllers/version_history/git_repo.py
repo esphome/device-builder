@@ -32,18 +32,10 @@ from dataclasses import dataclass, field
 from itertools import batched
 from pathlib import Path
 
-import esphome_device_builder
-from esphome_device_builder.constants import is_secrets_file
+from esphome_device_builder.constants import SECRETS_FILENAMES, is_secrets_file
 from esphome_device_builder.helpers.atomic_io import atomic_write
 
 _LOGGER = logging.getLogger(__name__)
-
-# The installed Device Builder package dir. Only ever sits inside a source
-# checkout's git work tree, never under a user's /config — so it identifies the
-# one repo we must never adopt as a history store: a config dir kept inside the
-# clone (``--dev configs``) would otherwise commit user YAML into the project.
-# Resolved from the package itself so it survives this module being moved.
-_OWN_SOURCE_ROOT = Path(esphome_device_builder.__file__).resolve().parent
 
 # Errors a git invocation raises for genuine git / environment reasons
 # (a failed ``git`` invocation, the binary vanishing) as opposed to a
@@ -128,7 +120,7 @@ _DEFAULT_GITIGNORE = "".join(
         "# Managed by ESPHome Device Builder — created because this directory\n",
         "# was not already a git repository. Edit freely; it won't be regenerated.\n",
         *(f"{pattern}\n" for pattern in _MANAGED_EXCLUDES),
-        "secrets.yaml\n",
+        *(f"{name}\n" for name in SECRETS_FILENAMES),
     ]
 )
 
@@ -182,12 +174,12 @@ class GitRepo:
     # ------------------------------------------------------------------
 
     def discover_or_init(self) -> None:
-        """Locate an enclosing work tree, or initialise a fresh repo.
+        """
+        Adopt the repo rooted at :attr:`config_dir`, or initialise one there.
 
-        Sets :attr:`enabled` / :attr:`toplevel`. A pre-existing work
-        tree is adopted as-is; otherwise a new repo is created in
-        :attr:`config_dir` with a default ``.gitignore``. Any failure
-        leaves the feature disabled rather than raising.
+        A config dir inside a repo rooted higher up is someone else's work
+        tree: nothing is created or committed, and the feature stays disabled.
+        Any failure leaves it disabled rather than raising.
         """
         self.git_bin = shutil.which("git")
         if self.git_bin is None:
@@ -195,11 +187,7 @@ class GitRepo:
             return
         try:
             toplevel = self._discover_toplevel()
-            if (
-                toplevel is not None
-                and not _encloses_own_source(toplevel)
-                and not self._enclosing_repo_ignores_config_dir()
-            ):
+            if toplevel is not None and self._roots_config_dir(toplevel):
                 self.toplevel = toplevel
                 self.enabled = True
                 self.managed = self._adopt_ownership()
@@ -207,19 +195,15 @@ class GitRepo:
                 _LOGGER.debug("Adopted existing git work tree at %s", toplevel)
                 return
             if toplevel is not None:
-                reason = (
-                    "is inside the Device Builder source checkout"
-                    if _encloses_own_source(toplevel)
-                    else "is ignored by the enclosing git repo"
-                )
                 _LOGGER.info(
-                    "Config dir %s %s (%s); creating a config-local history repo "
-                    "instead of committing into it",
+                    "Config dir %s is inside the git repo at %s, which Device Builder "
+                    "does not own; version history disabled",
                     self.config_dir,
-                    reason,
                     toplevel,
                 )
-            elif (git_entry := self.config_dir / ".git").is_symlink() or git_entry.exists():
+                self._disable()
+                return
+            if (git_entry := self.config_dir / ".git").is_symlink() or git_entry.exists():
                 # rev-parse found no work tree yet ``.git`` is physically
                 # present: an unusable git dir (a submodule / worktree pointer
                 # file or symlink whose target isn't mounted, or a corrupt
@@ -244,23 +228,17 @@ class GitRepo:
 
     def discover_existing(self) -> None:
         """
-        Locate an enclosing work tree read-only, never initialising or writing.
+        Locate the repo rooted at :attr:`config_dir` read-only, never writing.
 
-        For the opted-out path: an existing repo (a prior run's config-local
-        one, or a user work tree enclosing the config dir) is found so history
-        reads work, but nothing is created, ownership-marked, or excluded — the
-        repo is only ever read. A dir with no usable repo stays disabled.
+        For the opted-out path: history reads work, but nothing is created,
+        ownership-marked, or excluded. A dir without such a repo stays disabled.
         """
         self.git_bin = shutil.which("git")
         if self.git_bin is None:
             return
         try:
             toplevel = self._discover_toplevel()
-            if (
-                toplevel is not None
-                and not _encloses_own_source(toplevel)
-                and not self._enclosing_repo_ignores_config_dir()
-            ):
+            if toplevel is not None and self._roots_config_dir(toplevel):
                 self.toplevel = toplevel
                 self.enabled = True
         except GIT_COMMIT_ERRORS as exc:
@@ -285,15 +263,9 @@ class GitRepo:
         root = result.stdout.strip()
         return Path(root) if root else None
 
-    def _enclosing_repo_ignores_config_dir(self) -> bool:
-        """Whether the enclosing work tree ignores ``config_dir`` itself."""
-        result = self._run(
-            # ``--`` so a config_dir starting with ``-`` isn't read as an option.
-            ["check-ignore", "-q", "--", str(self.config_dir)],
-            cwd=self.config_dir,
-            check=False,
-        )
-        return result.returncode == 0
+    def _roots_config_dir(self, toplevel: Path) -> bool:
+        """Whether *toplevel* is :attr:`config_dir` itself, not a repo above it."""
+        return toplevel.resolve() == self.config_dir.resolve()
 
     def _init_repo(self) -> None:
         """Create a fresh repo in ``config_dir`` and seed the existing configs.
@@ -786,8 +758,3 @@ class GitRepo:
                 result.returncode, result.args, output=result.stdout, stderr=result.stderr
             )
         return result
-
-
-def _encloses_own_source(toplevel: Path) -> bool:
-    """Whether *toplevel* is the Device Builder's own source checkout."""
-    return _OWN_SOURCE_ROOT.is_relative_to(toplevel.resolve())

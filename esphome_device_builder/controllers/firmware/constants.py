@@ -21,6 +21,7 @@ import re
 
 from esphome.const import __version__ as _installed_esphome_version
 
+from ...helpers.ansi import ANSI_CSI_RE
 from ...helpers.version_compat import release_line_at_least
 from ...models import JobType
 
@@ -158,7 +159,7 @@ _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
 # gauge by ``_ninja_progress``'s largest-total gate.
 _NINJA_MIN_TOTAL = 100
 _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
+    rf"^(?:{ANSI_CSI_RE.pattern})*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
 )
 
 # This compile-phase grammar is the authoritative copy: it stamps
@@ -166,13 +167,7 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
 # frontend mirrors these markers in ``src/util/compile-phase.ts`` only to drive
 # the live per-second timer before the stamped fields land over the stream —
 # keep the two in sync (word markers, bracket-percent, ninja counter, end
-# banner).
-#
-# Lines are ANSI-stripped before compile-phase matching: PlatformIO colourises
-# and repaints, so escapes land not only as a leading reset but *inside* tokens
-# — the summary banner is ``[<green><bold>SUCCESS<reset>] Took`` — which an
-# anchored/literal match would miss.
-_ANSI_ESCAPE: re.Pattern[str] = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# banner); the frontend's ``stripAnsi`` also handles the literal ``\\033`` spelling.
 
 # Compile-phase word markers for stamping ``compile_started_at``. ``Compiling
 # <path>`` is emitted by PlatformIO for every framework (esp32-arduino, esp8266,
@@ -213,12 +208,15 @@ _COMPILE_END_PATTERN: re.Pattern[str] = re.compile(
 #     fleets, not the normal limiter — it must clear a full batch.
 #   - "Aux" = CLEAN / RESET_BUILD_ENV: kept in a separate small pool
 #     so they don't crowd out the device history.
-# Active (queued/running) jobs are exempt from both pools.
+#   - "Ephemeral" = ANALYZE_MEMORY: never written to the jobs file,
+#     dropped from RAM once terminal.
+# Active (queued/running) jobs are exempt from the pools.
 _MAX_PRIMARY_TERMINAL_JOBS = 500
 _MAX_AUX_TERMINAL_JOBS = 5
 _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL}
 )
+_EPHEMERAL_JOB_TYPES: frozenset[JobType] = frozenset({JobType.ANALYZE_MEMORY})
 
 # Job types eligible for ``--mdns/--dns-address-cache`` forwarding.
 _OTA_ADDRESS_CACHE_JOB_TYPES: frozenset[JobType] = frozenset(
@@ -255,8 +253,17 @@ _MAX_OUTPUT_LINES_RETAINED = 2000
 # ``keep == _MAX_OUTPUT_LINES_RETAINED`` makes the post-completion
 # trim a no-op for builds that already triggered the in-flight
 # trim — never a second round of context loss.
-_MAX_OUTPUT_LINES_INFLIGHT = _MAX_OUTPUT_LINES_RETAINED * 2
 _INFLIGHT_TRIM_KEEP = _MAX_OUTPUT_LINES_RETAINED
+# The in-flight trim fires at this multiple of the keep.
+_INFLIGHT_HYSTERESIS = 2
+# Per-type in-flight keep. analyze-memory's symbol lists run past the
+# general window and the job is dropped once terminal, so the whole run
+# stays in flight for a mid-way follower.
+_INFLIGHT_KEEP_BY_TYPE: dict[JobType, int] = {JobType.ANALYZE_MEMORY: 20_000}
+# The default in-flight cap (job types outside ``_INFLIGHT_KEEP_BY_TYPE``).
+_MAX_OUTPUT_LINES_INFLIGHT = _INFLIGHT_TRIM_KEEP * _INFLIGHT_HYSTERESIS
+
+
 _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
 
 # Error stamped on a dependent (an install's UPLOAD) when its prerequisite

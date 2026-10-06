@@ -124,6 +124,8 @@ featured_components:
     interrupt_pin:
       value: GPIO12
       locked: true
+  requires:
+  - onboard_psram
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -437,5 +439,5 @@ source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-S3-ETH-8DI-8RO
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: 7636446f2870e03833159a80bc0dd4656984b8ed5f12231b4fdbc524b33e54b5

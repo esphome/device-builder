@@ -1469,6 +1469,7 @@ def _install_stub_submit_job_receiver(
         device_name: str = "",
         device_friendly_name: str = "",
         target_esphome_version: str = "",
+        skip_bootloader: bool = False,
     ) -> Any:
         job = MagicMock()
         job.job_id = f"local-{len(queued_jobs)}"
@@ -1479,6 +1480,7 @@ def _install_stub_submit_job_receiver(
         job.device_name = device_name
         job.device_friendly_name = device_friendly_name
         job.target_esphome_version = target_esphome_version
+        job.skip_bootloader = skip_bootloader
         return job
 
     async def _enqueue(job: Any) -> Any:

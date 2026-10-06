@@ -41,6 +41,7 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_esphome_meta,
     parse_platform_from_yaml,
     pending_changes_via_hash,
+    resolve_chip_mcu,
 )
 from esphome_device_builder.helpers.device_yaml._loading import _snapshot_source_files
 from esphome_device_builder.helpers.device_yaml._parsing import (
@@ -57,6 +58,7 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     resolve_esp32_variant,
     yaml_has_name_add_mac_suffix,
 )
+from esphome_device_builder.helpers.yaml import generate_api_encryption_key
 from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
@@ -143,6 +145,27 @@ def test_generate_minimal_stub_yaml_has_required_blocks() -> None:
     assert "ota:\n  - platform: esphome\n" in out
     assert "  ap:\n    ssid: Kitchen Lamp Fallback Hotspot\n" in out
     assert "\ncaptive_portal:\n" in out
+
+
+@pytest.mark.parametrize("name", ["8266", "0x1f", "017", "esp-8266"])
+def test_generators_emit_name_as_string(name: str) -> None:
+    """Every generator's ``name`` parses back as a string, even when number-like."""
+    stub = generate_minimal_stub_yaml(name, "Lamp", wifi_secrets_available=False)
+    full = generate_device_yaml(
+        name, "Lamp", _make_esp32_board(), ssid="", psk="", wifi_secrets_available=False
+    )
+    adopt = generate_adoption_yaml(
+        name,
+        "Lamp",
+        "k",
+        "github://x/y.yaml@main",
+        wifi_secrets_available=False,
+        api_encryption_key=None,
+    )
+    for text, section in ((stub, "esphome"), (full, "esphome"), (adopt, "substitutions")):
+        parsed = yaml_util.parse_yaml(Path("x.yaml"), text)[section]["name"]
+        assert isinstance(parsed, str)
+        assert parsed == name
 
 
 def test_generate_minimal_stub_yaml_emits_per_device_encryption_key() -> None:
@@ -1073,6 +1096,89 @@ def test_extract_logger_interface_none(config: Any, platform: str) -> None:
     assert extract_logger_interface(config, platform) is None
 
 
+@pytest.mark.parametrize(
+    ("config", "platform", "expected"),
+    [
+        # The board names the chip, through ESPHome's own tables.
+        ({"rtl87xx": {"board": "bw15"}}, "rtl87xx", "rtl8720c"),
+        ({"rtl87xx": {"board": "wr2"}}, "rtl87xx", "rtl8710b"),
+        ({"rp2": {"board": "rpipicow"}}, "rp2", "rp2040"),
+        ({"rp2": {"board": "rpipico2w"}}, "rp2", "rp2350"),
+        ({"bk72xx": {"board": "cb3s"}}, "bk72xx", "bk7231"),
+        # The pre-rename platform key and alias still resolve.
+        ({"rp2040": {"board": "rpipico2w"}}, "rp2040", "rp2350"),
+        # A board ESPHome does not list carries its chip itself.
+        ({"rtl87xx": {"board": "custom", "family": "RTL8720C"}}, "rtl87xx", "rtl8720c"),
+        ({"bk72xx": {"board": "custom", "family": "bk7231n"}}, "bk72xx", "bk7231"),
+        ({"rp2": {"variant": "RP2350"}}, "rp2", "rp2350"),
+        # The board wins over a family that ESPHome would reject anyway.
+        ({"rtl87xx": {"board": "bw15", "family": "RTL8710B"}}, "rtl87xx", "rtl8720c"),
+        # A platform with one chip needs no board.
+        ({"ln882x": {"board": "custom"}}, "ln882x", "ln882h"),
+    ],
+)
+def test_resolve_chip_mcu_resolves(config: dict, platform: str, expected: str) -> None:
+    assert resolve_chip_mcu(config, "", platform) == expected
+
+
+@pytest.mark.parametrize(
+    ("config", "platform"),
+    [
+        # Platforms that need no split.
+        ({"esp32": {"board": "esp32dev"}}, "esp32"),
+        ({"esp8266": {"board": "d1_mini"}}, "esp8266"),
+        ({"nrf52": {"board": "adafruit_itsybitsy_nrf52840"}}, "nrf52"),
+        # The chip is not named: never guess one of several.
+        ({"rtl87xx": {"board": "custom"}}, "rtl87xx"),
+        ({"rtl87xx": {}}, "rtl87xx"),
+        ({"rp2": {"board": "custom"}}, "rp2"),
+        ({"rp2": {"variant": "RP9999"}}, "rp2"),
+        ({"rtl87xx": {"board": "${unset}"}}, "rtl87xx"),
+        ({"rtl87xx": {"board": 7}}, "rtl87xx"),
+        # A family or variant that is not one of the platform's chips.
+        ({"rtl87xx": {"board": "custom", "family": "BK7231N"}}, "rtl87xx"),
+        ({"rtl87xx": {"board": "custom", "family": "garbage"}}, "rtl87xx"),
+        ({"rp2": {"board": "custom", "family": "rp2350"}}, "rp2"),
+        (None, ""),
+    ],
+)
+def test_resolve_chip_mcu_none(config: Any, platform: str) -> None:
+    assert resolve_chip_mcu(config, "", platform) is None
+
+
+def test_resolve_chip_mcu_resolves_substitutions() -> None:
+    subs = {"the_board": "bw15", "chip": "RP2350"}
+    assert resolve_chip_mcu({"rtl87xx": {"board": "${the_board}"}}, "", "rtl87xx", subs) == (
+        "rtl8720c"
+    )
+    assert resolve_chip_mcu({"rp2": {"variant": "$chip"}}, "", "rp2", subs) == "rp2350"
+
+
+def test_resolve_chip_mcu_reads_the_raw_text_without_a_resolved_config() -> None:
+    """A shallow scan has no resolved config; the raw text carries the same fields."""
+    assert resolve_chip_mcu(None, "rtl87xx:\n  board: bw15\n", "rtl87xx") == "rtl8720c"
+    assert resolve_chip_mcu(None, "rp2040:\n  variant: RP2350\n", "rp2") == "rp2350"
+    raw = "rtl87xx:\n  board: custom\n  family: RTL8720C\n"
+    assert resolve_chip_mcu(None, raw, "rtl87xx") == "rtl8720c"
+    # A trailing comment is not part of the value, as a full load reads it.
+    raw = "rtl87xx:\n  board: bw15  # kitchen plug\n"
+    assert resolve_chip_mcu(None, raw, "rtl87xx") == "rtl8720c"
+    raw = "rtl87xx:\n  board: custom\n  family: 'RTL8720C' # custom module\n"
+    assert resolve_chip_mcu(None, raw, "rtl87xx") == "rtl8720c"
+    # The same answer as a full load gives for a substituted board.
+    raw = "rtl87xx:\n  board: ${the_board}\n"
+    assert resolve_chip_mcu(None, raw, "rtl87xx", {"the_board": "bw15"}) == "rtl8720c"
+    # The text names another platform than the device's: nothing to read.
+    assert resolve_chip_mcu(None, "esp32:\n  board: bw15\n", "rtl87xx") is None
+
+
+def test_load_device_from_storage_resolves_mcu(tmp_path: Path) -> None:
+    bw15 = tmp_path / "bw15.yaml"
+    bw15.write_text("esphome:\n  name: bw15\nrtl87xx:\n  board: bw15\n", encoding="utf-8")
+    assert load_device_from_storage(bw15).mcu == "rtl8720c"
+    assert load_device_from_storage(bw15, shallow=True).mcu == "rtl8720c"
+
+
 def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> None:
     yaml_file = tmp_path / "c3.yaml"
     yaml_file.write_text(
@@ -1336,6 +1442,8 @@ def test_load_device_from_storage_shallow_degrades_package_fields(tmp_path: Path
     assert shallow.uses_mqtt is False
     assert deep.uses_mqtt is True
     assert shallow.directly_referenced_integrations == []
+    assert shallow.component_ids == []
+    assert {"esphome", "esp32", "mqtt"} <= set(deep.component_ids)
 
 
 def test_load_device_from_storage_shallow_mqtt_extract_from_raw_text(tmp_path: Path) -> None:
@@ -2085,7 +2193,7 @@ def test_generate_yaml_omits_wifi_for_plain_rp2040_pico() -> None:
     """RP2040 ``rpipico`` board → no ``wifi:`` block.
 
     The plain Pico has no CYW43; only the W variants do. The
-    inference reads ``esphome.components.rp2040.boards.BOARDS`` so
+    inference reads ``esphome.components.rp2.boards.BOARDS`` so
     we don't carry a hand-maintained list parallel to upstream.
     """
     board = _make_board(platform=Platform.RP2, pio_board="rpipico")
@@ -3367,6 +3475,7 @@ def test_generate_adoption_yaml_matches_dashboard_import(
             "esphome.bluetooth-proxy",
             url,
             network_provided=network != "wifi",
+            api_encryption_key=generate_api_encryption_key(),
         )
     )
     reference_path = tmp_path / "proxy-1.yaml"
@@ -3387,19 +3496,23 @@ def test_generate_adoption_yaml_matches_dashboard_import(
 
 
 def test_generate_adoption_yaml_variants() -> None:
-    """Inline credentials quote through; missing secrets and api opt-out drop blocks."""
+    """Inline credentials quote through; no secrets drops the block; a given key is spliced in."""
     inline = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw"
+        "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw", api_encryption_key=None
     )
     assert 'ssid: "Net #1"' in inline
+    assert "api:" not in inline
     no_creds = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", wifi_secrets_available=False
+        "p",
+        "P",
+        "k",
+        "github://x/y.yaml@main",
+        wifi_secrets_available=False,
+        api_encryption_key=None,
     )
     assert "wifi" not in no_creds
-    no_api = generate_adoption_yaml("p", "P", "k", "github://x/y.yaml@main", api_encryption=False)
-    assert "api:" not in no_api
     supplied = generate_adoption_yaml(
-        "p", "P", "k", "github://x/y.yaml@main", api_encryption=False, api_encryption_key="K=="
+        "p", "P", "k", "github://x/y.yaml@main", api_encryption_key="K=="
     )
     assert '    key: "K=="' in supplied
 
@@ -3775,6 +3888,14 @@ def test_device_to_dict_nests_runtime_state() -> None:
         assert flat_key not in payload
 
 
+def test_device_to_dict_sends_the_outage_as_an_age() -> None:
+    """The wire carries ``offline_seconds``; the stamp itself is never sent."""
+    payload = DeviceRuntimeState(offline_since=time.time() - 7200).to_dict()
+
+    assert "offline_since" not in payload
+    assert abs(payload["offline_seconds"] - 7200) < 5
+
+
 def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
     """An all-default runtime_state still serializes every key; the frontend requires it."""
     payload = Device(
@@ -3785,6 +3906,7 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "state": "unknown",
         "active_source": "unknown",
         "ip_addresses": [],
+        "offline_seconds": None,
         "deployed_version": "",
         "deployed_config_hash": "",
         "queued_update": False,
@@ -3814,3 +3936,34 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
     device = load_device_from_storage(yaml_path)
 
     assert device.ota_partition_access is False
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param("esphome:\n  name: k\n", False, id="plain"),
+        pytest.param(
+            "packages:\n  v:\n    api:\n\nesphome:\n  name: k\n", False, id="merged_package"
+        ),
+        pytest.param("packages:\n  v: github://x/y.yaml\n", True, id="unmerged_package"),
+        pytest.param("api: !include api.yaml\n", True, id="include_marker"),
+        pytest.param("packages:\n  v:\n    api: {}\napi: !remove\n", True, id="remove_marker"),
+        pytest.param("logger: !extend\n", True, id="extend_marker"),
+        pytest.param(
+            "ota:\n  - platform: esphome\n    encryption: !include api.yaml\n",
+            True,
+            id="marker_inside_list",
+        ),
+        pytest.param("ota:\n  - platform: esphome\n    port: 3232\n", False, id="clean_list"),
+        pytest.param("api: ${api_block}\n", True, id="substituted_block"),
+        pytest.param("ota:\n  - ${ota_item}\n", True, id="substituted_list_item"),
+        pytest.param("esphome:\n  name: ${name}\n", False, id="substituted_scalar_inside"),
+        pytest.param(": :", True, id="unparsable"),
+    ],
+)
+def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -> None:
+    """Deferred markers and unmerged packages read as incomplete; a clean merge does not."""
+    (tmp_path / "k.yaml").write_text(yaml_text, encoding="utf-8")
+    (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
+    config = device_yaml.load_device_yaml(tmp_path / "k.yaml")
+    assert device_yaml.resolution_incomplete(config) is expected

@@ -23,6 +23,7 @@ from esphome.const import __version__ as esphome_version
 from ._remote_build_lifecycle import RemoteBuildLifecycle
 from ._remote_build_only import run_remote_build_only
 from .api.legacy import create_legacy_routes
+from .api.mcp import create_mcp_routes
 from .api.ws import create_ws_routes, init_ws_app
 from .constants import __version__ as server_version
 from .controllers.auth import AuthController
@@ -59,6 +60,7 @@ from .helpers.secrets_state import write_secrets_locked
 from .helpers.startup_timing import StartupTimer
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
+from .models.common import DashboardModel
 
 if TYPE_CHECKING:
     from esphome.zeroconf import AsyncEsphomeZeroconf
@@ -481,10 +483,7 @@ class DeviceBuilder:
 
         # Initialize controllers
         self.auth = AuthController(self)
-        self.boards = BoardCatalog()
-        self.boards.load()
-        self.components = ComponentCatalog(self)
-        self.components.load()
+        self._load_catalogs()
         self.config = ConfigController(self)
         self.desktop = DesktopController(self)
         self.devices = DevicesController(self)
@@ -499,6 +498,7 @@ class DeviceBuilder:
         # Seed the RAM-canonical preferences (and migrate them out of the shared
         # sidecar on first run) before onboarding reads or mutates them.
         await self.config.async_load()
+        await self.auth.async_load()
         # Default pre-existing installs to the YAML experience before
         # any onboarding command can be served.
         await self.onboarding.migrate_preexisting_install()
@@ -589,6 +589,15 @@ class DeviceBuilder:
         """Unblock work gated on the listening socket being bound (mDNS advertise)."""
         self._serving_event.set()
 
+    def _load_catalogs(self) -> None:
+        """Load the board and component catalogs."""
+        boards = BoardCatalog()
+        boards.load()
+        self.boards = boards
+        components = ComponentCatalog(self)
+        components.load()
+        self.components = components
+
     async def stop(self) -> None:
         """Shut down the application: free network sockets first, then flush local state."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
@@ -664,6 +673,8 @@ class DeviceBuilder:
             await self.version_history.stop()
         if self.config is not None:
             await self.config.stop()
+        if self.auth is not None:
+            await self.auth.stop()
         # Cleanly drain the pool once nothing else can hand it work.
         # Two paths because the pool is created eagerly in ``__init__``
         # — calling ``stop()`` on an instance that never ran
@@ -809,10 +820,7 @@ class DeviceBuilder:
             await client.send_result(message_id, {"subscribed": True})
 
         def _handle_event(event: Event, controls: StreamControls) -> None:
-            data = event.data
-            serialized: dict[str, Any] = {}
-            for key, value in data.items():
-                serialized[key] = value.to_dict() if hasattr(value, "to_dict") else value
+            serialized: dict[str, Any] = DashboardModel.to_wire(event.data)
             # Fail-closed for every event type. If the queue
             # overflows, the client is 4000+ events behind and the
             # connection is already broken; a forced disconnect +
@@ -913,6 +921,9 @@ class DeviceBuilder:
 
         # Legacy REST endpoints (HA backward compat)
         app.router.add_routes(create_legacy_routes())
+
+        # MCP endpoint. Registered before the SPA catch-all so GET isn't swallowed.
+        app.router.add_routes(create_mcp_routes())
 
         # HTTP firmware-artifact download. Registered before the SPA catch-all
         # so it isn't swallowed; gated by auth_middleware (or the supervisor on

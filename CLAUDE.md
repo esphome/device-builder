@@ -419,6 +419,11 @@ against legacy behaviour before assuming the simpler version suffices.
   rules, failing when the top-level respell can't express an alias (a
   platform domain, or a provider whose name appears as `- platform:`
   values); acknowledge bespoke handling in `_HANDLED_ALIASES`. The
+  catalog side reads two sources: schema sections the *bundle* tags
+  `alias_of` never become component or automation entries, while
+  alias-spelled `dependencies` respell from the *loader* map, and the
+  sync fails when the two disagree (an alias id reaching the catalog)
+  or a canonical is missing. The
   led-strip `rgb_order`/`is_rgbw`/`is_wrgb`→`channel_colors`
   consolidation (esphome/esphome#18474) is the hybrid shape: the value
   fold is coded once in `helpers/migrations.py`
@@ -742,11 +747,11 @@ against legacy behaviour before assuming the simpler version suffices.
     claims only behind the live anchor PTR — a gate `refresh_mdns`'s
     drawer re-resolves share via `apply_resolved_addresses`. The
     importable adopt path (`devices/importable.py`) seeds no state —
-    it applies the broadcast's cached IP and probes the esphomelib
-    service under the adopted name, claiming mdns off the cache hit;
-    the frontend always adopts under the factory broadcast name
-    (an edited name goes through the post-adopt rename flow), so
-    the probe never needs a cross-name lookup. There is
+    the scan's ADDED handler probes the adopted name
+    (`probe_reachability`), claiming mdns off the cache hit; the
+    frontend always adopts under the factory broadcast name (an
+    edited name goes through the post-adopt rename flow), so the
+    probe never needs a cross-name lookup. There is
     deliberately **no** sweep re-claim of mdns ownership off SRV/A
     resolves (the #1999 resolve-first sweep manufactured un-demotable
     PTR-less claims): a PTR-lost device stays ONLINE via ping, and the
@@ -839,6 +844,19 @@ against legacy behaviour before assuming the simpler version suffices.
 
 ## Design principles
 
+- **esphome owns config validation; never pre-validate fields against
+  the catalog.** The catalogs are a lossy snapshot of esphome's schemas,
+  and the visual editor round-trips every parsed key through
+  `automations/upsert`, so a catalog-derived "is this field allowed"
+  check refuses valid configs and makes untouched automations impossible
+  to edit. Guards that protect the dashboard's own round trip stay (an
+  occupied location, a parser-skipped list entry, a stale `expected`,
+  the parser's refusal to decompose an uncatalogued id that shares a
+  mapping with other keys); field and value semantics come from running
+  `esphome config` (`devices/validate`, the MCP `validate_config` tool, the
+  bounded run the MCP automation write tools append to their reply),
+  and an agent repairs from esphome's own error. Evidence and history:
+  docs/ARCHITECTURE.md "Component Catalog".
 - **Never generate invalid configs; fix the source, not the consumer.**
   When a downstream path hits an invalid YAML (`esphome config` exits
   non-zero, schema rejects, compile fails), fix the *generator* (wizard,
@@ -865,7 +883,7 @@ against legacy behaviour before assuming the simpler version suffices.
   components changed schema (deprecated `esphome.platform` /
   `esphome.board`, renamed fields like `wifi.use_address`); refusing the
   write strands the user. Validate *our* outputs (`generate_device_yaml`,
-  `generate_minimal_stub_yaml`, `dashboard_import.import_config`, clone's
+  `generate_minimal_stub_yaml`, the `?full_config` adoption, clone's
   leaf rewrites) but pass user-supplied content through unchanged —
   except keys esphome has deprecated or renamed: when an editor write
   already touches a block spelled with a legacy key the catalog marks

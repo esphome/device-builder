@@ -13,25 +13,7 @@ from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.device_builder import DeviceBuilder, _handle_version
 from esphome_device_builder.helpers.auth import auth_middleware
 
-
-class _StubSessionStore:
-    async def validate(self, token: str) -> object | None:
-        return None
-
-
-class _StubRateLimiter:
-    def remaining_lockout(self, ip: str) -> float:
-        return 0.0
-
-    def clear(self, ip: str) -> None: ...
-
-    def record_failure(self, ip: str) -> None: ...
-
-
-class _StubAuth:
-    def __init__(self) -> None:
-        self.session_store = _StubSessionStore()
-        self.rate_limiter = _StubRateLimiter()
+from .conftest import StubAuth
 
 
 class _StubSettings:
@@ -45,7 +27,7 @@ class _StubSettings:
 class _StubDeviceBuilder:
     def __init__(self, *, using_password: bool) -> None:
         self.settings = _StubSettings(using_password=using_password)
-        self.auth = _StubAuth()
+        self.auth = StubAuth()
 
 
 def _make_app(db: _StubDeviceBuilder) -> web.Application:

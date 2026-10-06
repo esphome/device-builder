@@ -38,6 +38,7 @@ from esphome_device_builder.controllers.devices.helpers import (
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     yaml_content_for_create,
 )
+from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import _safe_yaml_scalar
 from esphome_device_builder.models import (
@@ -56,6 +57,19 @@ VALID_FILE_CONTENT = (
     "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
     "esp32:\n  variant: esp32\n  board: nodemcu-32s\n"
 )
+
+
+async def test_create_device_refuses_the_secrets_filename(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="secrets", file_content=VALID_FILE_CONTENT)
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "secrets.yaml").exists()
 
 
 async def test_create_device_translates_file_exists_to_command_error(
@@ -501,6 +515,23 @@ async def test_create_device_quotes_friendly_name_with_yaml_metachars(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_quotes_all_digit_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An all-digit name is written quoted so it parses back as a string."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    result = await ctrl.create_device(name="8266")
+
+    assert result.configuration == "8266.yaml"
+    content = (tmp_path / "8266.yaml").read_text("utf-8")
+    assert '  name: "8266"\n' in content
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_rejects_name_with_no_hostname_safe_characters(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
@@ -904,7 +935,7 @@ async def test_create_device_package_board_writes_package_yaml(
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     ctrl._db.boards.get_board = AsyncMock(return_value=_package_board())
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError)
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=ValidatorTimeoutError("slow"))
 
     await ctrl.create_device(name="proxy", board_id="olimex-esp32-poe-iso-bluetooth-proxy")
 
@@ -915,6 +946,8 @@ async def test_create_device_package_board_writes_package_yaml(
     assert "wifi:" not in content
     # Tolerant validation: the timed-out upstream fetch kept the file.
     ctrl._db.editor.validate_yaml.assert_awaited_once()
+    assert 'api:\n  encryption:\n    key: "' in content
+    assert content.index("esphome:") < content.index("api:")
 
 
 async def test_create_device_package_board_keeps_yaml_on_package_failure(

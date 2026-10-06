@@ -36,6 +36,9 @@ class SubmitJobFrameData(TypedDict):
     offloader's own esphome version; the receiver provisions a
     matching venv when it differs from its installed esphome
     (``NotRequired`` — older offloaders don't send it).
+    ``skip_bootloader`` asks the receiver's compile to pass
+    ``--skip-bootloader``; older receivers ignore the key and
+    build the full artifact set.
     """
 
     type: Literal["submit_job"]
@@ -48,6 +51,7 @@ class SubmitJobFrameData(TypedDict):
     device_name: NotRequired[str]
     device_friendly_name: NotRequired[str]
     target_esphome_version: NotRequired[str]
+    skip_bootloader: NotRequired[bool]
 
 
 class SubmitJobChunkFrameData(TypedDict):

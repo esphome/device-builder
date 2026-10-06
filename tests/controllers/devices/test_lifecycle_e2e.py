@@ -159,18 +159,15 @@ async def test_start_runs_full_initialisation_chain(
         "esphome_device_builder.controllers.devices.controller.find_esphome_cmd",
         lambda: ["python", "-m", "esphome"],
     )
-    db = make_db(tmp_path)
-    controller = DevicesController(db)
-    # Seed an ignored-devices file so ``_load_ignored_devices`` has
-    # something real to process — otherwise it's silently a no-op
-    # and we wouldn't observe the executor-dispatch call shape.
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.importable.ignored_devices_storage_path",
+        "esphome_device_builder.controllers.devices.controller.ignored_devices_storage_path",
         lambda: tmp_path / "ignored-devices.json",
     )
     (tmp_path / "ignored-devices.json").write_bytes(
         b'{"ignored_devices": ["already-ignored"]}',
     )
+    db = make_db(tmp_path)
+    controller = DevicesController(db)
 
     with _capture_inner_lifecycle(controller) as log:
         await controller.start()
@@ -208,7 +205,7 @@ async def test_start_pre_scan_loads_complete_before_scan(
     monkeypatch.setattr(controller._metadata_store, "async_load", _async_recorder("metadata"))
     monkeypatch.setattr(controller._pending_keys, "async_load", _async_recorder("pending_keys"))
     monkeypatch.setattr(controller, "migrate_board_id_user_set", _async_recorder("migrate"))
-    monkeypatch.setattr(controller, "_load_ignored_devices", lambda: log.append("ignored"))
+    monkeypatch.setattr(controller, "_load_ignored_devices", _async_recorder("ignored"))
     monkeypatch.setattr(controller._scanner, "scan", _async_recorder("scan"))
     with (
         patch.multiple(controller._state_monitor, start=AsyncMock(), stop=AsyncMock()),

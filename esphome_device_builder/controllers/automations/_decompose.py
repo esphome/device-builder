@@ -19,11 +19,13 @@ from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
+from ...helpers.automation_keys import CONDITION_GATE_KEYS, is_scalar_bodied, scalar_param_key
 from ...helpers.yaml.scalar import is_custom_yaml_tag
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     AutomationAction,
+    AutomationCondition,
     AutomationTree,
     ConditionNode,
 )
@@ -31,15 +33,7 @@ from . import catalog
 
 
 class UnsupportedActionError(CommandError):
-    """A known action with no structured form (oversized LVGL ``*.update``)."""
-
-
-# Action-body keys that introduce a condition gate rather than plain params.
-_CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
-
-# Fallback shorthand key when a catalog entry has no ``scalar_shorthand_key``
-# (id-reference actions / conditions). Shared with the emitter's collapse check.
-DEFAULT_SHORTHAND_KEY = "id"
+    """A body the tree cannot represent (formless LVGL ``*.update``, a tagged condition gate)."""
 
 
 def _safe_tree(
@@ -56,7 +50,7 @@ def _safe_tree(
     opaque passthrough node.) A document that won't load at all is the
     separate whole-file failure raised by :func:`parse_device_yaml`
     upstream. The third tuple field flags an
-    :class:`UnsupportedActionError` — a known action with no form.
+    :class:`UnsupportedActionError` — a body the tree cannot represent.
     """
     try:
         return build(), None, False
@@ -182,6 +176,9 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
 
     if raw_params is None:
         params: dict[str, Any] = {}
+    elif isinstance(raw_params, dict) and is_scalar_bodied(action):
+        # ``delay: {seconds: 2}``: the mapping is the value's dict form, not fields.
+        params = {scalar_param_key(action): _render_value(raw_params)}
     elif isinstance(raw_params, dict):
         params = {}
         if _is_dict_shorthand_condition(action, raw_params):
@@ -195,21 +192,24 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
                 if key in action.accepts_action_list:
                     children[key] = _decompose_action_list(value)
                     continue
-                if key in _CONDITION_GATE_KEYS:
+                if key in CONDITION_GATE_KEYS:
                     conditions = _decompose_condition_list(value)
                     continue
                 params[key] = _render_value(value)
+    elif (
+        isinstance(raw_params, str)
+        and action.scalar_shorthand_key in CONDITION_GATE_KEYS
+        and catalog.is_known_condition(raw_params)
+    ):
+        # ``wait_until: api.connected``: esphome reads a string in a condition
+        # position as that condition id with no config.
+        conditions = _decompose_condition_list(raw_params)
+        params = {}
     else:
         # Bare-scalar shorthand (``logger.log: "hi"`` / ``light.turn_on: id``):
-        # surface the scalar under the action's own ``maybe_simple_value`` key
-        # so the writer reconstructs the short form on round-trip.
-        key = action.scalar_shorthand_key or DEFAULT_SHORTHAND_KEY
-        # ``core.wait_until`` has ``maybe == "condition"``; a shorthand that
-        # names a gate / sub-list key must never land in ``params`` — fall
-        # back to ``id`` so it round-trips harmlessly.
-        if key in _CONDITION_GATE_KEYS or key in action.accepts_action_list:
-            key = DEFAULT_SHORTHAND_KEY
-        params = {key: _render_value(raw_params)}
+        # store the scalar under the entry's collapse key so the writer
+        # reconstructs the short form on round-trip.
+        params = {scalar_param_key(action): _render_value(raw_params)}
 
     return ActionNode(
         action_id=action_id,
@@ -221,10 +221,10 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
 
 def _is_dict_shorthand_condition(action: AutomationAction, body: dict[str, Any]) -> bool:
     """Whether *body* is a ``wait_until``-style condition with the gate key omitted."""
-    if not body or action.scalar_shorthand_key not in _CONDITION_GATE_KEYS:
+    if not body or action.scalar_shorthand_key not in CONDITION_GATE_KEYS:
         return False
     keys = body.keys()
-    if keys & _CONDITION_GATE_KEYS:
+    if keys & CONDITION_GATE_KEYS:
         return False
     known = {e.key for e in action.config_entries} | set(action.accepts_action_list)
     return not (keys & known)
@@ -235,15 +235,30 @@ def _decompose_condition_list(body: Any) -> list[ConditionNode]:
     if body is None:
         return []
     if isinstance(body, list):
-        return [_decompose_condition(item) for item in body if isinstance(item, dict)]
-    if isinstance(body, dict):
-        return [_decompose_condition(body)]
-    return []
+        return [_decompose_condition(item) for item in body]
+    return [_decompose_condition(body)]
 
 
-def _decompose_condition(raw: dict) -> ConditionNode:
-    """Build one :class:`ConditionNode` from a registry-shaped entry."""
-    if not raw or not isinstance(raw, dict):
+def _condition_params(entry: AutomationCondition, value: Any) -> dict[str, Any]:
+    """Return the params a leaf condition's *value* carries."""
+    if value is None:
+        return {}
+    if isinstance(value, dict) and not is_scalar_bodied(entry):
+        return {k: _render_value(v) for k, v in value.items()}
+    return {scalar_param_key(entry): _render_value(value)}
+
+
+def _decompose_condition(raw: Any) -> ConditionNode:
+    """Build one :class:`ConditionNode` from a registry-shaped entry or a bare condition id."""
+    if isinstance(raw, str):
+        raw = {raw: None}
+    if isinstance(raw, TaggedScalar):
+        msg = "Condition uses a YAML tag the editor cannot represent"
+        raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
+    if not isinstance(raw, dict):
+        msg = "Condition must be a mapping or a condition id"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if not raw:
         msg = "Empty condition entry"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     if len(raw) != 1:
@@ -258,11 +273,8 @@ def _decompose_condition(raw: dict) -> ConditionNode:
     params: dict[str, Any] = {}
     if catalog_entry.accepts_condition_list:
         children = _decompose_condition_list(value)
-    elif isinstance(value, dict):
-        params = {k: _render_value(v) for k, v in value.items()}
-    elif value is not None:
-        key = catalog_entry.scalar_shorthand_key or DEFAULT_SHORTHAND_KEY
-        params = {key: _render_value(value)}
+    else:
+        params = _condition_params(catalog_entry, value)
     return ConditionNode(
         condition_id=str(cond_id),
         params=params,

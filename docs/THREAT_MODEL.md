@@ -114,9 +114,11 @@ finding — the issue wasn't a boundary breach.
 Bugs in any of the following *are* security bugs:
 
 - **Auth bypass.** Anything that lets a request reach a
-  privileged WS command or REST endpoint without a valid session
-  on the public site, or that lets external traffic reach the
-  ingress site without going through the supervisor.
+  privileged WS command, REST endpoint or MCP tool (`/api/mcp`
+  dispatches into the same command table as `/ws`) without a
+  valid session on the public site, or that lets external
+  traffic reach the ingress site without going through the
+  supervisor.
 - **Origin / Host gate evasion.** Anything that lets a browser-
   driven cross-origin request slip past `--trusted-domains` when
   the operator opted in.

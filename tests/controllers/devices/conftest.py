@@ -27,12 +27,19 @@ import pytest
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.controllers.config import get_device_metadata, set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._ignored_devices_store import (
+    ignored_devices_store,
+)
 from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState, RegenState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.controllers.devices.import_upload import UploadTokens
+from esphome_device_builder.controllers.editor import (
+    ValidatorTimeoutError,
+    ValidatorUnavailableError,
+)
 from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
@@ -40,6 +47,12 @@ from esphome_device_builder.models import AdoptableDevice, Device, DeviceState, 
 from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wire_secrets_writer
+
+ESPHOME_CONFIG_STUB_TARGET = "esphome_device_builder.controllers.devices.resolve.run_esphome_config"
+VALIDATOR_OUTAGES = [
+    pytest.param(ValidatorTimeoutError("round-trip timed out"), id="timeout"),
+    pytest.param(ValidatorUnavailableError("closed stdout"), id="unavailable"),
+]
 
 
 class _RecordingAddressCache:
@@ -537,6 +550,10 @@ def make_controller() -> Iterator[MakeControllerFactory]:
             data_dir=config_dir,
             shutdown_register=controller._shutdown_callbacks.append,
         )
+        controller._ignored_devices_store = ignored_devices_store(
+            config_dir / "ignored-devices.json",
+            shutdown_register=controller._shutdown_callbacks.append,
+        )
         controller._packages_root = config_dir / ".esphome" / "packages"
         controller._shared_sidecar = SharedSidecarClient(config_dir)
         # Default the editor's ``validate_yaml`` to a passing result
@@ -804,3 +821,13 @@ def wifi_ap_block(ssid: str) -> str:
         f"    ssid: {ssid}\n"
         '    password: "abc123def456"\n'
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_remote_package_clones(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse the git clone a remote ``packages:`` entry would trigger."""
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("remote package clones are disabled in tests")
+
+    monkeypatch.setattr("esphome.git.clone_or_update", _refuse)

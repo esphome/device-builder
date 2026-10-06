@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, NoReturn
 from esphome.const import ALLOWED_NAME_CHARS
 from esphome.storage_json import StorageJSON
 
+from ...constants import is_secrets_file
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import parse_platform_from_yaml
@@ -23,7 +24,7 @@ from .helpers import (
     slugify_hostname,
     write_new_file_exclusive,
 )
-from .mutations_yaml import packages_block_span
+from .mutations_yaml import PackageWarning, packages_block_span
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -97,6 +98,8 @@ async def create_device(  # noqa: C901, PLR0912
                 )
 
     filename = f"{name}.yaml"
+    if is_secrets_file(filename):
+        raise CommandError(ErrorCode.INVALID_ARGS, f"{filename} is reserved for secrets")
     config_path = controller._db.settings.rel_path(filename)
 
     # Fast collision check before the (~hundreds of ms) validator
@@ -124,7 +127,7 @@ async def create_device(  # noqa: C901, PLR0912
         name, friendly, board, file_content, ssid, psk
     )
 
-    warning: str | None = None
+    warning: PackageWarning | None = None
     # Validate generated YAML before write so a regression in
     # generate_device_yaml / generate_minimal_stub_yaml surfaces
     # as INTERNAL_ERROR rather than landing an unflashable YAML
@@ -151,7 +154,7 @@ async def create_device(  # noqa: C901, PLR0912
         # ``packages:`` block keeps the config with a warning instead of
         # blaming the generator. Genuine schema errors still mean our
         # generator broke.
-        warning = await controller._validate_rewritten_yaml_or_raise(
+        verdict = await controller._validate_rewritten_yaml_or_raise(
             filename,
             yaml_content,
             action="create",
@@ -160,6 +163,7 @@ async def create_device(  # noqa: C901, PLR0912
             timeout=IMPORT_VALIDATE_TIMEOUT,
             packages_span=packages_block_span(yaml_content),
         )
+        warning = verdict.warning
     else:
         await controller._validate_rewritten_yaml_or_raise(
             filename,
@@ -197,7 +201,7 @@ async def create_device(  # noqa: C901, PLR0912
         board_id=board_id,
         clear_metadata=not overwriting,
     )
-    return WizardResponse(configuration=filename, warning=warning)
+    return WizardResponse(configuration=filename, warning=warning.text if warning else None)
 
 
 def save_device_storage(filename: str, storage: StorageJSON) -> None:

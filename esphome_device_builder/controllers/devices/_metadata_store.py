@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ...helpers.async_ import run_in_executor
-from ...helpers.json import JSONDecodeError, dumps_indent, loads
+from ...helpers.json import dumps_indent, loads_mapping_or_warn
 from ...helpers.metadata_sidecar import _load_metadata, metadata_transaction
 from ...helpers.storage import ShutdownRegister, Store
 
@@ -19,12 +19,18 @@ _SHARED_SIDECAR_FILENAME = ".device-builder.json"
 
 _DEFAULT_SAVE_DELAY = 2.0
 
+# Read-only miss sentinel for ``get_field``; never mutated.
+_EMPTY: dict[str, Any] = {}
+
 # Fields the store owns. Everything else lives in the shared sidecar.
 STORE_FIELDS: frozenset[str] = frozenset(
     {
         "ip",
+        "offline_since",
+        "last_seen",
         "deployed_config_hash",
         "deployed_version",
+        "deployed_name",
         "queued_update",
         "api_encryption_active",
         "expected_config_hash",
@@ -49,12 +55,8 @@ def _encode(data: dict[str, dict[str, Any]]) -> bytes:
 
 
 def _decode(raw: bytes) -> dict[str, dict[str, Any]]:
-    try:
-        obj = loads(raw)
-    except JSONDecodeError:
-        _LOGGER.warning("device metadata store: corrupt JSON, starting empty")
-        return {}
-    if not isinstance(obj, dict):
+    obj = loads_mapping_or_warn(raw, label="device metadata store")
+    if obj is None:
         return {}
     # Drop fields the store no longer owns so renamed / retired keys
     # don't linger on disk past the next debounced save.
@@ -112,6 +114,10 @@ class DeviceMetadataStore:
     def get(self, filename: str) -> dict[str, Any]:
         """Return a shallow copy of *filename*'s metadata."""
         return dict(self._state.get(filename, {}))
+
+    def get_field(self, filename: str, key: str) -> Any:
+        """Return one field of *filename*'s metadata without copying the entry."""
+        return self._state.get(filename, _EMPTY).get(key)
 
     def update(
         self,

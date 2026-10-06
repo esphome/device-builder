@@ -58,8 +58,7 @@ from script.sync_boards import (
     _backfill_donor_pins,
     _backfill_esp32_engineering_sample,
     _backfill_esp32_variants,
-    _backfill_libretiny_mcu,
-    _backfill_rp2040_mcu,
+    _backfill_mcu,
     _backfill_rp2040_wifi,
     _consolidate_full_setup_bundles,
     _has_pin_conflict,
@@ -110,8 +109,7 @@ def test_split_artefacts_match_manifests() -> None:
     _backfill_esp32_variants(from_yaml.boards)
     _backfill_esp32_engineering_sample(from_yaml.boards)
     _backfill_rp2040_wifi(from_yaml.boards)
-    _backfill_rp2040_mcu(from_yaml.boards)
-    _backfill_libretiny_mcu(from_yaml.boards)
+    _backfill_mcu(from_yaml.boards)
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
     # In emission the platform augments fill esp8266 product boards before the
     # donor pass ever sees them; the replay skips those augments, so capture
@@ -692,7 +690,7 @@ def test_libretiny_mcu_backfill_falls_back_to_the_sole_token() -> None:
         manufacturer="",
         esphome=BoardEsphomeConfig(platform=Platform.LN882X, board="not-an-esphome-board"),
     )
-    _backfill_libretiny_mcu([entry])
+    _backfill_mcu([entry])
     assert entry.esphome.mcu == "ln882h"
 
 

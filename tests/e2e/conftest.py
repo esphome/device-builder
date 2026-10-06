@@ -61,6 +61,7 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
     PEER_LINK_PATH,
     make_peer_link_handler,
 )
+from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.remote_artifacts_materialise import (
@@ -84,6 +85,39 @@ from ..conftest import (
     wait_until,
     wire_firmware_remote_peer_api_mocks,
 )
+
+
+@asynccontextmanager
+async def single_device_dashboard(
+    make_settings: Any, tmp_path: Path, yaml: str, filename: str = "kitchen.yaml"
+) -> AsyncIterator[DeviceBuilder]:
+    """Real ``DeviceBuilder`` with one device tracked from the initial scan."""
+    (tmp_path / filename).write_text(yaml, encoding="utf-8")
+    settings = make_settings(with_core_path=True)
+    settings.using_password = False
+    db = DeviceBuilder(settings)
+    await db.start()
+    try:
+        yield db
+    finally:
+        await db.stop()
+
+
+def completed_job(db: DeviceBuilder, job_type: JobType) -> asyncio.Future:
+    """Future resolved by the JOB_COMPLETED bus event for the next *job_type* job.
+
+    Registered before the trigger so the completion can't be missed.
+    """
+    done: asyncio.Future = asyncio.get_running_loop().create_future()
+
+    def _on_completed(event: Any) -> None:
+        job = event.data["job"]
+        if job.job_type is job_type and job.status is JobStatus.COMPLETED and not done.done():
+            done.set_result(job)
+
+    unsub = db.bus.add_listener(EventType.JOB_COMPLETED, _on_completed)
+    done.add_done_callback(lambda _f: unsub())
+    return done
 
 
 @dataclass

@@ -134,10 +134,9 @@ class BoardEsphomeConfig(DashboardModel):
     # ``esp32_variants`` snapshot in platform_capabilities.index.json.
     variant: str | None = None
     framework: str | None = None  # "arduino" or "esp-idf"
-    # Chip series within an ESPHome platform that lumps several under one
-    # key: currently rp2 ("rp2040" / "rp2350"). Reusable to split the
-    # libretiny families (e.g. bk72xx chips) the same way later. None where
-    # the platform needs no split; esp32 uses ``variant`` for the same role.
+    # Chip series within a platform that lumps several under one key (see
+    # ``Device.mcu``, which carries the same token). None where the platform
+    # needs no split; esp32 uses ``variant`` for the same role.
     mcu: str | None = None
     # Pre-rev3 ESP32-P4 silicon (esphome's "engineering sample"); stamped by
     # sync_boards from esphome's BOARDS table, never hand-set in manifests.

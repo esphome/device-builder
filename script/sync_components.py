@@ -114,6 +114,7 @@ _USER_AGENT = "esphome-device-builder-backend (https://github.com/esphome/device
 # ``controllers/components.py`` for the rationale (issue #325).
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _board_mcus import board_mcus  # noqa: E402
 from _catalog_split import (  # noqa: E402
     emit_body_with_roundtrip,
     prepare_next_bodies_dir,
@@ -126,7 +127,13 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
-from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    CONDITION_GATE_KEYS as _CONDITION_GATE_KEYS,
+)
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    bare_trigger_key,
+    is_trigger_key,
+)
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.migration_rule_kinds import (  # noqa: E402
     MIGRATION_RULE_EXTRA_FIELDS,
@@ -325,9 +332,6 @@ _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
         (RP2_CANONICAL_PLATFORM, "board"),
-        # the deprecated rp2040 alias of the rp2 component; extraction runs
-        # before ``_fold_rp2_component_alias`` re-keys it onto the canonical id.
-        (RP2_ALIAS_PLATFORM, "board"),
     }
 )
 
@@ -896,6 +900,7 @@ _ACTION_KEY_SUFFIX = "_action"
 _ESP32_ADVANCED_VISIBLE: dict[str, bool | str] = {
     "sram1_as_iram": True,
     "minimum_chip_revision": "0.0",
+    "flash_chip": "generic",
 }
 
 # ---------------------------------------------------------------------------
@@ -1010,6 +1015,7 @@ def main() -> int:
         automations = build_automations(
             schema_dir=schema_dir,
             component_ids=component_ids,
+            restrictive_references=_restrictive_references(catalog),
             registry_groups=_collect_automation_registry_groups(),
             registry_refined=registry_refined,
             registry_ranges=_collect_automation_field_ranges(),
@@ -1318,7 +1324,7 @@ def build_catalog(
             out.append(entry)
 
     # Before every later pass so they all see final ids.
-    _fold_rp2_component_alias(out)
+    _fold_component_aliases(out, _component_aliases(), check_canonicals=not limit)
 
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
@@ -1371,6 +1377,8 @@ def build_catalog(
     _repair_help_links(out, _load_docs_page_index())
 
     _resolve_provides(out, schema_dir)
+    # Reads ``provides_id_paths``, so after the provides pass.
+    _resolve_reference_classes(out)
     _apply_libretiny_family_provides(out)
     _apply_libretiny_family_options(out)
 
@@ -1405,28 +1413,34 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
             entry["multi_conf"] = True
 
 
-def _fold_rp2_component_alias(entries: list[dict]) -> None:
-    """
-    Collapse the deprecated ``rp2040`` alias entry onto the canonical ``rp2`` id.
+def _component_aliases() -> dict[str, str]:
+    """Map each esphome component ALIAS to its canonical component id."""
+    loader = _get_esphome_loader()
+    # _sweep_component_aliases owns the abort when the alias API is unavailable.
+    if loader is None or getattr(loader, "get_alias_metadata", None) is None:
+        return {}
+    return {legacy: meta.canonical for legacy, meta in loader.get_alias_metadata().items()}
 
-    Upstream ships the real (docs-repaired) schema under ``rp2``, so that
-    body always wins; the sparse alias entry is dropped, contributing
-    only identity fields ``rp2`` lacks. ``dependencies`` fold so blocks
-    spelled with either key satisfy them — see ``normalize_platform``.
+
+def _fold_component_aliases(
+    entries: list[dict], aliases: dict[str, str], *, check_canonicals: bool
+) -> None:
     """
-    by_id = {entry["id"]: entry for entry in entries}
-    if (legacy := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
-        if (rich := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
-            for key in ("name", "image_url", "category"):
-                if not rich.get(key) and legacy.get(key):
-                    rich[key] = legacy[key]
-            entries.remove(legacy)
-        else:
-            legacy["id"] = RP2_CANONICAL_PLATFORM
+    Respell alias-spelled ``dependencies`` to the canonical component id.
+
+    Fails the sync when an alias id reached *entries* (the bundle dropped its
+    ``alias_of`` tag) or, with *check_canonicals*, an alias's canonical is missing.
+    """
+    # Platform providers ship as ``<domain>.<stem>``; alias names are bare stems.
+    names = {entry["id"].rpartition(".")[2] for entry in entries}
+    if leaked := sorted(names & aliases.keys()):
+        raise SystemExit(f"schema bundle ships component ALIASES without alias_of: {leaked}")
+    if check_canonicals and (orphaned := sorted(set(aliases.values()) - names)):
+        raise SystemExit(f"component ALIAS canonicals missing from the catalog: {orphaned}")
     for entry in entries:
         deps = entry.get("dependencies")
-        if deps and RP2_ALIAS_PLATFORM in deps:
-            entry["dependencies"] = list(dict.fromkeys(normalize_platform(dep) for dep in deps))
+        if deps and any(dep in aliases for dep in deps):
+            entry["dependencies"] = list(dict.fromkeys(aliases.get(dep, dep) for dep in deps))
 
 
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
@@ -1632,6 +1646,211 @@ def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> No
             check(f"{entry['id']} help_link", centry.get("help_link") or "")
     if bad:
         raise SystemExit("docs_url validation failed:\n  " + "\n  ".join(bad))
+
+
+#: ``{hub id: (typed_key, {variant: id classes})}`` for the typed hubs.
+_HubVariants = dict[str, tuple[str, dict[str, list[str]]]]
+
+
+def _resolve_reference_classes(entries: list[dict]) -> None:
+    """Keep ``references_class`` only where a candidate fails it; annotate those, in place."""
+    provided, variants = _declared_id_classes(entries)
+    failing, restrictive = _failing_declarers(entries, provided)
+    by_id = {entry["id"]: entry for entry in entries}
+    for entry in entries:
+        _prune_reference_classes(entry.get("config_entries") or [], restrictive)
+        _apply_hub_variant_constraints(entry, by_id, variants)
+    for component_id in failing:
+        entry = by_id[component_id]
+        if component_id not in variants:
+            entry["id_classes"] = sorted(provided[component_id][0])
+            continue
+        typed_key, per_variant = variants[component_id]
+        entry["id_classes_by_variant"] = {
+            typed_key: {name: sorted(classes) for name, classes in sorted(per_variant.items())}
+        }
+        # An unset discriminator declares the default variant's classes; a
+        # required one (``output.template``) has no default and ships none.
+        default = _default_variant(entry, typed_key)
+        if default is not None and default not in per_variant:
+            raise SystemExit(
+                f"{component_id}: {typed_key} defaults to {default!r}, "
+                f"not one of its variants {sorted(per_variant)}"
+            )
+        entry["id_classes"] = sorted(per_variant.get(default, []))
+
+
+def _restrictive_references(entries: list[dict]) -> set[tuple[str, str]]:
+    """Return the ``(references_component, references_class)`` pairs *entries* kept."""
+    pairs: set[tuple[str, str]] = set()
+
+    def collect(field: dict, _path: tuple[str, ...]) -> None:
+        if field.get("references_class"):
+            pairs.add((field["references_component"], field["references_class"]))
+
+    for entry in entries:
+        _walk_catalog_entries(entry.get("config_entries") or [], collect)
+    return pairs
+
+
+def _declared_id_classes(entries: list[dict]) -> tuple[dict[str, list[set[str]]], _HubVariants]:
+    """Pop the id class scratch and return each offered declarer's sets, one per hub variant."""
+    provided: dict[str, list[set[str]]] = {}
+    variants: _HubVariants = {}
+    for entry in entries:
+        classes = entry.pop("_root_id_classes", None)
+        variant = entry.pop("_variant_id_classes", None)
+        if isinstance(variant, _UntypedVariant):
+            # A typed hub with an untyped variant cannot be judged per variant, and its
+            # root set is the union over the typed ones: leave it out of the pool. That
+            # also drops it as evidence, so a class only this hub declares stops
+            # filtering its siblings; fail open for the whole domain, on purpose.
+            _LOGGER.warning(
+                "%s: variant %r has no id class; left unfiltered", entry["id"], variant.name
+            )
+            continue
+        own = (entry.get("provides_id_paths") or {}).get(entry["id"].split(".", 1)[0])
+        # Own-domain ids that are all nested: the picker never offers the root id.
+        if not classes or (own and not any(len(path) == 1 for path in own)):
+            continue
+        if variant and len({frozenset(v) for v in variant[1].values()}) > 1:
+            variants[entry["id"]] = variant
+            provided[entry["id"]] = [set(v) for v in variant[1].values()]
+        else:
+            provided[entry["id"]] = [classes]
+    return provided, variants
+
+
+def _failing_declarers(
+    entries: list[dict], provided: dict[str, list[set[str]]]
+) -> tuple[set[str], set[tuple[str, str]]]:
+    """Return the declarers some reference rejects, and those restrictive references."""
+    by_domain: dict[str, list[str]] = {}
+    for component_id in provided:
+        by_domain.setdefault(component_id.split(".", 1)[0], []).append(component_id)
+
+    failing: set[str] = set()
+    restrictive: set[tuple[str, str]] = set()
+
+    def note(field: dict, _path: tuple[str, ...]) -> None:
+        domain, cls = field.get("references_component"), field.get("references_class")
+        if not domain or not cls:
+            return
+        declarers = by_domain.get(domain, ())
+        failed = [cid for cid in declarers if any(cls not in c for c in provided[cid])]
+        # No offered declarer provides it: the bundle cannot name the
+        # candidates, so leave it unfiltered.
+        if failed and any(cls in c for cid in declarers for c in provided[cid]):
+            restrictive.add((domain, cls))
+            failing.update(failed)
+
+    for entry in entries:
+        _walk_catalog_entries(entry.get("config_entries") or [], note)
+    return failing, restrictive
+
+
+def _prune_reference_classes(config_entries: list[dict], restrictive: set[tuple[str, str]]) -> None:
+    """Drop ``references_class`` from every reference outside *restrictive*."""
+
+    def prune(field: dict, _path: tuple[str, ...]) -> None:
+        if (field.get("references_component"), field.get("references_class")) not in restrictive:
+            # Popped, not nulled: automation entries are already default-stripped.
+            field.pop("references_class", None)
+
+    _walk_catalog_entries(config_entries, prune)
+
+
+def _prune_automation_reference_classes(
+    automations: dict[str, list[dict]], restrictive: set[tuple[str, str]]
+) -> None:
+    """Apply the components' restrictive set to every automation reference."""
+    for group in automations.values():
+        for item in group:
+            _prune_reference_classes(item.get("config_entries") or [], restrictive)
+
+
+def _default_variant(hub: dict, typed_key: str) -> Any:
+    """Return the default of *hub*'s *typed_key* discriminator entry, None when it has none."""
+    discriminator = next(
+        (e for e in hub.get("config_entries") or [] if e.get("key") == typed_key), None
+    )
+    if discriminator is None:
+        raise SystemExit(f"{hub['id']}: no config entry for its discriminator {typed_key!r}")
+    return discriminator.get("default_value")
+
+
+def _apply_hub_variant_constraints(
+    entry: dict, by_id: dict[str, dict], variants: _HubVariants
+) -> None:
+    """Record the non-default typed hub variants *entry*'s references can all use."""
+
+    def visit(field: dict, _path: tuple[str, ...]) -> None:
+        hub, cls = field.get("references_component"), field.get("references_class")
+        if not cls or hub not in variants or hub == entry["id"]:
+            return
+        typed_key, per_variant = variants[hub]
+        qualifying = [name for name, classes in per_variant.items() if cls in classes]
+        # Nothing to seed when no variant provides the class (another declarer
+        # does) or the default one already does.
+        if not qualifying or _default_variant(by_id[hub], typed_key) in qualifying:
+            return
+        constraints = entry.setdefault("bus_constraints", {}).setdefault(hub, {})
+        # Narrow what an earlier reference or the component's own validator
+        # recorded; only variants nothing can share are a contradiction.
+        recorded = constraints.get(typed_key)
+        allowed = set(qualifying)
+        if recorded is not None:
+            allowed &= set(recorded) if isinstance(recorded, list) else {recorded}
+        if not allowed:
+            raise SystemExit(
+                f"{entry['id']}: bus_constraints[{hub}][{typed_key}] is "
+                f"{recorded!r} but {cls} needs one of {sorted(qualifying)}"
+            )
+        # One variant is an exact match; several are a choice set, first = default.
+        constraints[typed_key] = min(allowed) if len(allowed) == 1 else sorted(allowed)
+
+    _walk_catalog_entries(entry.get("config_entries") or [], visit)
+
+
+def _id_class_scratch(section: dict, impl_paths: dict[str, list[list[str]]]) -> dict[str, Any]:
+    """Return the scratch fields ``_resolve_reference_classes`` consumes."""
+    return {
+        "_root_id_classes": {
+            cls
+            for cls, paths in impl_paths.items()
+            if "::" in cls and any(len(path) == 1 for path in paths)
+        },
+        "_variant_id_classes": _variant_id_classes(section),
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class _UntypedVariant:
+    """A typed hub the bundle cannot judge: *name* is the first variant with no id class."""
+
+    typed_key: str
+    name: str
+
+
+def _variant_id_classes(
+    section: dict,
+) -> tuple[str, dict[str, list[str]]] | _UntypedVariant | None:
+    """``(typed_key, {variant: id classes})`` for a typed hub, its ``_UntypedVariant``, or None."""
+    config_schema = _config_schema(section)
+    typed_key = config_schema.get("typed_key")
+    if not _is_typed_node(config_schema) or not isinstance(typed_key, str):
+        return None
+    out: dict[str, list[str]] = {}
+    for name, node in config_schema["types"].items():
+        config_vars = node.get("config_vars") if isinstance(node, dict) else None
+        id_entry = (config_vars or {}).get("id")
+        id_type = id_entry.get("id_type") if isinstance(id_entry, dict) else None
+        cls = id_type.get("class") if isinstance(id_type, dict) else None
+        if not isinstance(cls, str) or "::" not in cls:
+            return _UntypedVariant(typed_key, name)
+        parents = [p for p in id_type.get("parents") or [] if isinstance(p, str) and "::" in p]
+        out[name] = [cls, *parents]
+    return typed_key, out
 
 
 def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
@@ -2950,7 +3169,7 @@ def build_entries_from_file(
     for top_key, section in raw.items():
         if top_key in _HIDDEN_TOP_LEVEL:
             continue
-        if not isinstance(section, dict):
+        if not isinstance(section, dict) or section.get("alias_of"):
             continue
         entry = build_component_entry(top_key, section, index, schema_dir, image_map)
         if entry is not None:
@@ -3142,6 +3361,7 @@ def build_component_entry(
         "config_entries": config_entries,
     }
     component["_impl_class_paths"] = _implemented_classes(section, schema_dir)
+    component.update(_id_class_scratch(section, component["_impl_class_paths"]))
     # Kept out of ``docs_url`` so segment-parsing passes never see a
     # fragment; ``_attach_docs_anchors`` restores it where it helps.
     if docs.url and "#" in docs.url:
@@ -3180,6 +3400,33 @@ def _scalar_type_for_extends_ref(ref: str) -> str | None:
         return "integer"
     if "returning_lambda" in ref:
         return "lambda"
+    return None
+
+
+# ESPHome's precision word -> finest accepted unit. The word ends a bundle ref
+# (``core.positive_time_period_<word>``) and names the live check
+# (``cv.time_period_in_<word>_``).
+_DURATION_UNIT_BY_PRECISION: dict[str, str] = {
+    "nanoseconds": "ns",
+    "microseconds": "us",
+    "milliseconds": "ms",
+    "seconds": "s",
+    "minutes": "min",
+}
+
+
+def _duration_min_unit_for_extends_ref(ref: str) -> str | None:
+    """Return the finest unit a time-period *ref* accepts, or None when it names no precision."""
+    if "time_period" not in ref:
+        return None
+    return _DURATION_UNIT_BY_PRECISION.get(ref.rsplit("_", 1)[-1])
+
+
+def _duration_min_unit_for_schema(schema: dict | None) -> str | None:
+    """Return the finest unit a scalar time-period *schema* accepts, from its ``extends``."""
+    for ref in (schema or {}).get("extends") or []:
+        if (unit := _duration_min_unit_for_extends_ref(ref)) is not None:
+            return unit
     return None
 
 
@@ -3308,7 +3555,9 @@ def _merge_extends_config_vars(
     extended: dict[str, dict] = {}
     origin_ref: dict[str, str] = {}
     for ref in schema_node.get("extends") or []:
-        if ref in _seen_refs:
+        # A scalar primitive (``core.positive_time_period_*``) is a value, not
+        # a mapping base: its dict-form unit keys are not fields of the host.
+        if ref in _seen_refs or _scalar_type_for_extends_ref(ref) is not None:
             continue
         resolved = _resolve_extends(ref, schema_dir)
         extended.update(resolved)
@@ -3766,11 +4015,13 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     # ``extends: ["core.positive_time_period_*"]`` collapses to time_period
     # — even when the schema marked the entry as ``type: schema`` (most
     # _SENSOR_SCHEMA fields like ``expire_after`` come through that way).
+    duration_min_unit: str | None = None
     if extends and not (inner_schema or {}).get("config_vars"):
         for ref in extends:
             scalar = _scalar_type_for_extends_ref(ref)
             if scalar is not None:
                 entry_type = scalar
+                duration_min_unit = _duration_min_unit_for_extends_ref(ref)
                 break
 
     # Docs-prefix hints — fields without explicit type lead with
@@ -3886,6 +4137,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "depends_on_value_not": None,
         "depends_on_component": gated_component,
         "references_component": references,
+        # Pruned to restrictive references in ``_resolve_reference_classes``.
+        "references_class": raw.get("use_id_type") if references else None,
         "pin_features": _resolve_pin_features(raw) if entry_type == "pin" else [],
         "pin_mode": None,
         "advanced": advanced,
@@ -3899,6 +4152,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "translation_params": None,
         "platform_type": None,
     }
+    if entry_type == "time_period" and duration_min_unit is not None:
+        entry["duration_min_unit"] = duration_min_unit
 
     # Detect user-keyed maps (``key_type`` set in the raw entry).
     # ``logger.logs``, ``substitutions:`` and similar enumerate every
@@ -4240,7 +4495,7 @@ def _emit_platform_capabilities_index() -> None:
     import esphome
     from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
     from esphome.components.esp32.const import KEY_VARIANT, VARIANTS
-    from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
+    from esphome.components.rp2.boards import BOARDS as RP2_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
 
     # Static-per-platform download types. For esp32 / esp8266 / rp2040
@@ -4285,11 +4540,13 @@ def _emit_platform_capabilities_index() -> None:
         "esp32_board_variants": {
             board: info[KEY_VARIANT] for board, info in sorted(ESP32_BOARDS.items())
         },
+        # The dashboard resolves a device's chip from its YAML ``board:``.
+        "board_mcus": board_mcus(),
         "libretiny_families": list(_libretiny_families()),
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
         "rp2040_no_wifi_boards": sorted(
-            board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
+            board for board, info in RP2_BOARDS.items() if not info.get("wifi", False)
         ),
         "download_types": download_types,
     }
@@ -4622,47 +4879,73 @@ def _implemented_classes(section: dict, schema_dir: Path) -> dict[str, list[list
     Walks the whole ``CONFIG_SCHEMA`` subtree (nested objects/lists plus
     ``types`` variants, which are flattened in YAML so add no path segment);
     a class may appear at several paths and all are kept. Matched against
-    referenced classes by full class, not namespace. An ``id`` declared
-    only on an ``extends`` base (``sensor._SENSOR_SCHEMA``) is resolved in,
-    so multi-entity sub-blocks count. See :func:`_record_id_classes` for
+    referenced classes by full class, not namespace. A block inherits the
+    ``id`` and the sub-blocks of its ``extends`` bases, so multi-entity
+    sub-blocks count wherever they are declared (``sensor._SENSOR_SCHEMA``,
+    ``bme280_base.CONFIG_SCHEMA_BASE``). See :func:`_record_id_classes` for
     which classes a path contributes.
     """
     config_schema = _config_schema(section)
+    entity_classes = _root_entity_classes(schema_dir)
     out: dict[str, list[list[str]]] = {}
-    # (config_vars, path) frontier. A typed variant shares its parent's
-    # path (the ``types`` discriminator is flattened in YAML).
-    frontier: list[tuple[Any, list[str]]] = []
+    frontier: list[_WalkFrame] = []
     _push_config_vars(frontier, config_schema, [], schema_dir)
     while frontier:
-        config_vars, path = frontier.pop()
-        if not isinstance(config_vars, dict):
+        frame = frontier.pop()
+        if not isinstance(frame.config_vars, dict):
             continue
-        for name, field_def in config_vars.items():
+        for name, field_def in frame.config_vars.items():
             if not isinstance(field_def, dict):
                 continue
-            field_path = [*path, name]
-            _record_id_classes(out, field_def, field_path)
-            _push_config_vars(frontier, field_def, field_path, schema_dir)
+            field_path = [*frame.path, name]
+            _record_id_classes(out, field_def, field_path, entity_classes)
+            ref = frame.inherited.get(name)
+            seen = frame.seen if ref is None else frame.seen | {ref}
+            _push_config_vars(frontier, field_def, field_path, schema_dir, seen)
     return out
 
 
+class _WalkFrame(NamedTuple):
+    """One ``config_vars`` mapping queued for the id walk, under *path*."""
+
+    config_vars: Any
+    path: list[str]
+    # ``extends`` refs expanded up the path, so a self-referential base (lvgl
+    # widgets) is not expanded again; ``inherited`` maps a key drawn from a
+    # base to the ref it came through.
+    seen: frozenset[str]
+    inherited: dict[str, str]
+
+
 def _push_config_vars(
-    frontier: list[tuple[Any, list[str]]], node: dict, path: list[str], schema_dir: Path
+    frontier: list[_WalkFrame],
+    node: dict,
+    path: list[str],
+    schema_dir: Path,
+    seen: frozenset[str] = frozenset(),
 ) -> None:
     """Queue *node*'s own and per-variant ``config_vars`` for the walk, under *path*."""
     config_vars = _schema_config_vars(node)
     base = config_vars if isinstance(config_vars, dict) else {}
     schema = node.get("schema")
-    # Pull ONLY the inherited ``id`` from extends bases (a sub-entity block
-    # declares its id on ``sensor._SENSOR_SCHEMA``). Merging every inherited
-    # field would also record the parent classes of sibling id declarations
-    # (``mqtt_id``, ``zigbee_sensor``) at this path.
-    if "id" not in base and isinstance(schema, dict) and schema.get("extends"):
-        inherited_id = _merge_extends_config_vars(schema, schema_dir)[0].get("id")
-        if isinstance(inherited_id, dict):
-            config_vars = {**base, "id": inherited_id}
-    frontier.append((config_vars, path))
-    frontier.extend((cv, path) for cv in _variant_config_vars(node))
+    inherited: dict[str, str] = {}
+    # Only the inherited ``id`` and sub-blocks merge. A flat inherited field
+    # would record a sibling id declaration (``mqtt_id``) at this path.
+    if isinstance(schema, dict) and schema.get("extends"):
+        merged, origin = _merge_extends_config_vars(schema, schema_dir, seen)
+        inherited = {
+            key: ref for key, ref in origin.items() if key == "id" or _has_sub_schema(merged[key])
+        }
+        config_vars = {**{key: merged[key] for key in inherited}, **base}
+    frontier.append(_WalkFrame(config_vars, path, seen, inherited))
+    frontier.extend(_WalkFrame(cv, path, seen, {}) for cv in _variant_config_vars(node))
+
+
+def _has_sub_schema(field_def: Any) -> bool:
+    """Whether *field_def* carries a ``schema`` or ``types`` mapping the walk descends into."""
+    return isinstance(field_def, dict) and (
+        isinstance(field_def.get("schema"), dict) or isinstance(field_def.get("types"), dict)
+    )
 
 
 def _schema_config_vars(node: dict) -> Any:
@@ -4679,39 +4962,97 @@ def _variant_config_vars(node: dict) -> list[Any]:
     return [v.get("config_vars") for v in types.values() if isinstance(v, dict)]
 
 
-def _record_id_classes(out: dict[str, list[list[str]]], field_def: dict, path: list[str]) -> None:
+def _record_id_classes(
+    out: dict[str, list[list[str]]],
+    field_def: dict,
+    path: list[str],
+    entity_classes: frozenset[str],
+) -> None:
     """
     Append *path* to ``out`` for each id-creation class *field_def* declares.
 
     Parent (interface) classes count at any depth; the leaf own-class counts
     at the component root (``len(path) == 1``, not the literal ``"id"`` key,
     which can be ``output_id`` / ``raw_data_id`` / ...) and, nested, only
-    for entity (platform-domain) classes — a sub-entity's ``sensor::Sensor``.
+    when it is one of *entity_classes* — a sub-entity's ``sensor::Sensor``.
     """
-    id_type = field_def.get("id_type")
-    if not isinstance(id_type, dict) or "use_id_type" in field_def:
+    id_type = _own_id_type(field_def)
+    if id_type is None:
         return
-    classes = [p for p in id_type.get("parents") or [] if isinstance(p, str)]
+    classes = _declared_classes(id_type)
+    own = id_type.get("class")
     # A nested non-entity own-class id stays unrecorded; advertising it
-    # would conflate same-namespace classes (a ``pipsolar`` output posing
-    # as the ``pipsolar`` hub a ``pipsolar_id`` wants).
-    if isinstance(id_type.get("class"), str) and (
-        len(path) == 1 or _reference_namespace(id_type["class"]) in _PLATFORM_DOMAINS
-    ):
-        classes.append(id_type["class"])
+    # would conflate same-namespace classes (a ``display::DisplayPage``
+    # posing as the display a ``display_id`` wants).
+    if len(path) > 1 and own in classes and own not in entity_classes:
+        classes.remove(own)
     for cls in classes:
         out.setdefault(cls, []).append(path)
+
+
+def _own_id_type(field_def: Any) -> dict | None:
+    """Return the ``id_type`` of an id declaration; None for a reference or a plain field."""
+    if not isinstance(field_def, dict) or "use_id_type" in field_def:
+        return None
+    id_type = field_def.get("id_type")
+    return id_type if isinstance(id_type, dict) else None
+
+
+def _declared_classes(id_type: dict) -> list[str]:
+    """Return the ``class`` then ``parents`` of an ``id_type``, strings only."""
+    return [
+        cls
+        for cls in [id_type.get("class"), *(id_type.get("parents") or [])]
+        if isinstance(cls, str)
+    ]
+
+
+@cache
+def _root_entity_classes(schema_dir: Path) -> frozenset[str]:
+    """Every class some platform of the class's own domain declares at its root."""
+    classes: set[str] = set()
+    for top_key, section in _iter_bundle_sections(schema_dir):
+        domain, _stem = _split_qualified_key(top_key)
+        if domain in _PLATFORM_DOMAINS:
+            classes.update(_root_domain_classes(section, domain, schema_dir))
+    return frozenset(classes)
+
+
+def _root_domain_classes(section: dict, domain: str, schema_dir: Path) -> set[str]:
+    """Return the *domain*-namespaced classes *section* declares at its root."""
+    frontier: list[_WalkFrame] = []
+    _push_config_vars(frontier, _config_schema(section), [], schema_dir)
+    return {
+        cls
+        for frame in frontier
+        if isinstance(frame.config_vars, dict)
+        for field_def in frame.config_vars.values()
+        if (id_type := _own_id_type(field_def)) is not None
+        for cls in _declared_classes(id_type)
+        if _reference_namespace(cls) == domain
+    }
+
+
+def _iter_bundle_sections(schema_dir: Path) -> Iterable[tuple[str, dict]]:
+    """Yield every ``(top_key, section)`` mapping in the bundle, skipping unreadable files."""
+    for path in iter_schema_files(schema_dir):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _LOGGER.warning("Skipping unreadable schema file %s", path.name)
+            continue
+        if not isinstance(raw, dict):
+            continue
+        for top_key, section in raw.items():
+            if isinstance(section, dict):
+                yield top_key, section
 
 
 def _collect_referenced_classes(schema_dir: Path) -> set[str]:
     """Every full ``ns::Class`` named by a ``use_id`` reference in the bundle."""
     referenced: set[str] = set()
-    for path in iter_schema_files(schema_dir):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        stack: list[Any] = [raw]
+    for _top_key, section in _iter_bundle_sections(schema_dir):
+        stack: list[Any] = [section]
         while stack:
             node = stack.pop()
             if isinstance(node, dict):
@@ -5159,9 +5500,6 @@ _CATEGORY_OVERRIDES: dict[str, str] = {
     "esp32": "core",
     "esp8266": "core",
     RP2_CANONICAL_PLATFORM: "core",
-    # the deprecated rp2040 alias; extraction categorizes before
-    # ``_fold_rp2_component_alias`` re-keys the entry onto the canonical id.
-    RP2_ALIAS_PLATFORM: "core",
     "bk72xx": "core",
     "rtl87xx": "core",
     "ln882x": "core",
@@ -5316,7 +5654,10 @@ def _auto_loaded_dependencies(
             if isinstance(name, str)
         )
     # A dep that is itself auto-loaded is always present — never a dependency.
-    return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in seen))
+    # Nor is the component its own: modbus auto-loads modbus_client, which
+    # depends back on modbus. A platform entry's stem names its hub, a real dep.
+    present = seen if domain else seen | {stem_or_key}
+    return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in present))
 
 
 def _upgrade_stamp_only_refinements(
@@ -5713,6 +6054,7 @@ _ENTRY_DEFAULTS: dict[str, Any] = {
     "depends_on_value_not": None,
     "depends_on_component": None,
     "references_component": None,
+    "references_class": None,
     "pin_features": [],
     "pin_mode": None,
     "advanced": False,
@@ -5735,6 +6077,8 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "supported_platforms": [],
     "provides": [],
     "provides_id_paths": {},
+    "id_classes": [],
+    "id_classes_by_variant": {},
     "config_entries": [],
     "required_groups": [],
     "bus_constraints": {},
@@ -5897,11 +6241,7 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
                         count,
                     )
                 slim_src = {**entry, "form_editable": form_editable}
-            slim_dict = slim_cls.from_dict(slim_src).to_dict()
-            # Omit the flag when True so only non-editable actions carry it.
-            if type_key == "actions" and slim_dict.get("form_editable", True):
-                slim_dict.pop("form_editable", None)
-            slim_entries.append(slim_dict)
+            slim_entries.append(slim_cls.from_dict(slim_src).to_dict())
         index_payload[type_key] = slim_entries
 
     swap_split_catalog_in(
@@ -6061,7 +6401,11 @@ def _ensure_list_item_validator(node: Any) -> Any | None:
     # Deliberately shallow (node + one vol.All level) — a transitive walk like
     # _search_validator_graph could surface an ensure_list buried in an
     # unrelated sub-field and descend its items at the wrong path.
-    for candidate in (node, *(getattr(node, "validators", None) or ())):
+    # Type-strict: a codegen ``MockObj`` answers any getattr and any index with
+    # another ``MockObj``, so unpacking its ``validators`` never ends.
+    validators = getattr(node, "validators", None)
+    inner = validators if isinstance(validators, (list, tuple)) else ()
+    for candidate in (node, *inner):
         qualname = getattr(candidate, "__qualname__", "") or ""
         if qualname.startswith("ensure_list."):
             try:
@@ -6074,6 +6418,22 @@ def _ensure_list_item_validator(node: Any) -> Any | None:
 def _list_item_schema(node: Any) -> Any | None:
     """Return the item schema of a ``cv.ensure_list`` node (peeling ``cv.templatable``), or None."""
     return _ensure_list_item_validator(_templatable_inner(node) or node)
+
+
+def _same_path_branches(node: Any) -> list[Any]:
+    """Return the sub-schemas a dict-less *node* holds at its own path."""
+    # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
+    # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
+    # branch at the same path (typed variants flatten in YAML and add
+    # no path segment) so the collectors reach variant-only fields
+    # like ethernet's ``clock_speed``.
+    branches = _typed_branch_schemas(node)
+    out = list(branches.values()) if branches else []
+    # ``cv.ensure_list(...)`` is also a closure, not a ``vol.*`` wrapper. The
+    # typed search is transitive, so the item wrapper it reaches through still
+    # needs its own visit.
+    item = _list_item_schema(node)
+    return out if item is None else [*out, item]
 
 
 def _walk_schema_keys(
@@ -6114,18 +6474,7 @@ def _walk_schema_keys(
             return
         candidate = _unwrap_schema_to_dict(node)
         if candidate is None:
-            # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
-            # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
-            # branch at the same path (typed variants flatten in YAML and add
-            # no path segment) so the collectors reach variant-only fields
-            # like ethernet's ``clock_speed``.
-            branches = _typed_branch_schemas(node)
-            if branches is None:
-                # ``cv.ensure_list(...)`` is also a closure, not a
-                # ``vol.*`` wrapper.
-                item = _list_item_schema(node)
-                branches = {"": item} if item is not None else None
-            for branch in (branches or {}).values():
+            for branch in _same_path_branches(node):
                 walk(branch, path, depth + 1)
             return
         marker = (id(candidate), path)
@@ -6272,6 +6621,7 @@ class RefinedType(NamedTuple):
     unit_options: list[str] | None = None
     display_format: str | None = None
     templatable: bool = False
+    duration_min_unit: str | None = None
 
 
 # Stamp-only refinement: the union is templatable but no plain branch
@@ -6553,6 +6903,90 @@ def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, Ref
     return by_identity, by_name
 
 
+# Precision of a time period no check narrows: every unit is valid.
+_UNBOUNDED_DURATION = ""
+
+# ``cv`` validators that accept a time period at any precision.
+_UNBOUNDED_DURATION_VALIDATORS = (
+    "time_period",
+    "time_period_str_unit",
+    "time_period_str_colon",
+    "time_period_dict",
+)
+
+
+@cache
+def _duration_precision_table() -> dict[int, str]:
+    """Map the identity of each live ``cv`` time-period validator to its precision."""
+    from esphome import config_validation as cv
+
+    units_by_attr = {
+        f"time_period_in_{word}_": unit for word, unit in _DURATION_UNIT_BY_PRECISION.items()
+    }
+    # A plain function wrapping the millisecond check, so there is nothing to peel.
+    units_by_attr["update_interval"] = "ms"
+    units_by_attr.update(dict.fromkeys(_UNBOUNDED_DURATION_VALIDATORS, _UNBOUNDED_DURATION))
+    table: dict[int, str] = {}
+    for attr, unit in units_by_attr.items():
+        obj = getattr(cv, attr, None)
+        if obj is None:
+            raise SystemExit(
+                f"time-period validator cv.{attr} is gone — renamed upstream? "
+                "Update _DURATION_UNIT_BY_PRECISION."
+            )
+        table[id(obj)] = unit
+    return table
+
+
+def _duration_wrapped_validators(validator: Any) -> tuple[Any, ...]:
+    """Return the validators a ``templatable`` / ``All`` / ``Any`` / ``Schema`` wrapper holds."""
+    if (inner := _templatable_inner(validator)) is not None:
+        return (inner,)
+    if isinstance(validator, (vol.All, vol.Any)):
+        return tuple(validator.validators)
+    inner = getattr(validator, "schema", None)
+    if inner is None or inner is validator or isinstance(inner, dict):
+        return ()
+    return (inner,)
+
+
+def _duration_precision_of(validator: Any, _depth: int = 0) -> str | None:
+    """
+    Return a live *validator*'s time-period precision, or None when it is no time period.
+
+    ``_UNBOUNDED_DURATION`` when it accepts every unit. A ``vol.Any`` is as
+    permissive as its most permissive branch; a chain is as strict as its check.
+    """
+    if validator is None or _depth > 8:
+        return None
+    if (known := _duration_precision_table().get(id(validator))) is not None:
+        return known
+    found = {
+        precision
+        for child in _duration_wrapped_validators(validator)
+        if (precision := _duration_precision_of(child, _depth + 1)) is not None
+    }
+    if len(found) > 1 and not isinstance(validator, vol.Any):
+        # A chain's precision check narrows the time period it wraps.
+        found.discard(_UNBOUNDED_DURATION)
+    if not found:
+        return None
+    return found.pop() if len(found) == 1 else _UNBOUNDED_DURATION
+
+
+def _duration_min_unit_of(validator: Any) -> str | None:
+    """Return the finest unit a live time-period *validator* accepts, or None when unbounded."""
+    return _duration_precision_of(validator) or None
+
+
+def _with_duration_min_unit(refined: RefinedType | None, validator: Any) -> RefinedType | None:
+    """Return *refined* carrying *validator*'s time-period precision, when it has one."""
+    unit = _duration_min_unit_of(validator)
+    if unit is None:
+        return refined
+    return (refined or RefinedType("time_period"))._replace(duration_min_unit=unit)
+
+
 def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], RefinedType]:
     """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost."""
     schema = getattr(manifest, "config_schema", None)
@@ -6665,7 +7099,7 @@ def _refined_types_in_schema(  # noqa: C901
         return None
 
     def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
-        t = classify(val)
+        t = _with_duration_min_unit(classify(val), val)
         if t is not None:
             out[path] = t
         elif _is_dict_list_union(val):
@@ -7539,12 +7973,17 @@ def _apply_refined_types(
             entry["templatable"] = True
         if new_type.type:
             _apply_refined_entry_type(entry, new_type)
+        if new_type.duration_min_unit and entry.get("type") == "time_period":
+            entry["duration_min_unit"] = new_type.duration_min_unit
 
     _walk_catalog_entries(entries, visit)
 
 
 def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
     """Apply one refinement's type to *entry* per the override rules above."""
+    if new_type.type == "time_period":
+        # Carries only ``duration_min_unit``; never retypes an entry.
+        return
     if new_type.type == "float_with_unit":
         # Always apply — see the caller's docstring. Carries
         # unit_options the schema bundle can't represent.
@@ -8425,24 +8864,26 @@ def _collect_required_groups(
     schema = _hidden_schema(schema) or schema
 
     out: dict[tuple[str, ...], list[dict[str, Any]]] = {}
-    visited: set[int] = set()
+    visited: set[tuple[int, tuple[str, ...]]] = set()
 
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
             return
         if groups := _groups_in_all_chain(node):
-            out.setdefault(path, []).extend(groups)
+            bucket = out.setdefault(path, [])
+            bucket.extend(group for group in groups if group not in bucket)
         target = _unwrap_schema_to_dict(node)
         if target is None:
-            # A constraint on a ``cv.ensure_list`` item schema lands at the
-            # list field's own path, matching the catalog's nesting.
-            item = _list_item_schema(node)
-            if item is not None:
-                walk(item, path, depth + 1)
+            # A constraint on a ``cv.typed_schema`` branch or a ``cv.ensure_list``
+            # item schema lands at the field's own path, matching the catalog's
+            # nesting.
+            for branch in _same_path_branches(node):
+                walk(branch, path, depth + 1)
             return
-        if id(target) in visited:
+        marker = (id(target), path)
+        if marker in visited:
             return
-        visited.add(id(target))
+        visited.add(marker)
         for key, val in target.items():
             key_name = key.schema if hasattr(key, "schema") else str(key)
             walk(val, (*path, key_name), depth + 1)
@@ -9795,7 +10236,6 @@ _AutomationRegistries = dict[str, dict[str, dict]]
 # ``condition`` / ``all`` / ``any`` on control-flow actions, which
 # the editor renders as a condition tree.
 _ACTION_LIST_KEYS: frozenset[str] = frozenset({"then", "else"})
-_CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 
 # ESPHome registers ``not`` with ``validate_potentially_and_condition``
 # (a single condition or a list wrapped in an implicit ``and``), so its
@@ -9840,6 +10280,7 @@ def build_automations(  # noqa: C901
     *,
     schema_dir: Path,
     component_ids: set[str],
+    restrictive_references: set[tuple[str, str]],
     registry_groups: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
     registry_refined: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] | None = None,
     registry_ranges: dict[str, dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]]]
@@ -9860,6 +10301,11 @@ def build_automations(  # noqa: C901
     as a component) or just an organisational namespace
     (``page.display`` ⇒ no ``display.page`` component, so actions
     surface against the bare ``display`` domain).
+
+    *restrictive_references* is :func:`_restrictive_references` output
+    for the component catalog: the ``(component, class)`` pairs some
+    candidate fails. Every automation ``references_class`` outside it
+    is stripped, so an empty set strips them all.
 
     *registry_groups* is :func:`_collect_automation_registry_groups`
     output; matching actions / conditions gain ``required_groups``
@@ -9892,7 +10338,7 @@ def build_automations(  # noqa: C901
             _LOGGER.exception("Failed to read %s", path.name)
             continue
         for top_key, section in raw.items():
-            if not isinstance(section, dict):
+            if not isinstance(section, dict) or section.get("alias_of"):
                 continue
             # ``top_key`` is the schema's raw ``<stem>.<base>`` form
             # (e.g. ``template.switch``). ``wire_prefix`` flips it to
@@ -9972,13 +10418,15 @@ def build_automations(  # noqa: C901
     groups_by_type = registry_groups or {}
     _apply_automation_required_groups(actions, groups_by_type.get("action"))
     _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
-    return {
-        "triggers": _dedupe_by_id(triggers),
+    automations = {
+        "triggers": _drop_platform_trigger_twins(_dedupe_by_id(triggers)),
         "actions": actions,
         "conditions": conditions,
         "light_effects": _dedupe_by_id(effects),
         "filters": _dedupe_filters(filters),
     }
+    _prune_automation_reference_classes(automations, restrictive_references)
+    return automations
 
 
 def _automation_domain(top_key: str, *, component_ids: set[str]) -> str:
@@ -10141,8 +10589,10 @@ def _convert_automation_action(
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
+        "has_condition_gate": has_condition_gate,
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
+        **_scalar_body_fields(schema, body),
     }
 
 
@@ -10188,6 +10638,7 @@ def _convert_automation_condition(
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "accepts_condition_list": accepts_condition_list,
         "scalar_shorthand_key": scalar_shorthand_key,
+        **_scalar_body_fields(schema, body),
     }
 
 
@@ -10280,33 +10731,40 @@ def _resolve_automation_lambda(
     return config_entries, _scalar_shorthand_key(body, schema_dir)
 
 
+def _scalar_value_extras(value_type: str | None, schema: dict | None, body: dict) -> dict:
+    """Return the ``templatable`` / ``duration_min_unit`` fields of a scalar value."""
+    extras: dict[str, Any] = {}
+    if body.get("templatable"):
+        extras["templatable"] = True
+    if value_type == "time_period" and (unit := _duration_min_unit_for_schema(schema)):
+        extras["duration_min_unit"] = unit
+    return extras
+
+
+def _scalar_body_fields(schema: dict | None, body: dict) -> dict[str, Any]:
+    """Return the value fields of a scalar-bodied action / condition, else ``{}``."""
+    if schema is None or not _is_scalar_extends_schema(schema):
+        return {}
+    value_type = _scalar_type_for_extends_ref(schema["extends"][0])
+    return {"value_type": value_type, **_scalar_value_extras(value_type, schema, body)}
+
+
 def _scalar_value_type_for_schema(name: str, schema: dict | None) -> str | None:
     """
     Return the scalar primitive the schema accepts, or None.
 
-    Covers two shapes: a pure scalar (``delayed_on: 50ms``) where the
-    schema has only ``extends`` to a scalar primitive, and the
-    polymorphic ``cv.Any(scalar, Schema({...}))`` form
-    (``delayed_on_off: 50ms`` OR ``delayed_on_off: {time_on, time_off}``)
-    where the schema carries both ``extends`` to a scalar primitive
-    AND a mapping in ``config_vars``. Both cases signal "the frontend
-    should accept the scalar shorthand"; the polymorphic case still
-    has ``config_entries`` extracted from the ``config_vars`` (see
-    ``_convert_registry_entry``).
+    Covers a pure scalar (``delayed_on: 50ms``), whose schema only
+    ``extends`` a scalar primitive, and the polymorphic
+    ``cv.Any(scalar, Schema({...}))`` form, whose mapping side sits in
+    ``config_vars`` (``delayed_on_off``) or behind another ``extends`` ref
+    (``heartbeat``). The mapping side still yields ``config_entries``.
     """
     if name == _LAMBDA_REGISTRY_ID and not schema:
         return _LAMBDA_REGISTRY_ID
-    if not schema:
-        return None
-    extends = schema.get("extends") or []
-    if not extends:
-        return None
-    types = [_scalar_type_for_extends_ref(ref) for ref in extends]
-    # All extends must resolve to a scalar primitive; a single
-    # mapping-shaped extends (sensor.DELTA_SCHEMA etc.) disqualifies.
-    if any(t is None for t in types):
-        return None
-    return types[0]
+    for ref in (schema or {}).get("extends") or []:
+        if (scalar := _scalar_type_for_extends_ref(ref)) is not None:
+            return scalar
+    return None
 
 
 # ``vol.Coerce`` target type -> the ``value_type`` string; the whole
@@ -10411,34 +10869,19 @@ def _convert_registry_entry(
     docs = clean_docs(body.get("docs"))
     schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
     value_type = _scalar_value_type_for_schema(name, schema) or live_value_type
-    has_config_vars = bool(schema and schema.get("config_vars"))
-    if value_type is not None and not has_config_vars:
-        # Pure scalar shorthand (``delayed_on: 50ms``).
-        config_entries: list[dict] = []
-    else:
-        # Pure mapping OR polymorphic mapping+scalar
-        # (``cv.Any(time_period, Schema({...}))`` for delayed_on_off).
-        # In the polymorphic case strip ``extends`` before extraction
-        # so the scalar primitive's unit-parts
-        # (days/hours/minutes/...) don't leak in alongside the
-        # ``config_vars`` mapping fields.
-        extract_schema: dict | None = schema
-        if value_type is not None and has_config_vars and schema is not None:
-            extract_schema = {k: v for k, v in schema.items() if k != "extends"}
-        config_entries, _alist, _hcg = _extract_automation_param_schema(extract_schema, schema_dir)
-        config_entries = _apply_field_overrides(name, config_entries)
-    entry = {
+    # A pure scalar (``delayed_on: 50ms``) has no mapping side, so no entries.
+    config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
+    config_entries = _apply_field_overrides(name, config_entries)
+    # ``templatable`` lets the frontend offer a lambda toggle on the scalar
+    # value (``multiply: !lambda``). Omitted when false.
+    return {
         "id": name,
         "name": _automation_label(label_domain, name, docs.name),
         "config_entries": [_strip_entry_defaults(e) for e in config_entries],
         "applies_to": applies_to,
         "value_type": value_type,
+        **_scalar_value_extras(value_type, schema, body),
     }
-    # Surface the bundle's templatable flag so the frontend offers a lambda
-    # toggle on the scalar value (``multiply: !lambda``). Omitted when false.
-    if body.get("templatable"):
-        entry["templatable"] = True
-    return entry
 
 
 # Shared by `_automation_label` (producer) and `_dedupe_filters`
@@ -10862,6 +11305,37 @@ def _automation_label(domain: str, name: str, docs_name: str | None) -> str:
         return pretty_name
     domain_label = domain.replace("_", " ").title()
     return f"{domain_label}{_AUTOMATION_LABEL_SEPARATOR}{pretty_name}"
+
+
+def _drop_platform_trigger_twins(triggers: list[dict]) -> list[dict]:
+    """Drop platform-scoped triggers that only restate a domain-level trigger of the same key."""
+    # A driver schema re-lists its base's hooks (``xpt2046.touchscreen``
+    # carries ``on_touch``); the bare-domain entry already applies to
+    # every platform and carries the docs, so the twin only shadows it.
+    domain_level: dict[tuple[str, str], dict] = {}
+    for t in triggers:
+        if len(t["applies_to"]) != 1 or "." in t["applies_to"][0]:
+            continue
+        slot = (t["applies_to"][0], bare_trigger_key(t["id"]))
+        if slot in domain_level:
+            msg = f"{domain_level[slot]['id']} and {t['id']} both host {slot[1]} on {slot[0]}"
+            raise RuntimeError(msg)
+        domain_level[slot] = t
+
+    def is_twin(trigger: dict) -> bool:
+        if len(trigger["applies_to"]) != 1 or "." not in trigger["applies_to"][0]:
+            return False
+        domain = trigger["applies_to"][0].split(".", 1)[0]
+        twin = domain_level.get((domain, bare_trigger_key(trigger["id"])))
+        return (
+            twin is not None
+            and not trigger["description"]
+            and trigger["docs_url"] == _CORE_AUTOMATION_DOCS
+            and trigger["config_entries"] == twin["config_entries"]
+            and trigger["supports_list"] == twin["supports_list"]
+        )
+
+    return [t for t in triggers if not is_twin(t)]
 
 
 def _dedupe_by_id(entries: list[dict]) -> list[dict]:

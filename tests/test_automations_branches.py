@@ -16,8 +16,10 @@ from unittest.mock import patch
 import pytest
 from ruamel.yaml.comments import TaggedScalar
 from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.tag import Tag
 
 from esphome_device_builder.controllers.automations import catalog
+from esphome_device_builder.controllers.automations._decompose import UnsupportedActionError
 from esphome_device_builder.controllers.automations.controller import (
     _decode_location,
     _scope_from_yaml,
@@ -174,6 +176,13 @@ def test_scope_surfaces_idless_component_instance() -> None:
 def test_decode_location_per_kind(payload: dict, expected: type) -> None:
     """Each ``kind`` discriminator routes to the matching dataclass."""
     assert isinstance(_decode_location(payload), expected)
+
+
+def test_decode_location_missing_field_is_invalid_args() -> None:
+    with pytest.raises(CommandError) as excinfo:
+        _decode_location({"kind": "script"})
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert 'Invalid script location: Field "id"' in excinfo.value.message
 
 
 def test_decode_location_component_on_legacy_payload_defaults_index_none() -> None:
@@ -350,9 +359,35 @@ def test_decompose_action_scalar_uses_value_shorthand_key() -> None:
 
 
 def test_decompose_action_scalar_falls_back_to_id_for_gate_keyed_shorthand() -> None:
-    """``wait_until`` (``maybe == "condition"``) must not put the scalar in params."""
-    node = _decompose_action("wait_until", "some_id")
-    assert node.params == {"id": "some_id"}
+    """A non-string scalar under ``wait_until`` is kept as an ``id`` param, never a gate param."""
+    scalar = TaggedScalar(value="return x;")
+    scalar.yaml_set_ctag(Tag(suffix="!lambda"))
+    node = _decompose_action("wait_until", scalar)
+    assert node.params == {"id": {"_lambda": "return x;", "_tag": "!lambda"}}
+    assert node.conditions == []
+
+
+def test_decompose_wait_until_string_is_its_condition() -> None:
+    """``wait_until: api.connected`` decodes the string as the gate's condition id."""
+    node = _decompose_action("wait_until", "api.connected")
+    assert node.params == {}
+    assert [c.condition_id for c in node.conditions] == ["api.connected"]
+
+
+def test_emit_wait_until_id_param_naming_a_condition_reparses_as_the_gate() -> None:
+    """``{id: api.connected}`` emits the valid ``wait_until: api.connected``, read as its gate."""
+    out = emit_action_node(ActionNode(action_id="wait_until", params={"id": "api.connected"}))
+    assert out == {"wait_until": "api.connected"}
+    node = _decompose_action("wait_until", out["wait_until"])
+    assert node.params == {}
+    assert [c.condition_id for c in node.conditions] == ["api.connected"]
+
+
+def test_decompose_wait_until_unknown_string_stays_an_id_param() -> None:
+    """A string that names no catalogued condition (``${cond}``) keeps the lossless ``id`` param."""
+    node = _decompose_action("wait_until", "${cond}")
+    assert node.params == {"id": "${cond}"}
+    assert node.conditions == []
 
 
 def test_decompose_wait_until_dict_shorthand_is_a_condition() -> None:
@@ -415,6 +450,39 @@ def test_emit_action_bare_scalar_action_collapses_synthetic_id() -> None:
     assert dump([emit_action_node(node)]).strip() == "- delay: 1s"
 
 
+def test_emit_wait_until_scalar_collapses() -> None:
+    """A gate-keyed shorthand (``wait_until``) collapses its ``id`` param to a scalar."""
+    node = ActionNode(action_id="wait_until", params={"id": "x"})
+    assert dump([emit_action_node(node)]).strip() == "- wait_until: x"
+
+
+def test_scalar_shorthand_parses_and_emits_the_same_key() -> None:
+    """Every catalog entry's bare scalar emits as a scalar or ``id`` mapping and re-parses."""
+    for entry in catalog.all_actions():
+        assert catalog.action_by_id(entry.id) is not None, entry.id
+        node = _decompose_action(entry.id, "v")
+        out = emit_action_node(node)
+        assert out[entry.id] in ("v", {"id": "v"}), entry.id
+        assert _decompose_action(entry.id, out[entry.id]) == node, entry.id
+    for entry in catalog.all_conditions():
+        condition = catalog.condition_by_id(entry.id)
+        assert condition is not None, entry.id
+        if condition.accepts_condition_list:
+            continue
+        node = _decompose_condition({entry.id: "v"})
+        out = emit_condition_node(node)
+        assert out[entry.id] in ("v", {"id": "v"}), entry.id
+        assert _decompose_condition(out) == node, entry.id
+
+
+def test_emit_known_action_without_a_form_never_collapses() -> None:
+    """A catalogued action with no form body (``lvgl.*.update``) keeps its params as a mapping."""
+    node = ActionNode(action_id="lvgl.label.update", params={"id": "x"})
+    out = dump([emit_action_node(node)])
+    assert "id: x" in out
+    assert "lvgl.label.update: x" not in out
+
+
 def test_emit_uncatalogued_structured_node_is_refused() -> None:
     """An id absent from the catalog can't emit as a structured node — it's a lossy echo."""
     node = ActionNode(action_id="not.a_real_action", params={"id": "x"})
@@ -448,9 +516,23 @@ def test_decompose_condition_list_handles_single_mapping() -> None:
     assert out[0].condition_id == "switch.is_on"
 
 
-def test_decompose_condition_list_returns_empty_for_other_types() -> None:
-    """A scalar / unexpected type decomposes to an empty list."""
-    assert _decompose_condition_list("scalar-not-a-condition") == []
+def test_decompose_condition_list_faults_on_an_unsupported_body() -> None:
+    """A tagged gate (``!include``) is unsupported, a malformed one invalid, none is dropped."""
+    body = TaggedScalar(value="gate.yaml")
+    body.yaml_set_ctag(Tag(suffix="!include"))
+    with pytest.raises(UnsupportedActionError, match="YAML tag"):
+        _decompose_condition_list(body)
+    with pytest.raises(UnsupportedActionError, match="YAML tag"):
+        _decompose_condition_list([{"api.connected": None}, body])
+    with pytest.raises(CommandError, match="mapping or a condition id"):
+        _decompose_condition_list(5)
+
+
+def test_decompose_condition_list_reads_a_string_as_a_condition_id() -> None:
+    """A bare string, alone or inside a list, is the condition id with no config."""
+    assert [c.condition_id for c in _decompose_condition_list("api.connected")] == ["api.connected"]
+    nodes = _decompose_condition_list(["api.connected", {"switch.is_on": "r1"}])
+    assert [c.condition_id for c in nodes] == ["api.connected", "switch.is_on"]
 
 
 def test_decompose_condition_combinator_with_children() -> None:
@@ -938,7 +1020,7 @@ def test_upsert_inline_handler_replace_with_sibling_below() -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 99s" in new_text
     # Sibling ``on_release`` survived.
     assert "on_release:" in new_text
@@ -959,7 +1041,7 @@ def test_upsert_inline_handler_locates_quoted_id(quote: str) -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 99s" in new_text
 
 
@@ -978,7 +1060,7 @@ def test_upsert_inline_handler_locates_quoted_dash_line_id(quote: str) -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 99s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 99s" in new_text
 
 
@@ -995,7 +1077,7 @@ def test_remove_inline_handler_locates_quoted_id() -> None:
         handler_key="on_press",
     )
     assert res is not None
-    new_text, _from, _to = res
+    new_text, _diff = res
     assert "on_press" not in new_text
 
 
@@ -1014,7 +1096,7 @@ def test_upsert_inline_handler_insert_with_trailing_blanks_in_instance() -> None
         rendered_yaml="on_press:\n  then:\n    - delay: 1s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     # The switch block is intact below the new on_press handler.
     on_press_idx = new_text.index("on_press:")
     switch_idx = new_text.index("switch:")
@@ -1035,7 +1117,7 @@ def test_remove_inline_handler_with_sibling_below() -> None:
         handler_key="on_press",
     )
     assert res is not None
-    new_text, _from, _to = res
+    new_text, _diff = res
     assert "on_press" not in new_text
     assert "on_release" in new_text
 
@@ -1081,7 +1163,7 @@ def test_locate_component_instance_stops_at_next_top_level_block() -> None:
         rendered_yaml="on_press: {}\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     btn_idx = new_text.index("id: btn")
     on_press_idx = new_text.index("on_press:")
     switch_idx = new_text.index("switch:")
@@ -1177,19 +1259,17 @@ def test_upsert_script_creates_block_when_absent() -> None:
     assert "- id: alarm" in new_text
 
 
-def test_upsert_interval_out_of_range_appends() -> None:
-    """An out-of-range interval index appends a fresh item at the end."""
+def test_upsert_interval_out_of_range_raises_invalid_args() -> None:
+    """An interval index past the append slot is refused, like a list-entry index."""
     text = "esphome:\n  name: x\ninterval:\n  - interval: 60s\n    then:\n      - delay: 1s\n"
-    new_text, _diff = render_upsert(
-        text,
-        tree=AutomationTree(
-            trigger_params={"interval": "10s"},
-            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
-        ),
-        location=IntervalLocation(index=99),
+    tree = AutomationTree(
+        trigger_params={"interval": "10s"},
+        actions=[ActionNode(action_id="delay", params={"id": "1s"})],
     )
-    assert new_text.count("- interval:") == 2
-    assert "interval: 10s" in new_text
+    with pytest.raises(CommandError) as err:
+        render_upsert(text, tree=tree, location=IntervalLocation(index=99))
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert err.value.message == "interval[99] out of range (have 1)"
 
 
 def test_delete_interval_by_index_succeeds() -> None:
@@ -1399,7 +1479,7 @@ def test_upsert_inline_handler_replace_skips_blank_in_walk() -> None:
         rendered_yaml="on_press:\n  then:\n    - delay: 9s\n",
     )
     assert res is not None
-    new_text, _from, _to, _repl = res
+    new_text, _diff = res
     assert "delay: 9s" in new_text
     assert "on_release" in new_text
 
@@ -1418,6 +1498,6 @@ def test_remove_inline_handler_walk_skips_blank() -> None:
         handler_key="on_press",
     )
     assert res is not None
-    new_text, _from, _to = res
+    new_text, _diff = res
     assert "on_press" not in new_text
     assert "on_release" in new_text

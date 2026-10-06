@@ -55,9 +55,16 @@ _MIN_RERUN_BUDGET = 1.0
 # digest, so the next validate respawns the subprocess.
 _STALE_SOURCES = "stale"
 
+# A validation result is one JSON line; this bounds the largest line readline accepts.
+_STDOUT_LINE_LIMIT = 4 * 1024 * 1024
+
 
 class ValidatorUnavailableError(RuntimeError):
     """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
+
+
+class ValidatorTimeoutError(ValidatorUnavailableError):
+    """The validation round-trip outran its budget."""
 
 
 @dataclass
@@ -187,6 +194,7 @@ class EditorController:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            limit=_STDOUT_LINE_LIMIT,
         )
 
         # Drain the initial {"type": "version", ...} line so the next read
@@ -194,10 +202,10 @@ class EditorController:
         assert session.proc.stdout is not None
         try:
             await asyncio.wait_for(session.proc.stdout.readline(), timeout=_STARTUP_TIMEOUT)
-        except TimeoutError as err:
+        except (TimeoutError, ValueError) as err:
             await self._terminate_subprocess(session)
             raise ValidatorUnavailableError(
-                "esphome vscode subprocess did not start in time"
+                "esphome vscode subprocess did not start cleanly"
             ) from err
 
     async def _terminate_subprocess(self, session: _EditorSession) -> None:
@@ -302,7 +310,7 @@ class EditorController:
             return ""
         try:
             return req_path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return ""
 
     # ------------------------------------------------------------------
@@ -398,15 +406,14 @@ class EditorController:
         """
         remaining = timeout
         result: dict[str, Any] | None = None
+        source_fingerprint = extract_component_source_fingerprint(content)
         for retry_left in (True, False):
             ok = False
             epoch = session.invalidation_epoch
             try:
                 # Warm the subprocess outside the budget so a cold start
                 # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
-                await self._ensure_subprocess(
-                    session, extract_component_source_fingerprint(content)
-                )
+                await self._ensure_subprocess(session, source_fingerprint)
                 round_trip_started = time.monotonic()
                 attempt = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
@@ -424,7 +431,13 @@ class EditorController:
                 # A failed re-run must not turn the first attempt's
                 # verdict into an error; return it uncached instead.
                 if result is None:
-                    raise
+                    if isinstance(err, ValidatorUnavailableError):
+                        raise
+                    if isinstance(err, TimeoutError):
+                        raise ValidatorTimeoutError("validation round-trip timed out") from err
+                    raise ValidatorUnavailableError(
+                        f"esphome vscode subprocess failed: {err!r}"
+                    ) from err
                 _LOGGER.warning(
                     "Re-validation of %s failed (%r); returning the pre-write result",
                     configuration,
@@ -434,8 +447,7 @@ class EditorController:
             finally:
                 # Any failure (timeout, subprocess loss, a bug, cancellation)
                 # can leave the stateful stdin/stdout protocol mid-message;
-                # kill it so the next call respawns clean. A first-attempt
-                # exception (typed for callers) propagates unchanged.
+                # kill it so the next call respawns clean.
                 if not ok:
                     await self._terminate_subprocess(session)
             if retry_left and remaining > _MIN_RERUN_BUDGET:
@@ -469,7 +481,12 @@ class EditorController:
         await proc.stdin.drain()
 
         while True:
-            line = await proc.stdout.readline()
+            try:
+                line = await proc.stdout.readline()
+            except ValueError as err:
+                raise ValidatorUnavailableError(
+                    "esphome vscode result line exceeded the stream limit"
+                ) from err
             if not line:
                 raise ValidatorUnavailableError("esphome vscode subprocess closed stdout")
             try:

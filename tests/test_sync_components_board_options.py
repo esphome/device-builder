@@ -4,7 +4,7 @@ Tests for the variant-less platforms' board combobox.
 Pins that ``board`` surfaces as a board-catalog combobox (options +
 ``allow_custom_value``) for the platforms whose ``board`` is the required
 sole selector (no ``variant``), and stays deprecated for the variant-
-bearing platforms (esp32, rp2040). ``_board_options_for_platform`` is
+bearing platforms (esp32, rp2). ``_board_options_for_platform`` is
 checked against the committed board catalog so an upstream board churn or
 a dedupe regression trips here.
 """
@@ -34,7 +34,7 @@ def _board_entry(component_id: str) -> dict | None:
 def test_deprecated_and_combobox_sets_are_disjoint() -> None:
     """A platform is either variant-driven (deprecated) or board-combobox, never both."""
     deprecated_board = {cid for cid, key in _DEPRECATED_FIELDS if key == "board"}
-    assert deprecated_board == {"esp32", "rp2", "rp2040"}
+    assert deprecated_board == {"esp32", "rp2"}
     assert {"esp8266", "nrf52", "bk72xx", "rtl87xx", "ln882x"} == _BOARD_COMBOBOX_PLATFORMS
     assert deprecated_board.isdisjoint(_BOARD_COMBOBOX_PLATFORMS)
 

@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 # resolves packages); the first run on a cold process can take a few
 # seconds. 60s is generous headroom over that without hanging a request
 # forever on a wedged subprocess.
-_ESPHOME_CONFIG_TIMEOUT = 60.0
+ESPHOME_CONFIG_TIMEOUT = 60.0
 
 # Each spawn imports ``esphome.components`` (~70 MiB RSS). Cap concurrent
 # subprocesses so a burst — HA adding several devices, a fleet key-resolve —
@@ -87,12 +87,12 @@ async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[
             _LOGGER.warning("esphome config spawn failed for %s: %s", config_path, exc)
             raise EsphomeConfigUnavailableError(f"spawn failed: {exc}") from exc
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_ESPHOME_CONFIG_TIMEOUT)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=ESPHOME_CONFIG_TIMEOUT)
         except TimeoutError as exc:
             kill_quietly(proc)
             await proc.wait()
             _LOGGER.warning(
-                "esphome config timed out after %ss for %s", _ESPHOME_CONFIG_TIMEOUT, config_path
+                "esphome config timed out after %ss for %s", ESPHOME_CONFIG_TIMEOUT, config_path
             )
             raise EsphomeConfigUnavailableError("timed out") from exc
         except asyncio.CancelledError:

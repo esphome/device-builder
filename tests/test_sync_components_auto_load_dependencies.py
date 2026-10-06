@@ -72,6 +72,29 @@ def test_auto_loaded_names_are_not_dependencies(monkeypatch: pytest.MonkeyPatch)
     assert _auto_loaded_dependencies("sensor", "leaf") == ()
 
 
+def test_component_never_depends_on_itself(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The modbus shape: an auto-loaded client that depends back on its loader."""
+    loader = _FakeLoader(
+        components={
+            "modbus": _manifest(auto_load=["modbus_client"], dependencies=["uart"]),
+            "modbus_client": _manifest(dependencies=["modbus"]),
+        },
+        platforms={},
+    )
+    _install(monkeypatch, loader)
+    assert _auto_loaded_dependencies("", "modbus") == ()
+
+
+def test_platform_keeps_a_dependency_on_its_own_hub(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A platform's stem names its hub component, which is a real dependency."""
+    loader = _FakeLoader(
+        components={"base": _manifest(dependencies=["hub"])},
+        platforms={("sensor", "hub"): _manifest(auto_load=["base"])},
+    )
+    _install(monkeypatch, loader)
+    assert _auto_loaded_dependencies("sensor", "hub") == ("hub",)
+
+
 def test_dep_on_a_sibling_auto_load_is_subtracted(monkeypatch: pytest.MonkeyPatch) -> None:
     """A closure member's dep that another member auto-loads is already present."""
     loader = _FakeLoader(

@@ -142,6 +142,7 @@ _VIRTUAL_BRIDGE_PREFIXES: tuple[str, ...] = (
     "veth",  # virtual ethernet pair peer
     "cni",  # Kubernetes CNI plugin bridges
     "virbr",  # libvirt default bridges
+    "podman",  # Podman netavark bridges (podman0, podman1, ...)
     "vethernet",  # Windows Hyper-V virtual switches
 )
 

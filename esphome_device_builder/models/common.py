@@ -36,6 +36,19 @@ class DashboardModel(DataClassORJSONMixin):
 
         lazy_compilation = True
 
+    @staticmethod
+    def to_wire(value: Any) -> Any:
+        """Apply ``to_dict`` to a model, or to the models directly inside a dict or list."""
+        if isinstance(value, DashboardModel):
+            return value.to_dict()
+        if isinstance(value, dict):
+            return {
+                k: v.to_dict() if isinstance(v, DashboardModel) else v for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [v.to_dict() if isinstance(v, DashboardModel) else v for v in value]
+        return value
+
 
 # ---------------------------------------------------------------------------
 # Paged response base
@@ -477,6 +490,11 @@ class ConfigEntry(DashboardModel):
     # None for non-FLOAT_WITH_UNIT entries.
     unit_options: list[str] | None = None
 
+    # Finest unit a ``TIME_PERIOD`` entry accepts: ``ns`` / ``us`` / ``ms`` /
+    # ``s`` / ``min``. The frontend hides finer units from the unit picker.
+    # None = unknown precision, every unit is offered.
+    duration_min_unit: str | None = None
+
     # When True the field accepts a list of values rather than a single
     # value (e.g. multiple SSIDs, multiple radar targets). Frontend
     # renders an add/remove list of inputs of the declared `type`.
@@ -557,6 +575,12 @@ class ConfigEntry(DashboardModel):
     # "uart" buses. None when the field is a free-form ID.
     references_component: str | None = None
 
+    # The C++ class the referenced id must inherit (``output::FloatOutput``),
+    # set only when some candidate of ``references_component`` fails it (a
+    # ``gpio`` output is binary only). The frontend drops a candidate whose
+    # component's ``id_classes`` are known and lack it. None = any candidate.
+    references_class: str | None = None
+
     # === pin selection (only meaningful when type == PIN) ===
 
     # Pin capabilities required for this field. Frontend filters the
@@ -621,6 +645,9 @@ class ConfigEntry(DashboardModel):
     # device_class, ...) on top of `config_entries` for these. None
     # means a plain structured group.
     platform_type: str | None = None
+
+    class Config(_CatalogConfig):
+        """Omit fields at their default; see :class:`_CatalogConfig`."""
 
 
 # ---------------------------------------------------------------------------

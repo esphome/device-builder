@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import secrets
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import load_platform_capabilities_index
@@ -15,6 +13,7 @@ from ..yaml import (
     fallback_ap_ssid,
     generate_api_encryption_key,
     merge_component_yaml,
+    upsert_api_encryption_key,
 )
 
 if TYPE_CHECKING:
@@ -161,22 +160,16 @@ def generate_adoption_yaml(
     ssid: str = "",
     psk: str = "",
     wifi_secrets_available: bool = True,
-    api_encryption: bool = True,
-    api_encryption_key: str | None = None,
+    api_encryption_key: str | None,
 ) -> str:
     """
     Generate the adoption-shape YAML referencing a remote package.
 
-    One shape for both consumers — ``devices/import`` (adopt) and a
-    ``package_import_url`` board create: ``substitutions`` + ``packages:``
-    + ``esphome:`` overrides + an API key (*api_encryption_key*, else
-    freshly generated), with a ``wifi:`` block only when the package
-    doesn't provide the network. The name rides through
-    ``substitutions`` because vendor packages may reference ``${name}``
-    internally.
+    Adds ``wifi:`` only when the package doesn't provide the network and
+    splices *api_encryption_key* in; ``None`` leaves the device's own key alone.
     """
     lines: list[str] = ["substitutions:"]
-    lines.append(f"  name: {name}")
+    lines.append(f"  name: {_safe_yaml_scalar(name)}")
     if friendly_name:
         lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
@@ -189,16 +182,12 @@ def generate_adoption_yaml(
     if friendly_name:
         lines.append("  friendly_name: ${friendly_name}")
     lines.append("")
-    if api_encryption or api_encryption_key:
-        lines.append("api:")
-        lines.append("  encryption:")
-        lines.append(f'    key: "{api_encryption_key or generate_api_encryption_key()}"')
-        lines.append("")
     if not network_provided and (bool(ssid) or wifi_secrets_available):
         lines.append("wifi:")
         lines.extend(_wifi_credentials_lines(ssid, psk))
         lines.append("")
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    return upsert_api_encryption_key(text, api_encryption_key) if api_encryption_key else text
 
 
 def generate_device_yaml(
@@ -227,14 +216,12 @@ def generate_device_yaml(
     # Board reference comment so users can find the source manifest
     lines: list[str] = [*_board_header_lines(board)]
 
-    # ESPHome core. ``name`` arrives already slug-safe (see
-    # ``mutations_create``), but ``friendly_name`` is raw user
-    # input that may contain ``:``, ``#``, leading indicators, or
-    # other YAML metacharacters — route it through the safe-scalar
-    # renderer so a label like ``Bedroom #2`` doesn't truncate at
-    # the comment marker on round trip.
+    # ESPHome core. Both values go through the safe-scalar renderer:
+    # an all-digit ``name`` would parse back as an int, and a
+    # ``friendly_name`` like ``Bedroom #2`` would truncate at the
+    # comment marker.
     lines.append("esphome:")
-    lines.append(f"  name: {name}")
+    lines.append(f"  name: {_safe_yaml_scalar(name)}")
     lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
 
@@ -258,7 +245,7 @@ def generate_device_yaml(
     # claim, fall back to a platform/variant/board-aware inference
     # for boards whose hardware block omits ``connectivity``
     # entirely. The inference asks ESPHome's own ``NO_WIFI_VARIANTS``
-    # / ``rp2040.boards.BOARDS`` so a future no-Wi-Fi variant or new
+    # / ``rp2.boards.BOARDS`` so a future no-Wi-Fi variant or new
     # RP2040 Wi-Fi board flows through without a coordinated edit
     # here.
     has_wifi = board_has_native_wifi(board)
@@ -286,7 +273,7 @@ def generate_device_yaml(
     )
     if network_provided or emit_wifi:
         # Home Assistant API — unique encryption key per device.
-        api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+        api_key = generate_api_encryption_key()
         lines.append("api:")
         lines.append("  encryption:")
         lines.append(f'    key: "{api_key}"')
@@ -507,7 +494,7 @@ def generate_minimal_stub_yaml(
     about to edit.
     """
     header = (
-        f"esphome:\n  name: {name}\n"
+        f"esphome:\n  name: {_safe_yaml_scalar(name)}\n"
         f"  friendly_name: {_safe_yaml_scalar(friendly_name)}\n\n"
         "# Replace this with your actual platform if you aren't using ESP32.\n"
         "esp32:\n  board: esp32dev\n\n"
@@ -515,7 +502,7 @@ def generate_minimal_stub_yaml(
     )
     if not wifi_secrets_available:
         return header + "\n".join(_NO_WIFI_SECRETS_TODO_LINES)
-    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+    api_key = generate_api_encryption_key()
     recovery = "\n".join(_fallback_recovery_lines(friendly_name or name, "esp32"))
     return (
         header + "api:\n  encryption:\n"

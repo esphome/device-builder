@@ -17,6 +17,7 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import re
@@ -31,15 +32,18 @@ from typing import TYPE_CHECKING, Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from aiohttp import web
 from blockbuster import BlockBusterFunction, blockbuster_ctx
 from esphome.core import CORE
 
+from esphome_device_builder.api.mcp import create_mcp_routes
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.controllers._device_state_monitor import mdns as _mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as _ping_module
+from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.components._resolve import FeaturedView
@@ -49,11 +53,13 @@ from esphome_device_builder.controllers.devices._metadata_store import DeviceMet
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
 )
 from esphome_device_builder.controllers.remote_build.discovery import start_discovery
+from esphome_device_builder.helpers.auth import auth_middleware
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.secrets_state import write_secrets_locked
@@ -65,10 +71,14 @@ from esphome_device_builder.models import (
     DeviceRuntimeState,
     DeviceState,
     EventType,
+    FirmwareJob,
+    JobStatus,
+    JobType,
     QueueStatus,
     ReachabilitySource,
 )
 from tests._mqtt_fixtures import RecordingMonitor
+from tests._recording_scanner import RecordingScanner
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -80,15 +90,6 @@ if TYPE_CHECKING:
 # this list short — anything genuinely on a hot path should be
 # refactored, not allowlisted.
 _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
-    # SessionStore reads the persisted JSON sessions file once at
-    # AuthController construction time. Bounded by the dashboard's
-    # own startup, not request volume.
-    ("helpers/auth.py", "_load"),
-    # Sync sibling of ``_persist_async``. Production callers always
-    # wrap it via ``asyncio.to_thread`` (so blockbuster wouldn't see
-    # it from a worker thread anyway); tests call it directly to seed
-    # state without a round-trip through the executor.
-    ("helpers/auth.py", "_persist"),
     # ``_register_frontend`` stat-checks ``index.html`` and ``assets/``
     # at app construction so a broken frontend wheel surfaces a clear
     # RuntimeError instead of mysterious 404s. Runs once at startup.
@@ -179,12 +180,26 @@ def blockbuster() -> Iterator[BlockBuster | None]:
 # tests that override ``CORE.config_path`` (e.g. ``make_settings(
 # with_core_path=True)``) still take precedence, and sibling xdist
 # workers don't see leaked process-globals.
+#
+# A test that writes storage must request ``tmp_path``; without it the
+# sentinel's directory is never created (a dir per test is slow on Windows).
 # ---------------------------------------------------------------------------
 
 
+_lazy_config_dirs = itertools.count()
+
+
 @pytest.fixture(autouse=True)
-def _core_config_path_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(CORE, "config_path", tmp_path / "___DASHBOARD_SENTINEL___.yaml")
+def _core_config_path_in_tmp(
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if "tmp_path" in request.fixturenames:
+        config_dir: Path = request.getfixturevalue("tmp_path")
+    else:
+        config_dir = tmp_path_factory.getbasetemp() / f"no-tmp-path-{next(_lazy_config_dirs)}"
+    monkeypatch.setattr(CORE, "config_path", config_dir / "___DASHBOARD_SENTINEL___.yaml")
 
 
 @pytest.fixture(autouse=True)
@@ -356,6 +371,33 @@ class RemoteBuildTestHandles:
         """Stop both siblings, in the same order ``DeviceBuilder`` does."""
         await self.offloader.stop()
         await self.receiver.stop()
+
+
+class RecordingAutomationDevices:
+    """Stand-in for the devices controller's locked read-rewrite-save."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.saved: list[tuple[str, str, str]] = []
+
+    async def rewrite_yaml(
+        self, configuration: str, rewrite: Callable[[str], tuple[str, Any]], *, message: str
+    ) -> Any:
+        """Run *rewrite* over the text off the loop and record what it would save."""
+        new_text, diff = await asyncio.to_thread(rewrite, self.text)
+        self.saved.append((configuration, new_text, message))
+        return diff
+
+
+def make_automations_controller(
+    config_dir: Path, text: str, *, devices: Any
+) -> AutomationsController:
+    """Build an AutomationsController over ``d.yaml`` holding *text*."""
+    (config_dir / "d.yaml").write_text(text, encoding="utf-8")
+    db = MagicMock()
+    db.settings.rel_path = config_dir.joinpath
+    db.devices = devices
+    return AutomationsController(db)
 
 
 def make_add_component_controller(catalog: ComponentCatalog, config_dir: Path) -> DevicesController:
@@ -561,6 +603,7 @@ def make_submit_job_frames(
     bundle: bytes,
     device_name: str = "",
     device_friendly_name: str = "",
+    skip_bootloader: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Build the wire-shape ``submit_job`` header + chunk frames for *bundle*.
 
@@ -604,6 +647,7 @@ def make_submit_job_frames(
         "bundle_sha256": compute_bundle_sha256(bundle),
         "device_name": device_name,
         "device_friendly_name": device_friendly_name,
+        "skip_bootloader": skip_bootloader,
     }
     return header, chunks
 
@@ -944,6 +988,16 @@ async def release_and_drain_advertise(db: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+def attach_metadata_store(controller: Any, directory: Path) -> None:
+    """Wire a real ``DeviceMetadataStore`` (and its shutdown list) onto *controller*."""
+    controller._shutdown_callbacks = []
+    controller._metadata_store = DeviceMetadataStore(
+        config_dir=directory,
+        data_dir=directory,
+        shutdown_register=controller._shutdown_callbacks.append,
+    )
+
+
 def make_devices_controller_with_bus(
     devices: list[Device],
     *,
@@ -964,10 +1018,9 @@ def make_devices_controller_with_bus(
     only care about a subset filter the list themselves
     (``[e for e in captured if e.event_type == X]``).
 
-    The scanner is a ``MagicMock`` exposing ``devices`` and a
-    ``get_by_name(name)`` lambda derived from *devices*; mirrors
-    the production ``DeviceScanner``'s name-keyed grouping closely
-    enough for the callback paths these tests exercise.
+    The scanner is a ``RecordingScanner`` seeded with *devices* and
+    their name-keyed grouping, so ``get_by_name`` /
+    ``get_by_configuration`` answer like production.
 
     ``create_background_task`` lets callers wire a side-effect
     function (e.g. closing the coroutine to avoid
@@ -984,24 +1037,18 @@ def make_devices_controller_with_bus(
     if create_background_task is not None:
         controller._db.create_background_task = MagicMock(side_effect=create_background_task)
     controller._db.bus = bus
-    controller._scanner = MagicMock()
-    controller._scanner.devices = devices
-    by_name: dict[str, list[Device]] = {}
+    by_name: dict[str, list[object]] = {}
     for device in devices:
         by_name.setdefault(device.name, []).append(device)
-    controller._scanner.get_by_name = lambda name: by_name.get(name, [])
+    controller._scanner = RecordingScanner(devices_by_name=by_name)
+    controller._scanner.devices = list(devices)
     # Real metadata stores anchored at a TemporaryDirectory whose
     # lifetime is pinned to the controller; ``__del__`` cleans up
     # the dir when the test releases its reference.
     tmp_dir_obj = _tempfile.TemporaryDirectory(prefix="dmstore_")
     tmp_dir = Path(tmp_dir_obj.name)
     controller._tmpdir = tmp_dir_obj  # keep alive
-    controller._shutdown_callbacks = []
-    controller._metadata_store = DeviceMetadataStore(
-        config_dir=tmp_dir,
-        data_dir=tmp_dir,
-        shutdown_register=controller._shutdown_callbacks.append,
-    )
+    attach_metadata_store(controller, tmp_dir)
     controller._shared_sidecar = SharedSidecarClient(tmp_dir)
     return controller, captured
 
@@ -1141,6 +1188,62 @@ def make_state_monitor_with_callbacks(
         on_deployed_identity_live_change=callbacks.on_deployed_identity_live_change,
     )
     return monitor, callbacks
+
+
+class StubSessionStore:
+    """``auth.session_store`` stand-in that rejects every bearer token."""
+
+    async def validate(self, token: str) -> object | None:
+        return None
+
+
+class StubRateLimiter:
+    """``auth.rate_limiter`` stand-in with no lockout."""
+
+    def remaining_lockout(self, ip: str) -> float:
+        return 0.0
+
+    def clear(self, ip: str) -> None: ...
+
+    def record_failure(self, ip: str) -> None: ...
+
+
+class StubAuth:
+    """The ``auth`` controller surface ``auth_middleware`` reads."""
+
+    def __init__(self) -> None:
+        self.session_store = StubSessionStore()
+        self.rate_limiter = StubRateLimiter()
+
+
+async def rpc_post(
+    client: Any,
+    path: str,
+    method: str,
+    params: Any = None,
+    *,
+    msg_id: Any = 1,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """POST one JSON-RPC 2.0 request and return the decoded reply (asserts a JSON 200)."""
+    body: dict[str, Any] = {"jsonrpc": "2.0", "id": msg_id, "method": method}
+    if params is not None:
+        body["params"] = params
+    resp = await client.post(path, json=body, headers=headers)
+    assert resp.status == 200, await resp.text()
+    assert resp.content_type == "application/json"
+    return await resp.json()
+
+
+def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
+    """Build a running COMPILE ``FirmwareJob`` for ``kitchen.yaml``."""
+    base: dict[str, Any] = {
+        "job_id": job_id,
+        "configuration": "kitchen.yaml",
+        "job_type": JobType.COMPILE,
+        "status": JobStatus.RUNNING,
+    }
+    return FirmwareJob(**(base | overrides))
 
 
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:
@@ -1309,7 +1412,7 @@ def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
 
 
-def apply_yaml_diff(text: str, from_line: int, to_line: int, replacement: str) -> str:
+def apply_yaml_diff_like_frontend(text: str, from_line: int, to_line: int, replacement: str) -> str:
     """Apply a YamlDiff splice exactly as the frontend ``applyYamlDiff`` does."""
     lines = text.split("\n")
     start = from_line - 1
@@ -1317,3 +1420,26 @@ def apply_yaml_diff(text: str, from_line: int, to_line: int, replacement: str) -
     stripped = replacement.removesuffix("\n")
     rep_lines = [] if stripped == "" else stripped.split("\n")
     return "\n".join([*lines[:start], *rep_lines, *lines[start + delete :]])
+
+
+class McpStubDeviceBuilder:
+    """A ``DeviceBuilder`` stand-in for the MCP endpoint: settings, catalog and handlers."""
+
+    def __init__(self, settings: DashboardSettings) -> None:
+        self.settings = settings
+        self.settings.trusted_domains = []
+        self.components: ComponentCatalog | None = None
+        self.command_handlers: dict[str, Any] = {}
+        self.auth = StubAuth()
+        self.devices = MagicMock(spec=DevicesController)
+        self.devices.get_by_configuration.return_value = None
+        self.firmware = MagicMock(spec=FirmwareController)
+        self.firmware.state = FirmwareState()
+
+
+def make_mcp_app(db: McpStubDeviceBuilder, *, with_auth: bool = False) -> web.Application:
+    """Build an aiohttp app serving only the MCP route."""
+    app = web.Application(middlewares=[auth_middleware] if with_auth else [])
+    app["device_builder"] = db
+    app.router.add_routes(create_mcp_routes())
+    return app

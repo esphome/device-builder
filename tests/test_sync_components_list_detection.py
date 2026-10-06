@@ -82,6 +82,13 @@ def test_apply_list_fields_marks_matching_path_multi_value() -> None:
     assert by_key["name"]["multi_value"] is False
 
 
+def test_list_item_schema_returns_for_a_codegen_mock() -> None:
+    """A ``MockObj`` answers any getattr and index, and must not hang the list probe."""
+    from esphome.cpp_generator import MockObj  # noqa: PLC0415
+
+    assert sync_components._list_item_schema(MockObj("ns::Mode::A")) is None
+
+
 def test_live_trigger_list_params_finds_multi_click_timing() -> None:
     """The bare-list ``timing`` param is recovered from the live binary_sensor schema."""
     params = sync_components._live_trigger_list_params("binary_sensor")

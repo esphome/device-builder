@@ -22,7 +22,7 @@ from .origin import request_origin_allowed
 _LOGGER = logging.getLogger(__name__)
 
 _CORS_METHODS = "GET, POST, PUT, DELETE, OPTIONS"
-_CORS_HEADERS = "Content-Type, Authorization"
+_CORS_HEADERS = "Content-Type, Authorization, MCP-Protocol-Version"
 
 # Re-export so callers can ``except JSONDecodeError`` without importing
 # orjson themselves. orjson's exception is a subclass of ValueError.
@@ -32,6 +32,19 @@ JSONDecodeError = orjson.JSONDecodeError
 def loads(data: bytes | bytearray | memoryview | str) -> Any:
     """Parse JSON via orjson; raises ``JSONDecodeError`` on bad input."""
     return orjson.loads(data)
+
+
+def loads_mapping_or_warn(raw: bytes, *, label: str) -> dict[str, Any] | None:
+    """Parse *raw* as a JSON object; corrupt or non-object input warns as *label*, yields None."""
+    try:
+        obj = loads(raw)
+    except JSONDecodeError:
+        _LOGGER.warning("%s: corrupt JSON, starting empty", label)
+        return None
+    if not isinstance(obj, dict):
+        _LOGGER.warning("%s: non-mapping JSON, starting empty", label)
+        return None
+    return obj
 
 
 def dumps(obj: Any) -> bytes:

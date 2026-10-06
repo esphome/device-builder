@@ -63,12 +63,18 @@ class JobType(StrEnum):
     # RENAME with no ``depends_on`` predates the decomposition and
     # still runs the fused ``esphome rename`` CLI.
     RENAME = "rename"
+    # ``esphome analyze-memory``: compiles, then prints a per-component
+    # flash / RAM report.
+    ANALYZE_MEMORY = "analyze_memory"
 
 
 # Job types that compile firmware from source (INSTALL is a fused compile +
-# flash; UPLOAD only flashes an existing binary), so the config hash changes
-# and a version-mismatched remote build must provision the offloader's esphome.
-COMPILING_JOB_TYPES: frozenset[JobType] = frozenset({JobType.COMPILE, JobType.INSTALL})
+# flash; UPLOAD only flashes an existing binary; ANALYZE_MEMORY compiles
+# before it reports), so the config hash is recomputed after them and a
+# version-mismatched remote build must provision the offloader's esphome.
+COMPILING_JOB_TYPES: frozenset[JobType] = frozenset(
+    {JobType.COMPILE, JobType.INSTALL, JobType.ANALYZE_MEMORY}
+)
 
 
 class JobSource(StrEnum):
@@ -186,6 +192,9 @@ class FirmwareJob(DashboardModel):
     # UPLOAD flashes the bootloader image instead of the app
     # (``esphome upload --bootloader``); OTA-only.
     flash_bootloader: bool = False
+    # COMPILE for an OTA app install: pass ``--skip-bootloader`` so the
+    # bootloader and factory image are not built (esphome 2026.10+).
+    skip_bootloader: bool = False
     # In-memory decision input for the deferred-install completion hook;
     # the durable arm is ``Device.runtime_state.queued_update``.
     is_deferred_install: bool = False

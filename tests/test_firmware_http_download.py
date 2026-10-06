@@ -29,25 +29,7 @@ from esphome_device_builder.controllers.firmware.download import (
 from esphome_device_builder.helpers.auth import auth_middleware
 from tests._storage_fixtures import write_storage_json
 
-
-class _StubSessionStore:
-    async def validate(self, token: str) -> object | None:
-        return None
-
-
-class _StubRateLimiter:
-    def remaining_lockout(self, ip: str) -> float:
-        return 0.0
-
-    def clear(self, ip: str) -> None: ...
-
-    def record_failure(self, ip: str) -> None: ...
-
-
-class _StubAuth:
-    def __init__(self) -> None:
-        self.session_store = _StubSessionStore()
-        self.rate_limiter = _StubRateLimiter()
+from .conftest import StubAuth
 
 
 class _StubSettings:
@@ -71,7 +53,7 @@ class _StubFirmware:
 class _StubDeviceBuilder:
     def __init__(self, *, using_password: bool = False, token_ttl: float = 60.0) -> None:
         self.settings = _StubSettings(using_password=using_password)
-        self.auth = _StubAuth()
+        self.auth = StubAuth()
         self.firmware = _StubFirmware(token_ttl=token_ttl)
 
 

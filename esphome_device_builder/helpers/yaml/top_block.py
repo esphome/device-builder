@@ -74,6 +74,19 @@ def _locate_top_block(lines: list[str], block_key: str) -> tuple[int, int, str] 
     return start, end, indent
 
 
+def _insert_top_block_after(lines: list[str], anchors: tuple[str, ...], block: str, nl: str) -> str:
+    """Insert *block* below the first readable column-0 *anchors* block, else prepend it."""
+    for block_key in anchors:
+        try:
+            located = _locate_top_block(lines, block_key)
+        except YamlUpsertNotSupportedError:
+            continue
+        if located is not None:
+            at = trim_trailing_blanks(lines, located[0], located[1])
+            return _insert_top_block_at(lines, at, nl + block, nl)
+    return _prepend_top_block(lines, block, nl)
+
+
 def _find_prepend_anchor(lines: list[str]) -> int:
     """Return the line index past leading YAML directives / ``---`` markers."""
     anchor = 0
@@ -87,11 +100,14 @@ def _find_prepend_anchor(lines: list[str]) -> int:
 
 def _prepend_top_block(lines: list[str], block: str, nl: str) -> str:
     """Prepend *block* (newline-terminated) below any leading directives / ``---`` markers."""
-    anchor = _find_prepend_anchor(lines)
-    prefix = "".join(lines[:anchor])
-    rest = "".join(lines[anchor:])
+    return _insert_top_block_at(lines, _find_prepend_anchor(lines), block, nl)
+
+
+def _insert_top_block_at(lines: list[str], at: int, block: str, nl: str) -> str:
+    """Splice *block* in before line *at*, keeping one blank line before what follows."""
+    rest = "".join(lines[at:])
     sep = "" if not rest or rest.startswith(("\n", "\r")) else nl
-    return f"{prefix}{block}{sep}{rest}"
+    return f"{''.join(lines[:at])}{block}{sep}{rest}"
 
 
 def upsert_yaml_leaf_under_top_block(

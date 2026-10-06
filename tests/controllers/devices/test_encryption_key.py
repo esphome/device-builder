@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
+from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
 
-from .conftest import MakeControllerFactory
+from .conftest import ESPHOME_CONFIG_STUB_TARGET, VALIDATOR_OUTAGES, MakeControllerFactory
 
 KEY = base64.b64encode(b"k" * 32).decode()
 OTHER_KEY = base64.b64encode(b"j" * 32).decode()
@@ -67,6 +71,44 @@ async def test_set_encryption_key_overwrites_existing_literal(
     assert ("request", "kitchen.yaml") in ctrl._scanner.calls
 
 
+async def test_set_encryption_key_keeps_the_key_when_the_file_changed_during_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML)
+    concurrent = API_KEY_YAML + "logger:\n"
+
+    async def _save_lands_meanwhile(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        await ctrl.update_config(configuration="kitchen.yaml", content=concurrent)
+        return SimpleNamespace(unavailable=False)
+
+    monkeypatch.setattr(ctrl, "_validate_rewritten_yaml_or_raise", _save_lands_meanwhile)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "differs from the expected text" in result["reason"]
+    assert "\n" not in result["reason"]
+    assert ":;" not in result["reason"]
+    assert result["reason"].endswith("the key was kept for a later attempt")
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == concurrent
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+async def test_set_encryption_key_keeps_the_key_when_the_config_vanished(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML)
+    await asyncio.to_thread((tmp_path / "kitchen.yaml").unlink)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert result["reason"] == "Device 'kitchen.yaml' not found"
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
 async def test_set_encryption_key_same_key_is_unchanged_no_write(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -96,8 +138,7 @@ async def test_set_encryption_key_inserts_block_for_package_provided_api(
 
     assert result["result"] == "updated"
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    assert new_yaml.startswith(f'api:\n  encryption:\n    key: "{KEY}"\n')
-    assert yaml_text in new_yaml
+    assert new_yaml == f'{yaml_text}\napi:\n  encryption:\n    key: "{KEY}"\n'
 
 
 async def test_set_encryption_key_refuses_resolved_apiless_configuration(
@@ -107,9 +148,7 @@ async def test_set_encryption_key_refuses_resolved_apiless_configuration(
 ) -> None:
     """The resolved config genuinely lacks ``api:`` → refuse, don't re-enable it."""
     resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     yaml_text = "esphome:\n  name: kitchen\n\nmqtt:\n  broker: b\n"
     _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["mqtt", "wifi"], api_enabled=False)
@@ -123,20 +162,279 @@ async def test_set_encryption_key_refuses_resolved_apiless_configuration(
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
-async def test_set_encryption_key_refuses_secret_indirection(
+SECRET_KEY_YAML = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n"
+SUBSTITUTED_KEY_YAML = (
+    f'substitutions:\n  api_key: "{KEY}"\n\nesphome:\n  name: kitchen\n\n'
+    "api:\n  encryption:\n    key: ${api_key}\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "secret", "expected", "fragment"),
+    [
+        pytest.param(SECRET_KEY_YAML, KEY, "unchanged", "", id="secret_matches"),
+        pytest.param(SUBSTITUTED_KEY_YAML, None, "unchanged", "", id="substitution_matches"),
+        pytest.param(SECRET_KEY_YAML, OTHER_KEY, "not_writable", "different value", id="differs"),
+        pytest.param(SECRET_KEY_YAML, None, "not_writable", "could not be resolved", id="missing"),
+    ],
+)
+async def test_set_encryption_key_indirected_key_is_resolved_never_rewritten(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    yaml_text: str,
+    secret: str | None,
+    expected: str,
+    fragment: str,
+) -> None:
+    """An indirected key settles only by resolving to the pushed key; the file is never touched."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    if secret is not None:
+        (tmp_path / "secrets.yaml").write_text(f'api_key: "{secret}"\n', encoding="utf-8")
+    _configure(ctrl, tmp_path, yaml_text)
+    ctrl._pending_keys.set("kitchen", KEY, "")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == expected
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    if expected == "unchanged":
+        assert "reason" not in result
+        assert ctrl._pending_keys.get("kitchen") is None
+    else:
+        assert "!secret" in result["reason"]
+        assert fragment in result["reason"]
+        assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+OTA_KEY_YAML = f"""\
+esphome:
+  name: kitchen
+
+api:
+  encryption:
+    key: "{OTHER_KEY}"
+
+ota:
+  - platform: esphome
+    encryption:
+      key: "{OTHER_KEY}"
+"""
+
+
+async def test_set_encryption_key_matching_secret_next_to_a_differing_ota_key_is_refused(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A ``!secret`` key is user-managed material; refuse and report."""
+    """A differing literal OTA key next to a matching secret is refused, nothing written."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
-    yaml_text = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n"
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
     _configure(ctrl, tmp_path, yaml_text)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
-    assert "!secret" in result["reason"]
+    assert "OTA encryption key differs" in result["reason"]
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_matching_secret_next_to_a_package_ota_key_is_refused(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An OTA key the raw file can't show (package-merged) is still compared after resolving."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = SECRET_KEY_YAML + (
+        "\npackages:\n  ota_pkg:\n    ota:\n      - platform: esphome\n"
+        f'        encryption:\n          key: "{OTHER_KEY}"\n'
+    )
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key differs" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+@pytest.mark.parametrize(
+    ("ota_secret", "expected"),
+    [
+        pytest.param(KEY, "unchanged", id="same"),
+        pytest.param(OTHER_KEY, "not_writable", id="differs"),
+    ],
+)
+async def test_set_encryption_key_indirected_ota_key_is_resolved_next_to_a_matching_secret(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    ota_secret: str,
+    expected: str,
+) -> None:
+    """An indirected OTA key is compared after resolving, not deferred to esphome."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(
+        f'api_key: "{KEY}"\nota_key: "{ota_secret}"\n', encoding="utf-8"
+    )
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    yaml_text = yaml_text.replace(f'key: "{OTHER_KEY}"', "key: !secret ota_key", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == expected
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_matching_secret_next_to_an_empty_ota_key_is_unchanged(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An empty OTA ``key:`` inherits the api key, so nothing competes and nothing is written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "secrets.yaml").write_text(f'api_key: "{KEY}"\n', encoding="utf-8")
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', "key: !secret api_key", 1)
+    yaml_text = yaml_text.replace(f'key: "{OTHER_KEY}"', "key:", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An explicit ota key becomes a bare ``encryption:`` that inherits the pushed api key."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("  - platform: esphome\n    encryption:\n")
+    assert OTHER_KEY not in new_yaml
+
+
+async def test_set_encryption_key_drops_stale_ota_key_when_api_already_matches(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A stale ota key is dropped even when the api key already carries the push."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"', f'key: "{KEY}"', 1))
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("    encryption:\n")
+    assert OTHER_KEY not in new_yaml
+
+
+async def test_set_encryption_key_unchanged_when_both_keys_match(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Matching api and ota keys report ``unchanged`` with no write."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_never_overwrites_a_devices_own_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A runtime api key next to the OTA platform's own key is refused; that key stays."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(f'    key: "{OTHER_KEY}"\n', "", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "own encryption key" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+async def test_set_encryption_key_bare_ota_encryption_is_left_alone(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A bare ``ota: encryption:`` inherits the api key and needs no rewrite."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML + "\nota:\n  - platform: esphome\n    encryption:\n")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(KEY) == 1
+    assert new_yaml.endswith("    encryption:\n")
+
+
+async def test_set_encryption_key_unchanged_with_matching_api_and_indirected_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A secret-backed ota key next to an already matching api key needs no write."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1).replace(
+        f'key: "{OTHER_KEY}"', "key: !secret api_key", 1
+    )
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_drops_an_empty_ota_key_when_api_already_matches(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An empty explicit ota key is dropped even when the api key already carries the push."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1).replace(f'key: "{OTHER_KEY}"', "key:", 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("    encryption:\n")
+
+
+async def test_set_encryption_key_refuses_indirected_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An ota ``!secret`` key can't be made to match; refuse and keep the pending copy."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(f'key: "{OTHER_KEY}"\n', "key: !secret ota_key\n")
+    yaml_text = yaml_text.replace("key: !secret ota_key", f'key: "{OTHER_KEY}"', 1)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "OTA encryption key" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
 async def test_set_encryption_key_matches_by_mac_fallback(
@@ -196,6 +494,9 @@ async def test_set_encryption_key_partial_refusal_keeps_reason(
 
     assert result["result"] == "updated"
     assert "!secret" in result["reason"]
+    # The sibling's update consumed the key, so the refusal must not claim it was kept.
+    assert "kept for a later attempt" not in result["reason"]
+    assert ctrl._pending_keys.get("kitchen") is None
 
 
 async def test_set_encryption_key_stores_pending_for_unadopted_device(
@@ -256,9 +557,7 @@ async def test_set_encryption_key_never_compiled_package_device_gets_key(
 ) -> None:
     """A package device with no compile yet still gets the key once resolve confirms api."""
     resolve = AsyncMock(return_value={"api": None, "esphome": {"name": "kitchen"}})
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
     _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
@@ -270,6 +569,82 @@ async def test_set_encryption_key_never_compiled_package_device_gets_key(
 
     assert result["result"] == "updated"
     assert f'key: "{KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_set_encryption_key_apiless_verdict_is_kept_until_the_yaml_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A resolved no-``api:`` verdict answers the next push off the file identity, not a spawn."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    first = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    second = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert first["result"] == second["result"] == "not_writable"
+    assert "does not enable the native API" in second["reason"]
+    assert resolve.await_count == 1
+
+    (tmp_path / "kitchen.yaml").write_text(yaml_text + "# edited\n", encoding="utf-8")
+    third = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert third["result"] == "not_writable"
+    assert resolve.await_count == 2
+
+
+async def test_set_encryption_key_apiless_verdict_is_dropped_when_the_scanner_sees_a_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A scan UPDATED or REMOVED for the configuration prunes its remembered verdict."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    device = _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    assert "kitchen.yaml" in ctrl.state.apiless_resolves
+
+    ctrl._on_scan_change(ScanChange.REMOVED, device)
+
+    assert ctrl.state.apiless_resolves == {}
+
+
+def test_locate_and_stat_has_no_identity_for_a_missing_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A YAML that vanished between the read and the stat carries no identity to remember."""
+    settings = make_controller(tmp_path)._db.settings
+    path, identity = _locate_and_stat(settings, "gone.yaml")
+    assert path == tmp_path / "gone.yaml" and identity is None
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n", encoding="utf-8")
+    assert _locate_and_stat(settings, "kitchen.yaml")[1] is not None
+
+
+async def test_set_encryption_key_unresolvable_verdict_is_retried_on_the_next_push(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A failed resolve is never remembered; the retained key gets another attempt."""
+    resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert resolve.await_count == 2
+    assert ctrl.state.apiless_resolves == {}
 
 
 @pytest.mark.parametrize(
@@ -291,9 +666,7 @@ async def test_set_encryption_key_unresolvable_config_keeps_key(
         resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
     else:
         resolve = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
-    )
+    monkeypatch.setattr(ESPHOME_CONFIG_STUB_TARGET, resolve)
     esphome_cmd = [] if mode == "no_cli" else ["esphome"]
     ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=esphome_cmd)
     yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
@@ -308,19 +681,21 @@ async def test_set_encryption_key_unresolvable_config_keeps_key(
         resolve.assert_not_awaited()
 
 
-async def test_set_encryption_key_validator_timeout_is_typed_and_keeps_key(
+@pytest.mark.parametrize("exc", VALIDATOR_OUTAGES)
+async def test_set_encryption_key_validator_outage_is_typed_and_keeps_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
+    exc: Exception,
 ) -> None:
-    """A validator timeout refuses cleanly instead of escaping as a 500."""
+    """A validator outage refuses cleanly instead of escaping as a 500."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, API_KEY_YAML)
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError())
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=exc)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
-    assert "validated in time" in result["reason"]
+    assert "validator was unavailable" in result["reason"]
     assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
@@ -432,6 +807,16 @@ async def test_pending_keys_store_set_same_entry_skips_save(tmp_path: Path) -> N
     store._store.async_delay_save = lambda *a, **kw: saves.append(a)  # type: ignore[method-assign]
     store.set("a", KEY, "AA:BB:CC:DD:EE:FF")
     assert saves == []
+
+
+async def test_pending_keys_store_pop_if_keeps_a_newer_key(tmp_path: Path) -> None:
+    """``pop_if`` consumes the entry only while it still holds the key that was handled."""
+    store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)
+    store.set("kitchen", KEY)
+    assert store.pop_if("kitchen", OTHER_KEY) is None
+    assert store.get("kitchen") == {"key": KEY}
+    assert store.pop_if("kitchen", KEY) == {"key": KEY}
+    assert store.pop_if("kitchen", KEY) is None
 
 
 async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:

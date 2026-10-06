@@ -29,6 +29,8 @@ class TestPlatformIOWordMarkers:
             # Real esp8266 platformio.log compile lines.
             "Compiling .pioenvs/simple8266/src/esphome/components/api/api_server.cpp.o",
             "Compiling .pio/build/esp32dev/src/main.cpp.o",
+            # ``--dashboard`` mode spells the escapes out literally.
+            "\\033[0mCompiling .pio/build/esp32dev/src/main.cpp.o",
             "Compiling .pio/build/bk72xx/src/main.cpp.o",
             "Indexing .pioenvs/simple8266/libFrameworkArduino.a",
             "Linking .pioenvs/simple8266/firmware.elf",
@@ -60,6 +62,7 @@ class TestRawNinjaCounters:
             # Real captured btp_compile.log chunks (CR-split, trailing erase escape).
             "[0/2] Re-checking globbed directories...\x1b[K",
             "[1/2] Re-running CMake...\x1b[K",
+            "\\033[0m[1/2] Re-running CMake...",
             "[1/1547] Generating project_elf_src_esp32s3.c\x1b[K",
             "[6/1547] Building C object esp-idf/esp_adc/adc_cali.c.obj\x1b[K",
             "[3/97] Performing build step for 'bootloader'",
@@ -158,6 +161,8 @@ class TestCompileEnd:
             # Real ANSI banner: colours sit *inside* the brackets.
             "\x1b[0m===== [\x1b[32m\x1b[1mSUCCESS\x1b[0m] Took 14.73 seconds =====\x1b[0m",
             "[\x1b[31m\x1b[1mFAILED\x1b[0m] Took 4.10 seconds",
+            # ``--dashboard`` mode spells the escapes out literally.
+            "\\033[0m===== [\\033[32m\\033[1mSUCCESS\\033[0m] Took 14.73 seconds =====\\033[0m",
             # Native esp-idf prints no banner; esphome's own INFO line closes it.
             (
                 "\x1b[32mINFO Successfully compiled program to path "

@@ -13,6 +13,7 @@ import asyncio
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -38,9 +39,19 @@ from esphome_device_builder.models import ErrorCode
 # ---------------------------------------------------------------------------
 
 
+async def _loaded_store(tmp_path: Path, **kwargs: Any) -> SessionStore:
+    store = SessionStore(tmp_path, shutdown_register=lambda _cb: None, **kwargs)
+    await store.async_load()
+    return store
+
+
+async def _flush(store: SessionStore) -> None:
+    await store._store.async_save_now()
+
+
 async def test_session_store_create_and_validate(tmp_path: Path) -> None:
     """A freshly created session is recoverable by its token."""
-    store = SessionStore(tmp_path)
+    store = await _loaded_store(tmp_path)
     session = await store.create()
 
     assert session.token
@@ -53,14 +64,14 @@ async def test_session_store_create_and_validate(tmp_path: Path) -> None:
 
 
 async def test_session_store_validate_unknown_token(tmp_path: Path) -> None:
-    store = SessionStore(tmp_path)
+    store = await _loaded_store(tmp_path)
     assert await store.validate("not-a-real-token") is None
     assert await store.validate("") is None
 
 
 async def test_session_store_validate_refreshes_expiry(tmp_path: Path) -> None:
     """Each successful validate slides the expiry window forward."""
-    store = SessionStore(tmp_path, ttl_seconds=60)
+    store = await _loaded_store(tmp_path, ttl_seconds=60)
     session = await store.create()
     initial_expiry = session.expires_at
 
@@ -74,19 +85,19 @@ async def test_session_store_validate_refreshes_expiry(tmp_path: Path) -> None:
 
 async def test_session_store_validate_drops_expired(tmp_path: Path) -> None:
     """Expired sessions are pruned on validate and return None."""
-    store = SessionStore(tmp_path, ttl_seconds=0)  # immediate expiry
+    store = await _loaded_store(tmp_path, ttl_seconds=0)  # immediate expiry
     session = await store.create()
 
     # Even at ttl=0, monotonic float comparisons may briefly tie; force
     # the session expiry to the past.
-    store._sessions[session.token].expires_at = time.time() - 1
+    store._sessions[session.token] = replace(session, expires_at=time.time() - 1)
 
     assert await store.validate(session.token) is None
     assert store.active_count == 0
 
 
 async def test_session_store_revoke(tmp_path: Path) -> None:
-    store = SessionStore(tmp_path)
+    store = await _loaded_store(tmp_path)
     session = await store.create()
 
     await store.revoke(session.token)
@@ -97,7 +108,7 @@ async def test_session_store_revoke(tmp_path: Path) -> None:
 
 
 async def test_session_store_revoke_all(tmp_path: Path) -> None:
-    store = SessionStore(tmp_path)
+    store = await _loaded_store(tmp_path)
     s1 = await store.create()
     s2 = await store.create()
 
@@ -108,10 +119,11 @@ async def test_session_store_revoke_all(tmp_path: Path) -> None:
 
 async def test_session_store_persists_across_instances(tmp_path: Path) -> None:
     """Sessions written by one store are visible to a fresh instance."""
-    store1 = SessionStore(tmp_path)
+    store1 = await _loaded_store(tmp_path)
     session = await store1.create()
+    await _flush(store1)
 
-    store2 = SessionStore(tmp_path)
+    store2 = await _loaded_store(tmp_path)
     fetched = await store2.validate(session.token)
     assert fetched is not None
     assert fetched.token == session.token
@@ -123,8 +135,9 @@ async def test_session_store_persists_across_instances(tmp_path: Path) -> None:
 )
 async def test_session_store_persists_with_restrictive_permissions(tmp_path: Path) -> None:
     """The persisted file is mode 0600 — readable only by the owner."""
-    store = SessionStore(tmp_path)
+    store = await _loaded_store(tmp_path)
     await store.create()
+    await _flush(store)
 
     persisted = tmp_path / ".device-builder-sessions.json"
     assert persisted.exists()
@@ -133,7 +146,7 @@ async def test_session_store_persists_with_restrictive_permissions(tmp_path: Pat
 
 async def test_session_store_skips_expired_on_load(tmp_path: Path) -> None:
     """Loading a store drops sessions that already expired on disk."""
-    store1 = SessionStore(tmp_path, ttl_seconds=60)
+    store1 = await _loaded_store(tmp_path, ttl_seconds=60)
     fresh = await store1.create()
     # Inject a stale session directly so we can persist it.
     stale = Session(
@@ -143,15 +156,18 @@ async def test_session_store_skips_expired_on_load(tmp_path: Path) -> None:
         expires_at=time.time() - 3600,
     )
     store1._sessions[stale.token] = stale
-    store1._persist()
+    store1._schedule_save()
+    await _flush(store1)
 
-    store2 = SessionStore(tmp_path)
+    store2 = await _loaded_store(tmp_path)
     assert await store2.validate(fresh.token) is not None
     assert await store2.validate(stale.token) is None
 
 
-async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
-    """A corrupt session row can't take down the whole store."""
+async def test_session_store_load_skips_garbage_entries(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A corrupt session row can't take down the whole store; the drop is counted in one warning."""
     persisted = tmp_path / ".device-builder-sessions.json"
     persisted.write_text(
         json.dumps(
@@ -166,6 +182,18 @@ async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
                         "expires_at": 0,
                     },
                     {
+                        "token": "string-expiry",
+                        "created_at": 0,
+                        "last_used_at": 0,
+                        "expires_at": "soon",
+                    },
+                    {
+                        "token": ["unhashable"],
+                        "created_at": 0,
+                        "last_used_at": 0,
+                        "expires_at": time.time() + 60,
+                    },
+                    {
                         "token": "good",
                         "created_at": time.time(),
                         "last_used_at": time.time(),
@@ -176,18 +204,34 @@ async def test_session_store_load_skips_garbage_entries(tmp_path: Path) -> None:
         )
     )
 
-    store = SessionStore(tmp_path)
+    store = await _loaded_store(tmp_path)
     assert await store.validate("good") is not None
     assert await store.validate("missing-fields") is None
     assert await store.validate("wrong-types") is None
+    assert await store.validate("string-expiry") is None
+    assert store.active_count == 1
+    assert any("dropped 4 unreadable rows" in rec.message for rec in caplog.records)
 
 
 async def test_session_store_load_handles_top_level_garbage(tmp_path: Path) -> None:
     """A non-dict top-level payload is treated as an empty store."""
     persisted = tmp_path / ".device-builder-sessions.json"
     persisted.write_text(json.dumps(["not", "a", "dict"]))
-    store = SessionStore(tmp_path)
+    store = await _loaded_store(tmp_path)
     assert store.active_count == 0
+
+
+async def test_session_store_load_handles_non_list_sessions_field(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A ``sessions`` value that is not a list warns and starts empty instead of raising."""
+    (tmp_path / ".device-builder-sessions.json").write_text(json.dumps({"sessions": 1}))
+
+    with caplog.at_level("WARNING"):
+        store = await _loaded_store(tmp_path)
+
+    assert store.active_count == 0
+    assert any("non-list" in rec.message for rec in caplog.records)
 
 
 async def test_session_store_load_handles_corrupt_json(
@@ -202,8 +246,8 @@ async def test_session_store_load_handles_corrupt_json(
     persisted = tmp_path / ".device-builder-sessions.json"
     persisted.write_text("{not-valid-json", encoding="utf-8")
 
-    with caplog.at_level("WARNING", logger="esphome_device_builder.helpers.auth"):
-        store = SessionStore(tmp_path)
+    with caplog.at_level("WARNING"):
+        store = await _loaded_store(tmp_path)
 
     assert store.active_count == 0
     assert any("corrupt" in rec.message.lower() for rec in caplog.records)
@@ -226,7 +270,7 @@ async def test_session_store_load_handles_unreadable_file(
     persisted.mkdir()
 
     with caplog.at_level("WARNING", logger="esphome_device_builder.helpers.auth"):
-        store = SessionStore(tmp_path)
+        store = await _loaded_store(tmp_path)
 
     assert store.active_count == 0
     assert any("could not read sessions file" in rec.message.lower() for rec in caplog.records)
@@ -234,25 +278,28 @@ async def test_session_store_load_handles_unreadable_file(
 
 async def test_session_store_validate_debounces_persist(tmp_path: Path) -> None:
     """Validate doesn't rewrite the file on every refresh — only when expiry advances enough."""
-    store = SessionStore(tmp_path, ttl_seconds=24 * 3600)
+    store = await _loaded_store(tmp_path, ttl_seconds=24 * 3600)
     session = await store.create()
+    await _flush(store)
 
     persisted = tmp_path / ".device-builder-sessions.json"
     mtime_before = persisted.stat().st_mtime_ns
 
     # Validate a few times immediately. Expiry only nudges by microseconds,
-    # well under the 1 hour debounce, so the file should be left alone.
+    # well under the 1 hour debounce, so no write is scheduled.
     await asyncio.sleep(0.01)
     for _ in range(5):
         await store.validate(session.token)
+    await _flush(store)
 
     assert persisted.stat().st_mtime_ns == mtime_before
 
 
 async def test_session_store_validate_persists_when_threshold_crossed(tmp_path: Path) -> None:
     """When the per-session debounce threshold is crossed, validate writes again."""
-    store = SessionStore(tmp_path, ttl_seconds=24 * 3600)
+    store = await _loaded_store(tmp_path, ttl_seconds=24 * 3600)
     session = await store.create()
+    await _flush(store)
 
     persisted = tmp_path / ".device-builder-sessions.json"
     mtime_before = persisted.stat().st_mtime_ns
@@ -262,6 +309,7 @@ async def test_session_store_validate_persists_when_threshold_crossed(tmp_path: 
     store._persisted_expires[session.token] = session.expires_at - 7200
     await asyncio.sleep(0.01)
     await store.validate(session.token)
+    await _flush(store)
 
     assert persisted.stat().st_mtime_ns > mtime_before
 
@@ -472,6 +520,21 @@ def _make_controller(tmp_path: Path) -> tuple[AuthController, Any]:
     stub_db = MagicMock()
     stub_db.settings = settings
     return AuthController(stub_db), stub_db
+
+
+async def test_auth_controller_stop_flushes_a_deferred_refresh(tmp_path: Path) -> None:
+    """A refreshed expiry deferred off the reply is on disk once the controller stops."""
+    ctrl, _ = _make_controller(tmp_path)
+    await ctrl.async_load()
+    session = await ctrl.session_store.create()
+    ctrl.session_store._persisted_expires[session.token] = session.expires_at - 7200
+    refreshed = await ctrl.session_store.validate(session.token)
+    assert refreshed is not None
+    await ctrl.stop()
+
+    persisted = json.loads((tmp_path / ".device-builder-sessions.json").read_bytes())
+    (row,) = persisted["sessions"]
+    assert row["expires_at"] == refreshed.expires_at
 
 
 def _make_client(remote: str = "9.9.9.9") -> MagicMock:

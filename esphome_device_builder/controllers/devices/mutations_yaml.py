@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
     board_provides_network,
@@ -16,19 +15,20 @@ from ...helpers.device_yaml import (
     generate_minimal_stub_yaml,
 )
 from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
+from ...helpers.text import summarise
+from ...helpers.yaml import generate_api_encryption_key
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
-from ..editor import ValidatorUnavailableError
+from ..editor import ValidatorTimeoutError, ValidatorUnavailableError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from ...models import BoardCatalogEntry
     from ..components import ComponentCatalog
     from ..editor import EditorController
 
 _LOGGER = logging.getLogger(__name__)
+_INHERIT_ERROR_MARK = "encryption key to inherit"
 
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
@@ -92,6 +92,7 @@ async def yaml_content_for_create(
                 ssid=ssid,
                 psk=psk,
                 wifi_secrets_available=wifi_secrets_available,
+                api_encryption_key=generate_api_encryption_key(),
             ),
             "package",
         )
@@ -128,6 +129,20 @@ async def yaml_content_for_create(
     )
 
 
+class PackageWarning(NamedTuple):
+    """A package-confined failure: the user text, and whether a missing api key is all it says."""
+
+    text: str
+    only_missing_api_key: bool
+
+
+class ValidationVerdict(NamedTuple):
+    """The validate outcome: clean, a package-confined warning, or a tolerated outage."""
+
+    warning: PackageWarning | None = None
+    unavailable: bool = False
+
+
 async def validate_rewritten_yaml_or_raise(
     editor: EditorController | None,
     configuration: str,
@@ -135,113 +150,85 @@ async def validate_rewritten_yaml_or_raise(
     *,
     action: str,
     on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
-    on_error_cleanup: Callable[[], None] | None = None,
     tolerate_unavailable: bool = False,
     timeout: float | None = None,
     packages_span: tuple[int, int] | None = None,
     packages_root: Path | None = None,
     failure_tail: str | None = None,
     secrets_path: Path | None = None,
-) -> str | None:
+) -> ValidationVerdict:
     """
     Schema-validate *content* via the editor; raise if invalid.
 
     No-op when *editor* is None. *on_failure* selects the
     ``ErrorCode`` raised: ``INVALID_ARGS`` for user-fixable
     input, ``INTERNAL_ERROR`` for broken YAML from our own
-    generators. *on_error_cleanup* runs in a finally on any
-    non-success path so callers that wrote the YAML before
-    validating can roll back.
+    generators.
 
-    *tolerate_unavailable* treats validator unavailability (timeout /
-    subprocess failure) as success: file kept, no cleanup; genuine
-    YAML/schema errors still raise. *timeout* overrides the validator's
-    round-trip budget.
+    *tolerate_unavailable* reports validator unavailability (timeout /
+    subprocess failure) on the verdict instead of raising;
+    genuine YAML/schema errors still raise. *timeout* overrides the
+    validator's round-trip budget.
 
     *packages_span* (0-indexed line span of the ``packages:`` block):
-    when every validation error roots inside it, the file is kept and a
-    warning string is returned instead of raising. Returns ``None``
-    when *content* validates clean. *packages_root* is the package-cache
-    dir the containment check compares against; the caller resolves it
-    off-loop (``CORE.data_dir`` stats the disk).
+    when every validation error roots inside it, the file is kept and the
+    verdict carries a ``PackageWarning`` instead of raising. *packages_root*
+    is the package-cache dir the containment check compares against; the
+    caller resolves it off-loop (``CORE.data_dir`` stats the disk).
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
     sentence. An error marked inside *secrets_path* (the config dir's
     ``secrets.yaml``) refuses as ``INVALID_ARGS`` naming that file.
     """
     if editor is None:
-        return None
-    succeeded = False
+        return ValidationVerdict()
     try:
-        try:
-            result = await editor.validate_yaml(
-                configuration=configuration, content=content, timeout=timeout
-            )
-        except TimeoutError:
-            if not tolerate_unavailable:
-                raise
+        result = await editor.validate_yaml(
+            configuration=configuration, content=content, timeout=timeout
+        )
+    except ValidatorUnavailableError as err:
+        if not tolerate_unavailable:
+            raise
+        if isinstance(err, ValidatorTimeoutError):
             # Expected on adopt: the cold ``github://`` fetch outran the budget.
-            _LOGGER.info(
-                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
-                configuration,
-                action,
-            )
-            succeeded = True
-            return None
-        except (ValidatorUnavailableError, BrokenPipeError):
-            if not tolerate_unavailable:
-                raise
+            _LOGGER.info("Validation of %s for %s timed out", configuration, action)
+        else:
             # Subprocess down (a generic RuntimeError still propagates); WARNING
             # since an always-down validator is operationally significant.
             _LOGGER.warning(
-                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
-                action,
-                configuration,
+                "Validator subprocess unavailable during %s of %s (%r)", action, configuration, err
             )
-            succeeded = True
-            return None
-        errors = [
-            *(err.get("message", "") for err in result.get("yaml_errors", [])),
-            *(_describe_validation_error(err) for err in result.get("validation_errors", [])),
-        ]
-        errors = [msg for msg in errors if msg]
-        if not errors:
-            succeeded = True
-            return None
-        warning = _packages_confined_warning(
-            result, packages_span, packages_root, configuration, action
-        )
-        if warning is not None:
-            succeeded = True
-            return warning
-        _raise_validation_failure(
-            errors,
-            action=action,
-            on_failure=on_failure,
-            failure_tail=failure_tail,
-            secrets_path=secrets_path,
-        )
-    finally:
-        if not succeeded and on_error_cleanup is not None:
-            # Swallow + log cleanup failures so a permission /
-            # FS error during rollback doesn't replace the
-            # original validation diagnostic the caller is
-            # about to see.
-            try:
-                await run_in_executor(on_error_cleanup)
-            except Exception:
-                _LOGGER.exception("on_error_cleanup raised; original error preserved")
+        return ValidationVerdict(unavailable=True)
+    errors = [
+        *(err.get("message", "") for err in result.get("yaml_errors", [])),
+        *(_describe_validation_error(err) for err in result.get("validation_errors", [])),
+    ]
+    errors = [msg for msg in errors if msg]
+    if not errors:
+        return ValidationVerdict()
+    warning = _packages_confined_warning(
+        result, packages_span, packages_root, configuration, action
+    )
+    if warning is not None:
+        return ValidationVerdict(warning=warning)
+    raise _validation_failure(
+        errors,
+        action=action,
+        on_failure=on_failure,
+        failure_tail=failure_tail,
+        secrets_path=secrets_path,
+    )
 
 
-def _raise_validation_failure(
+def _validation_failure(
     errors: list[str],
     *,
     action: str,
     on_failure: ErrorCode,
     failure_tail: str | None,
     secrets_path: Path | None,
-) -> NoReturn:
-    """Raise the refusal ``CommandError`` for a failed validation."""
+) -> CommandError:
+    """Build the refusal ``CommandError`` for a failed validation."""
     if (problem := _secrets_file_problem(errors, secrets_path)) is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         if on_failure is ErrorCode.INTERNAL_ERROR:
@@ -249,7 +236,7 @@ def _raise_validation_failure(
             _LOGGER.warning(
                 "Refusing %s: errors sit in the user's secrets.yaml, not the generator", action
             )
-        raise CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
+        return CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
             ". Please report this with a redacted snippet of just the "
@@ -259,9 +246,9 @@ def _raise_validation_failure(
         )
     else:
         message_tail = failure_tail or ". Fix the errors in the editor and try again."
-    raise CommandError(
+    return CommandError(
         on_failure,
-        f"Can't {action} — config doesn't validate: " + _summarise(errors) + message_tail,
+        f"Can't {action} — config doesn't validate: " + summarise(errors) + message_tail,
     )
 
 
@@ -288,7 +275,7 @@ def _packages_confined_warning(
     packages_root: Path | None,
     configuration: str,
     action: str,
-) -> str | None:
+) -> PackageWarning | None:
     """Warning when every validation error is attributable to the packages block, else ``None``."""
     if packages_span is None or packages_root is None or result.get("yaml_errors"):
         return None
@@ -302,23 +289,14 @@ def _packages_confined_warning(
         configuration,
         action,
     )
-    body = _summarise([str(entry.get("message", "")) for entry in entries])
+    messages = [str(entry.get("message", "")) for entry in entries]
     verb = "Created" if action == "create" else "Imported"
-    return (
-        f"{verb}, but the remote package didn't validate: {body}. "
+    return PackageWarning(
+        f"{verb}, but the remote package didn't validate: {summarise(messages)}. "
         "Fix the packages entry in the editor; install will surface "
-        "the same error until it resolves."
+        "the same error until it resolves.",
+        only_missing_api_key=all(_INHERIT_ERROR_MARK in m for m in messages),
     )
-
-
-def _summarise(errors: list[str]) -> str:
-    """Join up to three non-empty messages with a ``(+N more)`` count, period-trimmed."""
-    errors = [msg for msg in errors if msg]
-    shown = errors[:3]
-    suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
-    # esphome messages often end with their own period; the caller's
-    # tail brings the sentence break.
-    return ("; ".join(shown) + suffix).removesuffix(".")
 
 
 def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str | None:
@@ -331,7 +309,7 @@ def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str |
         return None
     if len(errors) == 1 and all(Path(p) == secrets_path for p in marked_paths(errors[0])):
         return secrets_problem(errors[0])
-    return f"doesn't parse: {_summarise([trim_marks(msg) for msg in errors])}"
+    return f"doesn't parse: {summarise([trim_marks(msg) for msg in errors])}"
 
 
 def _entry_confined_to_packages(

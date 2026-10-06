@@ -86,10 +86,16 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         # so the drawer / table flip back to the placeholder.
         controller._build_size.request(configuration)
         return
-    if job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
-        return
     recompute_hash = job_type in COMPILING_JOB_TYPES
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
+    if not (recompute_hash or flashed):
+        return
+    bootloader_only = job_type is JobType.UPLOAD and job.flash_bootloader
+    if flashed and not bootloader_only:
+        # A bootloader-only upload replaces no app, so its record stands.
+        # Cleared here, not in the background refresh, so a following job's
+        # address-cache read can't race it.
+        controller._clear_deployed_name(configuration)
     # Routed through the controller's bound delegate so tests
     # that monkeypatch ``_refresh_after_firmware_job`` on the
     # instance still intercept.
@@ -233,6 +239,16 @@ async def migrate_metadata_then_scan(
     controller: DevicesController, old_configuration: str, new_configuration: str
 ) -> None:
     """Move the renamed device's metadata before the scan rebuilds it."""
+    # The tail flashed the new name; a completed RENAME reaches no other clear.
+    controller._clear_deployed_name(old_configuration)
+    await migrate_metadata(controller, old_configuration, new_configuration)
+    await rescan_renamed(controller, new_configuration)
+
+
+async def migrate_metadata(
+    controller: DevicesController, old_configuration: str, new_configuration: str
+) -> None:
+    """Move the renamed device's metadata; a failure is logged, not raised."""
     try:
         await controller._migrate_device_metadata(old_configuration, new_configuration)
     except Exception:
@@ -243,6 +259,10 @@ async def migrate_metadata_then_scan(
             old_configuration,
             new_configuration,
         )
+
+
+async def rescan_renamed(controller: DevicesController, new_configuration: str) -> None:
+    """Reload *new_configuration* and rescan so its migrated sidecar reaches RAM."""
     # The renamed YAML was written before the migration (at queue time on
     # the OTA path), so a poll scan has usually already indexed it
     # label-less; force a reload so the migrated sidecar reaches RAM.

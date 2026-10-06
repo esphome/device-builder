@@ -99,7 +99,7 @@ async def _capture_handler(monitor: DeviceStateMonitor, monkeypatch: pytest.Monk
             captured["handler"] = handlers[0]
 
     fake_zc = MagicMock()
-    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zc)
+    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda **_kw: fake_zc)
     monkeypatch.setattr(mdns_module, "AsyncServiceInfo", _FakeServiceInfo)
     monkeypatch.setattr(mdns_module, "AsyncServiceBrowser", _FakeBrowser)
     # Upstream ``DashboardImportDiscovery.browser_callback`` builds

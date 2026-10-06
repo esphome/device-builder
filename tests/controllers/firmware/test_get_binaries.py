@@ -467,6 +467,84 @@ async def test_get_binaries_does_not_duplicate_elf_listed_upstream(
     assert sum(entry["file"] == "firmware.elf" for entry in result) == 1
 
 
+# The entry ``get_binaries`` appends when the MCUboot update image is on disk.
+_MCUBOOT_ENTRY = {
+    "title": "App update package",
+    "description": "For updating over mcumgr using BLE or USB CDC.",
+    "file": "zephyr/app_update.bin",
+}
+
+
+def _make_nrf52_build(tmp_path: Path, *files: str) -> Path:
+    """``_make_build`` with its ``zephyr/`` directory in place."""
+    build_dir = _make_build(tmp_path)
+    (build_dir / "zephyr").mkdir(exist_ok=True)
+    return _make_build(tmp_path, *files)
+
+
+async def test_get_binaries_appends_mcuboot_image_beside_a_uf2(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A build with a UF2 still offers the update image ``get_download_types`` leaves out."""
+    uf2 = {"title": "UF2 package (recommended)", "file": "zephyr/zephyr.uf2"}
+    _stub_download_types(monkeypatch, [uf2])
+
+    build_dir = _make_nrf52_build(tmp_path, "zephyr/zephyr.uf2", "zephyr/app_update.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "nrf52"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [uf2, _MCUBOOT_ENTRY]
+
+
+async def test_get_binaries_does_not_duplicate_mcuboot_image_listed_upstream(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A build with no UF2 has the update image listed upstream, so it appears once."""
+    upstream = {"title": "App update package", "file": "zephyr/app_update.bin"}
+    _stub_download_types(monkeypatch, [upstream])
+
+    build_dir = _make_nrf52_build(tmp_path, "zephyr/app_update.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "nrf52"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [upstream]
+
+
+async def test_get_binaries_omits_mcuboot_image_when_absent(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A build without MCUboot has no update image to offer."""
+    uf2 = {"title": "UF2 package (recommended)", "file": "zephyr/zephyr.uf2"}
+    _stub_download_types(monkeypatch, [uf2])
+
+    build_dir = _make_nrf52_build(tmp_path, "zephyr/zephyr.uf2")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "nrf52"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [uf2]
+
+
 async def test_get_binaries_omits_elf_entry_when_absent(
     tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

@@ -222,6 +222,30 @@ def test_falls_back_to_sidecar_when_build_dir_wiped(tmp_path: Path, monkeypatch:
     assert metadata.expected_config_hash == "abcd1234"
 
 
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ({}, None),
+        ({"offline_since": 100.0}, 100.0),
+        ({"last_seen": 200.0}, 200.0),
+        ({"offline_since": 100.0, "last_seen": 200.0}, 200.0),
+        ({"offline_since": 300.0, "last_seen": 200.0}, 300.0),
+        ({"offline_since": "corrupt"}, None),
+    ],
+)
+def test_offline_since_is_the_later_of_the_stamp_and_the_last_contact(
+    tmp_path: Path, monkeypatch: Any, stored: dict[str, Any], expected: float | None
+) -> None:
+    """The outage loads from the stored stamp unless the device was seen after it."""
+    controller = _make_controller(monkeypatch, tmp_path)
+    _seed_metadata(monkeypatch, controller, "kitchen.yaml", {"board_id": "", **stored})
+    write_synthetic_device(tmp_path, "kitchen")
+
+    metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
+
+    assert metadata.offline_since == expected
+
+
 def test_no_hash_anywhere_returns_empty_string(tmp_path: Path, monkeypatch: Any) -> None:
     """Brand-new device, never compiled, no sidecar entry → empty string.
 

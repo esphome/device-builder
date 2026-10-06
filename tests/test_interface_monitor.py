@@ -1,8 +1,8 @@
 """Tests for the zeroconf interface-change poller.
 
-``monitor_interfaces`` snapshots the host's addresses on a timer and calls
-``async_update_interfaces`` only when they change; ``MdnsSource`` owns the task
-and tears it down before closing zeroconf.
+``monitor_interfaces`` scans the host's addresses on a timer and calls
+``async_update_interfaces`` when the responder's binding changes; ``MdnsSource``
+owns the task and tears it down before closing zeroconf.
 """
 
 from __future__ import annotations
@@ -13,149 +13,258 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from zeroconf import InterfaceChoice, IPVersion
 
 import esphome_device_builder.controllers._device_state_monitor.interface_monitor as im
 from esphome_device_builder.controllers._device_state_monitor.interface_monitor import (
+    FALLBACK_BINDING,
+    HostAddresses,
+    ZeroconfBinding,
     monitor_interfaces,
 )
 
-_A = frozenset({("10.0.0.5", 24)})
-_B = frozenset({("10.0.0.5", 24), ("192.168.1.2", 24)})
+_V4 = "10.0.0.5"
+_V6 = "fe80::1%7"
 
-# Sentinel a scripted snapshot yields to make ``address_snapshot`` raise that tick.
+_HOST_V4 = HostAddresses((_V4,), ())
+_HOST_DUAL = HostAddresses((_V4,), (_V6,))
+
+_BOUND_V4 = ZeroconfBinding([_V4], IPVersion.V4Only)
+_BOUND_DUAL = ZeroconfBinding([_V4, _V6], IPVersion.All)
+
+# Sentinel a scripted scan yields to make ``scan_host`` raise that tick.
 _RAISE = object()
 
 
-def _snapshots(monkeypatch: pytest.MonkeyPatch, values: list[frozenset[tuple[str, int]]]) -> None:
-    """Feed ``address_snapshot`` a scripted sequence; the last value repeats."""
+@pytest.fixture(autouse=True)
+def _linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Select IP versions as a dual-stack-capable platform."""
+    monkeypatch.setattr(im.sys, "platform", "linux")
+
+
+def _scans(monkeypatch: pytest.MonkeyPatch, values: list[Any]) -> None:
+    """Feed ``scan_host`` a scripted sequence; the last value repeats."""
     seq = iter(values)
     last = values[-1]
 
-    def _next() -> frozenset[tuple[str, int]]:
+    def _next() -> HostAddresses:
         nonlocal last
         last = next(seq, last)
+        if last is _RAISE:
+            raise OSError("adapters momentarily unavailable")
         return last
 
-    monkeypatch.setattr(im, "address_snapshot", _next)
+    monkeypatch.setattr(im, "scan_host", _next)
 
 
-async def _run_ticks(zeroconf: Any, ticks: int) -> None:
-    """Run ``monitor_interfaces`` for *ticks* sleeps, then cancel cleanly."""
-    seen = 0
+def _zeroconf(side_effect: list[Any] | None = None) -> MagicMock:
+    zeroconf = MagicMock()
+    zeroconf.async_update_interfaces = AsyncMock(side_effect=side_effect)
+    return zeroconf
+
+
+def _reconciled(zeroconf: MagicMock) -> list[ZeroconfBinding]:
+    """Return the bindings *zeroconf* was reconciled with, in order."""
+    return [
+        ZeroconfBinding(**call.kwargs) for call in zeroconf.async_update_interfaces.await_args_list
+    ]
+
+
+async def _run_ticks(
+    zeroconf: Any,
+    ticks: int,
+    applied: ZeroconfBinding | None = _BOUND_V4,
+    pinned_ip_version: IPVersion | None = None,
+    interval: float = 0,
+) -> list[float]:
+    """Run ``monitor_interfaces`` for *ticks* sleeps, then cancel; return the sleep delays."""
+    delays: list[float] = []
     real_sleep = asyncio.sleep
 
-    async def _counting_sleep(_interval: float) -> None:
-        nonlocal seen
-        seen += 1
-        if seen >= ticks:
+    async def _counting_sleep(delay: float) -> None:
+        delays.append(delay)
+        if len(delays) >= ticks:
             raise asyncio.CancelledError
         await real_sleep(0)
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(im.asyncio, "sleep", _counting_sleep)
         with pytest.raises(asyncio.CancelledError):
-            await monitor_interfaces(zeroconf, interval=0)
+            await monitor_interfaces(zeroconf, applied, pinned_ip_version, interval)
+    return delays
 
 
-async def test_reconciles_when_addresses_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A change between ticks triggers exactly one ``async_update_interfaces``."""
-    # previous=_A (pre-loop), tick1 sees _A (no-op), tick2 sees _B (reconcile).
-    _snapshots(monkeypatch, [_A, _A, _B])
-    zeroconf = MagicMock()
-    zeroconf.async_update_interfaces = AsyncMock()
+async def test_reconciles_when_binding_changes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A binding change between ticks reconciles with the new binding."""
+    # tick1 settles on _HOST_V4, tick2 sees it again (no-op), tick3 sees _HOST_DUAL.
+    _scans(monkeypatch, [_HOST_V4, _HOST_V4, _HOST_DUAL])
+    zeroconf = _zeroconf()
 
-    await _run_ticks(zeroconf, ticks=3)
+    await _run_ticks(zeroconf, ticks=4)
 
-    zeroconf.async_update_interfaces.assert_awaited_once()
+    assert _reconciled(zeroconf) == [_BOUND_V4, _BOUND_DUAL]
 
 
-async def test_no_op_when_addresses_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A constant snapshot never reconciles."""
-    _snapshots(monkeypatch, [_A])
-    zeroconf = MagicMock()
-    zeroconf.async_update_interfaces = AsyncMock()
+async def test_unchanged_binding_reconciles_once_to_settle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A constant binding reconciles on the settle tick only."""
+    _scans(monkeypatch, [_HOST_V4])
+    zeroconf = _zeroconf()
 
-    await _run_ticks(zeroconf, ticks=3)
+    await _run_ticks(zeroconf, ticks=4)
 
-    zeroconf.async_update_interfaces.assert_not_awaited()
+    assert _reconciled(zeroconf) == [_BOUND_V4]
+
+
+async def test_change_arms_one_settle_reconcile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A binding change is followed by exactly one repeat reconcile."""
+    _scans(monkeypatch, [_HOST_V4, _HOST_DUAL])
+    zeroconf = _zeroconf()
+
+    await _run_ticks(zeroconf, ticks=6)
+
+    assert _reconciled(zeroconf) == [_BOUND_V4, _BOUND_DUAL, _BOUND_DUAL]
+
+
+async def test_settle_ticks_use_the_short_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ticks after startup and after a change sleep ``_SETTLE_DELAY``; the rest the interval."""
+    _scans(monkeypatch, [_HOST_V4, _HOST_V4, _HOST_DUAL])
+    settle = im._SETTLE_DELAY
+
+    delays = await _run_ticks(_zeroconf(), ticks=6, interval=300)
+
+    assert delays == [settle, 300, 300, settle, 300, 300]
+
+
+async def test_failed_reconcile_retries_at_the_poll_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persistently failing reconcile retries every interval, not every settle delay."""
+    _scans(monkeypatch, [_HOST_DUAL])
+    zeroconf = _zeroconf([RuntimeError("flap"), RuntimeError("flap"), None])
+
+    delays = await _run_ticks(zeroconf, ticks=5, interval=300)
+
+    assert delays == [im._SETTLE_DELAY, 300, 300, im._SETTLE_DELAY, 300]
+    assert _reconciled(zeroconf) == [_BOUND_DUAL] * 4
 
 
 async def test_survives_reconcile_failure_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     """A reconcile raise is swallowed; the change re-attempts on the next tick.
 
-    ``previous`` is left unadvanced after a failure, so the still-different
-    snapshot drives a second ``async_update_interfaces`` rather than the loop
+    ``applied`` is left unadvanced after a failure, so the still-different
+    binding drives a second ``async_update_interfaces`` rather than the loop
     dying or the change being lost.
     """
-    # previous=_A; both ticks see _B → reconcile attempted twice (1st raises).
-    _snapshots(monkeypatch, [_A, _B, _B])
-    zeroconf = MagicMock()
-    zeroconf.async_update_interfaces = AsyncMock(side_effect=[RuntimeError("flap"), None])
+    _scans(monkeypatch, [_HOST_DUAL])
+    zeroconf = _zeroconf([RuntimeError("flap"), None, None])
 
     await _run_ticks(zeroconf, ticks=3)
 
-    assert zeroconf.async_update_interfaces.await_count == 2
+    assert _reconciled(zeroconf) == [_BOUND_DUAL, _BOUND_DUAL]
 
 
-async def test_advances_previous_after_successful_reconcile(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Once reconciled, the same address set doesn't reconcile again."""
-    # previous=_A; tick1 _B (reconcile), tick2 _B (now equals previous → no-op).
-    _snapshots(monkeypatch, [_A, _B, _B])
-    zeroconf = MagicMock()
-    zeroconf.async_update_interfaces = AsyncMock()
-
-    await _run_ticks(zeroconf, ticks=3)
-
-    zeroconf.async_update_interfaces.assert_awaited_once()
-
-
-async def test_snapshot_is_hashable_and_order_independent() -> None:
-    """``address_snapshot`` returns a frozenset so equality ignores adapter order."""
-    snap = im.address_snapshot()
-    assert isinstance(snap, frozenset)
-    # Reversing the underlying iteration order must not change equality.
-    assert frozenset(reversed(list(snap))) == snap
-
-
-async def test_snapshot_failure_does_not_kill_loop(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A raising ``address_snapshot`` is swallowed; the loop keeps polling and reconciles later.
+async def test_scan_failure_does_not_kill_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A raising ``scan_host`` is swallowed; the loop keeps polling and reconciles later.
 
     A transient ``ifaddr`` error on one tick must not terminate the reconciler
-    for the rest of the process; the next good snapshot still drives a change.
+    for the rest of the process; the next good scan still drives a change.
     """
-    # previous=_A; tick1 snapshot raises (skipped), tick2 sees _B → reconcile.
-    seq = iter([_A, _RAISE, _B, _B])
-
-    def _next() -> frozenset[tuple[str, int]]:
-        value = next(seq, _B)
-        if value is _RAISE:
-            raise OSError("adapters momentarily unavailable")
-        return value  # type: ignore[return-value]
-
-    monkeypatch.setattr(im, "address_snapshot", _next)
-    zeroconf = MagicMock()
-    zeroconf.async_update_interfaces = AsyncMock()
+    # tick1 scan raises (skipped), tick2 sees _HOST_DUAL → reconcile.
+    _scans(monkeypatch, [_RAISE, _HOST_DUAL])
+    zeroconf = _zeroconf()
 
     await _run_ticks(zeroconf, ticks=3)
 
-    zeroconf.async_update_interfaces.assert_awaited_once()
+    assert _reconciled(zeroconf) == [_BOUND_DUAL]
 
 
-def test_address_snapshot_normalizes_ipv4_and_ipv6_scope(monkeypatch: pytest.MonkeyPatch) -> None:
-    """v4 stays a plain string; link-local v6 keeps ``%scope`` and drops flowinfo; no tuple repr."""
-    v4 = SimpleNamespace(ip="10.0.0.5", network_prefix=24)
-    # ifaddr renders v6 as ``(addr, flowinfo, scope_id)``.
-    v6_link_local = SimpleNamespace(ip=("fe80::1", 0, 7), network_prefix=64)
-    v6_global = SimpleNamespace(ip=("2001:db8::1", 0, 0), network_prefix=64)
-    adapter = SimpleNamespace(ips=[v4, v6_link_local, v6_global])
-    monkeypatch.setattr(im.ifaddr, "get_adapters", lambda: [adapter])
+async def test_pinned_ip_version_narrows_the_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pinned IP version keeps a dual-stack host on its IPv4 addresses."""
+    _scans(monkeypatch, [_HOST_DUAL])
+    zeroconf = _zeroconf()
 
-    snap = im.address_snapshot()
+    await _run_ticks(zeroconf, ticks=3, pinned_ip_version=IPVersion.V4Only)
 
-    assert ("10.0.0.5", 24) in snap
-    assert ("fe80::1%7", 64) in snap  # scope kept, flowinfo dropped
-    assert ("2001:db8::1", 64) in snap  # scope 0 → no suffix
-    # No raw ``(addr, flowinfo, scope)`` tuple leaked into the snapshot.
-    assert all(isinstance(addr, str) and "(" not in addr for addr, _prefix in snap)
+    assert _reconciled(zeroconf) == [_BOUND_V4]
+
+
+async def test_fallback_binding_is_replaced_on_first_tick(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A responder bound from a failed startup scan reconciles to the scanned binding."""
+    _scans(monkeypatch, [_HOST_DUAL])
+    zeroconf = _zeroconf()
+
+    await _run_ticks(zeroconf, ticks=2, applied=FALLBACK_BINDING)
+
+    assert _reconciled(zeroconf) == [_BOUND_DUAL]
+
+
+def test_scan_host_normalizes_and_filters_addresses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """v4 stays a plain string; link-local v6 keeps ``%scope``; loopback and routable v6 drop."""
+    ips = [
+        SimpleNamespace(ip="127.0.0.1"),
+        SimpleNamespace(ip=_V4),
+        SimpleNamespace(ip=_V4),
+        # ifaddr renders v6 as ``(addr, flowinfo, scope_id)``.
+        SimpleNamespace(ip=("::1", 0, 0)),
+        SimpleNamespace(ip=("fe80::1", 0, 7)),
+        SimpleNamespace(ip=("2001:db8::1", 0, 0)),
+        SimpleNamespace(ip=("fd00::1", 0, 0)),
+    ]
+    monkeypatch.setattr(im.ifaddr, "get_adapters", lambda: [SimpleNamespace(ips=ips)])
+
+    assert im.scan_host() == ((_V4,), (_V6,))
+
+
+@pytest.mark.parametrize(
+    ("platform", "addresses", "pinned", "expected"),
+    [
+        ("linux", _HOST_DUAL, None, _BOUND_DUAL),
+        ("linux", _HOST_V4, None, _BOUND_V4),
+        ("linux", HostAddresses((), (_V6,)), None, ([_V6], IPVersion.All)),
+        ("linux", HostAddresses((), ()), None, FALLBACK_BINDING),
+        ("linux", _HOST_DUAL, IPVersion.V4Only, _BOUND_V4),
+        ("linux", HostAddresses((), (_V6,)), IPVersion.V4Only, FALLBACK_BINDING),
+        ("win32", _HOST_DUAL, None, _BOUND_DUAL),
+        ("darwin", _HOST_DUAL, None, _BOUND_V4),
+        ("darwin", HostAddresses((), (_V6,)), None, ([_V6], IPVersion.V6Only)),
+        ("darwin", HostAddresses((), ()), None, FALLBACK_BINDING),
+        ("freebsd14", _HOST_DUAL, None, _BOUND_V4),
+    ],
+)
+def test_binding(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    addresses: HostAddresses,
+    pinned: IPVersion | None,
+    expected: tuple[Any, IPVersion],
+) -> None:
+    """The binding holds the addresses of the platform's IP version, or every interface."""
+    monkeypatch.setattr(im.sys, "platform", platform)
+
+    assert addresses.binding(pinned) == expected
+
+
+@pytest.mark.parametrize(
+    ("addresses", "expected"),
+    [
+        (None, [FALLBACK_BINDING]),
+        (_HOST_V4, [_BOUND_V4]),
+        (_HOST_DUAL, [_BOUND_DUAL, _BOUND_V4]),
+        (
+            HostAddresses((), (_V6,)),
+            [([_V6], IPVersion.All), (InterfaceChoice.All, IPVersion.V4Only)],
+        ),
+    ],
+)
+def test_startup_bindings(addresses: HostAddresses | None, expected: list[Any]) -> None:
+    """Startup tries the selected binding, then its IPv4-only fallback when it differs."""
+    assert im.startup_bindings(addresses) == expected
+
+
+async def test_async_scan_host_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed adapter scan resolves to ``None``."""
+    monkeypatch.setattr(im.ifaddr, "get_adapters", MagicMock(side_effect=OSError))
+
+    assert await im.async_scan_host() is None

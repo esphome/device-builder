@@ -8,7 +8,7 @@ alone, even before reading the assertion.
 
 Grouped by surface:
 
-- **API command wiring** (delete / delete_bulk / get_api_key /
+- **API command wiring** (delete / delete_bulk / get_encryption_key /
   add_component error branches) — these are the public commands
   that go through the WS layer; pin both the happy-path return
   shape and the typed-error branches the dashboard relies on.
@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -65,12 +65,19 @@ from .conftest import (
 )
 
 
-def _device(name: str, *, ip: str = "", ip_addresses: list[str] | None = None) -> Device:
+def _device(
+    name: str,
+    *,
+    ip: str = "",
+    ip_addresses: list[str] | None = None,
+    loaded_integrations: list[str] | None = None,
+) -> Device:
     return make_device(
         name=name,
         state=DeviceState.ONLINE,
         ip=ip,
         ip_addresses=list(ip_addresses) if ip_addresses else [],
+        loaded_integrations=loaded_integrations or [],
     )
 
 
@@ -217,14 +224,14 @@ async def test_archive_bulk_returns_per_device_success_with_mixed_outcomes(
 
 
 # ---------------------------------------------------------------------------
-# get_api_key public-API wiring
+# get_encryption_key public-API wiring
 # ---------------------------------------------------------------------------
 
 
-async def test_get_api_key_resolves_through_yaml_loader(
+async def test_get_encryption_key_resolves_through_yaml_loader(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``devices/get_api_key`` returns the resolved encryption key.
+    """``devices/get_encryption_key`` returns the resolved encryption key.
 
     The handler runs through ESPHome's YAML loader so ``!secret``
     references resolve the same way they do at compile time —
@@ -239,15 +246,15 @@ async def test_get_api_key_resolves_through_yaml_loader(
         encoding="utf-8",
     )
 
-    result = await controller.get_api_key(configuration="kitchen.yaml")
+    result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+inline-key=="}
 
 
-async def test_get_api_key_resolves_substitution_from_secret(
+async def test_get_encryption_key_resolves_substitution_from_secret(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """``devices/get_api_key`` expands ``${api_key}`` over a ``!secret`` substitution (#1691)."""
+    """``devices/get_encryption_key`` expands ``${api_key}`` over a ``!secret`` substitution."""
     controller = make_controller(tmp_path)
     (tmp_path / "secrets.yaml").write_text("api_key: a/c+secret-key==\n", encoding="utf-8")
     (tmp_path / "kitchen.yaml").write_text(
@@ -257,7 +264,7 @@ async def test_get_api_key_resolves_substitution_from_secret(
         encoding="utf-8",
     )
 
-    result = await controller.get_api_key(configuration="kitchen.yaml")
+    result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+secret-key=="}
 
@@ -307,7 +314,7 @@ async def test_resolve_device_api_connection_raises_on_unloadable_config(
         await controller._resolve_device_api_connection("kitchen.yaml")
 
 
-async def test_get_api_key_returns_empty_when_no_encryption(
+async def test_get_encryption_key_returns_empty_when_no_encryption(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A device without ``api.encryption`` returns ``{"key": ""}``.
@@ -323,12 +330,33 @@ async def test_get_api_key_returns_empty_when_no_encryption(
         encoding="utf-8",
     )
 
-    result = await controller.get_api_key(configuration="kitchen.yaml")
+    result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_falls_back_to_esphome_config_subprocess(
+@pytest.mark.parametrize(
+    "ota_block",
+    [
+        pytest.param(
+            "ota:\n  - platform: esphome\n    encryption:\n      key: ota-key==\n", id="list"
+        ),
+        pytest.param("ota:\n  platform: esphome\n  encryption:\n    key: ota-key==\n", id="legacy"),
+    ],
+)
+async def test_get_encryption_key_reads_the_esphome_ota_key_without_api(
+    tmp_path: Path, make_controller: MakeControllerFactory, ota_block: str
+) -> None:
+    """A key only under the esphome OTA item is the device's key."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "gate.yaml").write_text("esphome:\n  name: gate\n" + ota_block, encoding="utf-8")
+
+    result = await controller.get_encryption_key(configuration="gate.yaml")
+
+    assert result == {"key": "ota-key=="}
+
+
+async def test_get_encryption_key_falls_back_to_esphome_config_subprocess(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     r"""When the in-process loader misses, ``esphome config`` subprocess wins.
@@ -370,12 +398,12 @@ async def test_get_api_key_falls_back_to_esphome_config_subprocess(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _fake_create_subprocess)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "ZGFzaGJvYXJkLWtleS1mcm9tLWVzcGhvbWUtY29uZmln"}
 
 
-async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
+async def test_get_encryption_key_subprocess_returns_empty_on_nonzero_exit(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A subprocess that exits non-zero still returns ``{"key": ""}``.
@@ -403,12 +431,12 @@ async def test_get_api_key_subprocess_returns_empty_on_nonzero_exit(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _fake_create_subprocess)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
+async def test_get_encryption_key_subprocess_returns_empty_on_unparsable_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """Subprocess output that doesn't parse as YAML degrades to ``""``.
@@ -434,12 +462,12 @@ async def test_get_api_key_subprocess_returns_empty_on_unparsable_yaml(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _fake_create_subprocess)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_subprocess_returns_empty_on_oserror(
+async def test_get_encryption_key_subprocess_returns_empty_on_oserror(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A subprocess startup failure (``OSError``) still returns ``""``.
@@ -461,12 +489,12 @@ async def test_get_api_key_subprocess_returns_empty_on_oserror(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", _boom)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
 
 
-async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
+async def test_get_encryption_key_skips_subprocess_when_fast_path_finds_key(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """The fast path's hit short-circuits — no subprocess overhead.
@@ -486,13 +514,13 @@ async def test_get_api_key_skips_subprocess_when_fast_path_finds_key(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", spawn_spy)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+inline-key=="}
     spawn_spy.assert_not_called()
 
 
-async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
+async def test_get_encryption_key_fallback_skipped_when_esphome_cmd_unset(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """The subprocess fallback is a no-op without ``_esphome_cmd``.
@@ -517,7 +545,7 @@ async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(resolve_mod, "create_subprocess_exec", spawn_spy)
-        result = await controller.get_api_key(configuration="kitchen.yaml")
+        result = await controller.get_encryption_key(configuration="kitchen.yaml")
 
     assert result == {"key": ""}
     spawn_spy.assert_not_called()
@@ -750,8 +778,8 @@ async def test_add_component_with_draft_merges_draft_and_skips_persist(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
         lambda existing, component, fields: f"{existing}# added\n",
     )
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    rewrite = AsyncMock()
+    monkeypatch.setattr(controller, "rewrite_yaml", rewrite)
     (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
 
     resp = await controller.add_component(
@@ -762,7 +790,7 @@ async def test_add_component_with_draft_merges_draft_and_skips_persist(
     )
 
     assert resp.yaml == "DRAFT\n# added\n"
-    persist.assert_not_awaited()
+    rewrite.assert_not_awaited()
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n"
 
 
@@ -778,8 +806,7 @@ async def test_add_component_without_draft_reads_disk_and_persists(
         "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
         lambda existing, component, fields: f"{existing}# added\n",
     )
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    monkeypatch.setattr(controller, "_schedule_storage_regenerate", lambda _configuration: None)
     (tmp_path / "kitchen.yaml").write_text("DISK\n", encoding="utf-8")
 
     resp = await controller.add_component(
@@ -789,7 +816,50 @@ async def test_add_component_without_draft_reads_disk_and_persists(
     )
 
     assert resp.yaml == "DISK\n# added\n"
-    persist.assert_awaited_once_with("kitchen.yaml", "DISK\n# added\n", message=ANY)
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "DISK\n# added\n"
+
+
+async def test_add_component_to_a_missing_config_is_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+
+    with pytest.raises(CommandError) as err:
+        await controller.add_component(configuration="ghost.yaml", component_id="i2c", fields={})
+
+    assert err.value.code == ErrorCode.NOT_FOUND
+    assert not (tmp_path / "ghost.yaml").exists()
+
+
+async def test_add_component_refuses_when_the_file_changed_during_the_merge(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_components(controller)
+    monkeypatch.setattr(controller, "_schedule_storage_regenerate", lambda _configuration: None)
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("DISK\n", encoding="utf-8")
+
+    real_persist = add_component_mod.persist_if_unchanged
+
+    async def _a_save_lands_first(*args: Any, **kwargs: Any) -> None:
+        await controller.update_config(configuration="kitchen.yaml", content="SAVED MEANWHILE\n")
+        await real_persist(*args, **kwargs)
+
+    monkeypatch.setattr(add_component_mod, "persist_if_unchanged", _a_save_lands_first)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.add_component.merge_component_yaml",
+        lambda existing, component, fields: f"{existing}# added\n",
+    )
+
+    with pytest.raises(CommandError) as err:
+        await controller.add_component(configuration="kitchen.yaml", component_id="i2c", fields={})
+
+    assert err.value.code == ErrorCode.PRECONDITION_FAILED
+    assert path.read_text(encoding="utf-8") == "SAVED MEANWHILE\n"
 
 
 async def test_add_component_into_broken_draft_appends_through_real_merge(
@@ -804,8 +874,8 @@ async def test_add_component_into_broken_draft_appends_through_real_merge(
     )
     controller._db.components = MagicMock()
     controller._db.components.get_component = AsyncMock(return_value=component)
-    persist = AsyncMock()
-    monkeypatch.setattr(controller, "_persist_yaml_mutation", persist)
+    rewrite = AsyncMock()
+    monkeypatch.setattr(controller, "rewrite_yaml", rewrite)
 
     broken = 'esphome:\n  name: "kitch\nsensor:\n  - platform:\n'
     resp = await controller.add_component(
@@ -817,7 +887,8 @@ async def test_add_component_into_broken_draft_appends_through_real_merge(
 
     assert broken in resp.yaml
     assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in resp.yaml
-    persist.assert_not_awaited()
+    rewrite.assert_not_awaited()
+    assert not (tmp_path / "kitchen.yaml").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1491,19 +1562,48 @@ def _adoptable(name: str) -> AdoptableDevice:
     )
 
 
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_register_new_device_logs_a_failed_scan(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A scan I/O failure after the write is logged, not raised: the file is on disk either way."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller._scanner.scan = AsyncMock(side_effect=OSError("scan broke"))
+
+    await controller._register_new_device("kitchen.yaml", "Create kitchen.yaml")
+
+    assert "Scan after writing kitchen.yaml failed" in caplog.text
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_register_new_device_propagates_a_scan_bug(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Only I/O is tolerated after the write; a bug in the scan still surfaces."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller._scanner.scan = AsyncMock(side_effect=RuntimeError("scan bug"))
+
+    with pytest.raises(RuntimeError, match="scan bug"):
+        await controller._register_new_device("kitchen.yaml", "Create kitchen.yaml")
+
+
 def test_on_scan_change_added_prunes_stale_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """A discovered device becoming configured drops its importable row and fires REMOVED."""
+    """A discovered device becoming configured drops only its own importable row."""
     controller = make_controller(tmp_path, with_state_monitor=True)
     controller.state.import_result["kitchen"] = _adoptable("kitchen")
+    controller.state.import_result["kitchen-2"] = _adoptable("kitchen-2")
     captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
 
     controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
 
-    assert "kitchen" not in controller.state.import_result
+    assert list(controller.state.import_result) == ["kitchen-2"]
     assert [e.data["name"] for e in captured] == ["kitchen"]
 
 
@@ -1521,7 +1621,7 @@ def test_on_scan_change_added_without_importable_row_is_silent(
     assert captured == []
 
 
-def test_on_scan_change_reloaded_name_change_prunes_importable_row(
+async def test_on_scan_change_reloaded_name_change_prunes_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
@@ -1538,7 +1638,7 @@ def test_on_scan_change_reloaded_name_change_prunes_importable_row(
     assert ("revisit_importable", "kitchen-yaml") in controller._state_monitor.calls
 
 
-def test_on_scan_change_updated_name_change_prunes_importable_row(
+async def test_on_scan_change_updated_name_change_prunes_importable_row(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
@@ -1553,6 +1653,45 @@ def test_on_scan_change_updated_name_change_prunes_importable_row(
     assert "kitchen" not in controller.state.import_result
     assert [e.data["name"] for e in captured] == ["kitchen"]
     assert ("revisit_importable", "old-kitchen") in controller._state_monitor.calls
+
+
+async def test_on_scan_change_name_change_records_the_deployed_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A hand-edited ``esphome.name`` strands the firmware like a config-only rename."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+
+    compiled = _device("livingroom", loaded_integrations=["api"])
+    # The scanner indexes the row before it notifies; the stamp must reach it.
+    controller._scanner.devices = [compiled]
+
+    controller._on_scan_change(ScanChange.UPDATED, compiled, _device("kitchen"))
+
+    assert controller._metadata_store.get(compiled.configuration)["deployed_name"] == "kitchen"
+    assert compiled.deployed_name == "kitchen"
+
+
+async def test_on_scan_change_unbuilt_name_change_records_nothing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The cold-start refine renames off a placeholder; no build output backs it."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    refined = _device("livingroom")
+
+    controller._on_scan_change(ScanChange.RELOADED, refined, _device("livingroom-yaml"))
+
+    assert controller._metadata_store.get(refined.configuration) == {}
+
+
+async def test_on_scan_change_same_name_records_nothing(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An ordinary edit leaves no record; the firmware still matches the YAML."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+
+    controller._on_scan_change(ScanChange.UPDATED, _device("kitchen"), _device("kitchen"))
+
+    assert controller._metadata_store.get(_device("kitchen").configuration) == {}
 
 
 def test_on_scan_change_reloaded_same_name_skips_importable_prune(
@@ -1572,7 +1711,7 @@ def test_on_scan_change_reloaded_same_name_skips_importable_prune(
     assert ("revisit_importable", "kitchen") not in controller._state_monitor.calls
 
 
-def test_on_scan_change_rename_migrates_monitor_state(
+async def test_on_scan_change_rename_migrates_monitor_state(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A rename probes the corrected name and forgets the freed name's monitor state."""
@@ -1586,7 +1725,7 @@ def test_on_scan_change_rename_migrates_monitor_state(
     assert "old-kitchen" not in controller._reachability._ping_last_seen
 
 
-def test_on_scan_change_rename_keeps_state_for_surviving_sibling(
+async def test_on_scan_change_rename_keeps_state_for_surviving_sibling(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """The freed name's monitor state survives while a sibling YAML still owns it."""

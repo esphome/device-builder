@@ -826,6 +826,42 @@ def test_materialise_native_idf_round_trip_without_pio_metadata(
         assert not resolve_idedata_path("kitchen.yaml", name="kitchen").exists()
 
 
+def test_materialise_drops_stale_flash_images_the_tarball_lacks(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Flash images the tarball did not carry are removed, not kept."""
+    receiver_root, offloader_root = paired_roots
+    build_path = offloader_root / ".esphome" / "build" / "kitchen"
+    stale_factory = build_path / "build" / "firmware.factory.bin"
+    stale_boot = build_path / "build" / "bootloader" / "bootloader.bin"
+    for stale in (stale_factory, stale_boot):
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_bytes(b"OLD")
+    tarball = _pack_in_tmp(
+        receiver_root,
+        native_idf=True,
+        extra_build_files={"build/firmware.ota.bin": b"OTA"},
+    )
+    assert _materialise_in_tmp(tarball, offloader_root) == build_path
+    assert not stale_factory.exists()
+    assert not stale_boot.exists()
+    assert (build_path / "build" / "firmware.ota.bin").is_file()
+
+
+def test_materialise_keeps_flash_images_the_tarball_carries(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """A full remote build replaces the images instead of dropping them."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(
+        receiver_root,
+        native_idf=True,
+        extra_build_files={"build/firmware.factory.bin": b"NEW"},
+    )
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+    assert (build_path / "build" / "firmware.factory.bin").read_bytes() == b"NEW"
+
+
 def test_materialise_rejects_oversized_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

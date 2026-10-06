@@ -46,8 +46,10 @@ from .ap_ssid import fallback_ap_psk as fallback_ap_psk
 from .ap_ssid import fallback_ap_ssid as fallback_ap_ssid
 from .ap_ssid import rewrite_fallback_ap_ssid as rewrite_fallback_ap_ssid
 from .api_encryption import API_ENCRYPTION_KEY_PATH as API_ENCRYPTION_KEY_PATH
+from .api_encryption import api_key_settled as api_key_settled
 from .api_encryption import generate_api_encryption_key as generate_api_encryption_key
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
+from .api_encryption import rewrite_own_ota_encryption_key as rewrite_own_ota_encryption_key
 from .api_encryption import upsert_api_encryption_key as upsert_api_encryption_key
 from .component import _mapping_body_to_list_item as _mapping_body_to_list_item
 from .component import _normalize_multi_conf_block as _normalize_multi_conf_block
@@ -56,6 +58,8 @@ from .component import _splice_into_multi_conf_block as _splice_into_multi_conf_
 from .component import component_block_present as component_block_present
 from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
+from .diff import apply_yaml_diff as apply_yaml_diff
+from .diff import splice_lines as splice_lines
 from .inline import SubEntityRef as SubEntityRef
 from .inline import _indent_block as _indent_block
 from .inline import remove_inline_handler as remove_inline_handler
@@ -65,7 +69,9 @@ from .inline import synthetic_instance_index as synthetic_instance_index
 from .inline import upsert_inline_handler as upsert_inline_handler
 from .inline import upsert_nested_handler as upsert_nested_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
+from .ota_encryption import read_ota_encryption_key as read_ota_encryption_key
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
+from .scalar import ESPHOME_NAME_ADD_MAC_SUFFIX_PATH as ESPHOME_NAME_ADD_MAC_SUFFIX_PATH
 from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH
 from .scalar import ESPHOME_YAML_INDENT as ESPHOME_YAML_INDENT
 from .scalar import TRUTHY_BOOL_STRINGS as TRUTHY_BOOL_STRINGS
@@ -74,6 +80,7 @@ from .scalar import _quote as _quote
 from .scalar import _safe_yaml_scalar as _safe_yaml_scalar
 from .scalar import _split_value_and_comment as _split_value_and_comment
 from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
+from .scalar import is_indirected_scalar as is_indirected_scalar
 from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
 from .scalar import parse_config_boolean as parse_config_boolean
 from .scalar import read_yaml_scalar as read_yaml_scalar

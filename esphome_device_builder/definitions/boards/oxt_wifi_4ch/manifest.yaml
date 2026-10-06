@@ -175,5 +175,5 @@ source:
   type: esphome-devices
   remote_id: OXT-WiFi-4CH
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/OXT-WiFi-4CH/index.md
-  upstream_revision: acc4ef455d5c5405d0d4168576fa03078f4b28c4
+  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
   content_hash: ac5a612d1344ed5f10044ed89d8b2bde2f81089840cc29eb0661ee6bee20127e

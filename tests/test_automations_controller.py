@@ -17,8 +17,10 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController, catalog
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation
-from tests.conftest import apply_yaml_diff
+from esphome_device_builder.helpers.yaml import apply_yaml_diff
+from esphome_device_builder.models import ErrorCode
+from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation, YamlDiff
+from tests.conftest import apply_yaml_diff_like_frontend
 
 # Co-locate every automations-catalog test on one xdist worker so
 # the slim index (cached after first :func:`catalog._load_index`)
@@ -67,6 +69,56 @@ def test_catalog_has_no_action_field_triggers() -> None:
         t.id for t in catalog.all_triggers() if not t.id.rsplit(".", 1)[-1].startswith("on_")
     ]
     assert offenders == []
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("on_clockwise", ("sensor", "rotary_encoder.sensor.on_clockwise")),
+        ("on_turn_on", ("fan", "fan.on_turn_on")),
+        ("on_nope", None),
+    ],
+)
+def test_infer_component_scope(key: str, expected: tuple[str, str] | None) -> None:
+    """The alphabetically-first scope hosting a key wins; an unknown key infers nothing."""
+    assert catalog.infer_component_scope(key) == expected
+
+
+def test_resolve_component_trigger_prefers_the_platform_scope(monkeypatch) -> None:
+    """A key hosted at both the platform and the domain scope resolves to the platform id."""
+    index = {
+        ("touchscreen.fake", "on_touch"): "fake.touchscreen.on_touch",
+        ("touchscreen", "on_touch"): "touchscreen.on_touch",
+    }
+    monkeypatch.setattr(catalog, "_component_trigger_index", lambda: index)
+    monkeypatch.setattr(catalog, "trigger_by_id", lambda trigger_id: trigger_id)
+    assert (
+        catalog.resolve_component_trigger("touchscreen.fake", "touchscreen", "on_touch")
+        == "fake.touchscreen.on_touch"
+    )
+    assert (
+        catalog.resolve_component_trigger(None, "touchscreen", "on_touch") == "touchscreen.on_touch"
+    )
+
+
+@pytest.mark.parametrize(
+    ("catalog_id", "domain", "key", "expected"),
+    [
+        ("sensor.rotary_encoder", "sensor", "on_clockwise", "rotary_encoder.sensor.on_clockwise"),
+        ("sensor.rotary_encoder", "sensor", "on_value", "sensor.on_value"),
+        ("binary_sensor.gpio", "binary_sensor", "on_press", "binary_sensor.on_press"),
+        (None, "binary_sensor", "on_press", "binary_sensor.on_press"),
+        ("sensor.aht10", "sensor", "on_value_range", "sensor.on_value_range"),
+        (None, "sensor", "on_clockwise", None),
+        ("sensor.rotary_encoder", "sensor", "on_nope", None),
+    ],
+)
+def test_resolve_component_trigger(
+    catalog_id: str | None, domain: str, key: str, expected: str | None
+) -> None:
+    """Platform-scoped ids win; the domain-level id is the fallback."""
+    trigger = catalog.resolve_component_trigger(catalog_id, domain, key)
+    assert (trigger.id if trigger else None) == expected
 
 
 async def test_get_available_excludes_action_field_triggers(tmp_path: Path) -> None:
@@ -149,7 +201,7 @@ async def test_get_bodies_endpoint_returns_full_bodies() -> None:
     )
     assert "triggers/on_boot" in result
     assert "actions/delay" in result
-    assert "config_entries" in result["actions/delay"]
+    assert result["actions/delay"]["value_type"] == "time_period"
 
 
 async def test_get_filters_returns_full_catalog() -> None:
@@ -230,6 +282,17 @@ async def test_get_available_offers_hub_triggers_inherited_through_extends(
     assert "pn532_i2c.on_tag" not in {t["id"] for t in result["triggers"]}
 
 
+async def test_get_available_offers_a_mapping_form_script(tmp_path: Path) -> None:
+    config = tmp_path / "alarm.yaml"
+    config.write_text(
+        "esphome:\n  name: a\nscript:\n  id: blink\n  then:\n    - delay: 1s\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="alarm.yaml")
+    assert [s["id"] for s in result["scripts"]] == ["blink"]
+
+
 async def test_get_available_returns_configured_scripts_with_parameters(
     tmp_path: Path,
 ) -> None:
@@ -289,7 +352,27 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert devices[("switch.gpio", "relay_one")]["name"] == "Relay 1"
     assert ("switch.gpio", "relay_two") in devices
     # A single-reading platform with no sub-entity blocks is never a container.
-    assert devices[("switch.gpio", "relay_one")]["is_entity_container"] is False
+    assert "is_entity_container" not in devices[("switch.gpio", "relay_one")]
+
+
+async def test_get_available_lists_instances_with_only_platform_scoped_triggers(
+    tmp_path: Path,
+) -> None:
+    """A ``sendspin`` image is targetable although no domain-level ``image.on_*`` exists."""
+    config = tmp_path / "device.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "image:\n"
+        "  - platform: sendspin\n"
+        "    id: art\n"
+        "  - file: logo.png\n"
+        "    id: logo\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="device.yaml")
+    assert [(d["component_id"], d["id"]) for d in result["devices"]] == [("image.sendspin", "art")]
+    assert "sendspin.image.on_image_display" in {t["id"] for t in result["triggers"]}
 
 
 async def test_get_available_devices_follow_document_order(tmp_path: Path) -> None:
@@ -350,13 +433,13 @@ async def test_get_available_flags_explicit_ids(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     result = await controller.get_available(configuration="device.yaml")
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
-    assert devices[("logger", "logger")]["has_explicit_id"] is False
+    assert "has_explicit_id" not in devices[("logger", "logger")]
     assert devices[("wifi", "my_wifi")]["has_explicit_id"] is True
     assert devices[("switch.gpio", "relay_one")]["has_explicit_id"] is True
-    assert devices[("switch.gpio", "switch_1")]["has_explicit_id"] is False
+    assert "has_explicit_id" not in devices[("switch.gpio", "switch_1")]
     assert devices[("sensor.aht10", "aht20")]["has_explicit_id"] is True
     assert devices[("sensor", "kitchen_temp")]["has_explicit_id"] is True
-    assert devices[("sensor", "aht20_humidity")]["has_explicit_id"] is False
+    assert "has_explicit_id" not in devices[("sensor", "aht20_humidity")]
 
 
 async def test_get_available_stamps_catalog_title(tmp_path: Path) -> None:
@@ -379,7 +462,7 @@ async def test_get_available_stamps_catalog_title(tmp_path: Path) -> None:
     result = await controller.get_available(configuration="device.yaml")
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
     # Keyed on component_id, stamped regardless of whether name is set.
-    assert devices[("wifi", "wifi")]["name"] is None
+    assert "name" not in devices[("wifi", "wifi")]
     assert devices[("wifi", "wifi")]["title"] == "Title[wifi]"
     assert devices[("switch.gpio", "relay_one")]["title"] == "Title[switch.gpio]"
 
@@ -404,7 +487,7 @@ async def test_get_available_surfaces_multi_entity_subentities(tmp_path: Path) -
     assert devices[("sensor.aht10", "aht20")]["is_entity_container"] is True
     # Each ided sub-sensor is its own bare-domain instance pointing at the parent.
     temp = devices[("sensor", "aht20_temperature")]
-    assert temp["is_entity_container"] is False
+    assert "is_entity_container" not in temp
     assert temp["parent_id"] == "aht20"
     assert temp["name"] == "Kit Temp"
     assert devices[("sensor", "aht20_humidity")]["parent_id"] == "aht20"
@@ -505,7 +588,7 @@ async def test_get_available_surfaces_idless_binary_sensor_leaf(tmp_path: Path) 
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
     button = devices[("binary_sensor.gpio", "binary_sensor_1")]
     assert button["name"] == "Button"
-    assert button["is_entity_container"] is False
+    assert "is_entity_container" not in button
     assert ("binary_sensor.status", "binary_sensor_0") in devices
     assert ("binary_sensor.gpio", "pir") in devices
     trigger_ids = {t["id"] for t in result["triggers"]}
@@ -1010,7 +1093,7 @@ async def test_parse_keeps_uncatalogued_action_as_passthrough(tmp_path: Path) ->
 
     result = await controller.parse(configuration="x.yaml")
     assert len(result) == 1
-    assert result[0]["error"] is None
+    assert "error" not in result[0]
     action = result[0]["automation"]["actions"][0]
     assert action["action_id"] == "made_up.action"
     assert action["unknown"] is True
@@ -1020,7 +1103,7 @@ async def test_parse_keeps_uncatalogued_action_as_passthrough(tmp_path: Path) ->
 def test_decode_location_compiles_unpacker_once_per_kind() -> None:
     """Pin compile-once decode: a captured lazy ``from_dict`` stub recompiles per call.
 
-    ``_LOCATION_DECODERS`` must look ``from_dict`` up at call time, not capture
+    ``_decode_location`` must look ``from_dict`` up at call time, not capture
     the bound method, or mashumaro ``lazy_compilation`` rebuilds the unpacker on
     every automation upsert/delete.
     """
@@ -1036,8 +1119,19 @@ def test_decode_location_compiles_unpacker_once_per_kind() -> None:
         )
 
 
+def test_decode_location_refuses_a_key_another_kind_takes() -> None:
+    with pytest.raises(CommandError) as err:
+        automations_controller._decode_location({"kind": "script", "id": "s", "field": "on"})
+    assert err.value.code is ErrorCode.INVALID_ARGS
+    assert "script location does not take ['field']" in err.value.message
+
+
 def _apply_diff(text: str, diff: dict) -> str:
-    return apply_yaml_diff(text, diff["fromLine"], diff["toLine"], diff["replacement"])
+    result = apply_yaml_diff_like_frontend(
+        text, diff["fromLine"], diff["toLine"], diff["replacement"]
+    )
+    assert apply_yaml_diff(text, YamlDiff.from_dict(diff)) == result
+    return result
 
 
 @pytest.mark.usefixtures("_sprinkler_paths")

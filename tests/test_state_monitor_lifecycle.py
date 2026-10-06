@@ -136,7 +136,7 @@ async def _start_with_captured_dispatch(
     captured: dict[str, Any] = {}
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf = MagicMock()
-    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
+    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda **_kw: fake_zeroconf)
     monkeypatch.setattr(
         importable_module,
         "DashboardImportDiscovery",
@@ -411,7 +411,7 @@ async def test_start_falls_back_when_zeroconf_construct_fails(
     """
     monitor, _callbacks = _make_monitor()
 
-    def _boom() -> None:
+    def _boom(**_kw: Any) -> None:
         raise RuntimeError("no zeroconf for you")
 
     monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", _boom)
@@ -445,7 +445,7 @@ async def test_start_continues_when_browser_construct_fails(
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf = MagicMock()
     fake_zeroconf.async_close = AsyncMock()
-    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda: fake_zeroconf)
+    monkeypatch.setattr(mdns_module, "AsyncEsphomeZeroconf", lambda **_kw: fake_zeroconf)
     monkeypatch.setattr(
         importable_module,
         "DashboardImportDiscovery",

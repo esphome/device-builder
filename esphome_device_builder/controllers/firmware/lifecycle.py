@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 from ...helpers.process import terminate_subtree_with_grace
 from ...models import EventType, FirmwareJob, JobStatus, JobType
 from . import rename_flow
-from .constants import _PREREQUISITE_FAILED_ERROR, _TARGET_OFFLINE_DEFERRED_ERROR
+from .constants import (
+    _EPHEMERAL_JOB_TYPES,
+    _PREREQUISITE_FAILED_ERROR,
+    _TARGET_OFFLINE_DEFERRED_ERROR,
+)
 from .helpers import _fire_job_lifecycle, _target_is_offline, _trim_job_output
 
 if TYPE_CHECKING:
@@ -72,7 +76,8 @@ async def end_run(controller: FirmwareController, job: FirmwareJob) -> None:
     own slot (lane ``active`` entry / pool entry) first.
     """
     if job.is_terminal:
-        _trim_job_output(job)
+        if job.job_type not in _EPHEMERAL_JOB_TYPES:
+            _trim_job_output(job)
         controller._prune_history()
     await controller._persist_jobs()
 
@@ -111,8 +116,8 @@ def release_dependents(controller: FirmwareController, job: FirmwareJob) -> bool
     before calling can re-persist when the cascade actually changed state.
     """
     acted = False
-    for dep in list(controller.state.jobs.values()):
-        if dep.depends_on != job.job_id or dep.status is not JobStatus.QUEUED:
+    for dep in list(controller.state.dependents(job.job_id)):
+        if dep.status is not JobStatus.QUEUED:
             continue
         acted = True
         if job.status is not JobStatus.COMPLETED:
@@ -210,8 +215,8 @@ def _defer_install_if_target_offline(controller: FirmwareController, job: Firmwa
     # A compile converts only when it still has a held OTA app upload
     # to spare from the dead address.
     if job.job_type is JobType.COMPILE and not any(
-        dep.depends_on == job.job_id and dep.status is JobStatus.QUEUED and dep.is_ota_app_upload
-        for dep in controller.state.jobs.values()
+        dep.status is JobStatus.QUEUED and dep.is_ota_app_upload
+        for dep in controller.state.dependents(job.job_id)
     ):
         return
     _LOGGER.info(message, job.configuration)

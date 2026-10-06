@@ -5,30 +5,37 @@ from __future__ import annotations
 import base64
 import logging
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
-from ...helpers.device_yaml import EsphomeConfigUnavailableError, run_esphome_config
+from ...helpers.async_ import run_in_executor
+from ...helpers.device_config import read_device_config_async
+from ...helpers.device_yaml import config_has_top_level_block
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
-    _strip_yaml_quotes,
+    api_key_settled,
     component_block_present,
+    is_indirected_scalar,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
-from ..editor import ValidatorUnavailableError
-from .mutations_simple import _read_device_yaml_or_raise
+from .encryption_key_lookup import get_resolved_api_and_ota_keys
+from .helpers import persist_if_unchanged
+from .resolve import resolve_config_subprocess
 
 if TYPE_CHECKING:
     from ...models import Device
+    from ..config.settings import DashboardSettings
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
 
 _KEY_BYTES = 32
+_KEPT_SUFFIX = "; the key was kept for a later attempt"
 
 
 class KeyHandoffResult(StrEnum):
@@ -43,13 +50,7 @@ class KeyHandoffResult(StrEnum):
 async def set_encryption_key(
     controller: DevicesController, *, name: str, key: str, mac: str = ""
 ) -> dict[str, Any]:
-    """
-    Land an HA-provisioned key: splice into configured YAML(s) or stash for adoption.
-
-    The pushed key reflects what the device actually accepted, so an
-    existing literal is overwritten; indirections (``!secret`` /
-    ``${…}``) and API-less configurations are refused with a reason.
-    """
+    """Land an HA-provisioned key: splice into configured YAML(s) or stash for adoption."""
     _validate_key(key)
     normalized_mac = normalize_mac(mac)
     devices = _match_devices(controller, name, normalized_mac)
@@ -68,11 +69,18 @@ async def set_encryption_key(
             # must not unwind the loop: the key-retention policy and
             # the other devices' outcomes still apply.
             outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
+            if err.code is ErrorCode.PRECONDITION_FAILED:
+                # The first line only: the diff excerpt is for a caller that can retry.
+                why = f"{why.partition('\n')[0]}{_KEPT_SUFFIX}"
         outcomes.add(outcome)
         reason = reason or why
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
-        # Consume the pending entry only once the key actually landed.
+        # Consume the pending entry only once the key actually landed. Unconditional
+        # on purpose: the device is configured now, so an older entry is stale cruft
+        # to clear, which pop_if would keep; adoption is the side that must not drop
+        # a push that overtook the key it spliced.
         controller._pending_keys.pop(name)
+        reason = reason.removesuffix(_KEPT_SUFFIX)
     else:
         # Nothing accepted the key — keep a copy so a later push, the
         # post-install retry, or a delete-and-readopt can consume it.
@@ -94,7 +102,9 @@ async def set_encryption_key(
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
-    """Match by name, disambiguating duplicate-name buckets (and misses) by MAC."""
+    """Match by name, disambiguating duplicates (and misses) by MAC; none while adopting."""
+    if name in controller.state.adopting:
+        return []
     devices = controller._scanner.get_by_name(name)
     if mac and len(devices) > 1:
         by_mac = [d for d in devices if d.mac_address == mac]
@@ -110,23 +120,27 @@ async def _apply_to_device(
 ) -> tuple[KeyHandoffResult, str]:
     """Splice *key* into *device*'s YAML; returns ``(outcome, reason)``."""
     configuration = device.configuration
-    content = await _read_device_yaml_or_raise(controller, configuration)
+    content = await read_device_config_async(controller._db.settings, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
-    if existing is not None and _strip_yaml_quotes(existing) == key:
+    if existing is not None and is_indirected_scalar(existing):
+        return await _settle_indirected_key(controller, configuration, key)
+    if api_key_settled(content, key):
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
         # The push itself proves the device's API is up (HA set the key
         # over it), but a package device that has never been compiled is
         # indistinguishable from a config the user stripped api: out of
-        # — resolve the config and let ground truth decide.
+        # — resolve the config and let ground truth decide. The scanner's own
+        # in-process load is what cleared ``api_enabled``, so only the
+        # subprocess adds information here.
         has_api = await _resolved_config_has_api(controller, configuration)
         if not has_api:
             reason = (
                 "the resolved configuration does not enable the native API"
                 if has_api is False
                 else "the configuration could not be resolved to confirm the "
-                "native API; the key was kept for a later attempt"
+                f"native API{_KEPT_SUFFIX}"
             )
             return KeyHandoffResult.NOT_WRITABLE, reason
 
@@ -134,27 +148,26 @@ async def _apply_to_device(
         new_content = upsert_api_encryption_key(content, key)
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
-    if new_content == content:
-        return KeyHandoffResult.NOT_WRITABLE, "the key is provided via !secret or a substitution"
-
-    reread = read_yaml_scalar(new_content, API_ENCRYPTION_KEY_PATH)
-    if reread is None or _strip_yaml_quotes(reread) != key:
+    if not api_key_settled(new_content, key):
         raise CommandError(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
 
-    try:
-        await controller._validate_rewritten_yaml_or_raise(
-            configuration, new_content, action="update encryption key"
-        )
-    except (TimeoutError, ValidatorUnavailableError):
+    verdict = await controller._validate_rewritten_yaml_or_raise(
+        configuration, new_content, action="update encryption key", tolerate_unavailable=True
+    )
+    if verdict.unavailable:
         reason = (
-            "the rewritten configuration could not be validated in time; "
-            "the key was kept for a later attempt"
+            "the rewritten configuration could not be validated (the validator was "
+            f"unavailable){_KEPT_SUFFIX}"
         )
         return KeyHandoffResult.NOT_WRITABLE, reason
-    await controller._persist_yaml_mutation(
-        configuration, new_content, message=f"Update API encryption key in {configuration}"
+    await persist_if_unchanged(
+        controller,
+        configuration,
+        new_content,
+        expected=content,
+        message=f"Update API encryption key in {configuration}",
     )
     return KeyHandoffResult.UPDATED, ""
 
@@ -162,18 +175,54 @@ async def _apply_to_device(
 async def _resolved_config_has_api(
     controller: DevicesController, configuration: str
 ) -> bool | None:
-    """Whether the fully resolved config carries ``api:``; ``None`` when unresolvable."""
-    esphome_cmd = controller.state.esphome_cmd
-    if not esphome_cmd:
-        return None
-    path = controller._db.settings.rel_path(configuration)
-    try:
-        config = await run_esphome_config(esphome_cmd, path)
-    except EsphomeConfigUnavailableError:
-        return None
+    """Whether ``esphome config`` sees ``api:``; a no-api verdict is kept per file identity."""
+    path, identity = await run_in_executor(_locate_and_stat, controller._db.settings, configuration)
+    memo = controller.state.apiless_resolves
+    if identity is not None and memo.get(configuration) == identity:
+        return False
+    config = await resolve_config_subprocess(controller, path)
     if config is None:
         return None
-    return "api" in config
+    has_api = config_has_top_level_block(config, "api")
+    if has_api or identity is None:
+        memo.pop(configuration, None)
+    else:
+        memo[configuration] = identity
+    return has_api
+
+
+def _locate_and_stat(
+    settings: DashboardSettings, configuration: str
+) -> tuple[Path, tuple[int, int] | None]:
+    """Resolve *configuration* and stat it in one hop; identity is ``None`` when the stat fails."""
+    path = settings.rel_path(configuration)
+    try:
+        st = path.stat()
+    except OSError:
+        return path, None
+    return path, (st.st_mtime_ns, st.st_size)
+
+
+async def _settle_indirected_key(
+    controller: DevicesController, configuration: str, key: str
+) -> tuple[KeyHandoffResult, str]:
+    """Never rewrite a ``!secret`` / ``${…}`` api key; UNCHANGED only when it resolves to *key*."""
+    prefix = "the key is provided via !secret, !include, or a substitution"
+    resolved, ota_resolved = await get_resolved_api_and_ota_keys(controller, configuration)
+    if resolved == key:
+        if ota_resolved and ota_resolved != key:
+            reason = (
+                f"{prefix} and already resolves to the pushed key, but the resolved "
+                "OTA encryption key differs from it"
+            )
+            return KeyHandoffResult.NOT_WRITABLE, reason
+        return KeyHandoffResult.UNCHANGED, ""
+    if not resolved:
+        return (
+            KeyHandoffResult.NOT_WRITABLE,
+            f"{prefix} that could not be resolved{_KEPT_SUFFIX}",
+        )
+    return KeyHandoffResult.NOT_WRITABLE, f"{prefix} and resolves to a different value"
 
 
 def _validate_key(key: str) -> None:

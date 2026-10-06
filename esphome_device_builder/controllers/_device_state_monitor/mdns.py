@@ -39,7 +39,12 @@ from .helpers import (
     _decode_mdns_txt_records,
     device_name_from_service,
 )
-from .interface_monitor import monitor_interfaces
+from .interface_monitor import (
+    ZeroconfBinding,
+    async_scan_host,
+    monitor_interfaces,
+    startup_bindings,
+)
 from .shared import _MDNS_HOSTNAME_RESOLVE_TIMEOUT, apply_resolved_addresses
 
 if TYPE_CHECKING:
@@ -115,11 +120,9 @@ class MdnsSource:
         return self._zeroconf
 
     async def start(self) -> None:
-        try:
-            self._zeroconf = AsyncEsphomeZeroconf()
-        except Exception:
-            _LOGGER.exception("Could not start zeroconf — falling back to ping only")
-            self._zeroconf = None
+        attempts = startup_bindings(await async_scan_host())
+        self._zeroconf, applied = self._create_zeroconf(attempts)
+        if self._zeroconf is None:
             return
 
         try:
@@ -140,7 +143,12 @@ class MdnsSource:
         # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
         if self._zeroconf is not None:
             self._interface_monitor_task = create_logged_task(
-                monitor_interfaces(self._zeroconf), name="Interface monitor"
+                monitor_interfaces(
+                    self._zeroconf,
+                    applied,
+                    None if applied is attempts[0] else IPVersion.V4Only,
+                ),
+                name="Interface monitor",
             )
 
     async def cancel_browser(self) -> None:
@@ -460,6 +468,27 @@ class MdnsSource:
                 applier(device_name, info)
             return
         self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
+
+    def _create_zeroconf(
+        self, attempts: list[ZeroconfBinding]
+    ) -> tuple[AsyncEsphomeZeroconf | None, ZeroconfBinding | None]:
+        """Create the responder from the first of *attempts* that binds."""
+        for binding in attempts:
+            try:
+                zeroconf = AsyncEsphomeZeroconf(
+                    interfaces=binding.interfaces, ip_version=binding.ip_version
+                )
+            except Exception:
+                _LOGGER.warning(
+                    "Could not start zeroconf with %s", binding.ip_version, exc_info=True
+                )
+                continue
+            _LOGGER.info(
+                "mDNS responder started with %s on %s", binding.ip_version, binding.interfaces
+            )
+            return zeroconf, binding
+        _LOGGER.error("Could not start zeroconf — falling back to ping only")
+        return None, None
 
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange

@@ -49,6 +49,7 @@ ESPHOME_YAML_INDENT = "  "
 # rewrite most; hoisted so call sites share one spelling.
 ESPHOME_NAME_PATH: tuple[str, str] = ("esphome", "name")
 ESPHOME_FRIENDLY_NAME_PATH: tuple[str, str] = ("esphome", "friendly_name")
+ESPHOME_NAME_ADD_MAC_SUFFIX_PATH: tuple[str, str] = ("esphome", "name_add_mac_suffix")
 
 
 def block_body_is_list(lines: list[str], header_idx: int, end_idx: int) -> bool:
@@ -281,7 +282,7 @@ FALSY_BOOL_STRINGS = frozenset({"false", "no", "off", "disable"})
 
 def parse_config_boolean(value: str) -> bool | None:
     """Decode *value* per esphome's ``cv.boolean``; ``None`` when it isn't one."""
-    lowered = value.strip().lower()
+    lowered = _strip_yaml_quotes(value).lower()
     if lowered in TRUTHY_BOOL_STRINGS:
         return True
     if lowered in FALSY_BOOL_STRINGS:
@@ -376,6 +377,11 @@ def _strip_yaml_quotes(value: str) -> str:
     if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ('"', "'"):
         return stripped[1:-1]
     return stripped
+
+
+def is_indirected_scalar(value: str) -> bool:
+    """Whether *value* is a tag or carries a substitution; empty counts as a fillable literal."""
+    return bool(_strip_yaml_quotes(value)) and not is_plain_literal_scalar(value)
 
 
 def is_plain_literal_scalar(value: str) -> bool:

@@ -214,6 +214,9 @@ class _PendingSubmit:
     # older offloaders. The receiver provisions a matching esphome venv
     # to compile with when it differs from its own installed version.
     target_esphome_version: str = ""
+    # The offloader's compile asked for --skip-bootloader; False for
+    # older offloaders that don't send the (NotRequired) key.
+    skip_bootloader: bool = False
 
 
 class SubmitJobReceiver:
@@ -366,6 +369,9 @@ class SubmitJobReceiver:
             device_name=_coerce_display_field(frame.get("device_name")),
             device_friendly_name=_coerce_display_field(frame.get("device_friendly_name")),
             target_esphome_version=_coerce_version_field(frame.get("target_esphome_version")),
+            # Strict: only a JSON true enables it; anything malformed keeps
+            # the full artifact set.
+            skip_bootloader=frame.get("skip_bootloader") is True,
         )
 
     async def handle_submit_job_chunk(

@@ -16,6 +16,8 @@
 
 7. **Device discovery.** mDNS browser for instant online/offline detection, ping sweep every 60s as fallback, optional MQTT discovery for devices that opt in via an `mqtt:` block. Source priority: `mdns > mqtt > ping`.
 
+8. **esphome owns config validation.** The catalogs describe schemas for the editor; they never gate a write. Field and value semantics are checked by running `esphome config` (`devices/validate`, the MCP `validate_config` tool). See the note under Component Catalog.
+
 ## Project Structure
 
 High-level orientation; not exhaustive. The larger surfaces
@@ -66,9 +68,12 @@ esphome_device_builder/
 │   ├── single_instance.py     # fcntl.flock guard for one process per <data_dir>
 │   └── yaml.py                # YAML generation
 │
+├── mcp/                       # Minimal MCP server library (JSON-RPC envelope, tool registry)
+│
 ├── api/                       # Transport layer
 │   ├── ws.py                  # /ws WebSocket dispatch
-│   └── legacy.py              # HA compat endpoints
+│   ├── legacy.py              # HA compat endpoints
+│   └── mcp/                   # /api/mcp endpoint: Device Builder tools on the mcp/ library
 │
 └── definitions/               # Data files
     ├── boards/                # board YAML manifests
@@ -259,7 +264,12 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   retry's supersede → write against the superseded chain's revert unlink;
   cancelling the tail cascades *up* to its compile. A persisted RENAME
   with no `depends_on` (pre-decomposition) still runs the fused
-  `esphome rename` CLI on the compile lane.
+  `esphome rename` CLI on the compile lane. The flash-free branches
+  (`config_only` for an offline device, an in-place rename whose target
+  filename is the device's own, and a hand-edited `esphome.name`) skip the
+  chain, so the firmware keeps broadcasting the pre-rename hostname; that
+  name is remembered as `deployed_name` (#2730), covered below with the rest
+  of the live-state fields.
 - Plus a **remote build-server pool** — one more consumer (`run_dispatch_loop`)
   gathered alongside the lane workers. Compiles eligible for a paired server
   hold here (off the single compile lane) and run concurrently, one per
@@ -309,6 +319,25 @@ dotted id directly. A new upstream domain missing a `ComponentCategory` member
 fails the sync loudly instead of degrading to MISC.
 Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
+
+The catalog is a lossy snapshot, never a validator. Custom validators,
+`maybe_simple_value` wrappers and keys the sync cannot express all drop out,
+so a catalog-derived "is this field allowed" check refuses valid configs
+wherever the two differ (measured against esphome 2026.9.0: `emontx.send_command`
+requires `command` while the catalog lists only `id`, and 54 automation
+registry entries could not be compared at all). The editor makes that fatal:
+`automations/parse` copies every YAML key into `params` and the visual editor
+auto-applies the whole tree through `automations/upsert`, so one gap makes an
+existing valid automation impossible to edit. Guards that protect the
+dashboard's own round trip stay: an occupied location, a parser-skipped list
+entry, a stale `expected`, and the parser's refusal to decompose an
+uncatalogued id that shares a mapping with other keys (`_uncatalogued_action`),
+which keeps a save from restructuring a body it cannot read back. Field
+semantics come from `esphome config`, and an agent
+repairs from esphome's own error (PR #2793 was closed on this): the MCP
+`upsert_automation` and `delete_automation` tools append a budget-bounded
+`esphome config` run to their reply, so the agent sees that error in the same
+call.
 
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)
@@ -450,6 +479,8 @@ When `--ha-addon` is set, the server binds **two** TCP sites on a shared `Device
 - **Public site** (`--host:--port`, default `0.0.0.0:6052`) — the standard dashboard. The auth middleware enforces password on REST endpoints, and the WS handler enforces the in-band `auth` handshake. This is what users hit at `http://homeassistant.local:6052`.
 - **Trusted ingress site** (`--ingress-host:--ingress-port`) — binds **loopback + the supervisor gateway only** (`127.0.0.1` + `172.30.32.1`), never `0.0.0.0`. The add-on runs host-network (for mDNS), so `0.0.0.0` would put this no-auth site on the LAN; the two-host default keeps it reachable by HA core's ESPHome integration (loopback) and the supervisor's ingress proxy (gateway) only. A second layer, `ingress_peer_guard` (`helpers/auth.py`), 403s any TCP peer other than loopback or the supervisor (`172.30.32.2`), so another hassio-bridge add-on reaching the gateway can't use it either — mirroring the legacy add-on's nginx `allow 127.0.0.1; allow 172.30.32.2; deny all`. Skips the auth gate because the supervisor has already authenticated the request upstream. An explicit `--ingress-host` overrides. The HA add-on `config.yaml` advertises `ingress_port` to the supervisor so the ingress proxy knows where to forward.
 
+The MCP endpoint (`POST /api/mcp`, [API.md](API.md#mcp-endpoint-post-apimcp)) is registered on both sites and mirrors `/ws` on each: open on the trusted ingress site; on the public site behind the REST `Authorization` gate plus the same `Origin` / `Host` check the WebSocket handshake applies (`request_origin_allowed` + `host_in_allowlist`), and it additionally requires `Content-Type: application/json` so a browser cannot reach a tool through a preflight-free simple request. Its tools dispatch through the same `command_handlers` table as the WebSocket; those that read beside it are named in API.md's Tools paragraph, and none of them adds data the WS surface does not already expose.
+
 This is the Music Assistant pattern: physically separating the listeners is the security boundary, rather than trusting an `X-Ingress-Path` header. It also means HA app users can keep ingress access (no password) while operators can still secure direct access from outside HA with a username/password.
 
 The legacy `DISABLE_HA_AUTHENTICATION=true` env var (the add-on's "Disable external authentication" / `leave_front_door_open` option) opens the front door: when it is set *and* the operator has mapped port 6052 (the add-on passes `--ha-addon-allow-public`), the public port is bound on `0.0.0.0` with no authentication at all, while the trusted ingress site stays bound so the HA sidebar keeps working. Both opt-ins are required, mirroring the legacy add-on, where nginx only listened on 6052 when the port was mapped and `leave_front_door_open` only cleared auth on that direct block; setting just one is a no-op (ingress-only) with an explanatory log line. The supervisor `/auth` credential-forwarding path is not carried forward (issue #85), so a mapped port without the front-door opt-in stays ingress-only rather than gating with HA credentials. `run` logs a loud banner whenever it binds the unauthenticated public port.
@@ -491,6 +522,8 @@ When listening on a UNIX Socket, the configured `--host` and `--port` are ignore
 ## Discovery (mDNS)
 
 Two mDNS surfaces ride the same `AsyncEsphomeZeroconf` instance the device state monitor already owns. Sharing one Zeroconf singleton matters: opening a second responder fights for the same multicast socket and silently drops half the packets.
+
+**Responder interfaces and IP version.** `scan_host` (`controllers/_device_state_monitor/interface_monitor.py`) binds the responder to the host's non-loopback IPv4 and link-local IPv6 addresses (every interface when none qualify), dual-stack when a link-local IPv6 address exists, else `V4Only`. darwin / freebsd never go dual-stack: the IPv4 group join on the shared `AF_INET6` socket fails there and python-zeroconf silently drops IPv4. A non-`V4Only` bind that fails at startup falls back to `V4Only` and stays pinned. The interface monitor reconciles when the binding changes, and once more ten seconds after startup and after each change: python-zeroconf skips, without raising, a link-local address still in duplicate address detection, and the follow-up binds it. A failed startup scan binds every interface `V4Only` until that first reconcile.
 
 **Design scope: compliant mDNS responders.** Reachability trusts the multicast domain to carry only records that reflect the publishing device's liveness: devices answer for themselves, a compliant caching proxy (RFC 8766) re-verifies before answering from cache and lets its records expire when the device goes silent, and a goodbye burst flushes compliant caches. A middlebox that re-serves cached records past their real liveness — a repeater or service-discovery gateway with a fixed allowlist, a non-compliant caching proxy — fabricates liveness evidence that is indistinguishable from a live device at the mDNS layer (a pinned sibling `_http._tcp` PTR can defer a dead api device's withdrawal indefinitely, #2406). That is out of scope by design: defects that reproduce with compliant responders are in scope, but detecting or accommodating fabricated records is not, and issues that only reproduce behind such a middlebox will generally be closed pointing here.
 
@@ -779,18 +812,26 @@ The dashboard writes a small set of files into `<config_dir>` and `<data_dir>` a
 |---|---|---|---|
 | `.device-builder.json` | `<config_dir>` | Cross-flavor shared identity + per-device identity (`dashboard_id`, `_remote_build.enabled`, `_labels`; per-device `board_id` / `friendly_name` / `comment` / `labels` / `mac_address`). Shared across HA-addon flavors that mount the same `/config/esphome` tree. | umask default |
 | `.device-builder.json.corrupt`(`.<ns>`) | `<config_dir>` | Quarantined copies of an unparsable `.device-builder.json`, side-renamed by `metadata_transaction` before its write-back so the corrupt bytes stay recoverable. Original `.corrupt` is never overwritten; repeat incidents land at timestamped siblings pruned oldest-first to a cap of 3. Same sensitivity as the live sidecar. | inherits the sidecar's mode |
-| `.device-builder-devices.json` | `<data_dir>` | Per-flavor live device state (`ip`, `expected_config_hash`, `deployed_config_hash`, `deployed_version`, `api_encryption_active`, `build_size_*`, `regen_failed_*`). Owned by `helpers.storage.Store` with debounced writes (2s coalesce); flushed on shutdown via the controller's `_shutdown_callbacks` list. | 0o600 enforced at write time (default for `Store`) |
+| `.device-builder-devices.json` | `<data_dir>` | Per-flavor live device state (`ip`, `expected_config_hash`, `deployed_config_hash`, `deployed_version`, `deployed_name`, `api_encryption_active`, `build_size_*`, `regen_failed_*`). Owned by `helpers.storage.Store` with debounced writes (2s coalesce); flushed on shutdown via the controller's `_shutdown_callbacks` list. | 0o600 enforced at write time (default for `Store`) |
 | `.receiver_peers.json` | `<config_dir>` | Receiver-side pinned offloaders (`StoredPeer` rows: `(dashboard_id, pin_sha256, static_x25519_pub, label, paired_at, peer_ip, friendly_name, ha_addon, label_auto)`). Owned by `helpers.storage.Store` with debounced writes; only APPROVED rows ever reach disk (PENDING lives in `_pending_peers` and is bounded by the pairing window). A reader can enumerate which `dashboard_id`s have paired with this receiver, but neither pin nor pubkey is secret on its own. | 0o600 enforced at write time (default for `Store`) |
 | `.offloader_pairings.json` | `<config_dir>` | Offloader-side pinned receivers (`StoredPairing` rows: `(receiver_hostname, receiver_port, pin_sha256, static_x25519_pub, label, paired_at, status, esphome_version, enabled, auto_provision_supported, friendly_name, ha_addon, reset_build_env_supported, receiver_label_auto)`). Owned by `helpers.storage.Store` with debounced writes; only APPROVED rows ever reach disk (PENDING is filtered out at serialise time). Same secret-equivalent shape as the receiver's `.receiver_peers.json`: a reader can enumerate which receivers this offloader has paired with, but neither pin nor pubkey is secret on its own. | 0o600 enforced at write time (default for `Store`) |
 | `.device-builder-pending-keys.json` | `<data_dir>` | **Plaintext HA-provisioned Noise API keys awaiting adoption. Sensitive.** Name-keyed `{key, mac}` entries received over the ingress-only `POST /encryption-key`; consumed by `devices/import` and by later pushes once configured. A reader can connect to those devices' native APIs. Entries never expire by design — a stale entry is a cheaper failure than losing the only recovery copy of a key. | 0o600 enforced at write time (default for `Store`) |
 | `.device-builder-peer-link-key.bin` | `<config_dir>` | **Private X25519 peer-link key. Sensitive.** A reader of this file can impersonate the dashboard to any paired peer over the Noise XX handshake — this is the load-bearing transport-security key. | 0o600 enforced at write time |
+| `ignored-devices.json` | `<data_dir>` | Discovered-device names the operator hid from the import list; the file shape is esphome's (`ignored_devices_storage_path`) so a legacy `esphome dashboard` reads the same list. Not sensitive. | 0o644 (`Store(mode=0o644)`); debounced, flushed at graceful stop |
+| `.device-builder-sessions.json` | `<config_dir>` | **Opaque dashboard session tokens. Sensitive.** A reader can replay a token as an authenticated client (WebSocket and REST bearer) until it expires (30 days sliding). Owned by `SessionStore` (`helpers/auth.py`); expired rows are dropped at load. | 0o600 enforced at write time (default for `Store`); login and logout writes are attempted before the reply (a failure is logged), the sliding-expiry refresh is deferred (at most hourly per token) and flushed at graceful stop |
 
 ### Per-device metadata split
 
 Per-device metadata is partitioned across two files by *who writes it* and *how often*:
 
 * **Identity** (`board_id`, `friendly_name`, `comment`, `labels`, `mac_address`) lives in `<config_dir>/.device-builder.json` alongside the cross-flavor catalog keys (`_labels`, `_remote_build`, `dashboard_id`). Access goes through `SharedSidecarClient` — a thin async wrapper around the existing `helpers/metadata_sidecar.metadata_transaction` (`fcntl.flock` + `_METADATA_LOCK` for cross-flavor RMW safety). Writes are infrequent (user-edited names, scanner-derived `board_id` backfill, first-observation `mac_address`) and run through the transactional path so the `esphome` / `esphome-beta` / `esphome-dev` flavors on a shared `/config/esphome` can't clobber each other.
-* **Live state** (`ip`, `expected_config_hash`, `deployed_config_hash`, `deployed_version`, `api_encryption_active`, `build_size_*`, `regen_failed_*`) lives in `<data_dir>/.device-builder-devices.json`. Access goes through `DeviceMetadataStore` — a `helpers.storage.Store`-backed RAM-canonical dict that debounces writes (2s coalesce) and flushes on shutdown. The store keys on `<data_dir>` rather than `<config_dir>` because each HA-addon flavor compiles its own binaries and observes its own mDNS broadcasts; sharing this state across flavors would let one flavor's running-firmware hash overwrite another's. The file is per-flavor by construction, so no cross-process lock is needed beyond the single-instance startup `flock` that already pins one process per `data_dir`.
+* **Live state** (`ip`, `expected_config_hash`, `deployed_config_hash`, `deployed_version`, `deployed_name`, `api_encryption_active`, `build_size_*`, `regen_failed_*`) lives in `<data_dir>/.device-builder-devices.json`. Access goes through `DeviceMetadataStore` — a `helpers.storage.Store`-backed RAM-canonical dict that debounces writes (2s coalesce) and flushes on shutdown. The store keys on `<data_dir>` rather than `<config_dir>` because each HA-addon flavor compiles its own binaries and observes its own mDNS broadcasts; sharing this state across flavors would let one flavor's running-firmware hash overwrite another's. The file is per-flavor by construction, so no cross-process lock is needed beyond the single-instance startup `flock` that already pins one process per `data_dir`.
+
+`deployed_name` is the odd one out: it is stamped, not observed. A rename that doesn't flash (config-only, in-place, or a hand-edited `esphome.name` on a device with build output) leaves the firmware answering its old hostname, so that name is recorded and backs the device's OTA address-cache args — published under the new `<name>.local` key, so an install still reaches a device that never announces its new name. Both readers (the cache-args build and the API reviver, which would otherwise read the firmware's pre-rename name as a re-leased IP and wipe the persisted address) ignore it while another config owns that name, since the answer is then somebody else's. It clears on:
+
+* the next app flash (a `--bootloader` upload replaces no app, so the record stands) or a completed rename chain;
+* a rename back to the recorded name;
+* mDNS taking ownership of the device's own name, when that name maps to one config — the self-heal for a flash from outside the dashboard.
 
 The `STORE_FIELDS` frozenset in `controllers/devices/_metadata_store.py` enumerates the live-state field names; `DeviceMetadataBase._persist_device_metadata_async` is the routing dispatcher (anything in `STORE_FIELDS` → store, everything else → shared sidecar). The mDNS hot path (`state_callbacks.on_*`) writes the store directly via `controller._metadata_store.update(...)` / `set_field(...)` — sync RAM mutation on the event loop, debounced disk write on the executor.
 
@@ -828,14 +869,24 @@ Baked into the ESPHome container. Legacy dashboard deprecated.
 
 ### HA encryption-key handoff
 
-HA dynamically provisions Noise API keys onto keyless devices and pushes each one here (`POST /encryption-key`, name + key + optional MAC) so the dashboard and HA never hold competing keys — without the push, adoption used to mint a different key, the flash baked it in, and HA's stored PSK died. The endpoint is accepted only on the supervisor channel; a pushed key is spliced into the matching configured YAML (`controllers/devices/encryption_key.py`), stashed in the pending store for an unadopted name, and **kept in the pending store on every refusal** — no outcome destroys the only dashboard copy. HA re-pushes on every connect (its side never latches), so refusals that clear up (first install populating `loaded_integrations`, a warmed package cache) self-heal.
+**The push.** HA dynamically provisions Noise API keys onto keyless devices and pushes each one here (`POST /encryption-key`, name + key + optional MAC) so the dashboard and HA never hold competing keys — without the push, adoption used to mint a different key, the flash baked it in, and HA's stored PSK died. The endpoint is accepted only on the supervisor channel; a pushed key is spliced into the matching configured YAML (`controllers/devices/encryption_key.py`), stashed in the pending store for an unadopted name, and **kept in the pending store on every refusal** — no outcome destroys the only dashboard copy. HA re-pushes on every connect (its side never latches), so refusals that clear up (first install populating `loaded_integrations`, a warmed package cache) self-heal.
+
+**Resolving a configuration.** `controllers/devices/resolve.py` is the one home: `resolve_config` runs ESPHome's YAML loader in an executor and hands off to `esphome config` only when that left deferred work (an unmerged package, an `!include` / `!remove` / `!extend` marker, a top-level block whose value is still a substitution string that esphome's Jinja pass would expand into structure, or an unparsable file); `resolve_config_subprocess` is the subprocess alone. `resolve_config` answers `(config, resolved)`: when neither route works it hands back the loader's own merge flagged unresolved, and `spawn=False` skips the subprocess leg.
+
+**The has-api check.** For a never-compiled package device the handoff uses the subprocess directly, because the scanner's own in-process load already cleared `api_enabled`, so a second load would only repeat that answer. Its "no `api:`" verdict is remembered per YAML identity (`DevicesState.apiless_resolves`, mtime plus size) so HA's re-push against an unchanged file costs a stat, not a spawn, while a failed resolve is never remembered and retries on the next push. The entry is dropped when the scanner sees the YAML change or go away; a package that gains `api:` upstream without a YAML edit is not noticed until the next edit or compile (a compile repopulates `api_enabled` and the branch stops being reached).
+
+**Adoption's mint.** The mint check resolves in process first, and the CLI no longer gates it: the mint runs whenever the resolved package lacks `encryption:`, and re-validates the keyed YAML when the unkeyed one warned so a warning the key repaired (a bare `ota: encryption:` inheriting the api key) is dropped. A warned YAML skips the `esphome config` spawn (it runs the same validation and would only repeat the verdict). A package neither route can resolve keeps both package guards (they read whatever the loader merged) and mints only when the unkeyed adoption's package warning names the missing api key to inherit and the keyed YAML validates clean; otherwise it ships keyless with the warning. While an adoption is in flight the name is held in `DevicesState.adopting`, so a push for it is stored rather than spliced by the configured-device path; the adoption lands the newest pending key at its single write, and a failure past validation removes the file again (naming it in the error when that removal fails).
+
+**OTA key reconciliation.** An explicit `ota: encryption: key:` literal next to a rewritten static api key is dropped, leaving the bare `encryption:` that inherits the api key (esphome rejects a config whose two keys differ, and a device built with a static api key encrypts OTA with that key, so the second literal is only a copy to keep in sync). Inserting the pushed key next to an OTA key that differs is refused instead: without a static api key the firmware requires the OTA platform's own key, and forcing it to follow would lock the device out of OTA. An indirected ota key is refused when the api key needs writing (the pair could not be made to match) and left to esphome's own validation when the api key already carries the pushed value.
+
+**Indirected api keys.** An indirected api key (`!secret` / `${…}`) is never rewritten: it is resolved in process (no `esphome config` spawn on a path HA re-enters every connect) and answers `unchanged` when it already equals the pushed key, `not_writable` otherwise (#2682). Because that path writes nothing, esphome's validation never runs on it, so the OTA key is compared off the same resolved config, package-merged and indirected ones included, rather than deferred to esphome as on the literal path.
 
 **Adoption semantics — the intended shape.** The adopt dialog's encryption checkbox controls whether adoption *enables* encryption; a pending HA-provisioned key is proof encryption is already live on the device (HA set it over the native API), so it is always applied, checkbox or not:
 
 | Checkbox | Pending HA key | Adoption result |
 |---|---|---|
 | unchecked | none | No `api:` block; encryption is never enabled behind the user's back |
-| checked | none | Fresh key minted — unless the resolved package itself ships `encryption:` (the running device may hold an NVS-provisioned key a competing baked key would break) or the resolve fails; both skip the mint and warn in the adopt dialog |
+| checked | none | Fresh key minted, unless the package itself ships `encryption:` (the running device may hold an NVS-provisioned key a competing baked key would break); an unresolvable package mints only in the narrow case above. A mint skipped for a package's own OTA key or an unresolvable package warns in the adopt dialog |
 | unchecked | present | Key applied anyway (`api_encryption_key` forces the `api:` block) |
 | checked | present | Pending key applied verbatim; no fresh mint, no package resolve |
 

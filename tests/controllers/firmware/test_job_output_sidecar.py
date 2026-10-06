@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers.firmware.follow import initial_snapshot
 from esphome_device_builder.controllers.firmware.persistence import (
     _job_log_path,
     _reconcile_sidecars,
@@ -23,7 +24,7 @@ from esphome_device_builder.controllers.firmware.persistence import (
     read_job_output,
 )
 from esphome_device_builder.models import FirmwareJob, JobStatus, JobType, StreamEvent
-from tests.conftest import FakeWebSocketClient
+from tests.conftest import FakeWebSocketClient, make_job
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 
@@ -66,6 +67,24 @@ async def test_terminal_output_flushed_to_sidecar_and_stripped_from_blob(
     assert "output" not in entries[0]
 
 
+async def test_terminal_analyze_memory_job_is_neither_persisted_nor_given_a_sidecar(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A finished analysis is pruned before the persist: no blob entry, no log on disk."""
+    controller = firmware_controller_factory(
+        with_real_persistence=True, with_queue=True, with_terminate=True
+    )
+    job = await controller.analyze_memory(configuration="kitchen.yaml")
+    job.output = ["line a\n"]
+
+    await controller.cancel(job_id=job.job_id)
+    await controller._persist_jobs()
+
+    assert all(entry["job_type"] != "analyze_memory" for entry in _blob_jobs(tmp_path))
+    assert await asyncio.to_thread(read_job_output, job.job_id) == []
+
+
 async def test_active_output_kept_in_ram_and_inline_in_blob(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -86,6 +105,21 @@ async def test_active_output_kept_in_ram_and_inline_in_blob(
     assert await asyncio.to_thread(read_job_output, "r1") == []
     entries = _blob_jobs(tmp_path)
     assert entries[0]["output"] == ["building…\n"]
+
+
+async def test_active_analyze_memory_job_is_kept_out_of_the_blob(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A running ``ANALYZE_MEMORY`` job is never written to the jobs file, output or not."""
+    job = make_job("a1", job_type=JobType.ANALYZE_MEMORY, output=["Component  Flash  RAM\n"])
+    controller = firmware_controller_factory(job, with_real_persistence=True, with_queue=True)
+
+    await controller._persist_jobs()
+
+    assert job.output == ["Component  Flash  RAM\n"]
+    assert _blob_jobs(tmp_path) == []
+    assert await asyncio.to_thread(read_job_output, "a1") == []
 
 
 def test_sidecar_round_trip_preserves_terminators() -> None:
@@ -135,18 +169,37 @@ def test_reconcile_logs_when_dir_unreadable(
     assert any("Failed to scan job-log dir" in r.message for r in caplog.records)
 
 
-def test_read_unreadable_sidecar_logs_and_returns_empty(
+async def test_snapshot_of_a_terminal_job_with_an_unreadable_sidecar_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _boom(self: Path, *args: object, **kwargs: object) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "open", _boom)
+    assert await initial_snapshot(_terminal_job([]), "t1") is None
+
+
+def test_read_sidecar_that_is_not_utf8_returns_none(caplog: pytest.LogCaptureFixture) -> None:
+    path = _job_log_path("corrupt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xff\xfe not utf-8\n")
+    with caplog.at_level(logging.WARNING):
+        assert read_job_output("corrupt") is None
+    assert any("Failed to read job output sidecar" in r.message for r in caplog.records)
+
+
+def test_read_unreadable_sidecar_logs_and_returns_none(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A present-but-unreadable sidecar logs a warning instead of silently looking empty."""
+    """A present-but-unreadable sidecar logs a warning and reads as ``None``, not as empty."""
 
     def _boom(self: Path, *args: object, **kwargs: object) -> None:
         raise PermissionError("denied")
 
     monkeypatch.setattr(Path, "open", _boom)
     with caplog.at_level(logging.WARNING):
-        assert read_job_output("unreadable") == []
+        assert read_job_output("unreadable") is None
     assert any("Failed to read job output sidecar" in r.message for r in caplog.records)
 
 
