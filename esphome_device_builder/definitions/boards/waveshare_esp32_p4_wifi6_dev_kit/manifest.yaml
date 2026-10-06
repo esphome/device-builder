@@ -8,6 +8,7 @@ name: Waveshare ESP32-P4-WIFI6-DEV-KIT (Rev1.1 and earlier)
 description: |
   Dev kit in Raspberry Pi form factor with engineering sample ESP32-P4
   (verify [chip marking](https://docs.espressif.com/projects/esp-chip-errata/en/latest/esp32p4/01-chip-identification/index.html#chip-marking) is v1.x).
+  Rev1.2 boards with a v3.x chip are not covered here; use Generic ESP32-P4 Board (rev3) instead.
   ESP32-P4NRW32 (dual-core RISC-V @ 400MHz, 16MB flash, 32MB PSRAM).
   Wi-Fi 6 and Bluetooth are supported through the onboard ESP32-C6 co-processor.
   100M RJ45 Ethernet (optional PoE via HAT), MIPI DSI display and MIPI CSI camera connectors, microSD slot,
@@ -658,7 +659,7 @@ pins:
   features: [strapping, pwm, i2c_sda, i2c_scl, spi_mosi, spi_miso, spi_clk, spi_cs, uart_tx, uart_rx]
   available: true
   occupied_by: USB-Serial RX
-  notes: Strapping pin (Chip boot mode) – USB-Serial chip and 40pin header pin 10 (RPi GPIO16 / UART RXD) – UART0 RXD
+  notes: Strapping pin (Chip boot mode) – USB-Serial chip and 40pin header pin 10 (RPi GPIO15 / UART RXD) – UART0 RXD
 - gpio: 39
   features: [spi_miso]
   available: false
