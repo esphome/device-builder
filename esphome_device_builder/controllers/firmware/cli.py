@@ -15,14 +15,29 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
 from ...helpers.sibling_cli import find_esptool_cmd
 from ...helpers.storage_path import resolve_storage_path
+from ...helpers.version_compat import release_line_at_least
 from ...models import OTA_PORT, FirmwareJob, JobType
 from . import lifecycle
-from .constants import _OTA_ADDRESS_CACHE_JOB_TYPES, ESPHOME_SUBPROCESS_ENV
+from .constants import (
+    _OTA_ADDRESS_CACHE_JOB_TYPES,
+    ESPHOME_SUBPROCESS_ENV,
+    _installed_esphome_version,
+)
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ``esphome compile --skip-bootloader`` first shipped in this release line.
+_SKIP_BOOTLOADER_RELEASE = (2026, 10)
+
+
+def effective_skip_bootloader(job: FirmwareJob) -> bool:
+    """Whether *job*'s spawned compile may carry ``--skip-bootloader``."""
+    version = job.target_esphome_version or _installed_esphome_version
+    return job.skip_bootloader and release_line_at_least(version, _SKIP_BOOTLOADER_RELEASE)
 
 
 def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
@@ -53,6 +68,7 @@ def build_command(
     new_name: str = "",
     *,
     flash_bootloader: bool = False,
+    skip_bootloader: bool = False,
 ) -> list[str]:
     """Build the esphome CLI command for a given job type."""
     cmd_map = {
@@ -91,6 +107,10 @@ def build_command(
     if job_type == JobType.UPLOAD and flash_bootloader:
         # ``--bootloader`` exists only on the ``upload`` subparser (OTA-only).
         cmd.append("--bootloader")
+    if job_type == JobType.COMPILE and skip_bootloader:
+        # OTA app installs never flash the bootloader; esphome cleans
+        # stale factory images itself when a tree flips into skip mode.
+        cmd.append("--skip-bootloader")
     if job_type == JobType.RENAME:
         # ``esphome rename`` takes the new name as a positional
         # arg. The CLI handles the inner compile + install + old

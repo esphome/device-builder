@@ -158,6 +158,7 @@ async def extract_and_queue(
             device_name=pending.device_name,
             device_friendly_name=pending.device_friendly_name,
             target_esphome_version=pending.target_esphome_version,
+            skip_bootloader=pending.skip_bootloader,
         )
         await receiver._firmware._enqueue(job)
     except Exception as exc:

@@ -187,86 +187,67 @@ def test_adopts_existing_repo_without_touching_gitignore(tmp_path: Path) -> None
     assert (tmp_path / ".gitignore").read_text() == "my-rules/\n"
 
 
-def test_adopts_repo_when_config_dir_is_subdir(tmp_path: Path) -> None:
-    """Config dir nested inside a repo (``/config`` root, ``esphome/`` subdir)."""
+def test_stays_off_inside_a_repo_rooted_above_config_dir(tmp_path: Path) -> None:
+    """A config dir inside someone else's repo (``/config`` root, ``esphome/`` subdir)."""
     _make_repo(tmp_path)
     sub = tmp_path / "esphome"
     sub.mkdir()
+    (sub / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     repo = GitRepo(config_dir=sub)
     repo.discover_or_init()
 
-    assert repo.enabled
-    # Toplevel resolves to the outer repo root, not the subdir.
-    assert repo.toplevel == tmp_path
+    assert not repo.enabled
+    assert repo.toplevel is None
+    assert repo.commit_paths([sub / "kitchen.yaml"], "edit") is None
+    assert not (sub / ".git").exists()
+    # The enclosing repo was left as it was.
+    assert _git(tmp_path, "log", "--format=%s").split() == ["seed"]
+    assert "ESPHome Device Builder" not in (tmp_path / ".git" / "info" / "exclude").read_text(
+        encoding="utf-8"
+    )
 
 
-def test_adopts_enclosing_repo_that_lacks_our_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An enclosing repo without our package source is still adopted (the ``/config`` case)."""
+def test_stays_off_inside_a_repo_that_ignores_config_dir(tmp_path: Path) -> None:
+    """A config dir its enclosing repo ignores gets no repo of its own either."""
     _make_repo(tmp_path)
-    sub = tmp_path / "esphome"
-    sub.mkdir()
-    # A normal pip / site-packages install: our package lives outside the
-    # user's repo, so the enclosing repo is the genuine adoption target.
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.version_history.git_repo._OWN_SOURCE_ROOT",
-        Path("/opt/site-packages/esphome_device_builder"),
-    )
-
-    repo = GitRepo(config_dir=sub)
-    repo.discover_or_init()
-
-    assert repo.enabled
-    assert repo.toplevel == tmp_path  # adopted the outer repo, not a nested one
-
-
-def test_declines_to_adopt_own_source_checkout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Config dir inside the Device Builder source repo gets its own nested repo."""
-    _make_repo(tmp_path)  # stands in for the device-builder source checkout
-    pkg = tmp_path / "esphome_device_builder"
-    pkg.mkdir()
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.version_history.git_repo._OWN_SOURCE_ROOT",
-        pkg,
-    )
-    configs = tmp_path / "configs"
-    configs.mkdir()
-
-    repo = GitRepo(config_dir=configs)
-    repo.discover_or_init()
-
-    assert repo.enabled
-    assert repo.toplevel == configs  # nested repo, not the enclosing source repo
-    assert (configs / ".git").is_dir()
-
-
-def test_declines_to_adopt_repo_that_ignores_config_dir(tmp_path: Path) -> None:
-    """A config dir gitignored by its enclosing repo gets a nested repo, not adoption."""
-    _make_repo(tmp_path)  # stands in for the unrelated esphome/esphome checkout
     config = tmp_path / "config"
     config.mkdir()
     (tmp_path / ".gitignore").write_text("config/\n", encoding="utf-8")
     _git(tmp_path, "add", ".gitignore")
     _git(tmp_path, "commit", "-m", "ignore config")
-    (config / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    repo = GitRepo(config_dir=config)
+    repo.discover_or_init()
+
+    assert not repo.enabled
+    assert not (config / ".git").exists()
+
+
+def test_adopts_its_own_repo_inside_another(tmp_path: Path) -> None:
+    """A repo rooted at the config dir is adopted, whatever encloses it."""
+    _make_repo(tmp_path)
+    config = tmp_path / "config"
+    config.mkdir()
+    _make_repo(config)
 
     repo = GitRepo(config_dir=config)
     repo.discover_or_init()
 
     assert repo.enabled
-    assert repo.toplevel == config  # nested repo, not the enclosing one
-    assert (config / ".git").is_dir()
-    # The seed actually committed the config the adopted parent could never track.
-    assert "kitchen.yaml" in _git(config, "ls-files").split()
-    assert "Initialize version history" in _git(config, "log", "--format=%s")
-    # The unrelated parent repo was left untouched.
-    assert "ESPHome Device Builder" not in (tmp_path / ".git" / "info" / "exclude").read_text(
-        encoding="utf-8"
-    )
+    assert repo.toplevel == config
+
+
+def test_read_only_discover_does_not_read_a_repo_above_config_dir(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+    sub = tmp_path / "esphome"
+    sub.mkdir()
+
+    repo = GitRepo(config_dir=sub)
+    repo.discover_existing()
+
+    assert not repo.enabled
+    assert repo.toplevel is None
 
 
 def test_init_keeps_a_preexisting_gitignore(tmp_path: Path) -> None:

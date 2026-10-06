@@ -22,6 +22,7 @@ separate test that asserts the runner ignores it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -342,7 +343,28 @@ async def test_remote_compile_translates_output_and_completes(
         device_name="",
         device_friendly_name="",
         target_esphome_version=_esphome_version,
+        skip_bootloader=False,
     )
+
+
+async def test_remote_compile_forwards_the_skip_bootloader_request(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """An OTA install chain's skip request rides the submit_job header."""
+    controller = firmware_controller_factory(with_terminate=True)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = make_remote_job()
+    job.skip_bootloader = True
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+
+    assert client.submit_job.await_args.kwargs["skip_bootloader"] is True
+    runner.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await runner
 
 
 async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_completed(
@@ -392,6 +414,7 @@ async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_comple
         device_name="",
         device_friendly_name="",
         target_esphome_version=_esphome_version,
+        skip_bootloader=False,
     )
     # Crucially: no download_artifacts call — clean has nothing
     # to fetch back.
@@ -447,6 +470,7 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
         device_name="kitchen",
         device_friendly_name="AC Float Monitor 32",
         target_esphome_version=_esphome_version,
+        skip_bootloader=False,
     )
 
 
@@ -484,6 +508,7 @@ async def test_remote_compile_falls_through_when_no_device_matches(
         device_name="",
         device_friendly_name="",
         target_esphome_version=_esphome_version,
+        skip_bootloader=False,
     )
 
 

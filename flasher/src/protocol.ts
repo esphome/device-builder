@@ -69,15 +69,43 @@ export interface FirmwareMessage {
   // ready-frame gate is the only guard on the receivers already deployed.
   // A receiver refuses a frame whose flasher it did not list, and the id may
   // be one a newer opener knows and the receiver does not.
-  // For 'rtl-ambz2', 'rp2-picoboot' and 'bk-uart' the parts are the UF2 as one
-  // part at address 0, which the receiver parses into flash runs itself; for
-  // 'nrf-dfu' the DFU package the same way, which the receiver unpacks.
+  // For 'rtl-ambz2', 'rp2-picoboot', 'bk-uart', 'ln-uart' and 'rtl-ambz' the
+  // parts are the UF2 as one part at address 0, which the receiver parses into
+  // flash runs itself; for 'nrf-dfu' the DFU package the same way, which the
+  // receiver unpacks.
   flasher?: HandoffFlasher;
   // Where the device's serial logs are, when the opener knows; absent means
   // elsewhere or unknown.
   logs?: HandoffLogs;
+  // The baud the device logs at, when the opener knows it; absent means
+  // ESPHome's default. An older receiver ignores it and opens the logs at
+  // the default.
+  logBaudRate?: number;
   parts: FlashPart[];
 }
+
+// ESPHome's default UART log baud.
+export const LOG_BAUD_RATE = 115200;
+
+// Plausible UART rates; anything else in the untrusted frame is ignored.
+const MIN_LOG_BAUD_RATE = 300;
+const MAX_LOG_BAUD_RATE = 4_000_000;
+
+// The inbound 'logBaudRate' field, or undefined for anything that is not a
+// plausible baud.
+export const handoffLogBaudRateOf = (value: unknown): number | undefined =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= MIN_LOG_BAUD_RATE &&
+  value <= MAX_LOG_BAUD_RATE
+    ? value
+    : undefined;
+
+// The baud to read a handed-off device's logs at, or null when it has none.
+// 'logBaudRate' is the one already checked when the frame arrived.
+export const handoffLogBaud = (
+  firmware: Pick<FirmwareMessage, "logs" | "logBaudRate">,
+): number | null => (firmware.logs === "off" ? null : (firmware.logBaudRate ?? LOG_BAUD_RATE));
 
 // 'flash-port': on the port the flash goes over; 'off': the device has none.
 export type HandoffLogs = "flash-port" | "off";
@@ -85,15 +113,18 @@ export type HandoffLogs = "flash-port" | "off";
 // The flasher a hand-off is for, by an id both apps share: 'esp' is esptool
 // (ESP32 / ESP8266), 'rtl-ambz2' the RTL8720C ROM downloader, 'rp2-picoboot'
 // PICOBOOT for the RP2040, 'nrf-dfu' Nordic legacy DFU for the nRF52, 'bk-uart'
-// the UART downloader of a Beken BK72xx. Named after the flasher, not the
-// platform: rtl87xx covers the RTL8710B too, whose ROM speaks another protocol
-// and gets its own id when it lands.
+// the UART downloader of a Beken BK72xx, 'ln-uart' the LN882H's BootROM and the
+// RAM code it loads, 'rtl-ambz' the RTL8710B (AmebaZ) ROM downloader. Named
+// after the flasher, not the platform: rtl87xx covers both Realtek ids, whose
+// ROMs speak different protocols.
 export type HandoffFlasher =
   | "esp"
   | "rtl-ambz2"
   | "rp2-picoboot"
   | "nrf-dfu"
-  | "bk-uart";
+  | "bk-uart"
+  | "ln-uart"
+  | "rtl-ambz";
 
 export type FlashState =
   | "connecting"

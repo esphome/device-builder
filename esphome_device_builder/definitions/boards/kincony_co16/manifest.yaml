@@ -71,6 +71,8 @@ featured_components:
     clock_speed:
       value: 16MHz
       locked: true
+  requires:
+  - onboard_psram
 source:
   type: esphome-devices
   remote_id: KinCony-CO16

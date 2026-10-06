@@ -603,6 +603,7 @@ def make_submit_job_frames(
     bundle: bytes,
     device_name: str = "",
     device_friendly_name: str = "",
+    skip_bootloader: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Build the wire-shape ``submit_job`` header + chunk frames for *bundle*.
 
@@ -646,6 +647,7 @@ def make_submit_job_frames(
         "bundle_sha256": compute_bundle_sha256(bundle),
         "device_name": device_name,
         "device_friendly_name": device_friendly_name,
+        "skip_bootloader": skip_bootloader,
     }
     return header, chunks
 

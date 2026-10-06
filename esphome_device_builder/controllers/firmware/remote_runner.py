@@ -447,6 +447,8 @@ async def _submit_job_to_receiver(
             # differs from its installed version, so its compile matches
             # what this offloader would have built locally.
             target_esphome_version=_offloader_esphome_version,
+            # The receiver gates this on the esphome it actually runs.
+            skip_bootloader=job.skip_bootloader,
         )
     except _PEER_LINK_ACKED_REQUEST_ERRORS as exc:
         _fail_locally(controller, job, reason=f"dispatch failed: {exc}")
