@@ -15,6 +15,8 @@ synthesized ``pins[]`` block with orphan GPIO labels.
 
 from __future__ import annotations
 
+import pytest
+
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
     _expander_keys,
     _extract_expander_hubs,
@@ -635,3 +637,44 @@ def test_extract_expander_hubs_lifts_a_hub_once_when_selected_by_id_and_address(
     consumers = [e for e in featured if e["component_id"] == "binary_sensor.gpio"]
     assert len(consumers) == 2
     assert all(c["requires"] == ["bus_a", "hub_x"] for c in consumers)
+
+
+def test_extract_expander_hubs_ambiguous_address_warns(caplog: pytest.LogCaptureFixture) -> None:
+    """Two hubs at the selected address drop the consumer and say why."""
+    config = _expander_config(
+        pcf8574=[{"id": "hub_x", "address": 0x22}, {"id": "hub_y", "address": 0x22}]
+    ) | {
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "Input 1",
+                "pin": {"pcf8574": {"address": 0x22}, "number": 4},
+            }
+        ]
+    }
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    assert extra == []
+    assert "2 hub blocks share address 0x22" in caplog.text
+
+
+def test_extract_expander_hubs_address_first_then_id_on_idless_hub() -> None:
+    """An id-less hub reached by address then by id locks that id; requires use the local id."""
+    config = _expander_config(pcf8574=[{"address": 0x21}]) | {
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "By address",
+                "pin": {"pcf8574": {"address": 0x21}, "number": 2},
+            },
+            {"platform": "gpio", "name": "By id", "pin": {"pcf8574": "hub_x", "number": 1}},
+        ]
+    }
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    hubs = [e for e in extra if e["component_id"] == "pcf8574"]
+    assert len(hubs) == 1
+    assert hubs[0]["fields"]["id"] == {"value": "hub_x", "locked": True}
+    assert hubs[0]["fields"]["address"] == {"value": 0x21, "locked": True}
+    consumers = [e for e in featured if e["component_id"] == "binary_sensor.gpio"]
+    assert all(c["requires"] == ["bus_a", hubs[0]["id"]] for c in consumers)

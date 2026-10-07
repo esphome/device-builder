@@ -78,10 +78,12 @@ from script._board_import import (  # noqa: E402
     safe_load_yaml,
 )
 from script._expander_pins import (  # noqa: E402
-    address_hub_ref,
+    catalog_address_default,
     expander_hub_ref,
     is_address_ref,
-    ref_address,
+    lock_hub_identity,
+    match_address_block,
+    merge_alias_refs,
 )
 from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
@@ -1587,10 +1589,7 @@ def _find_hub_block(
     """
     blocks = _block_mappings(raw)
     if is_address_ref(instance_id):
-        matches = [
-            b for b in blocks if address_hub_ref(b.get("address", default_address)) == instance_id
-        ]
-        return matches[0] if len(matches) == 1 else None
+        return match_address_block(blocks, instance_id, default_address)
     for block in blocks:
         if block.get("id") == instance_id:
             return block
@@ -1817,14 +1816,6 @@ def _drop_unresolved_consumers(
     consumers[:] = [(entry, refs) for entry, refs in consumers if id(entry) not in dropped]
 
 
-def _catalog_default(component: dict[str, Any] | None, key: str) -> Any:
-    """Return the catalog ``default_value`` of *component*'s *key* entry, else ``None``."""
-    for ce in (component or {}).get("config_entries") or []:
-        if ce.get("key") == key:
-            return ce.get("default_value")
-    return None
-
-
 def _unique_local_id(base: str, used: set[str], fallback: str) -> str:
     """Return *base* (or *fallback*) made unique against *used*."""
     candidate = base or fallback
@@ -1952,7 +1943,7 @@ def _extract_expander_hubs(
             None
             if instance_id is None
             else _find_hub_block(
-                config.get(cid), instance_id, _catalog_default(components_index.get(cid), "address")
+                config.get(cid), instance_id, catalog_address_default(components_index.get(cid))
             )
         ),
         driver=False,
@@ -2024,7 +2015,7 @@ def _materialize_hubs(
             continue
         state.occupancy.update(hub_occ)
         bus_ids, bus_refs = _ensure_buses(hub_component, block, state)
-        upstream_id = _lock_hub_identity(fields, instance_id, block)
+        upstream_id = lock_hub_identity(fields, instance_id, block)
         base = _sanitize_local_id(upstream_id) if upstream_id else ""
         hub_id = _unique_local_id(base, used_ids, f"{hub_cid}{'_hub' if driver else ''}")
         used_ids.add(hub_id)
@@ -2039,38 +2030,11 @@ def _materialize_hubs(
         hub_prereqs[ref] = [*bus_ids, hub_id]
         lifted_hubs[ref] = (fields, block)
 
-    _merge_alias_refs(aliases, hub_prereqs, lifted_hubs)
+    merge_alias_refs(aliases, hub_prereqs, lifted_hubs)
     if not driver:
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
     return state.extra, state.occupancy
-
-
-def _merge_alias_refs(
-    aliases: dict[tuple[str, str | None], tuple[str, str | None]],
-    hub_prereqs: dict[tuple[str, str | None], list[str]],
-    lifted_hubs: dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any]]],
-) -> None:
-    """Point each alias ref at its first lift's prerequisites and lock its identity there too."""
-    for ref, first in aliases.items():
-        if first in hub_prereqs:
-            hub_prereqs[ref] = hub_prereqs[first]
-            fields, block = lifted_hubs[first]
-            _lock_hub_identity(fields, ref[1], block)
-
-
-def _lock_hub_identity(
-    fields: dict[str, Any], instance_id: str | None, block: dict[str, Any]
-) -> str | None:
-    """Lock the hub ``id`` and/or ``address`` a pin ref resolves against; return the upstream id."""
-    by_address = bool(instance_id) and is_address_ref(instance_id)
-    upstream_id = block.get("id") if by_address else instance_id
-    if by_address:
-        fields["address"] = {"value": ref_address(instance_id), "locked": True}
-    if not isinstance(upstream_id, str) or not upstream_id:
-        return None
-    fields["id"] = {"value": upstream_id, "locked": True}
-    return upstream_id
 
 
 def _required_pin_keys(valid_keys: dict[str, dict[str, Any]]) -> set[str]:
