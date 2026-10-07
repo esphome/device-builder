@@ -6,11 +6,7 @@ from typing import Any
 
 
 def expander_hub_ref(hub: Any) -> str | None:
-    """
-    Normalise an expander pin's hub value to its ref, or ``None`` when unresolvable.
-
-    A hub id passes through; ``{address: 0x44}`` becomes ``@0x44``.
-    """
+    """Return *hub*'s ref: the hub id, ``@0x44`` for ``{address: 0x44}``, else ``None``."""
     if isinstance(hub, str):
         return hub or None
     if isinstance(hub, dict) and hub.keys() == {"address"}:

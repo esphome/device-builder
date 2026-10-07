@@ -534,15 +534,15 @@ def _expander_keys(pin_value: Any) -> set[str]:
     """Return provider keys in a long-form pin dict that reference an I/O-expander hub.
 
     A provider key is any key beyond the standard board-GPIO ``BOARD_PIN_KEYS``
-    whose value is a hub instance id, or a hub selector mapping on a pin with a ``number``.
+    whose value is a hub instance id or an ``{address: ...}`` hub selector.
     """
     if not isinstance(pin_value, dict):
         return set()
-    has_number = "number" in pin_value
     return {
         k
         for k in pin_value.keys() - BOARD_PIN_KEYS
-        if isinstance(pin_value[k], str) or (has_number and isinstance(pin_value[k], dict))
+        if isinstance(pin_value[k], str)
+        or (isinstance(pin_value[k], dict) and pin_value[k].keys() == {"address"})
     }
 
 
@@ -1577,8 +1577,7 @@ def _find_hub_block(
     """
     Return the top-level hub block (``pcf8574:``) a pin's expander ref resolves to.
 
-    An address ref (``@0x44``) matches the sole block at that address; a block
-    without ``address:`` sits at *default_address*.
+    An address ref (``@0x44``) matches the sole block at that address (else *default_address*).
     Otherwise prefers an exact ``id`` match. Falls back to the sole block when the
     provider has exactly one and it carries no ``id`` — the source left the
     single hub's id implicit (ESPHome auto-generates one), so the pin's
@@ -1602,23 +1601,27 @@ def _find_hub_block(
 
 def _collect_expander_refs(
     featured: list[dict[str, Any]], components_index: dict[str, dict[str, Any]]
-) -> tuple[list[tuple[dict[str, Any], list[tuple[str, str]]]], list[tuple[str, str]]]:
+) -> tuple[list[tuple[dict[str, Any], list[tuple[str, str | None]]]], list[tuple[str, str | None]]]:
     """Find expander ``(hub_component_id, instance_id)`` refs in featured pin presets.
 
     Returns the consumers paired with their refs, plus the de-duplicated refs in
-    first-seen order.
+    first-seen order; an unresolvable hub has a ``None`` instance id.
     """
-    consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]] = []
-    ordered_refs: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = []
+    ordered_refs: list[tuple[str, str | None]] = []
+    seen: set[tuple[str, str | None]] = set()
     for entry in featured:
-        refs: list[tuple[str, str]] = []
+        refs: list[tuple[str, str | None]] = []
         for preset in entry.get("fields", {}).values():
             value = preset.get("value") if isinstance(preset, dict) else None
             for key in _expander_keys(value):
                 if key not in components_index:
                     continue
-                ref = (key, expander_hub_ref(value[key]) or _UNRESOLVED_HUB_REF)
+                if (hub_ref := expander_hub_ref(value[key])) is None:
+                    _LOGGER.warning(
+                        "%s: unresolvable %s hub %r", entry.get("component_id"), key, value[key]
+                    )
+                ref = (key, hub_ref)
                 refs.append(ref)
                 if ref not in seen:
                     seen.add(ref)
@@ -1626,10 +1629,6 @@ def _collect_expander_refs(
         if refs:
             consumers.append((entry, refs))
     return consumers, ordered_refs
-
-
-# An address ref no hub block matches, so an unresolvable hub selector drops its consumer.
-_UNRESOLVED_HUB_REF = "@"
 
 
 @dataclass(frozen=True)
@@ -1790,8 +1789,8 @@ def _wire_consumer_requires(
 
 def _drop_unresolved_consumers(
     featured: list[dict[str, Any]],
-    consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]],
-    hub_prereqs: dict[tuple[str, str], list[str]],
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
+    hub_prereqs: dict[tuple[str, str | None], list[str]],
 ) -> None:
     """
     Drop (in place) consumers whose hub couldn't be materialized.
@@ -1806,9 +1805,14 @@ def _drop_unresolved_consumers(
     }
     if not dropped:
         return
-    for entry, _ in consumers:
+    for entry, refs in consumers:
         if id(entry) in dropped:
-            _LOGGER.info("Dropping %s: its expander hub could not be lifted", entry.get("id"))
+            _LOGGER.info(
+                "Dropping %s (%s): expander hub %s could not be lifted",
+                entry.get("id"),
+                entry.get("component_id"),
+                [ref for ref in refs if ref not in hub_prereqs],
+            )
     featured[:] = [entry for entry in featured if id(entry) not in dropped]
     consumers[:] = [(entry, refs) for entry, refs in consumers if id(entry) not in dropped]
 
@@ -1944,8 +1948,12 @@ def _extract_expander_hubs(
         components_index,
         consumers,
         ordered_refs,
-        resolve_block=lambda cid, instance_id: _find_hub_block(
-            config.get(cid), instance_id, _catalog_default(components_index.get(cid), "address")
+        resolve_block=lambda cid, instance_id: (
+            None
+            if instance_id is None
+            else _find_hub_block(
+                config.get(cid), instance_id, _catalog_default(components_index.get(cid), "address")
+            )
         ),
         driver=False,
     )
@@ -2041,12 +2049,7 @@ def _materialize_hubs(
 def _lock_hub_identity(
     fields: dict[str, Any], instance_id: str | None, block: dict[str, Any]
 ) -> str | None:
-    """
-    Lock the hub fields a consumer's pin ref resolves against; return the upstream id.
-
-    An id ref locks ``id``; an address ref (``@0x44``) locks ``address`` plus the
-    block's own ``id`` when it declares one. ``None`` when there is no upstream id.
-    """
+    """Lock the hub ``id`` and/or ``address`` a pin ref resolves against; return the upstream id."""
     by_address = bool(instance_id) and is_address_ref(instance_id)
     upstream_id = block.get("id") if by_address else instance_id
     if by_address:

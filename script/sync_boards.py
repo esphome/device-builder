@@ -1020,6 +1020,10 @@ def _canonical_pin(value: Any) -> int | str | None:
             hub_ref = expander_hub_ref(hub)
             if hub_ref and isinstance(channel, int) and not isinstance(channel, bool):
                 return f"{provider}:{hub_ref}:{channel}"
+            if hub_ref is None:
+                _LOGGER.warning(
+                    "Unresolvable %s hub %r; pin left out of locked_pins", provider, hub
+                )
             return None
     return _canonical_gpio(value)
 

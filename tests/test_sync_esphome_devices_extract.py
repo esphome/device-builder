@@ -575,9 +575,10 @@ def test_extract_expander_hubs_unmatched_address_drops_consumer() -> None:
     assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
 
 
-def test_expander_keys_ignores_mapping_without_number() -> None:
-    """A pin-group tree's mapping children aren't hub selectors."""
+def test_expander_keys_ignores_non_selector_mappings() -> None:
+    """Only an ``{address: ...}`` mapping is a hub selector; pin-group trees aren't."""
     assert _expander_keys({"a": {"number": 1}, "b": {"number": 2}}) == set()
+    assert _expander_keys({"pcf8574": {"bogus": 1}, "number": 4}) == set()
 
 
 def test_extract_expander_hubs_unresolvable_selector_drops_consumer() -> None:
