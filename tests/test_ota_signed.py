@@ -163,3 +163,18 @@ def test_load_device_ota_signing_key_non_esp32(tmp_path: Path) -> None:
     write_storage_json(tmp_path, "lamp.yaml", overrides={"core_platform": "esp8266"})
 
     assert load_device_from_storage(yaml_path).ota_signing_key is False
+
+
+def test_load_device_ota_signing_key_from_validated_cache(tmp_path: Path) -> None:
+    """A ``signing_key`` visible only in the validated-config cache still arms the flag."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+    cache = tmp_path / ".esphome" / "storage" / "lamp.yaml.validated.yaml"
+    cache.write_text(
+        "esp32:\n  framework:\n    advanced:\n      signed_ota_verification:\n"
+        "        signing_key: key.pem\n",
+        encoding="utf-8",
+    )
+
+    assert load_device_from_storage(yaml_path).ota_signing_key is True

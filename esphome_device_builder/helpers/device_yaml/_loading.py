@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -407,7 +407,9 @@ def load_device_from_storage(
         ),
         ota_signing_key=target_platform == "esp32"
         and not shallow
-        and _has_ota_signing_key(resolved_config),
+        and (
+            _has_ota_signing_key(resolved_config) or compiled_config_has_ota_signing_key(filename)
+        ),
     )
 
 
@@ -605,17 +607,14 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
     config, materially larger than the source YAML, and this runs per
     device reload.
     """
-    path = find_validated_cache(configuration)
-    if path is None:
-        return False
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if _CONF_ALLOW_PARTITION_ACCESS not in text:
-        return False
-    config = parse_validated_cache(path, text)
-    return config is not None and extract_ota_partition_access(config)
+    return _compiled_config_matches(
+        configuration, _CONF_ALLOW_PARTITION_ACCESS, extract_ota_partition_access
+    )
+
+
+def compiled_config_has_ota_signing_key(configuration: str) -> bool:
+    """Report whether the last compile's validated-config cache sets an OTA ``signing_key``."""
+    return _compiled_config_matches(configuration, "signing_key", _has_ota_signing_key)
 
 
 def _has_ota_signing_key(config: dict | None) -> bool:
@@ -626,3 +625,20 @@ def _has_ota_signing_key(config: dict | None) -> bool:
             return False
         node = node.get(key)
     return isinstance(node, dict) and "signing_key" in node
+
+
+def _compiled_config_matches(
+    configuration: str, marker: str, predicate: Callable[[dict], bool]
+) -> bool:
+    """Apply *predicate* to the validated-config cache; skip the parse when *marker* is absent."""
+    path = find_validated_cache(configuration)
+    if path is None:
+        return False
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if marker not in text:
+        return False
+    config = parse_validated_cache(path, text)
+    return config is not None and predicate(config)
