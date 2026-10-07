@@ -1990,6 +1990,7 @@ def _materialize_hubs(
     # A block reached through two refs (by id and by address) lifts once.
     lifted: dict[int, tuple[str, str | None]] = {}
     aliases: dict[tuple[str, str | None], tuple[str, str | None]] = {}
+    lifted_hubs: dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any]]] = {}
     for hub_cid, instance_id in ordered_refs:
         hub_component = components_index.get(hub_cid)
         block = resolve_block(hub_cid, instance_id)
@@ -2036,14 +2037,26 @@ def _materialize_hubs(
             hub_entry["requires"] = bus_ids
         state.extra.append(hub_entry)
         hub_prereqs[ref] = [*bus_ids, hub_id]
+        lifted_hubs[ref] = (fields, block)
 
-    hub_prereqs.update(
-        {ref: hub_prereqs[first] for ref, first in aliases.items() if first in hub_prereqs}
-    )
+    _merge_alias_refs(aliases, hub_prereqs, lifted_hubs)
     if not driver:
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
     return state.extra, state.occupancy
+
+
+def _merge_alias_refs(
+    aliases: dict[tuple[str, str | None], tuple[str, str | None]],
+    hub_prereqs: dict[tuple[str, str | None], list[str]],
+    lifted_hubs: dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any]]],
+) -> None:
+    """Point each alias ref at its first lift's prerequisites and lock its identity there too."""
+    for ref, first in aliases.items():
+        if first in hub_prereqs:
+            hub_prereqs[ref] = hub_prereqs[first]
+            fields, block = lifted_hubs[first]
+            _lock_hub_identity(fields, ref[1], block)
 
 
 def _lock_hub_identity(

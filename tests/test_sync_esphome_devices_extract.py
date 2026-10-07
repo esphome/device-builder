@@ -630,6 +630,8 @@ def test_extract_expander_hubs_lifts_a_hub_once_when_selected_by_id_and_address(
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
     hubs = [e for e in extra if e["component_id"] == "pcf8574"]
     assert [h["id"] for h in hubs] == ["hub_x"]
+    assert hubs[0]["fields"]["id"] == {"value": "hub_x", "locked": True}
+    assert hubs[0]["fields"]["address"] == {"value": 0x21, "locked": True}
     consumers = [e for e in featured if e["component_id"] == "binary_sensor.gpio"]
     assert len(consumers) == 2
     assert all(c["requires"] == ["bus_a", "hub_x"] for c in consumers)
