@@ -78,6 +78,7 @@ def load_device_from_storage(
     *,
     deployed_config_hash: str = "",
     deployed_version: str = "",
+    network: str = "",
     queued_update: bool = False,
     api_encryption_active: str | None = None,
     deployed_name: str = "",
@@ -205,6 +206,7 @@ def load_device_from_storage(
         else DeviceRuntimeState(
             deployed_config_hash=deployed_config_hash,
             deployed_version=deployed_version,
+            network=network,
             api_encryption_active=api_encryption_active,
             queued_update=queued_update,
             offline_since=offline_since,

@@ -615,6 +615,7 @@ def test_store_fields_pinned() -> None:
                 "deployed_config_hash",
                 "deployed_version",
                 "deployed_name",
+                "network",
                 "queued_update",
                 "api_encryption_active",
                 "expected_config_hash",

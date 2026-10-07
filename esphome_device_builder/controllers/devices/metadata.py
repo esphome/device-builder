@@ -128,6 +128,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             labels = ()
         deployed_config_hash = str(store_md.get("deployed_config_hash", ""))
         deployed_version = str(store_md.get("deployed_version", ""))
+        network = str(store_md.get("network", ""))
         queued_update = bool(store_md.get("queued_update", False))
         deployed_name = str(store_md.get("deployed_name", ""))
         raw_api_encryption = store_md.get("api_encryption_active")
@@ -147,6 +148,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             labels=labels,
             deployed_config_hash=deployed_config_hash,
             deployed_version=deployed_version,
+            network=network,
             queued_update=queued_update,
             api_encryption_active=api_encryption_active,
             deployed_name=deployed_name,

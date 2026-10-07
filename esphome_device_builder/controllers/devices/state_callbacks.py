@@ -236,6 +236,11 @@ def on_api_encryption_change(controller: DevicesController, name: str, encryptio
         controller._fire_device_updated(device)
 
 
+def on_network_change(controller: DevicesController, name: str, network: str) -> None:
+    """Apply the link (``wifi`` / ``ethernet`` / ``thread``) the device announced over."""
+    _apply_logged_observation(controller, name, "network", network, log_label="network")
+
+
 def on_config_hash_change(controller: DevicesController, name: str, config_hash: str) -> None:
     """Apply a running-firmware config hash observed via mDNS."""
 

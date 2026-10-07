@@ -65,7 +65,7 @@ class DeviceRuntimeState(DashboardModel):
 
     Populated by the mDNS / MQTT / ping monitors after startup; the
     fields the metadata sidecar persists (``deployed_version``,
-    ``deployed_config_hash``, ``queued_update``,
+    ``deployed_config_hash``, ``network``, ``queued_update``,
     ``api_encryption_active``) are also seeded from disk on cold load,
     while ``state`` / ``active_source`` / ``ip_addresses`` /
     ``deployed_identity_live`` start empty and repopulate on the next
@@ -98,6 +98,9 @@ class DeviceRuntimeState(DashboardModel):
     # how we tell "flashed with the latest compile" apart from
     # "compile succeeded but device still runs older firmware".
     deployed_config_hash: str = ""
+    # Link from the ``network`` TXT (``"wifi"`` / ``"ethernet"`` / ``"thread"``);
+    # empty until announced.
+    network: str = ""
     # True once a local offline compile finished successfully and is
     # waiting to be flashed via OTA upon the next mDNS check-in.
     queued_update: bool = False
