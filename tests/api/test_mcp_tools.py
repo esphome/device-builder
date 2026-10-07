@@ -524,6 +524,23 @@ async def test_get_automation_docs_caps_the_refs_per_call(
     bodies.assert_not_awaited()
 
 
+async def test_get_automation_docs_follows_remaining_pages(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    a_ref = {"type": "actions", "id": "a"}
+    b_ref = {"type": "actions", "id": "b"}
+    bodies = AsyncMock(
+        side_effect=[
+            {"bodies": {"actions/a": {"id": "a"}}, "remaining": [b_ref]},
+            {"bodies": {"actions/b": {"id": "b"}}, "remaining": []},
+        ]
+    )
+    mcp_db.command_handlers["automations/get_bodies"] = bodies
+    docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": [a_ref, b_ref]})
+    assert set(docs) == {"actions/a", "actions/b"}
+    assert [c.kwargs["refs"] for c in bodies.await_args_list] == [[a_ref, b_ref], [b_ref]]
+
+
 async def test_get_automation_docs_hides_advanced_fields_unless_asked(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
@@ -535,7 +552,7 @@ async def test_get_automation_docs_hides_advanced_fields_unless_asked(
             {"key": "internal", "hidden": True},
         ],
     }
-    bodies = AsyncMock(return_value={"actions/x": body})
+    bodies = AsyncMock(return_value={"bodies": {"actions/x": body}, "remaining": []})
     mcp_db.command_handlers["automations/get_bodies"] = bodies
     refs = [{"type": "actions", "id": "x"}]
     docs = await mcp_call_json(mcp_client, "get_automation_docs", {"refs": refs})
@@ -564,7 +581,12 @@ async def test_automation_tools_wrap_the_automation_commands(
     mcp_db.command_handlers["automations/get_available"] = AsyncMock(
         return_value={"triggers": ["on_boot"], "actions": ["light.turn_on"], "scripts": []}
     )
-    bodies = AsyncMock(return_value={"actions/light.turn_on": {"id": "light.turn_on"}})
+    bodies = AsyncMock(
+        return_value={
+            "bodies": {"actions/light.turn_on": {"id": "light.turn_on"}},
+            "remaining": [],
+        }
+    )
     mcp_db.command_handlers["automations/get_bodies"] = bodies
     delete = AsyncMock(return_value={"yaml_diff": {"fromLine": 2, "toLine": 2, "replacement": ""}})
     mcp_db.command_handlers["automations/delete"] = delete

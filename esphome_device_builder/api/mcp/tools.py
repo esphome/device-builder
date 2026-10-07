@@ -514,7 +514,12 @@ async def _get_available_automations(db: DeviceBuilder, args: dict[str, Any]) ->
 )
 async def _get_automation_docs(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     keys = [f"{ref['type']}/{ref['id']}" for ref in args["refs"]]
-    bodies = await _call(db, "automations/get_bodies", refs=args["refs"])
+    bodies: dict[str, Any] = {}
+    refs = args["refs"]
+    while refs:
+        page = await _call(db, "automations/get_bodies", refs=refs)
+        bodies.update(page["bodies"])
+        refs = page["remaining"]
     if missing := [key for key in keys if key not in bodies]:
         raise CommandError(ErrorCode.NOT_FOUND, f"Unknown automation refs: {', '.join(missing)}")
     return _visible(bodies, include_advanced=args["include_advanced"])

@@ -20,6 +20,7 @@ import logging
 from collections.abc import Callable
 from functools import cache
 from importlib import resources
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from mashumaro.mixins.orjson import DataClassORJSONMixin
@@ -55,6 +56,12 @@ _BODIES_PACKAGE = "esphome_device_builder.definitions.automations"
 # bodies including referenced triggers / actions). 128 matches
 # the components catalog default.
 _BODY_CACHE_MAXSIZE = 128
+
+# Byte budget for one ``automations/get_bodies`` reply, under the 16 MiB
+# WebSocket message cap Home Assistant's ingress proxy enforces.
+GET_BODIES_MAX_BYTES = 4 * 1024 * 1024
+
+_body_sizes_cache: dict[tuple[str, str], int] = {}
 
 
 def _load_body_from_disk[BodyT: DataClassORJSONMixin](
@@ -345,13 +352,21 @@ class AutomationBodyRef(TypedDict):
 
 
 async def get_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
-    """Resolve a batch of ``{type, id}`` refs to the wire response.
+    """Resolve every ref in *refs*; see :func:`get_bodies_page`."""
+    bodies, _ = await get_bodies_page(refs)
+    return bodies
 
-    Single executor hop covers every cross-type miss. Cache hits
-    return without IO. Unknown types, unknown ids, and missing-on-
-    disk bodies are absent from the response. Duplicate
-    ``(type, id)`` pairs collapse to one entry. Response is keyed
-    by ``"<type>/<id>"``.
+
+async def get_bodies_page(
+    refs: list[AutomationBodyRef], max_bytes: int | None = None
+) -> tuple[dict[str, dict], list[AutomationBodyRef]]:
+    """
+    Resolve refs to ``"<type>/<id>"``-keyed bodies, stopping at *max_bytes*.
+
+    Returns ``(bodies, remaining)``; refs past the budget are left unloaded in
+    ``remaining``, and the first body is always returned so a caller looping
+    on ``remaining`` makes progress. Unknown types, unknown ids, and
+    missing-on-disk bodies are absent; duplicate refs collapse to one entry.
 
     Trades :class:`LazyBodyStore`'s same-id ``asyncio.Lock``
     coalescing for the single-hop cross-store batch — two
@@ -361,20 +376,16 @@ async def get_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
     here without restoring per-store ``get_many`` (which
     re-introduces the per-type executor hops).
     """
+    wanted = _known_refs(refs)
+    remaining: list[AutomationBodyRef] = []
+    if max_bytes is not None and len(wanted) > 1:
+        sizes = _body_sizes_cache or await asyncio.to_thread(_load_body_sizes)
+        wanted, deferred = _split_at_budget(wanted, sizes, max_bytes)
+        remaining = [{"type": type_key, "id": cid} for type_key, cid, _ in deferred]
+
     result: dict[str, dict] = {}
     misses: list[tuple[str, str, LazyBodyStore[Any]]] = []
-    seen: set[tuple[str, str]] = set()
-    for ref in refs:
-        if not isinstance(ref, dict):
-            continue
-        type_key = ref.get("type", "")
-        cid = ref.get("id", "")
-        if not type_key or not cid or (type_key, cid) in seen:
-            continue
-        seen.add((type_key, cid))
-        store = _STORES_BY_TYPE.get(type_key)
-        if store is None or not store.is_known(cid):
-            continue
+    for type_key, cid, store in wanted:
         cached = store.try_get_cached(cid)
         if cached is not None:
             result[f"{type_key}/{cid}"] = cached.to_dict()
@@ -382,7 +393,7 @@ async def get_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
         misses.append((type_key, cid, store))
 
     if not misses:
-        return result
+        return result, remaining
 
     def _load_all() -> list[tuple[str, str, Any]]:
         return [(t, cid, store.load_one_sync(cid)) for t, cid, store in misses]
@@ -393,7 +404,7 @@ async def get_bodies(refs: list[AutomationBodyRef]) -> dict[str, dict]:
             continue
         _STORES_BY_TYPE[type_key].cache_put(cid, body)
         result[f"{type_key}/{cid}"] = body.to_dict()
-    return result
+    return result, remaining
 
 
 # ---------------------------------------------------------------------------
@@ -445,3 +456,48 @@ def _filter_by_domain_slim[T: (AutomationActionIndex, AutomationConditionIndex)]
         elif item.domain in domain_set:
             scoped.append(item)
     return core + universal + scoped
+
+
+def _known_refs(refs: list[AutomationBodyRef]) -> list[tuple[str, str, LazyBodyStore[Any]]]:
+    """Dedupe *refs* and drop malformed, unknown-type, and unknown-id entries."""
+    wanted: list[tuple[str, str, LazyBodyStore[Any]]] = []
+    seen: set[tuple[str, str]] = set()
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        type_key = ref.get("type", "")
+        cid = ref.get("id", "")
+        if not type_key or not cid or (type_key, cid) in seen:
+            continue
+        seen.add((type_key, cid))
+        store = _STORES_BY_TYPE.get(type_key)
+        if store is None or not store.is_known(cid):
+            continue
+        wanted.append((type_key, cid, store))
+    return wanted
+
+
+def _split_at_budget[T: tuple[str, str, Any]](
+    wanted: list[T], sizes: dict[tuple[str, str], int], max_bytes: int
+) -> tuple[list[T], list[T]]:
+    """Split *wanted* at the first ref whose body pushes the total past *max_bytes*."""
+    total = 0
+    for index, (type_key, cid, _) in enumerate(wanted):
+        total += sizes.get((type_key, cid), 0)
+        if total > max_bytes and index:
+            return wanted[:index], wanted[index:]
+    return wanted, []
+
+
+def _load_body_sizes() -> dict[tuple[str, str], int]:
+    """Read every body file's on-disk size, an upper bound on its serialized size."""
+    root = resources.files(_BODIES_PACKAGE)
+    for type_key in _STORES_BY_TYPE:
+        try:
+            for entry in root.joinpath(type_key).iterdir():
+                if entry.name.endswith(".json"):
+                    size = Path(str(entry)).stat().st_size
+                    _body_sizes_cache[(type_key, entry.name[:-5])] = size
+        except OSError:
+            continue
+    return _body_sizes_cache
