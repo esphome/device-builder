@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.helpers.device_yaml import load_device_from_storage
 from esphome_device_builder.models import EventType
 from tests._storage_fixtures import write_storage_json
@@ -70,6 +71,19 @@ def test_repeated_announce_dedupes() -> None:
     monitor.mdns._apply_txt_properties("kitchen", props)
 
     assert _signed_calls(callbacks) == [("on_ota_signed_change", "kitchen", True)]
+
+
+def test_apply_without_callback_is_noop() -> None:
+    """An unwired ``on_ota_signed_change`` drops the observation."""
+    device = make_device()
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [device],
+        on_state_change=lambda *_a: None,
+        on_ip_change=lambda *_a: None,
+    )
+
+    assert monitor._apply_ota_signed("kitchen", signed=True) is False
+    assert device.runtime_state.ota_signed is False
 
 
 async def test_controller_callback_updates_device_and_fires_event() -> None:
