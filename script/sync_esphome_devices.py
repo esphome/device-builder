@@ -77,7 +77,12 @@ from script._board_import import (  # noqa: E402
     read_manifest_dict,
     safe_load_yaml,
 )
-from script._expander_pins import address_hub_ref, expander_hub_ref, is_address_ref  # noqa: E402
+from script._expander_pins import (  # noqa: E402
+    address_hub_ref,
+    expander_hub_ref,
+    is_address_ref,
+    ref_address,
+)
 from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
 
@@ -529,11 +534,16 @@ def _expander_keys(pin_value: Any) -> set[str]:
     """Return provider keys in a long-form pin dict that reference an I/O-expander hub.
 
     A provider key is any key beyond the standard board-GPIO ``BOARD_PIN_KEYS``
-    whose value is a hub instance id or an ``{address: ...}`` hub selector.
+    whose value is a hub instance id, or a hub selector mapping on a pin with a ``number``.
     """
     if not isinstance(pin_value, dict):
         return set()
-    return {k for k in pin_value.keys() - BOARD_PIN_KEYS if isinstance(pin_value[k], str | dict)}
+    has_number = "number" in pin_value
+    return {
+        k
+        for k in pin_value.keys() - BOARD_PIN_KEYS
+        if isinstance(pin_value[k], str) or (has_number and isinstance(pin_value[k], dict))
+    }
 
 
 def _resolve_soc(
@@ -1561,11 +1571,14 @@ def _block_mappings(raw: Any) -> list[dict[str, Any]]:
     return [block for block in _as_block_list(raw) if isinstance(block, dict)]
 
 
-def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
+def _find_hub_block(
+    raw: Any, instance_id: str, default_address: Any = None
+) -> dict[str, Any] | None:
     """
     Return the top-level hub block (``pcf8574:``) a pin's expander ref resolves to.
 
-    An address ref (``@0x44``) matches the sole block declaring that address.
+    An address ref (``@0x44``) matches the sole block at that address; a block
+    without ``address:`` sits at *default_address*.
     Otherwise prefers an exact ``id`` match. Falls back to the sole block when the
     provider has exactly one and it carries no ``id`` — the source left the
     single hub's id implicit (ESPHome auto-generates one), so the pin's
@@ -1575,7 +1588,9 @@ def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
     """
     blocks = _block_mappings(raw)
     if is_address_ref(instance_id):
-        matches = [b for b in blocks if address_hub_ref(b.get("address")) == instance_id]
+        matches = [
+            b for b in blocks if address_hub_ref(b.get("address", default_address)) == instance_id
+        ]
         return matches[0] if len(matches) == 1 else None
     for block in blocks:
         if block.get("id") == instance_id:
@@ -1601,10 +1616,9 @@ def _collect_expander_refs(
         for preset in entry.get("fields", {}).values():
             value = preset.get("value") if isinstance(preset, dict) else None
             for key in _expander_keys(value):
-                hub_ref = expander_hub_ref(value[key])
-                if key not in components_index or hub_ref is None:
+                if key not in components_index:
                     continue
-                ref = (key, hub_ref)
+                ref = (key, expander_hub_ref(value[key]) or _UNRESOLVED_HUB_REF)
                 refs.append(ref)
                 if ref not in seen:
                     seen.add(ref)
@@ -1612,6 +1626,10 @@ def _collect_expander_refs(
         if refs:
             consumers.append((entry, refs))
     return consumers, ordered_refs
+
+
+# An address ref no hub block matches, so an unresolvable hub selector drops its consumer.
+_UNRESOLVED_HUB_REF = "@"
 
 
 @dataclass(frozen=True)
@@ -1788,8 +1806,19 @@ def _drop_unresolved_consumers(
     }
     if not dropped:
         return
+    for entry, _ in consumers:
+        if id(entry) in dropped:
+            _LOGGER.info("Dropping %s: its expander hub could not be lifted", entry.get("id"))
     featured[:] = [entry for entry in featured if id(entry) not in dropped]
     consumers[:] = [(entry, refs) for entry, refs in consumers if id(entry) not in dropped]
+
+
+def _catalog_default(component: dict[str, Any] | None, key: str) -> Any:
+    """Return the catalog ``default_value`` of *component*'s *key* entry, else ``None``."""
+    for ce in (component or {}).get("config_entries") or []:
+        if ce.get("key") == key:
+            return ce.get("default_value")
+    return None
 
 
 def _unique_local_id(base: str, used: set[str], fallback: str) -> str:
@@ -1915,7 +1944,9 @@ def _extract_expander_hubs(
         components_index,
         consumers,
         ordered_refs,
-        resolve_block=lambda cid, instance_id: _find_hub_block(config.get(cid), instance_id),
+        resolve_block=lambda cid, instance_id: _find_hub_block(
+            config.get(cid), instance_id, _catalog_default(components_index.get(cid), "address")
+        ),
         driver=False,
     )
 
@@ -1948,10 +1979,17 @@ def _materialize_hubs(
     # ids it needs — the ordered prerequisite chain a consumer references.
     hub_prereqs: dict[tuple[str, str | None], list[str]] = {}
 
+    # A block reached through two refs (by id and by address) lifts once.
+    lifted: dict[int, tuple[str, str | None]] = {}
+    aliases: dict[tuple[str, str | None], tuple[str, str | None]] = {}
     for hub_cid, instance_id in ordered_refs:
         hub_component = components_index.get(hub_cid)
         block = resolve_block(hub_cid, instance_id)
         if hub_component is None or block is None:
+            continue
+        ref = (hub_cid, instance_id)
+        if (first := lifted.setdefault(id(block), ref)) != ref:
+            aliases[ref] = first
             continue
         # A platform-carrying block (``time: platform: homeassistant``) is a
         # platform-style hub: the schema and the emitted component id live at
@@ -1989,8 +2027,11 @@ def _materialize_hubs(
         if bus_ids:
             hub_entry["requires"] = bus_ids
         state.extra.append(hub_entry)
-        hub_prereqs[(hub_cid, instance_id)] = [*bus_ids, hub_id]
+        hub_prereqs[ref] = [*bus_ids, hub_id]
 
+    hub_prereqs.update(
+        {ref: hub_prereqs[first] for ref, first in aliases.items() if first in hub_prereqs}
+    )
     if not driver:
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
@@ -2009,7 +2050,7 @@ def _lock_hub_identity(
     by_address = bool(instance_id) and is_address_ref(instance_id)
     upstream_id = block.get("id") if by_address else instance_id
     if by_address:
-        fields["address"] = {"value": block["address"], "locked": True}
+        fields["address"] = {"value": ref_address(instance_id), "locked": True}
     if not isinstance(upstream_id, str) or not upstream_id:
         return None
     fields["id"] = {"value": upstream_id, "locked": True}

@@ -573,3 +573,62 @@ def test_extract_expander_hubs_unmatched_address_drops_consumer() -> None:
     featured, extra = _lift_address_pin(0x30)
     assert extra == []
     assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
+
+
+def test_expander_keys_ignores_mapping_without_number() -> None:
+    """A pin-group tree's mapping children aren't hub selectors."""
+    assert _expander_keys({"a": {"number": 1}, "b": {"number": 2}}) == set()
+
+
+def test_extract_expander_hubs_unresolvable_selector_drops_consumer() -> None:
+    """An out-of-range address selector drops its consumer instead of shipping a dangling pin."""
+    featured, extra = _lift_address_pin(0x100)
+    assert extra == []
+    assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
+
+
+def test_extract_expander_hubs_address_matches_catalog_default() -> None:
+    """A hub block without ``address:`` matches a selector naming the catalog default."""
+    index = {
+        **_EXPANDER_INDEX,
+        "pcf8574": {
+            **_EXPANDER_INDEX["pcf8574"],
+            "config_entries": [
+                {"key": "id", "type": "id"},
+                {"key": "address", "type": "string", "default_value": "33"},
+            ],
+        },
+    }
+    config = _expander_config(pcf8574=[{"id": "hub_default"}]) | {
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "Input 1",
+                "pin": {"pcf8574": {"address": 0x21}, "number": 4},
+            }
+        ]
+    }
+    featured, _, _ = _extract_featured_components(config, index)
+    extra, _ = _extract_expander_hubs(config, featured, index)
+    assert [e["id"] for e in extra if e["component_id"] == "pcf8574"] == ["hub_default"]
+
+
+def test_extract_expander_hubs_lifts_a_hub_once_when_selected_by_id_and_address() -> None:
+    """Two consumers reaching one hub by id and by address share a single lifted hub."""
+    config = _expander_config(pcf8574=[{"id": "hub_x", "address": 0x21}]) | {
+        "binary_sensor": [
+            {"platform": "gpio", "name": "By id", "pin": {"pcf8574": "hub_x", "number": 1}},
+            {
+                "platform": "gpio",
+                "name": "By address",
+                "pin": {"pcf8574": {"address": 0x21}, "number": 2},
+            },
+        ]
+    }
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    hubs = [e for e in extra if e["component_id"] == "pcf8574"]
+    assert [h["id"] for h in hubs] == ["hub_x"]
+    consumers = [e for e in featured if e["component_id"] == "binary_sensor.gpio"]
+    assert len(consumers) == 2
+    assert all(c["requires"] == ["bus_a", "hub_x"] for c in consumers)

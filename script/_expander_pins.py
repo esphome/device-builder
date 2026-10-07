@@ -32,3 +32,8 @@ def address_hub_ref(address: Any) -> str | None:
 def is_address_ref(ref: str) -> bool:
     """Whether *ref* selects its hub by I2C address rather than by id."""
     return ref.startswith("@")
+
+
+def ref_address(ref: str) -> int:
+    """Return the I2C address an address ref (``@0x44``) selects."""
+    return int(ref[1:], 16)
