@@ -7,10 +7,14 @@ from unittest.mock import patch
 import pytest
 
 from esphome_device_builder.controllers.automations import catalog
-from esphome_device_builder.controllers.automations.catalog import get_bodies as _hydrate_bodies
 from esphome_device_builder.helpers.json import dumps as json_dumps
 
 pytestmark = pytest.mark.xdist_group("automations")
+
+
+async def _hydrate_bodies(refs: list) -> dict[str, dict]:
+    bodies, _ = await catalog.get_bodies(refs)
+    return bodies
 
 
 async def test_get_bodies_returns_full_body_for_known_ref() -> None:
@@ -177,41 +181,32 @@ _ON_BOOT = {"type": "triggers", "id": "on_boot"}
 _LAMBDA = {"type": "conditions", "id": "lambda"}
 
 
-async def test_get_bodies_page_defers_refs_past_the_budget_unloaded() -> None:
-    """Refs past *max_bytes* come back in ``remaining``, in order, without a disk read."""
+async def test_get_bodies_defers_refs_past_the_budget_unloaded() -> None:
+    """Refs past *max_bytes* return in order in ``remaining`` without a disk read."""
     catalog._ACTION_STORE._cache.clear()
-    catalog._CONDITION_STORE._cache.clear()
-    first = catalog._load_body_sizes()[("triggers", "on_boot")]
-    with patch.object(catalog._CONDITION_STORE, "load_one_sync") as load:
-        bodies, remaining = await catalog.get_bodies_page([_ON_BOOT, _DELAY, _LAMBDA], first)
+    first = catalog._scan_body_sizes()[("triggers", "on_boot")]
+    with patch.object(catalog._ACTION_STORE, "load_one_sync") as load:
+        bodies, remaining = await catalog.get_bodies([_ON_BOOT, _DELAY, _LAMBDA], first)
     assert list(bodies) == ["triggers/on_boot"]
     assert remaining == [_DELAY, _LAMBDA]
     load.assert_not_called()
-    assert catalog._ACTION_STORE.try_get_cached("delay") is None
 
 
-async def test_get_bodies_page_returns_an_oversized_first_body() -> None:
-    """A first body larger than the budget still ships so a paging caller progresses."""
-    bodies, remaining = await catalog.get_bodies_page([_DELAY, _ON_BOOT], 1)
+async def test_get_bodies_returns_an_oversized_first_body() -> None:
+    """A first body over the budget still ships."""
+    bodies, remaining = await catalog.get_bodies([_DELAY, _ON_BOOT], 1)
     assert list(bodies) == ["actions/delay"]
     assert remaining == [_ON_BOOT]
 
 
-async def test_get_bodies_page_without_budget_returns_everything() -> None:
-    """No *max_bytes* resolves every ref with an empty ``remaining``."""
-    bodies, remaining = await catalog.get_bodies_page([_ON_BOOT, _DELAY, _LAMBDA])
-    assert set(bodies) == {"triggers/on_boot", "actions/delay", "conditions/lambda"}
-    assert remaining == []
-
-
-async def test_get_bodies_page_keeps_every_lvgl_page_under_the_ingress_cap() -> None:
-    """Paging every lvgl action keeps each reply under Home Assistant's 16 MiB frame cap."""
+async def test_get_bodies_keeps_every_lvgl_page_under_the_ingress_cap() -> None:
+    """Paging every lvgl action keeps each reply under the 16 MiB ingress frame cap."""
     refs = [
         {"type": "actions", "id": a.id} for a in catalog.all_actions() if a.id.startswith("lvgl.")
     ]
     seen: set[str] = set()
     while refs:
-        bodies, refs = await catalog.get_bodies_page(refs, catalog.GET_BODIES_MAX_BYTES)
+        bodies, refs = await catalog.get_bodies(refs, catalog.GET_BODIES_MAX_BYTES)
         assert bodies
         assert len(json_dumps({"bodies": bodies, "remaining": refs})) < 16 * 1024 * 1024
         seen.update(bodies)

@@ -125,7 +125,7 @@ class AutomationsController:
         **_kwargs: Any,
     ) -> dict[str, Any]:
         """Hydrate bodies as ``{bodies, remaining}``; re-request ``remaining`` for the rest."""
-        bodies, remaining = await catalog.get_bodies_page(refs, catalog.GET_BODIES_MAX_BYTES)
+        bodies, remaining = await catalog.get_bodies(refs, catalog.GET_BODIES_MAX_BYTES)
         return {"bodies": bodies, "remaining": remaining}
 
     # ------------------------------------------------------------------

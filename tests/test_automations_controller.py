@@ -191,7 +191,7 @@ async def test_get_light_effects_returns_full_catalog() -> None:
 
 
 async def test_get_bodies_endpoint_returns_full_bodies() -> None:
-    """``automations/get_bodies`` hydrates refs to keyed full bodies under ``bodies``."""
+    """``automations/get_bodies`` hydrates refs to keyed full bodies."""
     controller = _make_controller(Path("/unused"))
     result = await controller.get_bodies(
         refs=[
