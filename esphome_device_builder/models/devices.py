@@ -113,6 +113,9 @@ class DeviceRuntimeState(DashboardModel):
     # evidence for the sidecar-seeded values, which is exactly what the
     # flag reports.
     deployed_identity_live: bool = False
+    # Running firmware broadcasts ``ota_signed=1``: it rejects OTA images not
+    # signed by a key it trusts. Session-only; follows each announce.
+    ota_signed: bool = False
 
     def __post_serialize__(self, d: dict[Any, Any]) -> dict[Any, Any]:
         """Replace the ``offline_since`` stamp with its age."""
@@ -378,6 +381,9 @@ class Device(DashboardModel):
     # *running* firmware has it compiled in is the frontend's half of the
     # gate (deployed hash == expected hash).
     ota_partition_access: bool = False
+    # esp32 whose ``signed_ota_verification`` sets ``signing_key``, so builds
+    # are signed and an ``ota_signed`` device may still accept the OTA.
+    ota_signing_key: bool = False
 
     def to_flat_dict(self) -> dict[str, Any]:
         """Serialise with ``runtime_state`` flattened; HA's dashboard API reads the keys flat."""
@@ -402,6 +408,9 @@ class AdoptableDevice(DashboardModel):
     # server was found — the discovered card then hides the
     # Visit-web-UI affordance.
     web_url: str = ""
+    # Broadcasts ``ota_signed=1``: only accepts OTA images signed by a key
+    # it trusts, so the first install after adoption must go over serial.
+    ota_signed: bool = False
 
 
 @dataclass

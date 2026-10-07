@@ -115,6 +115,15 @@ def on_deployed_identity_live_change(
         controller._fire_device_updated(device)
 
 
+def on_ota_signed_change(controller: DevicesController, name: str, *, signed: bool) -> None:
+    """Update ``ota_signed`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
+    for device in controller._devices_by_name(name):
+        if device.runtime_state.ota_signed == signed:
+            continue
+        device.runtime_state.ota_signed = signed
+        controller._fire_device_updated(device)
+
+
 def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: list[str]) -> None:
     """Forward IP updates onto the event bus and persist the primary value."""
     new_addresses = list(addresses)

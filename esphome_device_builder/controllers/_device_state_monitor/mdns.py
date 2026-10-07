@@ -615,6 +615,8 @@ class MdnsSource:
             monitor.apply_api_encryption(device_name, value if isinstance(value, str) else "")
         elif props:
             monitor.apply_api_encryption(device_name, "")
+        if props:
+            monitor._apply_ota_signed(device_name, signed=props.get("ota_signed") == "1")
 
     def _apply_identity_txt(self, device_name: str, props: Mapping[str, str | None]) -> None:
         """Apply the version / config_hash / mac identity TXT keys, tolerating absence."""

@@ -405,6 +405,9 @@ def load_device_from_storage(
             extract_ota_partition_access(resolved_config)
             or compiled_config_has_ota_partition_access(filename)
         ),
+        ota_signing_key=target_platform == "esp32"
+        and not shallow
+        and _has_ota_signing_key(resolved_config),
     )
 
 
@@ -613,3 +616,13 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
         return False
     config = parse_validated_cache(path, text)
     return config is not None and extract_ota_partition_access(config)
+
+
+def _has_ota_signing_key(config: dict | None) -> bool:
+    """Report whether the esp32 ``signed_ota_verification`` block sets ``signing_key``."""
+    node: object = config
+    for key in ("esp32", "framework", "advanced", "signed_ota_verification"):
+        if not isinstance(node, dict):
+            return False
+        node = node.get(key)
+    return isinstance(node, dict) and "signing_key" in node

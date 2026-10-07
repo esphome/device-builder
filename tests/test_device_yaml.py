@@ -3912,6 +3912,7 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "queued_update": False,
         "api_encryption_active": None,
         "deployed_identity_live": False,
+        "ota_signed": False,
     }
 
 

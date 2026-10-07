@@ -200,6 +200,7 @@ async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
     monitor._on_mac_address_change = callbacks.on_mac_address_change
+    monitor._on_ota_signed_change = callbacks.on_ota_signed_change
     monitor.state.reachability = None
 
     fake_info = MagicMock()

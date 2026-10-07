@@ -108,6 +108,7 @@ def _make_monitor(
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
     monitor._on_mac_address_change = callbacks.on_mac_address_change
+    monitor._on_ota_signed_change = callbacks.on_ota_signed_change
     monitor._on_importable_added = callbacks.on_importable_added
     monitor._on_importable_removed = callbacks.on_importable_removed
     monitor._on_resolved_addresses_cleared = callbacks.on_resolved_addresses_cleared

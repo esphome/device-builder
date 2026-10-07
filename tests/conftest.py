@@ -1148,6 +1148,10 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_deployed_identity_live_change", name, live))
         self._flip(name, "deployed_identity_live", live)
 
+    def on_ota_signed_change(self, name: str, *, signed: bool) -> None:
+        self.calls.append(("on_ota_signed_change", name, signed))
+        self._flip(name, "ota_signed", signed)
+
     def on_persisted_ip_invalidated(self, name: str, stale_ip: str) -> None:
         self.calls.append(("on_persisted_ip_invalidated", name, stale_ip))
         for device in self._devices:
@@ -1186,6 +1190,7 @@ def make_state_monitor_with_callbacks(
         on_persisted_ip_invalidated=callbacks.on_persisted_ip_invalidated,
         on_resolved_addresses_cleared=callbacks.on_resolved_addresses_cleared,
         on_deployed_identity_live_change=callbacks.on_deployed_identity_live_change,
+        on_ota_signed_change=callbacks.on_ota_signed_change,
     )
     return monitor, callbacks
 

@@ -238,6 +238,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_persisted_ip_invalidated=self._on_persisted_ip_invalidated,
             on_resolved_addresses_cleared=self._on_resolved_addresses_cleared,
             on_deployed_identity_live_change=self._on_deployed_identity_live_change,
+            on_ota_signed_change=self._on_ota_signed_change,
         )
         # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
         # ping RTT) feeding the device drawer's Reachability section.
@@ -1288,6 +1289,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _on_deployed_identity_live_change(self, name: str, *, live: bool) -> None:
         state_callbacks.on_deployed_identity_live_change(self, name, live=live)
+
+    def _on_ota_signed_change(self, name: str, *, signed: bool) -> None:
+        state_callbacks.on_ota_signed_change(self, name, signed=signed)
 
     def _on_version_change(self, name: str, version: str) -> None:
         state_callbacks.on_version_change(self, name, version)
