@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -147,6 +147,24 @@ def test_load_body_refuses_traversal_shaped_id(bad_id: str) -> None:
     with patch.object(catalog.resources, "files") as spy:
         assert loader(bad_id) is None
     spy.assert_not_called()
+
+
+def test_scan_body_sizes_skips_an_unreadable_type_dir() -> None:
+    """A body directory that can't be listed contributes no sizes."""
+    root = MagicMock()
+    root.joinpath.return_value.iterdir.side_effect = FileNotFoundError
+    with patch.object(catalog.resources, "files", return_value=root):
+        assert catalog._scan_body_sizes() == {}
+
+
+def test_scan_body_sizes_ignores_non_json_entries() -> None:
+    """Only ``.json`` files in a body directory are sized."""
+    stray = MagicMock()
+    stray.name = "README.md"
+    root = MagicMock()
+    root.joinpath.return_value.iterdir.return_value = [stray]
+    with patch.object(catalog.resources, "files", return_value=root):
+        assert catalog._scan_body_sizes() == {}
 
 
 def test_load_index_returns_empty_skeleton_when_missing() -> None:
