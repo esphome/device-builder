@@ -77,6 +77,7 @@ from script._board_import import (  # noqa: E402
     read_manifest_dict,
     safe_load_yaml,
 )
+from script._expander_pins import address_hub_ref, expander_hub_ref, is_address_ref  # noqa: E402
 from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
 
@@ -528,11 +529,11 @@ def _expander_keys(pin_value: Any) -> set[str]:
     """Return provider keys in a long-form pin dict that reference an I/O-expander hub.
 
     A provider key is any key beyond the standard board-GPIO ``BOARD_PIN_KEYS``
-    whose value is a hub instance id.
+    whose value is a hub instance id or an ``{address: ...}`` hub selector.
     """
     if not isinstance(pin_value, dict):
         return set()
-    return {k for k in pin_value.keys() - BOARD_PIN_KEYS if isinstance(pin_value[k], str)}
+    return {k for k in pin_value.keys() - BOARD_PIN_KEYS if isinstance(pin_value[k], str | dict)}
 
 
 def _resolve_soc(
@@ -1564,7 +1565,8 @@ def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
     """
     Return the top-level hub block (``pcf8574:``) a pin's expander ref resolves to.
 
-    Prefers an exact ``id`` match. Falls back to the sole block when the
+    An address ref (``@0x44``) matches the sole block declaring that address.
+    Otherwise prefers an exact ``id`` match. Falls back to the sole block when the
     provider has exactly one and it carries no ``id`` — the source left the
     single hub's id implicit (ESPHome auto-generates one), so the pin's
     referenced id is adopted as the hub id at materialization. A mismatch
@@ -1572,6 +1574,9 @@ def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
     yields ``None`` rather than guessing.
     """
     blocks = _block_mappings(raw)
+    if is_address_ref(instance_id):
+        matches = [b for b in blocks if address_hub_ref(b.get("address")) == instance_id]
+        return matches[0] if len(matches) == 1 else None
     for block in blocks:
         if block.get("id") == instance_id:
             return block
@@ -1596,9 +1601,10 @@ def _collect_expander_refs(
         for preset in entry.get("fields", {}).values():
             value = preset.get("value") if isinstance(preset, dict) else None
             for key in _expander_keys(value):
-                if key not in components_index:
+                hub_ref = expander_hub_ref(value[key])
+                if key not in components_index or hub_ref is None:
                     continue
-                ref = (key, value[key])
+                ref = (key, hub_ref)
                 refs.append(ref)
                 if ref not in seen:
                     seen.add(ref)
@@ -1971,13 +1977,10 @@ def _materialize_hubs(
             continue
         state.occupancy.update(hub_occ)
         bus_ids, bus_refs = _ensure_buses(hub_component, block, state)
-        base = _sanitize_local_id(instance_id) if instance_id else ""
+        upstream_id = _lock_hub_identity(fields, instance_id, block)
+        base = _sanitize_local_id(upstream_id) if upstream_id else ""
         hub_id = _unique_local_id(base, used_ids, f"{hub_cid}{'_hub' if driver else ''}")
         used_ids.add(hub_id)
-        # Lock the hub's id to the upstream value an expander pin ref points at;
-        # a sole driver hub with no upstream id keeps its generated local id.
-        if instance_id:
-            fields["id"] = {"value": instance_id, "locked": True}
         # Lock the hub onto the bus it was lifted from (multi-bus boards), so it
         # doesn't fall back to esphome's default i2c pins.
         for ref_field, bus_inst in bus_refs.items():
@@ -1992,6 +1995,25 @@ def _materialize_hubs(
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
     return state.extra, state.occupancy
+
+
+def _lock_hub_identity(
+    fields: dict[str, Any], instance_id: str | None, block: dict[str, Any]
+) -> str | None:
+    """
+    Lock the hub fields a consumer's pin ref resolves against; return the upstream id.
+
+    An id ref locks ``id``; an address ref (``@0x44``) locks ``address`` plus the
+    block's own ``id`` when it declares one. ``None`` when there is no upstream id.
+    """
+    by_address = bool(instance_id) and is_address_ref(instance_id)
+    upstream_id = block.get("id") if by_address else instance_id
+    if by_address:
+        fields["address"] = {"value": block["address"], "locked": True}
+    if not isinstance(upstream_id, str) or not upstream_id:
+        return None
+    fields["id"] = {"value": upstream_id, "locked": True}
+    return upstream_id
 
 
 def _required_pin_keys(valid_keys: dict[str, dict[str, Any]]) -> set[str]:

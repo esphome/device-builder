@@ -509,3 +509,67 @@ def test_extract_expander_picks_the_bus_the_hub_pins_via_i2c_id() -> None:
     consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
     assert consumer["requires"] == ["bus_b", "pcf8574_hub_in_1"]
     assert occupancy == {15: "bus_b", 4: "bus_b"}
+
+
+def test_expander_keys_accepts_address_selected_hub() -> None:
+    """An ``{address: ...}`` hub selector is a provider key, not a board pin."""
+    assert _expander_keys({"pi4ioe5v6408": {"address": 0x44}, "number": 4}) == {"pi4ioe5v6408"}
+
+
+def _address_pin_config(address: int) -> dict:
+    """Two pcf8574 hubs; the consumer selects one by I2C address."""
+    return _expander_config(pcf8574=[{"id": "hub_x", "address": 0x21}, {"address": 0x22}]) | {
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "Input 1",
+                "pin": {"pcf8574": {"address": address}, "number": 4},
+            }
+        ]
+    }
+
+
+def _lift_address_pin(address: int) -> tuple[list[dict], list[dict]]:
+    """Extract and lift hubs for :func:`_address_pin_config`; return (featured, extra)."""
+    config = _address_pin_config(address)
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    return featured, extra
+
+
+def test_extract_address_selected_expander_pin_is_locked_not_a_gpio() -> None:
+    """The address form locks the pin verbatim and occupies no board GPIO."""
+    featured, _, occupancy = _extract_featured_components(
+        _address_pin_config(0x22), _EXPANDER_INDEX
+    )
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert consumer["fields"]["pin"] == {
+        "value": {"pcf8574": {"address": 0x22}, "number": 4},
+        "locked": True,
+    }
+    assert 4 not in occupancy
+
+
+def test_extract_expander_hubs_resolves_hub_by_address() -> None:
+    """The address ref lifts only the hub declaring that address, its address locked."""
+    featured, extra = _lift_address_pin(0x22)
+    hubs = [e for e in extra if e["component_id"] == "pcf8574"]
+    assert len(hubs) == 1
+    assert "id" not in hubs[0]["fields"]
+    assert hubs[0]["fields"]["address"] == {"value": 0x22, "locked": True}
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert consumer["requires"] == ["bus_a", hubs[0]["id"]]
+
+
+def test_extract_expander_hubs_address_keeps_hub_upstream_id() -> None:
+    """An address-selected hub that declares an id keeps it locked."""
+    _, extra = _lift_address_pin(0x21)
+    by_id = {e["id"]: e for e in extra}
+    assert by_id["hub_x"]["fields"]["id"] == {"value": "hub_x", "locked": True}
+
+
+def test_extract_expander_hubs_unmatched_address_drops_consumer() -> None:
+    """No hub at the selected address drops the consumer rather than guessing."""
+    featured, extra = _lift_address_pin(0x30)
+    assert extra == []
+    assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)

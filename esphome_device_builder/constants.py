@@ -109,9 +109,10 @@ REMOTE_BUILD_PORT_SCAN_ATTEMPTS = 10
 
 
 # Long-form pin keys describing a board GPIO. Any other key in a pin mapping
-# names an I/O-expander provider whose value is the hub id. ``id`` is included
-# because expander pin schemas share this base, so a channel carrying an ``id``
-# must not have it taken for the provider key.
+# names an I/O-expander provider whose value is the hub id (or an
+# ``{address: ...}`` hub selector). ``id`` is included because expander pin
+# schemas share this base, so a channel carrying an ``id`` must not have it
+# taken for the provider key.
 BOARD_PIN_KEYS: frozenset[str] = frozenset(
     {
         "id",

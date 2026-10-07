@@ -70,6 +70,7 @@ from _catalog_split import (  # noqa: E402
     swap_split_catalog_in,
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
+from _expander_pins import expander_hub_ref  # noqa: E402
 from _manifest import ManifestError, load_manifest_dict  # noqa: E402
 
 from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
@@ -1007,7 +1008,7 @@ def _canonical_pin(value: Any) -> int | str | None:
 
     A board GPIO is an int; a pin on an I/O expander
     (``{number: 0, pcf8574: hub}``) is the namespaced token
-    ``"<provider>:<hub_id>:<channel>"`` so an expander channel never aliases a
+    ``"<provider>:<hub_ref>:<channel>"`` so an expander channel never aliases a
     board GPIO of the same number. ``None`` when no concrete pin is present.
     """
     if isinstance(value, dict):
@@ -1016,8 +1017,9 @@ def _canonical_pin(value: Any) -> int | str | None:
             provider = min(expander)
             hub = value.get(provider)
             channel = value.get("number")
-            if isinstance(hub, str) and isinstance(channel, int) and not isinstance(channel, bool):
-                return f"{provider}:{hub}:{channel}"
+            hub_ref = expander_hub_ref(hub)
+            if hub_ref and isinstance(channel, int) and not isinstance(channel, bool):
+                return f"{provider}:{hub_ref}:{channel}"
             return None
     return _canonical_gpio(value)
 
