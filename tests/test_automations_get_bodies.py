@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -184,7 +185,7 @@ _LAMBDA = {"type": "conditions", "id": "lambda"}
 async def test_get_bodies_defers_refs_past_the_budget_unloaded() -> None:
     """Refs past *max_bytes* return in order in ``remaining`` without a disk read."""
     catalog._ACTION_STORE._cache.clear()
-    first = catalog._scan_body_sizes()[("triggers", "on_boot")]
+    first = (await asyncio.to_thread(catalog._scan_body_sizes))[("triggers", "on_boot")]
     with patch.object(catalog._ACTION_STORE, "load_one_sync") as load:
         bodies, remaining = await catalog.get_bodies([_ON_BOOT, _DELAY, _LAMBDA], first)
     assert list(bodies) == ["triggers/on_boot"]
