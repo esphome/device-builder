@@ -10848,6 +10848,10 @@ def _resolve_automation_lambda(
     return config_entries, _scalar_shorthand_key(body, schema_dir)
 
 
+# Registry-entry keys that type a scalar value (see _scalar_value_extras).
+_SCALAR_VALUE_KEYS = ("value_type", "templatable", "duration_min_unit")
+
+
 def _scalar_value_extras(value_type: str | None, schema: dict | None, body: dict) -> dict:
     """Return the ``templatable`` / ``duration_min_unit`` fields of a scalar value."""
     extras: dict[str, Any] = {}
@@ -11006,6 +11010,9 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
     """
     Merge filters sharing an ``id`` across domains; union ``applies_to``.
 
+    The body with ``config_entries`` wins and takes the other's missing
+    scalar value typing (sensor ``timeout`` vs binary_sensor's scalar).
+
     Multi-domain merges strip the ``"<Domain> → "`` prefix from the
     display name since it would otherwise read wrong in whichever
     domain the user is editing (``lambda`` under ``sensor:`` would
@@ -11018,7 +11025,15 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
             by_id[f["id"]] = f
             continue
         merged_applies_to = sorted({*existing.get("applies_to", []), *f.get("applies_to", [])})
-        existing = by_id[f["id"]] = _merge_filter_bodies(existing, f)
+        other = f
+        if f.get("config_entries") and not existing.get("config_entries"):
+            existing, other = f, existing
+            by_id[existing["id"]] = existing
+        elif f.get("config_entries") and f["config_entries"] != existing["config_entries"]:
+            _LOGGER.warning("filter %s has different fields per domain; keeping the first", f["id"])
+        for key in _SCALAR_VALUE_KEYS:
+            if other.get(key) and not existing.get(key):
+                existing[key] = other[key]
         existing["applies_to"] = merged_applies_to
         # Multi-domain entry: strip the "<Domain> → " prefix so the
         # bare name reads correctly regardless of editing context.
@@ -11026,21 +11041,6 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
         if len(merged_applies_to) > 1 and _AUTOMATION_LABEL_SEPARATOR in name:
             existing["name"] = name.split(_AUTOMATION_LABEL_SEPARATOR, 1)[1]
     return list(by_id.values())
-
-
-def _merge_filter_bodies(first: dict, other: dict) -> dict:
-    """Keep the body with fields for a shared filter id, carrying the other's scalar typing."""
-    if first.get("config_entries") and other.get("config_entries"):
-        if first["config_entries"] != other["config_entries"]:
-            _LOGGER.warning(
-                "filter %s has different fields per domain; keeping the first", first["id"]
-            )
-        return first
-    base, scalar = (other, first) if other.get("config_entries") else (first, other)
-    for key in ("value_type", "templatable", "duration_min_unit"):
-        if scalar.get(key) and not base.get(key):
-            base[key] = scalar[key]
-    return base
 
 
 def _convert_light_effect(
