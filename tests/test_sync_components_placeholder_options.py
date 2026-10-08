@@ -11,6 +11,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _PLACEHOLDER_OPTIONS,
     _apply_refined_types,
     _boolean_default_as_option,
+    _merge_boolean_union_options,
     _rejects_own_placeholders,
 )
 
@@ -39,6 +40,17 @@ def test_real_extractor_values_are_kept() -> None:
     assert not _rejects_own_placeholders(_state)
 
 
+def _needs_context(value: Any) -> Any:
+    if value == SCHEMA_EXTRACT:
+        return ["fast", "slow"]
+    raise KeyError("target platform not set")
+
+
+def test_probe_errors_other_than_invalid_keep_options() -> None:
+    """A validator failing for lack of context is not judged a placeholder."""
+    assert not _rejects_own_placeholders(_needs_context)
+
+
 def test_list_validators_are_not_flagged() -> None:
     """An ``ensure_list`` wrapper echoing the sentinel is not a placeholder enum."""
     assert not _rejects_own_placeholders(cv.ensure_list(cv.one_of("A", "B")))
@@ -62,3 +74,11 @@ def test_placeholder_refinement_drops_options_and_keeps_type() -> None:
     _apply_refined_types([entry], {("color",): _PLACEHOLDER_OPTIONS})
     assert "options" not in entry
     assert entry["type"] == "string"
+
+
+def test_boolean_union_merge_maps_default_to_true_literal() -> None:
+    """The union merge adds ``true``/``false`` and points a boolean default at them."""
+    entry = {"default_value": True, "options": [{"label": "once", "value": "once"}]}
+    _merge_boolean_union_options(entry)
+    assert entry["default_value"] == "true"
+    assert [o["value"] for o in entry["options"]] == ["true", "false", "once"]

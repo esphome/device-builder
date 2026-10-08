@@ -3309,7 +3309,7 @@ def build_component_entry(
         refined_types = _shed_refined_bleed(refined_types, refined_bleed)
     # Refined types first: the range gate reads the entry's final type,
     # and a field promoted to float_with_unit must keep its bounds.
-    _apply_refined_types(config_entries, refined_types)
+    _apply_refined_types(config_entries, refined_types, component_id)
     _apply_field_ranges(config_entries, field_ranges, component_id)
     _apply_component_gates(config_entries, introspection.get("component_gates") or {})
     _apply_model_variance(
@@ -6917,9 +6917,13 @@ def _rejects_own_placeholders(validator: Any) -> bool:
     if not all(isinstance(value, str) for value in placeholders):
         return False
     for value in placeholders:
-        with contextlib.suppress(Exception):
+        try:
             validator(value)
+        except vol.Invalid:
+            continue
+        except Exception:
             return False
+        return False
     return True
 
 
@@ -8008,6 +8012,7 @@ def _case_widened_gate_values(values: Iterable[str]) -> list[str]:
 def _apply_refined_types(
     entries: list[dict],
     refined: dict[tuple[str, ...], RefinedType],
+    owner: str = "",
 ) -> None:
     """Promote entry types from string → boolean/float/... where known.
 
@@ -8037,8 +8042,8 @@ def _apply_refined_types(
         # plain input; additive only, a bundle-set flag is never cleared.
         if new_type.templatable:
             entry["templatable"] = True
-        if new_type.drop_options:
-            entry.pop("options", None)
+        if new_type.drop_options and entry.pop("options", None):
+            _LOGGER.info("Dropping placeholder options on %s %s", owner, ".".join(path))
         if new_type.type:
             _apply_refined_entry_type(entry, new_type)
         if new_type.duration_min_unit and entry.get("type") == "time_period":
@@ -10591,7 +10596,7 @@ def _apply_automation_refined_types(
     for entry in entries:
         refined = refined_index.get(entry["id"])
         if refined:
-            _apply_refined_types(entry["config_entries"], refined)
+            _apply_refined_types(entry["config_entries"], refined, entry["id"])
 
 
 def _apply_automation_field_ranges(
