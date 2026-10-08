@@ -4120,6 +4120,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
+    options = _build_options(raw)
+    default_value = _boolean_default_as_option(default_value, options)
     if (
         key in _PLATFORM_DEFAULTED_ADVANCED_KEYS
         and default_value is not None
@@ -4134,7 +4136,7 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "description": docs.text or None,
         "required": required,
         "default_value": default_value,
-        "options": _build_options(raw),
+        "options": options,
         # ``allow_custom`` lets an options field also accept a free-typed
         # value (e.g. a font ``weight`` is a named weight *or* a raw int).
         "allow_custom_value": bool(raw.get("allow_custom")),
@@ -4752,6 +4754,21 @@ def _is_sentence_docs(docs: str) -> bool:
     return len(docs) > _MAX_OPTION_LABEL_LENGTH or docs.endswith((".", "!", "?"))
 
 
+def _boolean_default_as_option(default: Any, options: list[dict] | None) -> Any:
+    """Return the option esphome reads as boolean *default* (``True`` -> ``ON``), else *default*."""
+    if not isinstance(default, bool) or not options:
+        return default
+    from esphome import config_validation as cv
+
+    for option in options:
+        try:
+            if cv.boolean(option["value"]) is default:
+                return option["value"]
+        except cv.Invalid:
+            continue
+    return default
+
+
 def _enum_default(raw: dict) -> str | None:
     """Resolve the schema-marked default among an enum's values."""
     values = raw.get("values")
@@ -4851,7 +4868,10 @@ def _reference_namespace(qualified: str) -> str | None:
     """Catalog reference domain for a ``'ns::Class'``; None if unqualified."""
     # Shared by the reference side (use_id_type) and provider side (id
     # parents) so the two always map a namespace the same way.
-    if not isinstance(qualified, str) or "::" not in qualified:
+    if not isinstance(qualified, str):
+        return None
+    qualified = qualified.removeprefix("esphome::")
+    if "::" not in qualified:
         return None
     namespace = qualified.split("::", 1)[0]
     return _USE_ID_NAMESPACE_OVERRIDES.get(namespace, namespace)
@@ -6651,6 +6671,10 @@ class RefinedType(NamedTuple):
 # classifies, so the bundle's typing stands.
 _TEMPLATABLE_ONLY = RefinedType("")
 
+# The bundle's enum values are schema-extractor placeholders the validator
+# itself rejects (light ``color``'s "CSS color name"); drop them as options.
+_PLACEHOLDER_OPTIONS = RefinedType("placeholder_options")
+
 
 # IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
 # Base ("") first so ``unit_options[0]`` is the canonical un-prefixed form;
@@ -6884,6 +6908,32 @@ def _is_dict_list_union(validator: Any) -> bool:
     return _validator_branches_dict_and_list(src)
 
 
+def _rejects_own_placeholders(validator: Any) -> bool:
+    """Return whether *validator*'s schema-extract values all fail its own validation."""
+    from esphome.schema_extractors import SCHEMA_EXTRACT
+
+    if not inspect.isfunction(validator):
+        return False
+    try:
+        placeholders = validator(SCHEMA_EXTRACT)
+    except Exception:
+        return False
+    return (
+        isinstance(placeholders, list)
+        and bool(placeholders)
+        and all(isinstance(value, str) for value in placeholders)
+        and not any(_validates(validator, value) for value in placeholders)
+    )
+
+
+def _validates(validator: Any, value: Any) -> bool:
+    try:
+        validator(value)
+    except Exception:
+        return False
+    return True
+
+
 def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, RefinedType]]:
     """Map runtime validator identities / names to refined types.
 
@@ -7076,7 +7126,11 @@ def _refined_types_in_schema(  # noqa: C901
         # the keys so the entry lands ``string`` and every select pick
         # re-serializes quoted (#2272). String-keyed enums (cc1101's
         # ``cv.enum({"8": ...})`` rejects a bare ``8``) stay unrefined.
-        refined = by_identity.get(id(validator)) or _int_enum_refined_type(validator)
+        refined = (
+            by_identity.get(id(validator))
+            or _int_enum_refined_type(validator)
+            or (_PLACEHOLDER_OPTIONS if _rejects_own_placeholders(validator) else None)
+        )
         if refined is not None:
             return refined
         # Some validators are wrapped (vol.All chains, partials, or
@@ -8006,6 +8060,9 @@ def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
     """Apply one refinement's type to *entry* per the override rules above."""
     if new_type.type == "time_period":
         # Carries only ``duration_min_unit``; never retypes an entry.
+        return
+    if new_type.type == "placeholder_options":
+        entry.pop("options", None)
         return
     if new_type.type == "float_with_unit":
         # Always apply — see the caller's docstring. Carries
