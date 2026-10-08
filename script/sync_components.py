@@ -3752,6 +3752,26 @@ def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
     return None
 
 
+def _is_list_only_wrapper(inner_schema: Any, schema_dir: Path) -> bool:
+    """Return whether an extends-only wrapper's bases carry no fields and mark a list."""
+    if not isinstance(inner_schema, dict) or inner_schema.get("config_vars"):
+        return False
+    is_list = False
+    for ref in inner_schema.get("extends") or []:
+        if _scalar_type_for_extends_ref(ref) is not None:
+            return False
+        target = _lookup_schema_ref(ref, schema_dir)
+        if (
+            not isinstance(target, dict)
+            or "key_type" in target
+            or _is_typed_node(target.get("schema"))
+            or _resolve_extends(ref, schema_dir)
+        ):
+            return False
+        is_list = is_list or bool(target.get("is_list"))
+    return is_list
+
+
 def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
     """Return the base's schema node when an extends-only wrapper references a user-keyed map."""
     if not isinstance(inner_schema, dict) or inner_schema.get("config_vars"):
@@ -3944,6 +3964,9 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
 
     schema_type = raw.get("type")
     inner_schema = raw.get("schema")
+    if schema_type == "schema" and _is_list_only_wrapper(inner_schema, schema_dir):
+        raw = raw | {"is_list": True}
+        schema_type = inner_schema = None
     data_type = raw.get("data_type")
 
     # Own-id fields ⇒ always rendered as a free-form id input. The

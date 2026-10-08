@@ -309,7 +309,7 @@ _GATING_EXPECTATIONS: list[tuple[str, str, str | None]] = [
 _GATING_FLOORS: dict[str, int] = {
     "mqtt": 6000,
     "web_server": 2500,
-    "zigbee": 2000,
+    "zigbee": 3000,
 }
 
 # Catalog-wide floor on automation entries carrying live-introspection

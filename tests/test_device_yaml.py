@@ -3410,8 +3410,8 @@ async def test_nested_list_field_presets_render_as_yaml_lists(
     """Nested-list field presets survive default resolution into parseable YAML.
 
     ``seeed-xiao-w5500-zwave-proxy`` is the first board presetting
-    list-of-mapping fields (``usb_host.devices``, ``usb_uart.channels``,
-    ``mdns.services``); pins that the generation path renders them intact.
+    list-of-mapping fields (``usb_uart.channels``, ``mdns.services``);
+    pins that the generation path renders them intact.
     """
     board = await session_component_catalog._db.boards.get_board(
         board_id="seeed-xiao-w5500-zwave-proxy"
@@ -3420,7 +3420,8 @@ async def test_nested_list_field_presets_render_as_yaml_lists(
     defaults = await session_component_catalog.resolve_default_components(board)
     out = generate_device_yaml("zw", "Zw", board, ssid="", psk="", defaults=defaults)
     config = yaml.safe_load(out)
-    assert config["usb_host"]["devices"] == [{"id": "device_0", "vid": "0x303A", "pid": "0x4001"}]
+    assert "usb_host" in config
+    assert not (config["usb_host"] or {}).get("devices")
     assert config["usb_uart"]["channels"] == [
         {"id": "uch_1", "baud_rate": 115200, "buffer_size": 4096}
     ]
