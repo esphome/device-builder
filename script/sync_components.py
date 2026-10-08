@@ -8964,7 +8964,7 @@ def _collect_required_groups(
 
 def _automation_registries() -> dict[str, Any]:
     """
-    Return the live ``{"action": ..., "condition": ...}`` registry map.
+    Return the live ``{"action": ..., "condition": ..., "light_effect": ...}`` registry map.
 
     The registries fill during :func:`build_catalog`'s import sweep, so read
     them after it; ``--limit-component`` runs yield partial data. Empty when
@@ -8972,12 +8972,14 @@ def _automation_registries() -> dict[str, Any]:
     """
     try:
         automation = importlib.import_module("esphome.automation")
+        effects = importlib.import_module("esphome.components.light.effects")
     except Exception:
         _LOGGER.debug("automation registries unavailable", exc_info=True)
         return {}
     return {
         "action": automation.ACTION_REGISTRY,
         "condition": automation.CONDITION_REGISTRY,
+        "light_effect": effects.EFFECTS_REGISTRY,
     }
 
 
@@ -10478,6 +10480,8 @@ def build_automations(  # noqa: C901
     refined_by_type = registry_refined or {}
     _apply_automation_refined_types(actions, refined_by_type.get("action"))
     _apply_automation_refined_types(conditions, refined_by_type.get("condition"))
+    effects = _dedupe_by_id(effects)
+    _apply_automation_refined_types(effects, refined_by_type.get("light_effect"))
     # After refinement: the range gate reads the entry's final type.
     ranges_by_type = registry_ranges or {}
     _apply_automation_field_ranges(actions, ranges_by_type.get("action"))
@@ -10489,7 +10493,7 @@ def build_automations(  # noqa: C901
         "triggers": _drop_platform_trigger_twins(_dedupe_by_id(triggers)),
         "actions": actions,
         "conditions": conditions,
-        "light_effects": _dedupe_by_id(effects),
+        "light_effects": effects,
         "filters": _dedupe_filters(filters),
     }
     _prune_automation_reference_classes(automations, restrictive_references)

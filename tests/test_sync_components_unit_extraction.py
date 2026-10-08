@@ -546,6 +546,14 @@ def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
     assert action[("max_response_buffer_size",)].unit_options == ["B", "kB", "MB", "GB"]
 
 
+def test_light_effect_registry_is_refined(loader) -> None:
+    """Light effects get the same live refinement as actions."""
+    loader.get_component("light")
+    effects = _collect_automation_refined_types()["light_effect"]
+    assert effects["strobe"][("colors", "color_temperature")].unit_options == ["mireds", "K"]
+    assert effects["lambda"][("lambda",)].type == "lambda"
+
+
 def test_shipped_automations_http_request_carries_byte_units() -> None:
     """The generated http_request action bodies render the buffer with a byte picker."""
     for action_id in ("http_request.send", "http_request.get", "http_request.post"):
