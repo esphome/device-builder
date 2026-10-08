@@ -296,7 +296,7 @@ _DATA_TYPE_HEX: frozenset[str] = frozenset(
     }
 )
 
-# ``use_id_type`` is shaped ``"<namespace>::<ClassName>"``. Map the
+# ``use_id_type`` is shaped ``"[esphome::]<namespace>::<ClassName>"``. Map the
 # namespace to the catalog's component domain. ``switch_`` has a
 # trailing underscore (the C++ namespace can't be ``switch``); we strip
 # it. Everything else is identity.
@@ -3309,7 +3309,7 @@ def build_component_entry(
         refined_types = _shed_refined_bleed(refined_types, refined_bleed)
     # Refined types first: the range gate reads the entry's final type,
     # and a field promoted to float_with_unit must keep its bounds.
-    _apply_refined_types(config_entries, refined_types)
+    _apply_refined_types(config_entries, refined_types, component_id)
     _apply_field_ranges(config_entries, field_ranges, component_id)
     _apply_component_gates(config_entries, introspection.get("component_gates") or {})
     _apply_model_variance(
@@ -4120,6 +4120,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
+    options = _build_options(raw)
+    default_value = _boolean_default_as_option(default_value, options)
     if (
         key in _PLATFORM_DEFAULTED_ADVANCED_KEYS
         and default_value is not None
@@ -4134,7 +4136,7 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "description": docs.text or None,
         "required": required,
         "default_value": default_value,
-        "options": _build_options(raw),
+        "options": options,
         # ``allow_custom`` lets an options field also accept a free-typed
         # value (e.g. a font ``weight`` is a named weight *or* a raw int).
         "allow_custom_value": bool(raw.get("allow_custom")),
@@ -4752,6 +4754,21 @@ def _is_sentence_docs(docs: str) -> bool:
     return len(docs) > _MAX_OPTION_LABEL_LENGTH or docs.endswith((".", "!", "?"))
 
 
+def _boolean_default_as_option(default: Any, options: list[dict] | None) -> Any:
+    """Return the option esphome reads as boolean *default* (``True`` -> ``ON``), else *default*."""
+    if not isinstance(default, bool) or not options:
+        return default
+    from esphome import config_validation as cv
+
+    for option in options:
+        try:
+            if cv.boolean(option["value"]) is default:
+                return option["value"]
+        except cv.Invalid:
+            continue
+    return default
+
+
 def _enum_default(raw: dict) -> str | None:
     """Resolve the schema-marked default among an enum's values."""
     values = raw.get("values")
@@ -4851,7 +4868,10 @@ def _reference_namespace(qualified: str) -> str | None:
     """Catalog reference domain for a ``'ns::Class'``; None if unqualified."""
     # Shared by the reference side (use_id_type) and provider side (id
     # parents) so the two always map a namespace the same way.
-    if not isinstance(qualified, str) or "::" not in qualified:
+    if not isinstance(qualified, str):
+        return None
+    qualified = qualified.removeprefix("esphome::")
+    if "::" not in qualified:
         return None
     namespace = qualified.split("::", 1)[0]
     return _USE_ID_NAMESPACE_OVERRIDES.get(namespace, namespace)
@@ -6645,11 +6665,16 @@ class RefinedType(NamedTuple):
     display_format: str | None = None
     templatable: bool = False
     duration_min_unit: str | None = None
+    drop_options: bool = False
 
 
 # Stamp-only refinement: the union is templatable but no plain branch
 # classifies, so the bundle's typing stands.
 _TEMPLATABLE_ONLY = RefinedType("")
+
+# The bundle's enum values are schema-extractor placeholders the validator
+# itself rejects (light ``color``'s "CSS color name"); drop them as options.
+_PLACEHOLDER_OPTIONS = RefinedType("", drop_options=True)
 
 
 # IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
@@ -6884,6 +6909,24 @@ def _is_dict_list_union(validator: Any) -> bool:
     return _validator_branches_dict_and_list(src)
 
 
+def _rejects_own_placeholders(validator: Any) -> bool:
+    """Return whether *validator*'s schema-extract values all fail its own validation."""
+    placeholders = _hidden_schema(validator)
+    if not isinstance(placeholders, (list, tuple)) or not placeholders:
+        return False
+    if not all(isinstance(value, str) for value in placeholders):
+        return False
+    for value in placeholders:
+        try:
+            validator(value)
+        except vol.Invalid:
+            continue
+        except Exception:
+            return False
+        return False
+    return True
+
+
 def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, RefinedType]]:
     """Map runtime validator identities / names to refined types.
 
@@ -7076,7 +7119,11 @@ def _refined_types_in_schema(  # noqa: C901
         # the keys so the entry lands ``string`` and every select pick
         # re-serializes quoted (#2272). String-keyed enums (cc1101's
         # ``cv.enum({"8": ...})`` rejects a bare ``8``) stay unrefined.
-        refined = by_identity.get(id(validator)) or _int_enum_refined_type(validator)
+        refined = (
+            by_identity.get(id(validator))
+            or _int_enum_refined_type(validator)
+            or (_PLACEHOLDER_OPTIONS if _rejects_own_placeholders(validator) else None)
+        )
         if refined is not None:
             return refined
         # Some validators are wrapped (vol.All chains, partials, or
@@ -7965,6 +8012,7 @@ def _case_widened_gate_values(values: Iterable[str]) -> list[str]:
 def _apply_refined_types(
     entries: list[dict],
     refined: dict[tuple[str, ...], RefinedType],
+    owner: str = "",
 ) -> None:
     """Promote entry types from string → boolean/float/... where known.
 
@@ -7994,6 +8042,8 @@ def _apply_refined_types(
         # plain input; additive only, a bundle-set flag is never cleared.
         if new_type.templatable:
             entry["templatable"] = True
+        if new_type.drop_options and entry.pop("options", None):
+            _LOGGER.info("Dropping placeholder options on %s %s", owner, ".".join(path))
         if new_type.type:
             _apply_refined_entry_type(entry, new_type)
         if new_type.duration_min_unit and entry.get("type") == "time_period":
@@ -8055,14 +8105,8 @@ def _merge_boolean_union_options(entry: dict) -> None:
         if literal not in present
     ] + options
     if isinstance(entry.get("default_value"), bool):
-        literal = "true" if entry["default_value"] else "false"
-        entry["default_value"] = next(
-            (
-                option["value"]
-                for option in entry["options"]
-                if str(option.get("value")).lower() == literal
-            ),
-            literal,
+        entry["default_value"] = _boolean_default_as_option(
+            entry["default_value"], entry["options"]
         )
 
 
@@ -10552,7 +10596,7 @@ def _apply_automation_refined_types(
     for entry in entries:
         refined = refined_index.get(entry["id"])
         if refined:
-            _apply_refined_types(entry["config_entries"], refined)
+            _apply_refined_types(entry["config_entries"], refined, entry["id"])
 
 
 def _apply_automation_field_ranges(
