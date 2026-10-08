@@ -165,3 +165,15 @@ def test_list_shaped_filter_field_guard(
         (filters / f"{filter_id}.json").write_text(json.dumps({"config_entries": [entry]}))
     monkeypatch.setattr(check_catalog, "_AUTOMATIONS_DIR", tmp_path)
     assert bool(check_catalog._check_list_shaped_filter_fields()) is fails
+
+
+def test_list_shaped_filter_field_guard_reports_missing_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing filter body is a failure line, not a crash."""
+    (tmp_path / "filters").mkdir()
+    monkeypatch.setattr(check_catalog, "_AUTOMATIONS_DIR", tmp_path)
+    assert check_catalog._check_list_shaped_filter_fields() == [
+        "filter to_ntc_resistance body is missing",
+        "filter to_ntc_temperature body is missing",
+    ]

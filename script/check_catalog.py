@@ -353,7 +353,11 @@ def _check_list_shaped_filter_fields() -> list[str]:
     base = _AUTOMATIONS_DIR / "filters"
     failures = []
     for filter_id, key in _LIST_SHAPED_FILTER_FIELDS:
-        body = json.loads((base / f"{filter_id}.json").read_text(encoding="utf-8"))
+        path = base / f"{filter_id}.json"
+        if not path.is_file():
+            failures.append(f"filter {filter_id} body is missing")
+            continue
+        body = json.loads(path.read_text(encoding="utf-8"))
         entry = next((e for e in body.get("config_entries") or [] if e["key"] == key), None)
         if entry is None or not (entry.get("type") == "unknown" or entry.get("multi_value")):
             failures.append(f"filter {filter_id}.{key} lost its list shape: {entry!r}")
