@@ -8964,7 +8964,7 @@ def _collect_required_groups(
 
 def _automation_registries() -> dict[str, Any]:
     """
-    Return the live ``{"action": ..., "condition": ..., "light_effect": ...}`` registry map.
+    Return the live registry map keyed by automation kind.
 
     The registries fill during :func:`build_catalog`'s import sweep, so read
     them after it; ``--limit-component`` runs yield partial data. Empty when
@@ -8972,15 +8972,20 @@ def _automation_registries() -> dict[str, Any]:
     """
     try:
         automation = importlib.import_module("esphome.automation")
-        effects = importlib.import_module("esphome.components.light.effects")
     except Exception:
         _LOGGER.debug("automation registries unavailable", exc_info=True)
         return {}
-    return {
+    registries = {
         "action": automation.ACTION_REGISTRY,
         "condition": automation.CONDITION_REGISTRY,
-        "light_effect": effects.EFFECTS_REGISTRY,
     }
+    try:
+        effects = importlib.import_module("esphome.components.light.effects")
+    except Exception:
+        _LOGGER.debug("light effect registry unavailable", exc_info=True)
+    else:
+        registries["light_effect"] = effects.EFFECTS_REGISTRY
+    return registries
 
 
 def _iter_automation_registry_entries() -> Iterator[tuple[str, str, Any]]:
@@ -10477,18 +10482,13 @@ def build_automations(  # noqa: C901
 
     actions = _dedupe_by_id(actions)
     conditions = _dedupe_by_id(conditions)
-    refined_by_type = registry_refined or {}
-    _apply_automation_refined_types(actions, refined_by_type.get("action"))
-    _apply_automation_refined_types(conditions, refined_by_type.get("condition"))
     effects = _dedupe_by_id(effects)
-    _apply_automation_refined_types(effects, refined_by_type.get("light_effect"))
-    # After refinement: the range gate reads the entry's final type.
-    ranges_by_type = registry_ranges or {}
-    _apply_automation_field_ranges(actions, ranges_by_type.get("action"))
-    _apply_automation_field_ranges(conditions, ranges_by_type.get("condition"))
-    groups_by_type = registry_groups or {}
-    _apply_automation_required_groups(actions, groups_by_type.get("action"))
-    _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
+    _apply_registry_signals(
+        {"action": actions, "condition": conditions, "light_effect": effects},
+        registry_refined or {},
+        registry_ranges or {},
+        registry_groups or {},
+    )
     automations = {
         "triggers": _drop_platform_trigger_twins(_dedupe_by_id(triggers)),
         "actions": actions,
@@ -10498,6 +10498,22 @@ def build_automations(  # noqa: C901
     }
     _prune_automation_reference_classes(automations, restrictive_references)
     return automations
+
+
+def _apply_registry_signals(
+    entries_by_kind: dict[str, list[dict]],
+    refined: dict[str, Any],
+    ranges: dict[str, Any],
+    groups: dict[str, Any],
+) -> None:
+    """Overlay live registry types, ranges and required groups onto each automation kind."""
+    for kind, entries in entries_by_kind.items():
+        _apply_automation_refined_types(entries, refined.get(kind))
+        # After refinement: the range gate reads the entry's final type.
+        _apply_automation_field_ranges(entries, ranges.get(kind))
+        # Light effects carry no required_groups field.
+        if kind != "light_effect":
+            _apply_automation_required_groups(entries, groups.get(kind))
 
 
 def _automation_domain(top_key: str, *, component_ids: set[str]) -> str:
@@ -10594,7 +10610,7 @@ def _apply_automation_refined_types(
     entries: list[dict],
     refined_index: dict[str, dict[tuple[str, ...], RefinedType]] | None,
 ) -> None:
-    """Promote action / condition entry types from the live registry schemas."""
+    """Promote automation entry types from the live registry schemas."""
     if not refined_index:
         return
     for entry in entries:
@@ -10607,7 +10623,7 @@ def _apply_automation_field_ranges(
     entries: list[dict],
     ranges_index: dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]] | None,
 ) -> None:
-    """Overlay live registry ``vol.Range`` bounds onto action / condition entries."""
+    """Overlay live registry ``vol.Range`` bounds onto automation entries."""
     if not ranges_index:
         return
     for entry in entries:

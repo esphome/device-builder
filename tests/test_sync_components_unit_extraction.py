@@ -26,6 +26,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
     _SUFFIX_UNIT_RE,
     _audit_catalog_for_unit_mismatches,
+    _collect_automation_field_ranges,
     _collect_automation_refined_types,
     _collect_refined_types,
     _delegated_schema,
@@ -547,11 +548,13 @@ def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
 
 
 def test_light_effect_registry_is_refined(loader) -> None:
-    """Light effects get the same live refinement as actions."""
+    """Light effects get the same live refinement and ranges as actions."""
     loader.get_component("light")
     effects = _collect_automation_refined_types()["light_effect"]
     assert effects["strobe"][("colors", "color_temperature")].unit_options == ["mireds", "K"]
     assert effects["lambda"][("lambda",)].type == "lambda"
+    width = _collect_automation_field_ranges()["light_effect"]["addressable_rainbow"][("width",)]
+    assert width == (1, 65535)
 
 
 def test_shipped_automations_http_request_carries_byte_units() -> None:
