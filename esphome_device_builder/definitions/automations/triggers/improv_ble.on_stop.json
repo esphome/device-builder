@@ -1,0 +1,1 @@
+{"id":"improv_ble.on_stop","name":"Improv Ble → On Stop","description":"An action to be performed when Improv has stopped. See [`on_stop`](https://esphome.io/components/improv_ble#improv-on_stop).","docs_url":"https://esphome.io/components/improv_ble#configuration-variables","applies_to":["improv_ble"],"is_device_level":false,"supports_list":true,"config_entries":[]}
