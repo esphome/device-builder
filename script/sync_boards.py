@@ -590,6 +590,26 @@ def _esp32_board_pins(generic: list[BoardPin], board_pins: dict[str, int] | None
     return out
 
 
+def canonical_board_id(platform: str, board_id: str) -> str:
+    """Return esphome's id for *board_id*, ignoring case and ``-`` / ``_``, else *board_id*."""
+    return _folded_board_ids(platform).get(_fold_board_id(board_id), board_id)
+
+
+# Device-page SoC family -> esphome component that owns its board table
+_BOARD_TABLE_COMPONENT = {"rp2040": "rp2"}
+
+
+@cache
+def _folded_board_ids(platform: str) -> dict[str, str]:
+    component = _BOARD_TABLE_COMPONENT.get(platform, platform)
+    module = importlib.import_module(f"esphome.components.{component}.boards")
+    return {_fold_board_id(board): board for board in module.BOARDS}
+
+
+def _fold_board_id(board_id: str) -> str:
+    return board_id.lower().replace("-", "_")
+
+
 def esp32_variant_for_board(board_id: str) -> str | None:
     """Variant name for a PIO board id from esphome's authoritative ``BOARDS`` map."""
     module = importlib.import_module(_ESP32_BOARDS_MODULE)

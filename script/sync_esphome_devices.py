@@ -87,6 +87,7 @@ from script._expander_pins import (  # noqa: E402
 )
 from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
+from script.sync_boards import canonical_board_id, esp32_variant_for_board  # noqa: E402
 
 # Hoisted to ``script/_board_import.py``; private aliases keep this module's
 # call sites and test imports stable.
@@ -576,6 +577,18 @@ def _resolve_soc(
     return (candidates[0] if candidates else None), None
 
 
+def _clean_board_id(soc: str, raw_board: Any) -> str | None:
+    """Return the page's ``board:`` in esphome's spelling; ``None`` when absent or a placeholder."""
+    if not isinstance(raw_board, str):
+        return None
+    # Upstream pages occasionally ship a ``<REPLACEME>`` placeholder
+    # where a real PlatformIO board id should be — those configs would
+    # never compile, so treat them the same as a missing board.
+    if _is_placeholder_value(raw_board):
+        return None
+    return canonical_board_id(soc, raw_board)
+
+
 def _resolve_board_and_variant(
     soc: str, soc_block: dict[str, Any] | None
 ) -> tuple[str | None, str | None, str | None]:
@@ -593,12 +606,7 @@ def _resolve_board_and_variant(
     raw_variant = soc_block.get("variant")
     raw_framework = soc_block.get("framework")
 
-    board = raw_board if isinstance(raw_board, str) else None
-    # Upstream pages occasionally ship a ``<REPLACEME>`` placeholder
-    # where a real PlatformIO board id should be — those configs would
-    # never compile, so treat them the same as a missing board.
-    if board is not None and _is_placeholder_value(board):
-        board = None
+    board = _clean_board_id(soc, raw_board)
     # Upstream pages sometimes write the variant in uppercase or with
     # separators (``ESP32-C3``) — fold onto the catalog spelling.
     variant = normalize_chip_variant(raw_variant) if isinstance(raw_variant, str) else None
@@ -619,8 +627,6 @@ def _resolve_board_and_variant(
                 # resolve through esphome's authoritative board map — the
                 # manifest must carry the variant or the generated ``esp32:``
                 # block reads as an unknown board.
-                from script.sync_boards import esp32_variant_for_board
-
                 variant = esp32_variant_for_board(board)
         elif not board and variant:
             board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
