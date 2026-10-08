@@ -8,6 +8,8 @@ from esphome import config_validation as cv
 from esphome.schema_extractors import SCHEMA_EXTRACT
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _PLACEHOLDER_OPTIONS,
+    _apply_refined_types,
     _boolean_default_as_option,
     _rejects_own_placeholders,
 )
@@ -52,3 +54,11 @@ def test_boolean_default_maps_to_matching_option() -> None:
 def test_boolean_default_without_matching_option_is_unchanged() -> None:
     """No option reading as that boolean leaves the default alone."""
     assert _boolean_default_as_option(True, [{"label": "once", "value": "once"}]) is True
+
+
+def test_placeholder_refinement_drops_options_and_keeps_type() -> None:
+    """The placeholder refinement removes an entry's options without retyping it."""
+    entry = {"key": "color", "type": "string", "options": [{"label": "x", "value": "x"}]}
+    _apply_refined_types([entry], {("color",): _PLACEHOLDER_OPTIONS})
+    assert "options" not in entry
+    assert entry["type"] == "string"

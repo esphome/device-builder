@@ -296,7 +296,7 @@ _DATA_TYPE_HEX: frozenset[str] = frozenset(
     }
 )
 
-# ``use_id_type`` is shaped ``"<namespace>::<ClassName>"``. Map the
+# ``use_id_type`` is shaped ``"[esphome::]<namespace>::<ClassName>"``. Map the
 # namespace to the catalog's component domain. ``switch_`` has a
 # trailing underscore (the C++ namespace can't be ``switch``); we strip
 # it. Everything else is identity.
@@ -6665,6 +6665,7 @@ class RefinedType(NamedTuple):
     display_format: str | None = None
     templatable: bool = False
     duration_min_unit: str | None = None
+    drop_options: bool = False
 
 
 # Stamp-only refinement: the union is templatable but no plain branch
@@ -6673,7 +6674,7 @@ _TEMPLATABLE_ONLY = RefinedType("")
 
 # The bundle's enum values are schema-extractor placeholders the validator
 # itself rejects (light ``color``'s "CSS color name"); drop them as options.
-_PLACEHOLDER_OPTIONS = RefinedType("placeholder_options")
+_PLACEHOLDER_OPTIONS = RefinedType("", drop_options=True)
 
 
 # IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
@@ -6910,27 +6911,15 @@ def _is_dict_list_union(validator: Any) -> bool:
 
 def _rejects_own_placeholders(validator: Any) -> bool:
     """Return whether *validator*'s schema-extract values all fail its own validation."""
-    from esphome.schema_extractors import SCHEMA_EXTRACT
-
-    if not inspect.isfunction(validator):
+    placeholders = _hidden_schema(validator)
+    if not isinstance(placeholders, (list, tuple)) or not placeholders:
         return False
-    try:
-        placeholders = validator(SCHEMA_EXTRACT)
-    except Exception:
+    if not all(isinstance(value, str) for value in placeholders):
         return False
-    return (
-        isinstance(placeholders, list)
-        and bool(placeholders)
-        and all(isinstance(value, str) for value in placeholders)
-        and not any(_validates(validator, value) for value in placeholders)
-    )
-
-
-def _validates(validator: Any, value: Any) -> bool:
-    try:
-        validator(value)
-    except Exception:
-        return False
+    for value in placeholders:
+        with contextlib.suppress(Exception):
+            validator(value)
+            return False
     return True
 
 
@@ -8048,6 +8037,8 @@ def _apply_refined_types(
         # plain input; additive only, a bundle-set flag is never cleared.
         if new_type.templatable:
             entry["templatable"] = True
+        if new_type.drop_options:
+            entry.pop("options", None)
         if new_type.type:
             _apply_refined_entry_type(entry, new_type)
         if new_type.duration_min_unit and entry.get("type") == "time_period":
@@ -8060,9 +8051,6 @@ def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
     """Apply one refinement's type to *entry* per the override rules above."""
     if new_type.type == "time_period":
         # Carries only ``duration_min_unit``; never retypes an entry.
-        return
-    if new_type.type == "placeholder_options":
-        entry.pop("options", None)
         return
     if new_type.type == "float_with_unit":
         # Always apply — see the caller's docstring. Carries
@@ -8112,14 +8100,8 @@ def _merge_boolean_union_options(entry: dict) -> None:
         if literal not in present
     ] + options
     if isinstance(entry.get("default_value"), bool):
-        literal = "true" if entry["default_value"] else "false"
-        entry["default_value"] = next(
-            (
-                option["value"]
-                for option in entry["options"]
-                if str(option.get("value")).lower() == literal
-            ),
-            literal,
+        entry["default_value"] = _boolean_default_as_option(
+            entry["default_value"], entry["options"]
         )
 
 
