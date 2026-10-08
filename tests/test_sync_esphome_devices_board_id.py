@@ -17,6 +17,8 @@ from script.sync_esphome_devices import (  # type: ignore[import-not-found]
         ("esp32", "esp32_s3_devkitc_1", "esp32-s3-devkitc-1"),
         ("esp32", "HELTEC_WIFI_LORA_32_V3", "heltec_wifi_lora_32_V3"),
         ("rp2040", "RPIPICOW", "rpipicow"),
+        ("bk72xx", "CB3S", "cb3s"),
+        ("rtl87xx", "BW15", "bw15"),
         ("esp8266", "not-a-real-board", "not-a-real-board"),
     ],
 )
