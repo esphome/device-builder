@@ -10928,7 +10928,11 @@ def _filter_value_type_live(domain: str, name: str) -> str | None:
     The bundle dumps templatable scalar filters (``multiply`` / ``offset``)
     type-less, so introspect the registered validator. None if not a scalar.
     """
-    module_name, attr = _OPTIONAL_AUTOMATION_REGISTRIES[f"{domain}.filter"]
+    if (registry_ref := _OPTIONAL_AUTOMATION_REGISTRIES.get(f"{domain}.filter")) is None:
+        raise SystemExit(
+            f"{domain} has a filter registry missing from _OPTIONAL_AUTOMATION_REGISTRIES"
+        )
+    module_name, attr = registry_ref
     try:
         registry = getattr(importlib.import_module(module_name), attr, None)
         if registry is None or name not in registry:

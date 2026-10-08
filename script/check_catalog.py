@@ -234,6 +234,7 @@ def main() -> int:  # noqa: C901
     failures.extend(_check_no_field_bullet_descriptions(catalog))
     failures.extend(_check_boolean_options_exclusive(all_bodies))
     failures.extend(_check_automation_enrichment_floor())
+    failures.extend(_check_list_shaped_filter_fields())
 
     if failures:
         print(f"FAIL: {len(failures)} catalog regression(s):")
@@ -320,6 +321,10 @@ _GATING_FLOORS: dict[str, int] = {
 # passes; the band test keeps it calibrated from both sides.
 _AUTOMATION_ENRICHMENT_FLOOR = 100
 
+_AUTOMATIONS_DIR = (
+    Path(__file__).parent.parent / "esphome_device_builder" / "definitions" / "automations"
+)
+
 
 def _check_automation_enrichment_floor() -> list[str]:
     """Fail when refinement-shaped automation enrichment falls below the floor."""
@@ -335,9 +340,29 @@ def _check_automation_enrichment_floor() -> list[str]:
     ]
 
 
+# Filter fields whose YAML value is a list (or a list-or-mapping union);
+# a plain single-value string input would drop the list on save.
+_LIST_SHAPED_FILTER_FIELDS: list[tuple[str, str]] = [
+    ("to_ntc_resistance", "calibration"),
+    ("to_ntc_temperature", "calibration"),
+]
+
+
+def _check_list_shaped_filter_fields() -> list[str]:
+    """Fail when a list-shaped filter field ships as a single-value input."""
+    base = _AUTOMATIONS_DIR / "filters"
+    failures = []
+    for filter_id, key in _LIST_SHAPED_FILTER_FIELDS:
+        body = json.loads((base / f"{filter_id}.json").read_text(encoding="utf-8"))
+        entry = next((e for e in body.get("config_entries") or [] if e["key"] == key), None)
+        if entry is None or not (entry.get("type") == "unknown" or entry.get("multi_value")):
+            failures.append(f"filter {filter_id}.{key} lost its list shape: {entry!r}")
+    return failures
+
+
 def count_enriched_automation_entries() -> int:
     """Count action / condition fields carrying refinement-shaped enrichment."""
-    base = Path(__file__).parent.parent / "esphome_device_builder" / "definitions" / "automations"
+    base = _AUTOMATIONS_DIR
     count = 0
     for sub in ("actions", "conditions"):
         for body_path in sorted((base / sub).glob("*.json")):

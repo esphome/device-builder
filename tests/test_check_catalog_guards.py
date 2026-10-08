@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -143,3 +145,23 @@ def test_automation_enrichment_floor_reds_on_wholesale_loss(monkeypatch) -> None
     failures = check_catalog._check_automation_enrichment_floor()
     assert len(failures) == 1
     assert "import likely failed" in failures[0]
+
+
+@pytest.mark.parametrize(
+    ("entry", "fails"),
+    [
+        ({"key": "calibration", "type": "unknown"}, False),
+        ({"key": "calibration", "type": "string", "multi_value": True}, False),
+        ({"key": "calibration", "type": "string"}, True),
+    ],
+)
+def test_list_shaped_filter_field_guard(
+    entry: dict, fails: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A list-shaped filter field shipped as a single-value input fails the smoke check."""
+    filters = tmp_path / "filters"
+    filters.mkdir()
+    for filter_id in ("to_ntc_resistance", "to_ntc_temperature"):
+        (filters / f"{filter_id}.json").write_text(json.dumps({"config_entries": [entry]}))
+    monkeypatch.setattr(check_catalog, "_AUTOMATIONS_DIR", tmp_path)
+    assert bool(check_catalog._check_list_shaped_filter_fields()) is fails
