@@ -576,6 +576,20 @@ def _resolve_soc(
     return (candidates[0] if candidates else None), None
 
 
+def _clean_board_id(soc: str, raw_board: Any) -> str | None:
+    """Return the page's ``board:`` in esphome's spelling; ``None`` when absent or a placeholder."""
+    if not isinstance(raw_board, str):
+        return None
+    # Upstream pages occasionally ship a ``<REPLACEME>`` placeholder
+    # where a real PlatformIO board id should be — those configs would
+    # never compile, so treat them the same as a missing board.
+    if _is_placeholder_value(raw_board):
+        return None
+    from script.sync_boards import canonical_board_id
+
+    return canonical_board_id(soc, raw_board)
+
+
 def _resolve_board_and_variant(
     soc: str, soc_block: dict[str, Any] | None
 ) -> tuple[str | None, str | None, str | None]:
@@ -593,12 +607,7 @@ def _resolve_board_and_variant(
     raw_variant = soc_block.get("variant")
     raw_framework = soc_block.get("framework")
 
-    board = raw_board if isinstance(raw_board, str) else None
-    # Upstream pages occasionally ship a ``<REPLACEME>`` placeholder
-    # where a real PlatformIO board id should be — those configs would
-    # never compile, so treat them the same as a missing board.
-    if board is not None and _is_placeholder_value(board):
-        board = None
+    board = _clean_board_id(soc, raw_board)
     # Upstream pages sometimes write the variant in uppercase or with
     # separators (``ESP32-C3``) — fold onto the catalog spelling.
     variant = normalize_chip_variant(raw_variant) if isinstance(raw_variant, str) else None
