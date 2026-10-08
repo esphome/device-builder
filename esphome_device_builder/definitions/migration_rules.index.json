@@ -50,6 +50,13 @@
     },
     {
       "kind": "component_key",
+      "new": "improv_ble",
+      "old": "esp32_improv",
+      "removed_in": "2027.4.0",
+      "since": "2026.10.0b1"
+    },
+    {
+      "kind": "component_key",
       "new": "rp2",
       "old": "rp2040",
       "removed_in": "2027.7.0",
@@ -99,6 +106,15 @@
       "platform": "xiaomi_cgpr1",
       "removed_in": "2027.2.0",
       "since": "2026.8.0b1"
+    },
+    {
+      "domain": "binary_sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_mccgq02hl",
+      "removed_in": "2027.2.0",
+      "since": "2026.10.0b1"
     },
     {
       "domain": "binary_sensor",
