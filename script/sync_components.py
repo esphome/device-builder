@@ -11032,8 +11032,11 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
         elif f.get("config_entries") and f["config_entries"] != existing["config_entries"]:
             _LOGGER.warning("filter %s has different fields per domain; keeping the first", f["id"])
         for key in _SCALAR_VALUE_KEYS:
-            if other.get(key) and not existing.get(key):
+            if other.get(key) and not existing.get(key) and key != "templatable":
                 existing[key] = other[key]
+        # A lambda is only offered when every merged domain's scalar takes one.
+        if not other.get("templatable"):
+            existing.pop("templatable", None)
         existing["applies_to"] = merged_applies_to
         # Multi-domain entry: strip the "<Domain> → " prefix so the
         # bare name reads correctly regardless of editing context.
