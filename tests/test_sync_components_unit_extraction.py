@@ -26,6 +26,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
     _SUFFIX_UNIT_RE,
     _audit_catalog_for_unit_mismatches,
+    _automation_registries,
     _collect_automation_field_ranges,
     _collect_automation_refined_types,
     _collect_refined_types,
@@ -555,6 +556,16 @@ def test_light_effect_registry_is_refined(loader) -> None:
     assert effects["lambda"][("lambda",)].type == "lambda"
     width = _collect_automation_field_ranges()["light_effect"]["addressable_rainbow"][("width",)]
     assert width == (1, 65535)
+
+
+def test_filter_registries_are_refined_per_domain(loader) -> None:
+    """Each domain's filter registry gets live ranges, keyed by domain."""
+    loader.get_component("sensor")
+    ranges = _collect_automation_field_ranges()
+    assert ranges["sensor.filter"]["median"][("window_size",)] == (1, 65535)
+    assert {"sensor.filter", "binary_sensor.filter", "text_sensor.filter"} <= (
+        _automation_registries().keys()
+    )
 
 
 def test_shipped_automations_http_request_carries_byte_units() -> None:

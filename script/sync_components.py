@@ -983,15 +983,8 @@ def main() -> int:
     # the tree untouched; ``build_catalog``'s import sweep has already
     # filled the live registries.
     registry_refined = {} if args.limit_component else _collect_automation_refined_types()
-    if not args.limit_component and (
-        missing := {"action", "condition", "light_effect"} - registry_refined.keys()
-    ):
-        # SystemExit so a partially-imported esphome can't rewrite
-        # every automation body de-refined and still exit 0.
-        raise SystemExit(
-            f"automation registries {sorted(missing)} yielded no refinements after a "
-            "full import sweep — the automations catalog would be de-refined."
-        )
+    if not args.limit_component:
+        _fail_on_unrefined_registries(registry_refined)
 
     _audit_catalog_for_unit_mismatches(catalog)
     _audit_catalog_for_pin_metadata(catalog)
@@ -8964,6 +8957,33 @@ def _collect_required_groups(
     return out
 
 
+# Registries beyond esphome.automation's, imported one by one so a failure
+# loses only that kind. Filter ids repeat across domains, hence one per domain.
+_OPTIONAL_AUTOMATION_REGISTRIES: dict[str, tuple[str, str]] = {
+    "light_effect": ("esphome.components.light.effects", "EFFECTS_REGISTRY"),
+    **{
+        f"{domain}.filter": (f"esphome.components.{domain}", "FILTER_REGISTRY")
+        for domain in ("sensor", "binary_sensor", "text_sensor")
+    },
+}
+
+# Kinds that carry a ``required_groups`` field.
+_REQUIRED_GROUP_KINDS = frozenset({"action", "condition"})
+
+
+def _fail_on_unrefined_registries(registry_refined: dict[str, Any]) -> None:
+    """Abort a full sync when a registry failed to import or nothing was refined."""
+    missing = {"action", "condition", *_OPTIONAL_AUTOMATION_REGISTRIES}
+    missing -= _automation_registries().keys()
+    if missing or not registry_refined:
+        # SystemExit so a partially-imported esphome can't rewrite
+        # every automation body de-refined and still exit 0.
+        raise SystemExit(
+            f"automation registries unavailable ({sorted(missing)}) or unrefined after "
+            "a full import sweep — the automations catalog would be de-refined."
+        )
+
+
 def _automation_registries() -> dict[str, Any]:
     """
     Return the live registry map keyed by automation kind.
@@ -8981,12 +9001,11 @@ def _automation_registries() -> dict[str, Any]:
         "action": automation.ACTION_REGISTRY,
         "condition": automation.CONDITION_REGISTRY,
     }
-    try:
-        effects = importlib.import_module("esphome.components.light.effects")
-    except Exception:
-        _LOGGER.warning("light effect registry unavailable", exc_info=True)
-    else:
-        registries["light_effect"] = effects.EFFECTS_REGISTRY
+    for kind, (module_name, attr) in _OPTIONAL_AUTOMATION_REGISTRIES.items():
+        try:
+            registries[kind] = getattr(importlib.import_module(module_name), attr)
+        except Exception:
+            _LOGGER.warning("%s registry unavailable", kind, exc_info=True)
     return registries
 
 
@@ -10398,7 +10417,7 @@ def build_automations(  # noqa: C901
     actions: list[dict] = []
     conditions: list[dict] = []
     effects: list[dict] = []
-    filters: list[dict] = []
+    filters_by_domain: dict[str, list[dict]] = {}
 
     # Domains that host platform components (``sensor`` from
     # ``sensor.template``, ``display`` from ``display.ssd1306``, …);
@@ -10470,7 +10489,7 @@ def build_automations(  # noqa: C901
                     schema_dir=schema_dir,
                 )
                 if entry is not None:
-                    filters.append(entry)
+                    filters_by_domain.setdefault(top_key, []).append(entry)
             # Triggers — surfaced through CONFIG_SCHEMA's config_vars
             # (and any other ``_SCHEMA`` the file declares).
             triggers.extend(
@@ -10486,7 +10505,13 @@ def build_automations(  # noqa: C901
     conditions = _dedupe_by_id(conditions)
     effects = _dedupe_by_id(effects)
     _apply_registry_signals(
-        {"action": actions, "condition": conditions, "light_effect": effects},
+        {
+            "action": actions,
+            "condition": conditions,
+            "light_effect": effects,
+            # Per domain, before _dedupe_filters merges ids across domains.
+            **{f"{domain}.filter": items for domain, items in filters_by_domain.items()},
+        },
         registry_refined or {},
         registry_ranges or {},
         registry_groups or {},
@@ -10496,7 +10521,9 @@ def build_automations(  # noqa: C901
         "actions": actions,
         "conditions": conditions,
         "light_effects": effects,
-        "filters": _dedupe_filters(filters),
+        "filters": _dedupe_filters(
+            [f for domain in sorted(filters_by_domain) for f in filters_by_domain[domain]]
+        ),
     }
     _prune_automation_reference_classes(automations, restrictive_references)
     return automations
@@ -10513,8 +10540,7 @@ def _apply_registry_signals(
         _apply_automation_refined_types(entries, refined.get(kind))
         # After refinement: the range gate reads the entry's final type.
         _apply_automation_field_ranges(entries, ranges.get(kind))
-        # Light effects carry no required_groups field.
-        if kind != "light_effect":
+        if kind in _REQUIRED_GROUP_KINDS:
             _apply_automation_required_groups(entries, groups.get(kind))
 
 
