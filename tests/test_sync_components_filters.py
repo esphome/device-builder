@@ -100,6 +100,36 @@ def test_dedupe_filters_keeps_first_occurrence_config_entries() -> None:
     assert out[0]["config_entries"] is first_entries
 
 
+def test_dedupe_filters_prefers_body_with_fields_and_keeps_scalar_typing() -> None:
+    """A shared id keeps the fielded body and the scalar-only body's value typing."""
+    fields = [{"key": "timeout", "type": "time_period"}, {"key": "value", "type": "float"}]
+    out = _dedupe_filters(
+        [
+            {
+                "id": "timeout",
+                "name": "Binary Sensor → Timeout",
+                "applies_to": ["binary_sensor"],
+                "config_entries": [],
+                "value_type": "time_period",
+                "templatable": True,
+            },
+            {
+                "id": "timeout",
+                "name": "Sensor → Timeout",
+                "applies_to": ["sensor"],
+                "config_entries": fields,
+            },
+        ]
+    )
+    assert len(out) == 1
+    merged = out[0]
+    assert merged["config_entries"] is fields
+    assert merged["value_type"] == "time_period"
+    assert merged["templatable"] is True
+    assert merged["applies_to"] == ["binary_sensor", "sensor"]
+    assert merged["name"] == "Timeout"
+
+
 # ---------------------------------------------------------------------------
 # _convert_field — REGISTRY_LIST detection
 # ---------------------------------------------------------------------------

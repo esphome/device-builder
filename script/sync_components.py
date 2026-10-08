@@ -11018,6 +11018,7 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
             by_id[f["id"]] = f
             continue
         merged_applies_to = sorted({*existing.get("applies_to", []), *f.get("applies_to", [])})
+        existing = by_id[f["id"]] = _merge_filter_bodies(existing, f)
         existing["applies_to"] = merged_applies_to
         # Multi-domain entry: strip the "<Domain> → " prefix so the
         # bare name reads correctly regardless of editing context.
@@ -11025,6 +11026,21 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
         if len(merged_applies_to) > 1 and _AUTOMATION_LABEL_SEPARATOR in name:
             existing["name"] = name.split(_AUTOMATION_LABEL_SEPARATOR, 1)[1]
     return list(by_id.values())
+
+
+def _merge_filter_bodies(first: dict, other: dict) -> dict:
+    """Keep the body with fields for a shared filter id, carrying the other's scalar typing."""
+    if first.get("config_entries") and other.get("config_entries"):
+        if first["config_entries"] != other["config_entries"]:
+            _LOGGER.warning(
+                "filter %s has different fields per domain; keeping the first", first["id"]
+            )
+        return first
+    base, scalar = (other, first) if other.get("config_entries") else (first, other)
+    for key in ("value_type", "templatable", "duration_min_unit"):
+        if scalar.get(key) and not base.get(key):
+            base[key] = scalar[key]
+    return base
 
 
 def _convert_light_effect(
