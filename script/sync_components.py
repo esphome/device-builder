@@ -3752,22 +3752,24 @@ def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
     return None
 
 
-def _fieldless_base_flags(inner_schema: Any, schema_dir: Path) -> dict | None:
-    """Return the merged flags of an extends-only wrapper whose bases carry no fields."""
+def _is_list_only_wrapper(inner_schema: Any, schema_dir: Path) -> bool:
+    """Return whether an extends-only wrapper's bases carry no fields and mark a list."""
     if not isinstance(inner_schema, dict) or inner_schema.get("config_vars"):
-        return None
-    refs = inner_schema.get("extends") or []
-    flags: dict = {}
-    for ref in refs:
+        return False
+    is_list = False
+    for ref in inner_schema.get("extends") or []:
+        if _scalar_type_for_extends_ref(ref) is not None:
+            return False
         target = _lookup_schema_ref(ref, schema_dir)
         if (
             not isinstance(target, dict)
-            or _scalar_type_for_extends_ref(ref) is not None
-            or set(target) - {"is_list"}
+            or "key_type" in target
+            or _is_typed_node(target.get("schema"))
+            or _resolve_extends(ref, schema_dir)
         ):
-            return None
-        flags |= target
-    return flags or None
+            return False
+        is_list = is_list or bool(target.get("is_list"))
+    return is_list
 
 
 def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
@@ -3962,10 +3964,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
 
     schema_type = raw.get("type")
     inner_schema = raw.get("schema")
-    if schema_type == "schema" and (flags := _fieldless_base_flags(inner_schema, schema_dir)):
-        # A wrapper over a field-less base (``cv.ensure_list`` of a scalar) is
-        # the base's flags, not a nested group
-        raw = {k: v for k, v in raw.items() if k not in ("type", "schema")} | flags
+    if schema_type == "schema" and _is_list_only_wrapper(inner_schema, schema_dir):
+        raw = raw | {"is_list": True}
         schema_type = inner_schema = None
     data_type = raw.get("data_type")
 

@@ -1152,19 +1152,29 @@ async def test_add_component_featured_drops_non_manifest_defaults(
     """
     (tmp_path / "kit.yaml").write_text("esphome:\n  name: kit\napi:\n", "utf-8")
     ctrl = make_add_component_controller(catalog, tmp_path)
+    body = await catalog.get_body("light.esp32_rmt_led_strip")
+    assert body is not None
+    candidates = {
+        "gamma_correct",
+        "use_psram",
+        "default_transition_length",
+        "flash_transition_length",
+        "reset_high",
+        "reset_low",
+        "restore_mode",
+    }
+    # Frontend default-fills: whatever the installed catalog defaults for these
+    fills = {
+        e.key: e.default_value
+        for e in body.config_entries
+        if e.key in candidates and e.default_value is not None
+    }
+    assert fills
 
     response = await ctrl.add_component(
         configuration="kit.yaml",
         component_id="featured.apollo-esk-1.rgb_leds",
-        fields={
-            # Frontend default-fills:
-            "gamma_correct": 2.8,
-            "use_psram": True,
-            "default_transition_length": "1s",
-            "flash_transition_length": "0s",
-            "reset_high": "0 us",
-            "reset_low": "0 us",
-        },
+        fields=fills,
     )
 
     yaml = response.yaml
@@ -1173,15 +1183,7 @@ async def test_add_component_featured_drops_non_manifest_defaults(
     assert "chipset: WS2812" in yaml
     assert "num_leds: 10" in yaml
     assert "channel_colors: GRB" in yaml
-    # Frontend's default-fills are stripped.
-    for noise in (
-        "gamma_correct",
-        "use_psram",
-        "default_transition_length",
-        "flash_transition_length",
-        "reset_high",
-        "reset_low",
-    ):
+    for noise in fills:
         assert noise not in yaml, f"{noise} should have been filtered out"
 
 

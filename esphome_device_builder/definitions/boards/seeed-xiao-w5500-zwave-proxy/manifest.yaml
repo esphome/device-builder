@@ -63,7 +63,7 @@ featured_components:
 - id: zwave_usb_host
   component_id: usb_host
   name: USB Host (ZWA-2 stick)
-  description: USB-C host port configured for the Home Assistant Connect ZWA-2.
+  description: USB-C host port the ZWA-2 serial connects through.
   image_url: https://www.home-assistant.io/images/connect/zwa-2/device/intro.webp
 - id: zwave_usb_uart
   component_id: usb_uart
