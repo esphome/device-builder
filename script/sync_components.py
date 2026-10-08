@@ -983,12 +983,14 @@ def main() -> int:
     # the tree untouched; ``build_catalog``'s import sweep has already
     # filled the live registries.
     registry_refined = {} if args.limit_component else _collect_automation_refined_types()
-    if not args.limit_component and not registry_refined:
+    if not args.limit_component and (
+        missing := {"action", "condition", "light_effect"} - registry_refined.keys()
+    ):
         # SystemExit so a partially-imported esphome can't rewrite
-        # every action body de-refined and still exit 0.
+        # every automation body de-refined and still exit 0.
         raise SystemExit(
-            "automation registries yielded no refinements after a full "
-            "import sweep — the automations catalog would be de-refined."
+            f"automation registries {sorted(missing)} yielded no refinements after a "
+            "full import sweep — the automations catalog would be de-refined."
         )
 
     _audit_catalog_for_unit_mismatches(catalog)
@@ -8982,7 +8984,7 @@ def _automation_registries() -> dict[str, Any]:
     try:
         effects = importlib.import_module("esphome.components.light.effects")
     except Exception:
-        _LOGGER.debug("light effect registry unavailable", exc_info=True)
+        _LOGGER.warning("light effect registry unavailable", exc_info=True)
     else:
         registries["light_effect"] = effects.EFFECTS_REGISTRY
     return registries
