@@ -591,24 +591,23 @@ def _esp32_board_pins(generic: list[BoardPin], board_pins: dict[str, int] | None
 
 
 def canonical_board_id(platform: str, board_id: str) -> str:
-    """Return the spelling of *board_id* esphome's *platform* board table knows, else *board_id*."""
-    known = _known_board_ids(platform)
-    if board_id in known:
-        return board_id
-    folded = board_id.lower()
-    for candidate in (folded, folded.replace("-", "_"), folded.replace("_", "-")):
-        if candidate in known:
-            return candidate
-    return board_id
+    """Return esphome's id for *board_id*, ignoring case and ``-`` / ``_``, else *board_id*."""
+    return _folded_board_ids(platform).get(_fold_board_id(board_id), board_id)
+
+
+# Device-page SoC family -> esphome component that owns its board table
+_BOARD_TABLE_COMPONENT = {"rp2040": "rp2"}
 
 
 @cache
-def _known_board_ids(platform: str) -> frozenset[str]:
-    try:
-        module = importlib.import_module(f"esphome.components.{platform}.boards")
-    except ModuleNotFoundError:
-        return frozenset()
-    return frozenset(getattr(module, "BOARDS", None) or ())
+def _folded_board_ids(platform: str) -> dict[str, str]:
+    component = _BOARD_TABLE_COMPONENT.get(platform, platform)
+    module = importlib.import_module(f"esphome.components.{component}.boards")
+    return {_fold_board_id(board): board for board in module.BOARDS}
+
+
+def _fold_board_id(board_id: str) -> str:
+    return board_id.lower().replace("-", "_")
 
 
 def esp32_variant_for_board(board_id: str) -> str | None:

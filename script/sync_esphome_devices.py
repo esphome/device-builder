@@ -87,6 +87,7 @@ from script._expander_pins import (  # noqa: E402
 )
 from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
+from script.sync_boards import canonical_board_id, esp32_variant_for_board  # noqa: E402
 
 # Hoisted to ``script/_board_import.py``; private aliases keep this module's
 # call sites and test imports stable.
@@ -585,8 +586,6 @@ def _clean_board_id(soc: str, raw_board: Any) -> str | None:
     # never compile, so treat them the same as a missing board.
     if _is_placeholder_value(raw_board):
         return None
-    from script.sync_boards import canonical_board_id
-
     return canonical_board_id(soc, raw_board)
 
 
@@ -628,8 +627,6 @@ def _resolve_board_and_variant(
                 # resolve through esphome's authoritative board map — the
                 # manifest must carry the variant or the generated ``esp32:``
                 # block reads as an unknown board.
-                from script.sync_boards import esp32_variant_for_board
-
                 variant = esp32_variant_for_board(board)
         elif not board and variant:
             board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
