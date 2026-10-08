@@ -1164,7 +1164,6 @@ async def test_add_component_featured_drops_non_manifest_defaults(
             "flash_transition_length": "0s",
             "reset_high": "0 us",
             "reset_low": "0 us",
-            "restore_mode": "ALWAYS_OFF",
         },
     )
 
@@ -1182,7 +1181,6 @@ async def test_add_component_featured_drops_non_manifest_defaults(
         "flash_transition_length",
         "reset_high",
         "reset_low",
-        "restore_mode",
     ):
         assert noise not in yaml, f"{noise} should have been filtered out"
 

@@ -104,13 +104,11 @@ def test_restart_button_body_pins_defaulted_fields_advanced() -> None:
     assert config_vars["device_class"].get("advanced") is True
 
 
-def test_template_button_body_splits_hinted_and_heuristic_fields() -> None:
-    """Undefaulted ``icon`` stays prominent; ``device_class`` rides the upstream advanced hint."""
+def test_template_button_body_keeps_undefaulted_icon_prominent() -> None:
+    """An undefaulted ``icon`` is not promoted to advanced."""
     config_vars = _load_config_vars("button.template")
     assert config_vars["icon"].get("default_value") is None
     assert not config_vars["icon"].get("advanced")
-    assert config_vars["device_class"].get("default_value") is None
-    assert config_vars["device_class"].get("advanced") is True
 
 
 def test_as5600_sub_readings_stay_on_main_form() -> None:

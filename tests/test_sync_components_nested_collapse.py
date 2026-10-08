@@ -23,6 +23,7 @@ def schema_dir(tmp_path: Path) -> Path:
             {
                 "base": {
                     "schemas": {
+                        "LIST_ONLY": {"is_list": True},
                         "SHARED": {
                             "schema": {
                                 "config_vars": {
@@ -45,6 +46,22 @@ def test_empty_schema_wrapper_collapses(schema_dir: Path) -> None:
     assert entry is not None
     assert entry["type"] != "nested"
     assert not entry.get("config_entries")
+
+
+def test_wrapper_over_fieldless_list_base_matches_inline_list(schema_dir: Path) -> None:
+    """A ``type: schema`` wrapper over a bare ``is_list`` base converts like the inline list."""
+    docs = "**list of MAC Address**: The MAC address to filter for this automation."
+    inline = {"key": "Optional", "is_list": True, "docs": docs}
+    wrapped = {
+        "key": "Optional",
+        "type": "schema",
+        "schema": {"extends": ["base.LIST_ONLY"]},
+        "docs": docs,
+    }
+    entry = _convert_field("mac_address", wrapped, schema_dir)
+    assert entry is not None
+    assert entry["type"] != "nested"
+    assert entry == _convert_field("mac_address", inline, schema_dir)
 
 
 def test_trigger_only_nested_group_drops(schema_dir: Path) -> None:
