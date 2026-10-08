@@ -566,6 +566,8 @@ def test_filter_registries_are_refined_per_domain(loader) -> None:
     assert {"sensor.filter", "binary_sensor.filter", "text_sensor.filter"} <= (
         _automation_registries().keys()
     )
+    ntc = _collect_automation_refined_types()["sensor.filter"]["to_ntc_resistance"]
+    assert ntc[("calibration",)].type == "unknown"
 
 
 def test_shipped_automations_http_request_carries_byte_units() -> None:

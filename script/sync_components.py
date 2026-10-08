@@ -8961,26 +8961,29 @@ def _collect_required_groups(
 # loses only that kind. Filter ids repeat across domains, hence one per domain.
 _OPTIONAL_AUTOMATION_REGISTRIES: dict[str, tuple[str, str]] = {
     "light_effect": ("esphome.components.light.effects", "EFFECTS_REGISTRY"),
-    **{
-        f"{domain}.filter": (f"esphome.components.{domain}", "FILTER_REGISTRY")
-        for domain in ("sensor", "binary_sensor", "text_sensor")
-    },
+    "sensor.filter": ("esphome.components.sensor", "FILTER_REGISTRY"),
+    "binary_sensor.filter": ("esphome.components.binary_sensor", "FILTER_REGISTRY"),
+    "text_sensor.filter": ("esphome.components.text_sensor", "FILTER_REGISTRY"),
 }
+
+# Kinds a full sync must refine; text_sensor filters have nothing to refine.
+_MUST_REFINE_KINDS = frozenset({"action", "condition", "light_effect", "sensor.filter"})
 
 # Kinds that carry a ``required_groups`` field.
 _REQUIRED_GROUP_KINDS = frozenset({"action", "condition"})
 
 
 def _fail_on_unrefined_registries(registry_refined: dict[str, Any]) -> None:
-    """Abort a full sync when a registry failed to import or nothing was refined."""
-    missing = {"action", "condition", *_OPTIONAL_AUTOMATION_REGISTRIES}
-    missing -= _automation_registries().keys()
-    if missing or not registry_refined:
-        # SystemExit so a partially-imported esphome can't rewrite
-        # every automation body de-refined and still exit 0.
+    """Abort a full sync when a registry failed to import or a must-refine kind came back empty."""
+    # SystemExit so a partially-imported esphome can't rewrite every
+    # automation body de-refined and still exit 0.
+    expected = {"action", "condition", *_OPTIONAL_AUTOMATION_REGISTRIES}
+    if unavailable := expected - _automation_registries().keys():
+        raise SystemExit(f"automation registries {sorted(unavailable)} failed to import.")
+    if unrefined := _MUST_REFINE_KINDS - registry_refined.keys():
         raise SystemExit(
-            f"automation registries unavailable ({sorted(missing)}) or unrefined after "
-            "a full import sweep — the automations catalog would be de-refined."
+            f"automation registries {sorted(unrefined)} yielded no refinements after a "
+            "full import sweep — the automations catalog would be de-refined."
         )
 
 
@@ -10521,9 +10524,8 @@ def build_automations(  # noqa: C901
         "actions": actions,
         "conditions": conditions,
         "light_effects": effects,
-        "filters": _dedupe_filters(
-            [f for domain in sorted(filters_by_domain) for f in filters_by_domain[domain]]
-        ),
+        # Schema files iterate sorted, so binary_sensor's body wins a shared id.
+        "filters": _dedupe_filters([f for items in filters_by_domain.values() for f in items]),
     }
     _prune_automation_reference_classes(automations, restrictive_references)
     return automations
@@ -10926,40 +10928,15 @@ def _filter_value_type_live(domain: str, name: str) -> str | None:
     The bundle dumps templatable scalar filters (``multiply`` / ``offset``)
     type-less, so introspect the registered validator. None if not a scalar.
     """
+    module_name, attr = _OPTIONAL_AUTOMATION_REGISTRIES[f"{domain}.filter"]
     try:
-        module = importlib.import_module(f"esphome.components.{domain}")
-        registry = getattr(module, "FILTER_REGISTRY", None)
+        registry = getattr(importlib.import_module(module_name), attr, None)
         if registry is None or name not in registry:
             return None
         schema = getattr(registry[name], "schema", None)
     except Exception:
         return None
     return _classify_scalar_validator(schema)
-
-
-# Per-filter field overrides for shapes the upstream schema bundle
-# can't surface because the validator is a custom callable (e.g.
-# ``ntc_process_calibration``) instead of a structural cv.*
-# combinator the bundle dumper can introspect. Each entry promotes
-# the field to ``multi_value: True`` so the frontend renders an
-# add/remove list editor rather than a single text input that loses
-# the YAML list on save. Add new entries here as they surface; the
-# fix lives upstream when the bundle dumper grows support for the
-# custom validators.
-_REGISTRY_FIELD_OVERRIDES: dict[tuple[str, str], dict] = {
-    ("to_ntc_resistance", "calibration"): {"multi_value": True},
-    ("to_ntc_temperature", "calibration"): {"multi_value": True},
-}
-
-
-def _apply_field_overrides(entry_id: str, config_entries: list[dict]) -> list[dict]:
-    """Apply ``_REGISTRY_FIELD_OVERRIDES`` to entries keyed by id."""
-    return [
-        {**e, **_REGISTRY_FIELD_OVERRIDES[(entry_id, e["key"])]}
-        if (entry_id, e["key"]) in _REGISTRY_FIELD_OVERRIDES
-        else e
-        for e in config_entries
-    ]
 
 
 def _convert_registry_entry(
@@ -10986,7 +10963,6 @@ def _convert_registry_entry(
     value_type = _scalar_value_type_for_schema(name, schema) or live_value_type
     # A pure scalar (``delayed_on: 50ms``) has no mapping side, so no entries.
     config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
-    config_entries = _apply_field_overrides(name, config_entries)
     # ``templatable`` lets the frontend offer a lambda toggle on the scalar
     # value (``multiply: !lambda``). Omitted when false.
     return {
