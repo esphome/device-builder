@@ -10848,10 +10848,6 @@ def _resolve_automation_lambda(
     return config_entries, _scalar_shorthand_key(body, schema_dir)
 
 
-# Registry-entry keys that type a scalar value (see _scalar_value_extras).
-_SCALAR_VALUE_KEYS = ("value_type", "templatable", "duration_min_unit")
-
-
 def _scalar_value_extras(value_type: str | None, schema: dict | None, body: dict) -> dict:
     """Return the ``templatable`` / ``duration_min_unit`` fields of a scalar value."""
     extras: dict[str, Any] = {}
@@ -11031,8 +11027,8 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
             by_id[existing["id"]] = existing
         elif f.get("config_entries") and f["config_entries"] != existing["config_entries"]:
             _LOGGER.warning("filter %s has different fields per domain; keeping the first", f["id"])
-        for key in _SCALAR_VALUE_KEYS:
-            if other.get(key) and not existing.get(key) and key != "templatable":
+        for key in ("value_type", "duration_min_unit"):
+            if other.get(key) and not existing.get(key):
                 existing[key] = other[key]
         # A lambda is only offered when every merged domain's scalar takes one.
         if not other.get("templatable"):
