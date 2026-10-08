@@ -983,15 +983,8 @@ def main() -> int:
     # the tree untouched; ``build_catalog``'s import sweep has already
     # filled the live registries.
     registry_refined = {} if args.limit_component else _collect_automation_refined_types()
-    if not args.limit_component and (
-        missing := {"action", "condition", "light_effect"} - registry_refined.keys()
-    ):
-        # SystemExit so a partially-imported esphome can't rewrite
-        # every automation body de-refined and still exit 0.
-        raise SystemExit(
-            f"automation registries {sorted(missing)} yielded no refinements after a "
-            "full import sweep — the automations catalog would be de-refined."
-        )
+    if not args.limit_component:
+        _fail_on_unrefined_registries(registry_refined)
 
     _audit_catalog_for_unit_mismatches(catalog)
     _audit_catalog_for_pin_metadata(catalog)
@@ -8964,6 +8957,36 @@ def _collect_required_groups(
     return out
 
 
+# Registries beyond esphome.automation's, imported one by one so a failure
+# loses only that kind. Filter ids repeat across domains, hence one per domain.
+_OPTIONAL_AUTOMATION_REGISTRIES: dict[str, tuple[str, str]] = {
+    "light_effect": ("esphome.components.light.effects", "EFFECTS_REGISTRY"),
+    "sensor.filter": ("esphome.components.sensor", "FILTER_REGISTRY"),
+    "binary_sensor.filter": ("esphome.components.binary_sensor", "FILTER_REGISTRY"),
+    "text_sensor.filter": ("esphome.components.text_sensor", "FILTER_REGISTRY"),
+}
+
+# Kinds a full sync must refine; text_sensor filters have nothing to refine.
+_MUST_REFINE_KINDS = frozenset({"action", "condition", "light_effect", "sensor.filter"})
+
+# Kinds that carry a ``required_groups`` field.
+_REQUIRED_GROUP_KINDS = frozenset({"action", "condition"})
+
+
+def _fail_on_unrefined_registries(registry_refined: dict[str, Any]) -> None:
+    """Abort a full sync when a registry failed to import or a must-refine kind came back empty."""
+    # SystemExit so a partially-imported esphome can't rewrite every
+    # automation body de-refined and still exit 0.
+    expected = {"action", "condition", *_OPTIONAL_AUTOMATION_REGISTRIES}
+    if unavailable := expected - _automation_registries().keys():
+        raise SystemExit(f"automation registries {sorted(unavailable)} failed to import.")
+    if unrefined := _MUST_REFINE_KINDS - registry_refined.keys():
+        raise SystemExit(
+            f"automation registries {sorted(unrefined)} yielded no refinements after a "
+            "full import sweep — the automations catalog would be de-refined."
+        )
+
+
 def _automation_registries() -> dict[str, Any]:
     """
     Return the live registry map keyed by automation kind.
@@ -8981,12 +9004,11 @@ def _automation_registries() -> dict[str, Any]:
         "action": automation.ACTION_REGISTRY,
         "condition": automation.CONDITION_REGISTRY,
     }
-    try:
-        effects = importlib.import_module("esphome.components.light.effects")
-    except Exception:
-        _LOGGER.warning("light effect registry unavailable", exc_info=True)
-    else:
-        registries["light_effect"] = effects.EFFECTS_REGISTRY
+    for kind, (module_name, attr) in _OPTIONAL_AUTOMATION_REGISTRIES.items():
+        try:
+            registries[kind] = getattr(importlib.import_module(module_name), attr)
+        except Exception:
+            _LOGGER.warning("%s registry unavailable", kind, exc_info=True)
     return registries
 
 
@@ -10398,7 +10420,7 @@ def build_automations(  # noqa: C901
     actions: list[dict] = []
     conditions: list[dict] = []
     effects: list[dict] = []
-    filters: list[dict] = []
+    filters_by_domain: dict[str, list[dict]] = {}
 
     # Domains that host platform components (``sensor`` from
     # ``sensor.template``, ``display`` from ``display.ssd1306``, …);
@@ -10470,7 +10492,7 @@ def build_automations(  # noqa: C901
                     schema_dir=schema_dir,
                 )
                 if entry is not None:
-                    filters.append(entry)
+                    filters_by_domain.setdefault(top_key, []).append(entry)
             # Triggers — surfaced through CONFIG_SCHEMA's config_vars
             # (and any other ``_SCHEMA`` the file declares).
             triggers.extend(
@@ -10486,7 +10508,13 @@ def build_automations(  # noqa: C901
     conditions = _dedupe_by_id(conditions)
     effects = _dedupe_by_id(effects)
     _apply_registry_signals(
-        {"action": actions, "condition": conditions, "light_effect": effects},
+        {
+            "action": actions,
+            "condition": conditions,
+            "light_effect": effects,
+            # Per domain, before _dedupe_filters merges ids across domains.
+            **{f"{domain}.filter": items for domain, items in filters_by_domain.items()},
+        },
         registry_refined or {},
         registry_ranges or {},
         registry_groups or {},
@@ -10496,7 +10524,8 @@ def build_automations(  # noqa: C901
         "actions": actions,
         "conditions": conditions,
         "light_effects": effects,
-        "filters": _dedupe_filters(filters),
+        # Schema files iterate sorted, so binary_sensor's body wins a shared id.
+        "filters": _dedupe_filters([f for items in filters_by_domain.values() for f in items]),
     }
     _prune_automation_reference_classes(automations, restrictive_references)
     return automations
@@ -10513,8 +10542,7 @@ def _apply_registry_signals(
         _apply_automation_refined_types(entries, refined.get(kind))
         # After refinement: the range gate reads the entry's final type.
         _apply_automation_field_ranges(entries, ranges.get(kind))
-        # Light effects carry no required_groups field.
-        if kind != "light_effect":
+        if kind in _REQUIRED_GROUP_KINDS:
             _apply_automation_required_groups(entries, groups.get(kind))
 
 
@@ -10900,40 +10928,19 @@ def _filter_value_type_live(domain: str, name: str) -> str | None:
     The bundle dumps templatable scalar filters (``multiply`` / ``offset``)
     type-less, so introspect the registered validator. None if not a scalar.
     """
+    if (registry_ref := _OPTIONAL_AUTOMATION_REGISTRIES.get(f"{domain}.filter")) is None:
+        raise SystemExit(
+            f"{domain} has a filter registry missing from _OPTIONAL_AUTOMATION_REGISTRIES"
+        )
+    module_name, attr = registry_ref
     try:
-        module = importlib.import_module(f"esphome.components.{domain}")
-        registry = getattr(module, "FILTER_REGISTRY", None)
+        registry = getattr(importlib.import_module(module_name), attr, None)
         if registry is None or name not in registry:
             return None
         schema = getattr(registry[name], "schema", None)
     except Exception:
         return None
     return _classify_scalar_validator(schema)
-
-
-# Per-filter field overrides for shapes the upstream schema bundle
-# can't surface because the validator is a custom callable (e.g.
-# ``ntc_process_calibration``) instead of a structural cv.*
-# combinator the bundle dumper can introspect. Each entry promotes
-# the field to ``multi_value: True`` so the frontend renders an
-# add/remove list editor rather than a single text input that loses
-# the YAML list on save. Add new entries here as they surface; the
-# fix lives upstream when the bundle dumper grows support for the
-# custom validators.
-_REGISTRY_FIELD_OVERRIDES: dict[tuple[str, str], dict] = {
-    ("to_ntc_resistance", "calibration"): {"multi_value": True},
-    ("to_ntc_temperature", "calibration"): {"multi_value": True},
-}
-
-
-def _apply_field_overrides(entry_id: str, config_entries: list[dict]) -> list[dict]:
-    """Apply ``_REGISTRY_FIELD_OVERRIDES`` to entries keyed by id."""
-    return [
-        {**e, **_REGISTRY_FIELD_OVERRIDES[(entry_id, e["key"])]}
-        if (entry_id, e["key"]) in _REGISTRY_FIELD_OVERRIDES
-        else e
-        for e in config_entries
-    ]
 
 
 def _convert_registry_entry(
@@ -10960,7 +10967,6 @@ def _convert_registry_entry(
     value_type = _scalar_value_type_for_schema(name, schema) or live_value_type
     # A pure scalar (``delayed_on: 50ms``) has no mapping side, so no entries.
     config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
-    config_entries = _apply_field_overrides(name, config_entries)
     # ``templatable`` lets the frontend offer a lambda toggle on the scalar
     # value (``multiply: !lambda``). Omitted when false.
     return {
