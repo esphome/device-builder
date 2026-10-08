@@ -13,6 +13,7 @@ import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 import voluptuous as vol
 
 from esphome_device_builder.controllers.components import ComponentCatalog
@@ -98,6 +99,82 @@ def test_dedupe_filters_keeps_first_occurrence_config_entries() -> None:
         ]
     )
     assert out[0]["config_entries"] is first_entries
+
+
+def test_dedupe_filters_prefers_body_with_fields_and_keeps_scalar_typing() -> None:
+    """A shared id keeps the fielded body and the scalar-only body's value typing."""
+    fields = [{"key": "timeout", "type": "time_period"}, {"key": "value", "type": "float"}]
+    out = _dedupe_filters(
+        [
+            {
+                "id": "timeout",
+                "name": "Binary Sensor → Timeout",
+                "applies_to": ["binary_sensor"],
+                "config_entries": [],
+                "value_type": "time_period",
+                "templatable": True,
+            },
+            {
+                "id": "timeout",
+                "name": "Sensor → Timeout",
+                "applies_to": ["sensor"],
+                "config_entries": fields,
+            },
+        ]
+    )
+    assert len(out) == 1
+    merged = out[0]
+    assert merged["config_entries"] is fields
+    assert merged["value_type"] == "time_period"
+    assert "templatable" not in merged
+    assert merged["applies_to"] == ["binary_sensor", "sensor"]
+    assert merged["name"] == "Timeout"
+
+
+def test_dedupe_filters_keeps_fielded_body_when_it_comes_first() -> None:
+    """The fielded body seen first still takes the later scalar body's value typing."""
+    fields = [{"key": "timeout", "type": "time_period"}]
+    out = _dedupe_filters(
+        [
+            {
+                "id": "timeout",
+                "name": "Timeout",
+                "applies_to": ["sensor"],
+                "config_entries": fields,
+            },
+            {
+                "id": "timeout",
+                "name": "Timeout",
+                "applies_to": ["binary_sensor"],
+                "config_entries": [],
+                "value_type": "time_period",
+                "duration_min_unit": "ms",
+            },
+        ]
+    )
+    assert out[0]["config_entries"] is fields
+    assert out[0]["value_type"] == "time_period"
+    assert out[0]["duration_min_unit"] == "ms"
+
+
+def test_dedupe_filters_warns_when_both_bodies_have_different_fields(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two fielded bodies that differ keep the first and log a warning."""
+    first = [{"key": "a", "type": "string"}]
+    out = _dedupe_filters(
+        [
+            {"id": "x", "name": "X", "applies_to": ["sensor"], "config_entries": first},
+            {
+                "id": "x",
+                "name": "X",
+                "applies_to": ["binary_sensor"],
+                "config_entries": [{"key": "b", "type": "string"}],
+            },
+        ]
+    )
+    assert out[0]["config_entries"] is first
+    assert "filter x has different fields per domain" in caplog.text
 
 
 # ---------------------------------------------------------------------------

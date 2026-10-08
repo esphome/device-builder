@@ -11006,6 +11006,9 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
     """
     Merge filters sharing an ``id`` across domains; union ``applies_to``.
 
+    The body with ``config_entries`` wins and takes the other's missing
+    scalar value typing (sensor ``timeout`` vs binary_sensor's scalar).
+
     Multi-domain merges strip the ``"<Domain> → "`` prefix from the
     display name since it would otherwise read wrong in whichever
     domain the user is editing (``lambda`` under ``sensor:`` would
@@ -11018,6 +11021,18 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
             by_id[f["id"]] = f
             continue
         merged_applies_to = sorted({*existing.get("applies_to", []), *f.get("applies_to", [])})
+        other = f
+        if f.get("config_entries") and not existing.get("config_entries"):
+            existing, other = f, existing
+            by_id[existing["id"]] = existing
+        elif f.get("config_entries") and f["config_entries"] != existing["config_entries"]:
+            _LOGGER.warning("filter %s has different fields per domain; keeping the first", f["id"])
+        for key in ("value_type", "duration_min_unit"):
+            if other.get(key) and not existing.get(key):
+                existing[key] = other[key]
+        # A lambda is only offered when every merged domain's scalar takes one.
+        if not other.get("templatable"):
+            existing.pop("templatable", None)
         existing["applies_to"] = merged_applies_to
         # Multi-domain entry: strip the "<Domain> → " prefix so the
         # bare name reads correctly regardless of editing context.
