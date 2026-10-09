@@ -69,10 +69,8 @@ export interface FirmwareMessage {
   // ready-frame gate is the only guard on the receivers already deployed.
   // A receiver refuses a frame whose flasher it did not list, and the id may
   // be one a newer opener knows and the receiver does not.
-  // For 'rtl-ambz2', 'rp2-picoboot', 'bk-uart', 'ln-uart' and 'rtl-ambz' the
-  // parts are the UF2 as one part at address 0, which the receiver parses into
-  // flash runs itself; for 'nrf-dfu' the DFU package the same way, which the
-  // receiver unpacks.
+  // For every id but 'esp' the parts are the file whole (a LibreTiny UF2, a
+  // DFU package) as one part at address 0, which the receiver parses itself.
   flasher?: HandoffFlasher;
   // Where the device's serial logs are, when the opener knows; absent means
   // elsewhere or unknown.
