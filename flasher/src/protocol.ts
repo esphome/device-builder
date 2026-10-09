@@ -114,8 +114,9 @@ export type HandoffLogs = "flash-port" | "off";
 // (ESP32 / ESP8266), 'rtl-ambz2' the RTL8720C ROM downloader, 'rp2-picoboot'
 // PICOBOOT for the RP2040, 'nrf-dfu' Nordic legacy DFU for the nRF52, 'bk-uart'
 // the UART downloader of a Beken BK72xx, 'ln-uart' the LN882H's BootROM and the
-// RAM code it loads, 'rtl-ambz' the RTL8710B (AmebaZ) ROM downloader. Named
-// after the flasher, not the platform: rtl87xx covers both Realtek ids, whose
+// RAM code it loads, 'rtl-ambz' the RTL8710B (AmebaZ) ROM downloader,
+// 'rtl-ambd' the RTL8720D (AmebaD) ROM and the flash loader it is given. Named
+// after the flasher, not the platform: rtl87xx covers three Realtek ids, whose
 // ROMs speak different protocols.
 export type HandoffFlasher =
   | "esp"
@@ -124,7 +125,8 @@ export type HandoffFlasher =
   | "nrf-dfu"
   | "bk-uart"
   | "ln-uart"
-  | "rtl-ambz";
+  | "rtl-ambz"
+  | "rtl-ambd";
 
 export type FlashState =
   | "connecting"
