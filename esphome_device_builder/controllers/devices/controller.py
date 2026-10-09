@@ -610,7 +610,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """
         Rename a device configuration.
 
-        Default path delegates to ``esphome rename`` (compile + OTA).
+        Default path queues a COMPILE + OTA rename chain (see ``rename_chain``).
         ``config_only`` rewrites the YAML + ``esphome.name`` without
         flashing; the caller uses it after the user confirms renaming
         an offline device.

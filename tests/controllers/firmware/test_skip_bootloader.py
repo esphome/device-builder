@@ -106,3 +106,17 @@ async def test_install_serial_keeps_the_full_build(
     compile_job = await controller.install(configuration="kitchen.yaml", port="/dev/ttyUSB0")
 
     assert compile_job.skip_bootloader is False
+
+
+async def test_rename_chain_marks_the_compile_head(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A rename's tail is a network app flash, so its compile skips the bootloader."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    head, tail = await controller.rename_chain(configuration="kitchen.yaml", new_name="livingroom")
+
+    assert head.job_type is JobType.COMPILE
+    assert head.skip_bootloader is True
+    assert tail.skip_bootloader is False

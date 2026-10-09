@@ -73,8 +73,14 @@ async def begin_rename(
     build_source = controller._resolve_install_source()
 
     async with controller.state.rename_fs_lock:
+        # The tail is always a network app flash, so the bootloader is
+        # never delivered.
         head = factories.create_job(
-            controller, new_filename, JobType.COMPILE, build_source=build_source
+            controller,
+            new_filename,
+            JobType.COMPILE,
+            build_source=build_source,
+            skip_bootloader=True,
         )
         tail = factories.create_job(
             controller,
