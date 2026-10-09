@@ -605,18 +605,24 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         configuration: str,
         new_name: str,
         config_only: bool = False,
+        new_friendly_name: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
         Rename a device configuration.
 
-        Default path delegates to ``esphome rename`` (compile + OTA).
+        Default path queues a COMPILE + OTA rename chain (see ``rename_chain``).
         ``config_only`` rewrites the YAML + ``esphome.name`` without
         flashing; the caller uses it after the user confirms renaming
-        an offline device.
+        an offline device. ``new_friendly_name`` retargets
+        ``esphome.friendly_name`` in the same write.
         """
         return await mutations_simple.rename_device(
-            self, configuration=configuration, new_name=new_name, config_only=config_only
+            self,
+            configuration=configuration,
+            new_name=new_name,
+            config_only=config_only,
+            new_friendly_name=new_friendly_name,
         )
 
     @api_command("devices/clone")
