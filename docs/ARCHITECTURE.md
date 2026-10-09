@@ -253,7 +253,8 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
 - **Rename is the same chain shape** (#1812): `devices/rename` rewrites
   `esphome.name` dashboard-side (`helpers.yaml.rewrite_rename_content`),
   writes `<new>.yaml` up-front, and queues a COMPILE of it (remote-eligible
-  like an install's) plus a dependent RENAME *tail*
+  and app-only via `--skip-bootloader`, like an OTA install's) plus a
+  dependent RENAME *tail*
   (`FirmwareJob.is_rename_tail`) that `esphome upload`s the **old** device
   address (resolved at enqueue: StorageJSON → scanner → mDNS default,
   stamped into `port`) on the upload lane, then drops the old YAML +
