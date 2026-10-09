@@ -69,10 +69,8 @@ export interface FirmwareMessage {
   // ready-frame gate is the only guard on the receivers already deployed.
   // A receiver refuses a frame whose flasher it did not list, and the id may
   // be one a newer opener knows and the receiver does not.
-  // For 'rtl-ambz2', 'rp2-picoboot', 'bk-uart', 'ln-uart' and 'rtl-ambz' the
-  // parts are the UF2 as one part at address 0, which the receiver parses into
-  // flash runs itself; for 'nrf-dfu' the DFU package the same way, which the
-  // receiver unpacks.
+  // For every id but 'esp' the parts are the file whole (a LibreTiny UF2, a
+  // DFU package) as one part at address 0, which the receiver parses itself.
   flasher?: HandoffFlasher;
   // Where the device's serial logs are, when the opener knows; absent means
   // elsewhere or unknown.
@@ -114,8 +112,9 @@ export type HandoffLogs = "flash-port" | "off";
 // (ESP32 / ESP8266), 'rtl-ambz2' the RTL8720C ROM downloader, 'rp2-picoboot'
 // PICOBOOT for the RP2040, 'nrf-dfu' Nordic legacy DFU for the nRF52, 'bk-uart'
 // the UART downloader of a Beken BK72xx, 'ln-uart' the LN882H's BootROM and the
-// RAM code it loads, 'rtl-ambz' the RTL8710B (AmebaZ) ROM downloader. Named
-// after the flasher, not the platform: rtl87xx covers both Realtek ids, whose
+// RAM code it loads, 'rtl-ambz' the RTL8710B (AmebaZ) ROM downloader,
+// 'rtl-ambd' the RTL8720D (AmebaD) ROM and the flash loader it is given. Named
+// after the flasher, not the platform: rtl87xx covers three Realtek ids, whose
 // ROMs speak different protocols.
 export type HandoffFlasher =
   | "esp"
@@ -124,7 +123,8 @@ export type HandoffFlasher =
   | "nrf-dfu"
   | "bk-uart"
   | "ln-uart"
-  | "rtl-ambz";
+  | "rtl-ambz"
+  | "rtl-ambd";
 
 export type FlashState =
   | "connecting"
