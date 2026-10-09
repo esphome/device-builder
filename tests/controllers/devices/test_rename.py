@@ -281,3 +281,52 @@ async def test_rename_missing_firmware_controller_raises(
         await controller.rename_device(configuration="kitchen.yaml", new_name="livingroom")
 
     assert excinfo.value.code == ErrorCode.INTERNAL_ERROR
+
+
+async def test_rename_chain_content_carries_new_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The OTA chain compiles content holding both the new name and friendly name."""
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    head = FirmwareJob(
+        job_id="abc123",
+        configuration="livingroom.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    tail = FirmwareJob(
+        job_id="def456",
+        configuration="kitchen.yaml",
+        job_type=JobType.RENAME,
+        status=JobStatus.QUEUED,
+        new_name="livingroom",
+        depends_on="abc123",
+    )
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.rename_chain = AsyncMock(return_value=(head, tail))
+
+    await controller.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", new_friendly_name="Living Room"
+    )
+
+    new_content = controller._db.firmware.rename_chain.await_args.kwargs["new_content"]
+    assert read_yaml_scalar(new_content, ("esphome", "name")) == "livingroom"
+    assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Living Room"
+
+
+async def test_rename_empty_friendly_name_raises(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.rename_chain = AsyncMock()
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.rename_device(
+            configuration="kitchen.yaml", new_name="livingroom", new_friendly_name="  "
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGS
+    controller._db.firmware.rename_chain.assert_not_awaited()
