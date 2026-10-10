@@ -52,8 +52,11 @@ async def test_native_arduino_compile_download_round_trip(
     assert not await asyncio.to_thread((build_path / "platformio.ini").exists)
 
     # The staged cache lands under the native Arduino name, where esphome's
-    # own arduino8266 toolchain and the backtrace decoder read it.
-    cached = resolve_idedata_path(_CONFIGURATION_FILENAME, name=_DEVICE, toolchain="arduino")
+    # own arduino8266 toolchain and the backtrace decoder read it. Resolving
+    # the path stats the config dir, so it runs off the loop as well.
+    cached = await asyncio.to_thread(
+        resolve_idedata_path, _CONFIGURATION_FILENAME, name=_DEVICE, toolchain="arduino"
+    )
     assert await asyncio.to_thread(cached.is_file), cached
 
     expected = await asyncio.to_thread(local_download_set, data_dir, _CONFIGURATION_FILENAME)
