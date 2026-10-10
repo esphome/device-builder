@@ -197,6 +197,8 @@ IDEDATA_SUFFIXES = frozenset(
 
 def toolchain_artifacts(toolchain: str | None) -> ToolchainArtifacts:
     """Return what the build for *toolchain* writes; PlatformIO for any other value."""
+    if toolchain is None:
+        return _PLATFORMIO_ARTIFACTS
     return _TOOLCHAIN_ARTIFACTS.get(toolchain, _PLATFORMIO_ARTIFACTS)
 
 
