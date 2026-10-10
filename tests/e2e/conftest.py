@@ -51,8 +51,10 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 from esphome.core import CORE
+from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.api.ws import init_ws_app
+from esphome_device_builder.controllers.firmware.download import collect_download_entries
 from esphome_device_builder.controllers.remote_build import (
     OffloaderController,
     ReceiverController,
@@ -524,6 +526,16 @@ async def run_offload_compile_round_trip(
         materialise_remote_artifacts, packed.tarball, configuration_filename
     )
     return data_dir, build_path
+
+
+def local_download_set(data_dir: Path, configuration_filename: str) -> set[str]:
+    """Return the download filenames a local build under *data_dir* offers; blocking."""
+    # esphome dev writes `<file>.validated.json` beside the sidecar, so a
+    # `*.json` glob can't single out the StorageJSON.
+    storage_path = data_dir / "storage" / f"{configuration_filename}.json"
+    storage = StorageJSON.load(storage_path)
+    assert storage is not None
+    return {entry["file"] for entry in collect_download_entries(storage, storage_path)}
 
 
 async def make_and_seed_remote_peer_job(

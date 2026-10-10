@@ -32,7 +32,7 @@ from esphome.helpers import rmtree, write_file
 from esphome.storage_json import StorageJSON
 from esphome.writer import storage_should_clean
 
-from ..constants import TOOLCHAIN_ESP_IDF
+from ..constants import toolchain_artifacts
 from .artifacts_tarball_members import (
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
@@ -72,6 +72,7 @@ class _ExtractedTarball(NamedTuple):
     storage_bytes: bytes
     # None for a native ESP-IDF build, which emits no idedata cache.
     idedata_bytes: bytes | None
+    toolchain: str | None
     # ``PurePath``-flavoured per the receiver's OS so the path
     # remap works when receiver and offloader differ.
     receiver_build_path: PurePath
@@ -100,6 +101,7 @@ def materialise_remote_artifacts(tarball: bytes, configuration: str) -> Path:
             configuration=configuration,
             idedata_bytes=extracted.idedata_bytes,
             device_name=extracted.build_path.name,
+            toolchain=extracted.toolchain,
             receiver_build_path=extracted.receiver_build_path,
             offloader_build_path=extracted.build_path,
         )
@@ -189,18 +191,16 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             _drop_stale_flash_images(build_path, set(tar.getnames()))
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
-    # A native ESP-IDF tarball (toolchain "esp-idf") ships neither
-    # platformio.ini nor idedata.json; a PlatformIO tarball ships both, so
-    # their absence there is wire drift. Detect native-IDF positively off
-    # the toolchain, never off file absence, so a corrupt PIO tarball that
-    # lost its metadata still raises rather than passing as native-IDF.
-    if receiver_storage.get("toolchain") != TOOLCHAIN_ESP_IDF:
-        if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
-            raise MaterialiseError(
-                f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member"
-            )
-        if idedata_bytes is None:
-            raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
+    # A member the toolchain always ships is missing only on wire drift.
+    # Decide off the toolchain, never off file absence, so a corrupt PIO
+    # tarball that lost its metadata still raises rather than passing as
+    # native.
+    toolchain = _toolchain_from_storage(receiver_storage)
+    artifacts = toolchain_artifacts(toolchain)
+    if artifacts.platformio_ini and not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
+        raise MaterialiseError(f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member")
+    if artifacts.idedata and idedata_bytes is None:
+        raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
     # The bin must have landed (PIO and native-IDF alike); a build tree that
     # didn't extract otherwise materialises empty and surfaces only as an empty
     # download list later (#1340), with the job still reporting success.
@@ -211,6 +211,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
     return _ExtractedTarball(
         storage_bytes=storage_bytes,
         idedata_bytes=idedata_bytes,
+        toolchain=toolchain,
         receiver_build_path=receiver_build_path,
         build_path=build_path,
         validated_cache=validated_cache,
@@ -227,6 +228,14 @@ def _device_name_from_storage(receiver_storage: dict[str, Any]) -> str:
             f"tarball storage.json name {device_name!r} not safe for a path segment"
         )
     return device_name
+
+
+def _toolchain_from_storage(receiver_storage: dict[str, Any]) -> str | None:
+    """Pull the toolchain from the shipped storage.json; None when the receiver wrote none."""
+    toolchain = receiver_storage.get("toolchain")
+    if toolchain is not None and not isinstance(toolchain, str):
+        raise MaterialiseError("tarball storage.json toolchain must be a string")
+    return toolchain
 
 
 def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> PurePath:
@@ -358,6 +367,7 @@ def _stage_offloader_idedata(
     configuration: str,
     idedata_bytes: bytes,
     device_name: str,
+    toolchain: str | None,
     receiver_build_path: PurePath,
     offloader_build_path: Path,
 ) -> Path:
@@ -366,7 +376,7 @@ def _stage_offloader_idedata(
     _remap_idedata_build_paths(data, receiver_build_path, offloader_build_path)
     _remap_idedata_toolchain_path(data)
 
-    cached_path = resolve_idedata_path(configuration, name=device_name)
+    cached_path = resolve_idedata_path(configuration, name=device_name, toolchain=toolchain)
     cached_path.parent.mkdir(parents=True, exist_ok=True)
     cached_path.write_bytes(dumps_indent(data) + b"\n")
     return cached_path

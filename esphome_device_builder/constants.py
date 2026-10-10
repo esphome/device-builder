@@ -6,6 +6,7 @@ import re
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import NamedTuple
 
 from .helpers.cross_os_path import cross_os_basename
 
@@ -172,6 +173,33 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 # import it.
 TOOLCHAIN_ESP_IDF = "esp-idf"
 TOOLCHAIN_SDK_NRF = "sdk-nrf"
+TOOLCHAIN_ARDUINO = "arduino"
+
+
+class ToolchainArtifacts(NamedTuple):
+    """The build metadata a toolchain writes beside its firmware."""
+
+    idedata_suffix: str
+    idedata: bool
+    platformio_ini: bool
+
+
+_PLATFORMIO_ARTIFACTS = ToolchainArtifacts(".json", idedata=True, platformio_ini=True)
+_TOOLCHAIN_ARTIFACTS = {
+    TOOLCHAIN_ESP_IDF: ToolchainArtifacts(".json", idedata=False, platformio_ini=False),
+    TOOLCHAIN_ARDUINO: ToolchainArtifacts(".arduino.json", idedata=True, platformio_ini=False),
+}
+IDEDATA_SUFFIXES = frozenset(
+    artifacts.idedata_suffix
+    for artifacts in (_PLATFORMIO_ARTIFACTS, *_TOOLCHAIN_ARTIFACTS.values())
+)
+
+
+def toolchain_artifacts(toolchain: str | None) -> ToolchainArtifacts:
+    """Return what the build for *toolchain* writes; PlatformIO for any other value."""
+    if toolchain is None:
+        return _PLATFORMIO_ARTIFACTS
+    return _TOOLCHAIN_ARTIFACTS.get(toolchain, _PLATFORMIO_ARTIFACTS)
 
 
 class DecodeUnavailable(StrEnum):

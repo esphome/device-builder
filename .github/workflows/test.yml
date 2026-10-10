@@ -534,6 +534,66 @@ jobs:
         if: always()
         run: CCACHE_DIR="$HOME/.cache/esphome-ccache" ccache -s
 
+  e2e-native-esp8266:
+    name: E2E native ESP8266 Arduino (esphome stable)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
+        with:
+          python-version: "3.14"
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
+      - name: Cache the native ESP8266 toolchain
+        # The native Arduino build does not use PlatformIO; esphome installs
+        # its core and compiler under ``ESPHOME_ARDUINO8266_PREFIX`` (set on
+        # the run step). The pinned versions live in esphome, so a rolling
+        # ``run_id`` key saves fresh each run and ``restore-keys`` warms from
+        # the newest prior cache.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/esphome-arduino8266
+          key: e2e-arduino8266-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            e2e-arduino8266-${{ runner.os }}-
+
+      - name: Cache ccache objects
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/esphome-ccache-arduino8266
+          key: e2e-arduino8266-ccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            e2e-arduino8266-ccache-${{ runner.os }}-
+
+      - name: Install ccache (cached)
+        timeout-minutes: 10
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9  # v1.6.3
+        with:
+          packages: ccache
+          version: 1.0
+
+      - name: Run native ESP8266 Arduino e2e
+        # A cold run downloads the core and compiler then runs ninja; the
+        # test's own ``@pytest.mark.timeout(900)`` caps it. esphome
+        # ``expanduser()``s ESPHOME_ARDUINO8266_PREFIX, so ``~`` matches the
+        # cache path above; CCACHE_DIR gets no such treatment, hence the shell.
+        timeout-minutes: 25
+        env:
+          ESPHOME_ARDUINO8266_PREFIX: ~/.cache/esphome-arduino8266
+        run: CCACHE_DIR="$HOME/.cache/esphome-ccache-arduino8266" uv run --no-sync pytest -q tests/e2e/slow/esp8266 --durations=10 --timeout=900 --no-cov
+
+      - name: Print ccache statistics
+        if: always()
+        run: CCACHE_DIR="$HOME/.cache/esphome-ccache-arduino8266" ccache -s
+
   e2e-boards:
     name: E2E board create validation (esphome stable)
     runs-on: ubuntu-latest

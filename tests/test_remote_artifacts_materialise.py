@@ -733,6 +733,19 @@ def test_materialise_rejects_non_json_storage(tmp_path: Path) -> None:
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_rejects_non_string_toolchain(tmp_path: Path) -> None:
+    """A list-valued toolchain in the shipped storage.json raises MaterialiseError."""
+    storage = {
+        "storage_version": 1,
+        "name": "kitchen",
+        "build_path": _FAKE_BUILD_PATH,
+        "toolchain": ["arduino"],
+    }
+    tarball = _synthetic_tarball(storage=storage)
+    with pytest.raises(MaterialiseError, match=r"toolchain must be a string"):
+        _materialise_in_tmp(tarball, tmp_path)
+
+
 def test_materialise_rejects_pio_tarball_missing_platformio_ini(tmp_path: Path) -> None:
     """A PlatformIO tarball without platformio.ini raises, not silently passed as native-IDF."""
     tarball = _synthetic_tarball(platformio_ini=None)
@@ -794,6 +807,22 @@ def test_materialise_remaps_posix_receiver_on_separator_mangling_offloader(
     assert (build_path / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
 
 
+def test_materialise_native_arduino_round_trip_stages_arduino_idedata(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """A native Arduino build round-trips with no platformio.ini; ``<name>.arduino.json`` lands."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(receiver_root, target_platform="ESP8266", toolchain="arduino")
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+
+    assert (build_path / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
+    assert not (build_path / "platformio.ini").exists()
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        assert resolve_idedata_path("kitchen.yaml", name="kitchen", toolchain="arduino").is_file()
+        assert not resolve_idedata_path("kitchen.yaml", name="kitchen").exists()
+
+
 def test_materialise_native_idf_round_trip_without_pio_metadata(
     paired_roots: tuple[Path, Path],
 ) -> None:
@@ -801,7 +830,7 @@ def test_materialise_native_idf_round_trip_without_pio_metadata(
     receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(
         receiver_root,
-        native_idf=True,
+        toolchain="esp-idf",
         extra_build_files={
             "build/firmware.factory.bin": b"FACTORY",
             "build/firmware.ota.bin": b"OTA",
@@ -839,7 +868,7 @@ def test_materialise_drops_stale_flash_images_the_tarball_lacks(
         stale.write_bytes(b"OLD")
     tarball = _pack_in_tmp(
         receiver_root,
-        native_idf=True,
+        toolchain="esp-idf",
         extra_build_files={"build/firmware.ota.bin": b"OTA"},
     )
     assert _materialise_in_tmp(tarball, offloader_root) == build_path
@@ -855,7 +884,7 @@ def test_materialise_keeps_flash_images_the_tarball_carries(
     receiver_root, offloader_root = paired_roots
     tarball = _pack_in_tmp(
         receiver_root,
-        native_idf=True,
+        toolchain="esp-idf",
         extra_build_files={"build/firmware.factory.bin": b"NEW"},
     )
     build_path = _materialise_in_tmp(tarball, offloader_root)

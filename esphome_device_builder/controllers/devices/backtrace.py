@@ -179,7 +179,9 @@ def _resolve_target(configuration: str, yaml_path: Path) -> _DecodeTarget:
     storage = StorageJSON.load(storage_path)
     if storage is None or not storage.build_path:
         return _DecodeTarget(unavailable_reason=DecodeUnavailable.NO_BUILD)
-    idedata_path = resolve_idedata_path(configuration, name=storage.name)
+    idedata_path = resolve_idedata_path(
+        configuration, name=storage.name, toolchain=storage.toolchain
+    )
     # Read the hash before the gate, not after: staleness is knowable whenever
     # the build dir is, and a client we decline still needs it to caption
     # whatever decodes the frames instead.
