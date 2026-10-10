@@ -109,6 +109,13 @@ def test_resolve_idedata_path_local_configuration() -> None:
     )
 
 
+def test_resolve_idedata_path_native_arduino() -> None:
+    """The native Arduino toolchain's cache is ``<name>.arduino.json``."""
+    assert resolve_idedata_path("kitchen.yaml", name="kitchen", toolchain="arduino") == (
+        Path(CORE.data_dir) / "idedata" / "kitchen.arduino.json"
+    )
+
+
 def test_resolve_idedata_path_remote_build(tmp_path: Path) -> None:
     """Idedata for a remote build lands under the per-build subtree."""
     configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"

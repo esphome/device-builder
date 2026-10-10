@@ -184,7 +184,9 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
         msg = f"firmware_bin_path missing for {configuration}: {firmware_bin}"
         raise FileNotFoundError(msg)
 
-    idedata_path = resolve_idedata_path(configuration, name=storage.name)
+    idedata_path = resolve_idedata_path(
+        configuration, name=storage.name, toolchain=storage.toolchain
+    )
     if not idedata_path.is_file():
         msg = f"idedata.json missing for {configuration}: {idedata_path}"
         raise FileNotFoundError(msg)
@@ -277,7 +279,9 @@ def wipe_device_build_dir(configuration: str) -> None:
     if storage is None:
         return
     if storage.name:
-        idedata_path = resolve_idedata_path(configuration, name=storage.name)
+        idedata_path = resolve_idedata_path(
+            configuration, name=storage.name, toolchain=storage.toolchain
+        )
         try:
             idedata_path.unlink(missing_ok=True)
         except OSError as exc:

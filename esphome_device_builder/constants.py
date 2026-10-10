@@ -172,6 +172,10 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 # import it.
 TOOLCHAIN_ESP_IDF = "esp-idf"
 TOOLCHAIN_SDK_NRF = "sdk-nrf"
+# The native ESP8266 Arduino build keys its idedata cache as <name>.arduino.json
+TOOLCHAIN_ARDUINO = "arduino"
+# The native builds; only a PlatformIO build writes platformio.ini
+TOOLCHAINS_WITHOUT_PLATFORMIO_INI = frozenset({TOOLCHAIN_ESP_IDF, TOOLCHAIN_ARDUINO})
 
 
 class DecodeUnavailable(StrEnum):

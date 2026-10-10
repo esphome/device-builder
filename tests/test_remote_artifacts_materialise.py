@@ -756,6 +756,31 @@ def test_materialise_rejects_native_idf_tarball_missing_firmware(tmp_path: Path)
         _materialise_in_tmp(tarball, tmp_path)
 
 
+def test_materialise_native_arduino_tarball_stages_arduino_idedata(tmp_path: Path) -> None:
+    """A native Arduino tarball needs no platformio.ini and lands ``<name>.arduino.json``."""
+    storage = {
+        "storage_version": 1,
+        "name": "kitchen",
+        "build_path": _FAKE_BUILD_PATH,
+        "firmware_bin_path": f"{_FAKE_BUILD_PATH}/.pioenvs/kitchen/firmware.bin",
+        "toolchain": "arduino",
+    }
+    tarball = _synthetic_tarball(
+        storage=storage,
+        idedata={"prog_path": f"{_FAKE_BUILD_PATH}/.pioenvs/kitchen/firmware.elf"},
+        platformio_ini=None,
+        extra_members=[(".pioenvs/kitchen/firmware.bin", b"FW")],
+    )
+    _materialise_in_tmp(tarball, tmp_path)
+
+    sentinel = tmp_path / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        cached = resolve_idedata_path("kitchen.yaml", name="kitchen", toolchain="arduino")
+        pio_cached = resolve_idedata_path("kitchen.yaml", name="kitchen")
+    assert cached.is_file()
+    assert not pio_cached.exists()
+
+
 def test_materialise_rejects_pio_tarball_missing_firmware(tmp_path: Path) -> None:
     """A PlatformIO tarball with metadata but no firmware binary raises (#1340)."""
     storage = {
