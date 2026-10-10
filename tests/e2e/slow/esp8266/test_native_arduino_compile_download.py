@@ -49,7 +49,7 @@ async def test_native_arduino_compile_download_round_trip(
     images = [pioenvs / "firmware.bin", pioenvs / "firmware.elf"]
     missing = await asyncio.to_thread(lambda: [str(p) for p in images if not p.is_file()])
     assert not missing, f"native Arduino images not materialised: {missing}"
-    assert not (build_path / "platformio.ini").exists()
+    assert not await asyncio.to_thread((build_path / "platformio.ini").exists)
 
     # The staged cache lands under the native Arduino name, where esphome's
     # own arduino8266 toolchain and the backtrace decoder read it.
