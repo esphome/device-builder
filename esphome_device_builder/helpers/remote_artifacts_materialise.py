@@ -32,7 +32,7 @@ from esphome.helpers import rmtree, write_file
 from esphome.storage_json import StorageJSON
 from esphome.writer import storage_should_clean
 
-from ..constants import TOOLCHAIN_ESP_IDF, TOOLCHAINS_WITHOUT_PLATFORMIO_INI
+from ..constants import toolchain_artifacts
 from .artifacts_tarball_members import (
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
@@ -72,7 +72,6 @@ class _ExtractedTarball(NamedTuple):
     storage_bytes: bytes
     # None for a native ESP-IDF build, which emits no idedata cache.
     idedata_bytes: bytes | None
-    # The receiver's ``StorageJSON.toolchain``; picks the idedata cache name.
     toolchain: str | None
     # ``PurePath``-flavoured per the receiver's OS so the path
     # remap works when receiver and offloader differ.
@@ -192,19 +191,15 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
             _drop_stale_flash_images(build_path, set(tar.getnames()))
     except tarfile.TarError as err:
         raise MaterialiseError(f"tarball is malformed: {err}") from err
-    # A native ESP-IDF tarball (toolchain "esp-idf") ships neither
-    # platformio.ini nor idedata.json and a native Arduino tarball ships
-    # only idedata.json; a PlatformIO tarball ships both, so their absence
-    # there is wire drift. Detect the native builds positively off the
-    # toolchain, never off file absence, so a corrupt PIO tarball that lost
-    # its metadata still raises rather than passing as native.
-    toolchain = receiver_storage.get("toolchain")
-    if (
-        toolchain not in TOOLCHAINS_WITHOUT_PLATFORMIO_INI
-        and not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file()
-    ):
+    # A member the toolchain always ships is missing only on wire drift.
+    # Decide off the toolchain, never off file absence, so a corrupt PIO
+    # tarball that lost its metadata still raises rather than passing as
+    # native.
+    toolchain = _toolchain_from_storage(receiver_storage)
+    artifacts = toolchain_artifacts(toolchain)
+    if artifacts.platformio_ini and not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
         raise MaterialiseError(f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member")
-    if toolchain != TOOLCHAIN_ESP_IDF and idedata_bytes is None:
+    if artifacts.idedata and idedata_bytes is None:
         raise MaterialiseError(f"tarball missing required {IDEDATA_MEMBER_NAME!r} member")
     # The bin must have landed (PIO and native-IDF alike); a build tree that
     # didn't extract otherwise materialises empty and surfaces only as an empty
@@ -233,6 +228,14 @@ def _device_name_from_storage(receiver_storage: dict[str, Any]) -> str:
             f"tarball storage.json name {device_name!r} not safe for a path segment"
         )
     return device_name
+
+
+def _toolchain_from_storage(receiver_storage: dict[str, Any]) -> str | None:
+    """Pull the toolchain from the shipped storage.json; None when the receiver wrote none."""
+    toolchain = receiver_storage.get("toolchain")
+    if toolchain is not None and not isinstance(toolchain, str):
+        raise MaterialiseError("tarball storage.json toolchain must be a string")
+    return toolchain
 
 
 def _receiver_build_path_from_storage(receiver_storage: dict[str, Any]) -> PurePath:

@@ -60,7 +60,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
 
-from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAINS_WITHOUT_PLATFORMIO_INI
+from ...constants import toolchain_artifacts
 from ...helpers.artifacts_tarball_members import (
     BUILD_INFO_MEMBER_NAME,
     IDEDATA_MEMBER_NAME,
@@ -199,16 +199,14 @@ def _collect_pack_members(  # noqa: C901
         configuration, name=storage.name, toolchain=storage.toolchain
     )
     platformio_ini = build_path / PLATFORMIO_INI_MEMBER_NAME
-    # A native ESP-IDF build (CMake/ninja) emits neither platformio.ini nor
-    # an idedata cache and the native Arduino build emits only the cache; a
-    # PlatformIO build always emits both, so their absence on a PIO build is
-    # a real failure that must surface here rather than ship a
-    # silently-incomplete tarball. Detect the native builds positively off
+    # A missing file the toolchain always writes is a real failure that must
+    # surface here rather than ship a silently-incomplete tarball. Decide off
     # the build toolchain, never off file absence.
-    if storage.toolchain not in TOOLCHAINS_WITHOUT_PLATFORMIO_INI and not platformio_ini.is_file():
+    artifacts = toolchain_artifacts(storage.toolchain)
+    if artifacts.platformio_ini and not platformio_ini.is_file():
         msg = f"platformio.ini missing for {configuration}: {platformio_ini}"
         raise FileNotFoundError(msg)
-    if storage.toolchain != TOOLCHAIN_ESP_IDF and not idedata_cache_path.is_file():
+    if artifacts.idedata and not idedata_cache_path.is_file():
         msg = f"idedata cache missing for {configuration}: {idedata_cache_path}"
         raise FileNotFoundError(msg)
 

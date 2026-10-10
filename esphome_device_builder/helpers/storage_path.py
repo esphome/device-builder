@@ -51,7 +51,7 @@ from pathlib import Path
 
 from esphome.core import CORE
 
-from ..constants import TOOLCHAIN_ARDUINO
+from ..constants import IDEDATA_SUFFIXES, toolchain_artifacts
 from .remote_build_layout import parse_from_configuration as parse_remote_build_path
 
 
@@ -129,7 +129,7 @@ def resolve_storage_path(configuration: str) -> Path:
 
 
 def resolve_idedata_path(configuration: str, *, name: str, toolchain: str | None = None) -> Path:
-    """Return the cached ``idedata/<name>.json`` path for *configuration*.
+    """Return the cached ``idedata/<name>[.arduino].json`` path for *configuration*.
 
     Mirror of :func:`esphome.platformio_api._load_idedata`'s
     resolution: ``<CORE.data_dir>/idedata/<name>.json``,
@@ -143,9 +143,14 @@ def resolve_idedata_path(configuration: str, *, name: str, toolchain: str | None
     because the storage sidecar carries the canonical value
     and the YAML's filename may not match it (e.g. user
     renamed the YAML after compile). *toolchain* is
-    ``StorageJSON.toolchain``; the native Arduino build keeps its
-    cache at ``<name>.arduino.json`` so a toolchain switch on one
-    config never reads the other toolchain's cache.
+    ``StorageJSON.toolchain``; the native Arduino build keys
+    ``<name>.arduino.json``.
     """
-    suffix = ".arduino.json" if toolchain == TOOLCHAIN_ARDUINO else ".json"
+    suffix = toolchain_artifacts(toolchain).idedata_suffix
     return resolve_data_dir(configuration) / "idedata" / f"{name}{suffix}"
+
+
+def resolve_idedata_paths(configuration: str, *, name: str) -> list[Path]:
+    """Return every toolchain's idedata cache path for *configuration*."""
+    idedata_dir = resolve_data_dir(configuration) / "idedata"
+    return [idedata_dir / f"{name}{suffix}" for suffix in sorted(IDEDATA_SUFFIXES)]

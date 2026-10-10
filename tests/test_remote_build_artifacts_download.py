@@ -617,8 +617,7 @@ def _write_receiver_state(
     extra_build_files: dict[str, bytes] | None = None,
     validated_yaml: bytes | None = None,
     validated_json: bytes | None = None,
-    native_idf: bool = False,
-    native_arduino: bool = False,
+    toolchain: str = "platformio",
 ) -> dict[str, Path]:
     """Lay down a minimal receiver-side build state on disk.
 
@@ -632,15 +631,13 @@ def _write_receiver_state(
       under ``.pioenvs/<device_name>/<basename>`` so the
       WS-adapter rewrite to basenames is observable.
 
-    ``native_idf=True`` instead writes the CMake/ninja shape:
+    ``toolchain="esp-idf"`` instead writes the CMake/ninja shape:
     ``firmware_bin`` at ``build/<device_name>.bin`` and neither
     platformio.ini nor an idedata cache (both PlatformIO-only),
     so the packer's non-PIO branch is exercised. *extras* /
-    idedata are skipped in that mode.
-
-    ``native_arduino=True`` writes the PlatformIO tree layout with
-    no platformio.ini and the idedata cache at
-    ``<data_dir>/idedata/<device_name>.arduino.json``.
+    idedata are skipped in that mode. ``toolchain="arduino"``
+    writes the PlatformIO tree with no platformio.ini and the
+    idedata cache at ``<data_dir>/idedata/<device_name>.arduino.json``.
 
     Always writes ``<data_dir>/storage/<basename>.json`` and any
     *extra_build_files* (keys relative to ``<build_path>/``).
@@ -656,6 +653,7 @@ def _write_receiver_state(
     """
     data_dir = tmp_path / ".esphome"
     build_path = data_dir / "build" / device_name
+    native_idf = toolchain == "esp-idf"
     if native_idf:
         idf_build = build_path / "build"
         idf_build.mkdir(parents=True, exist_ok=True)
@@ -663,7 +661,7 @@ def _write_receiver_state(
     else:
         pioenvs = build_path / ".pioenvs" / device_name
         pioenvs.mkdir(parents=True, exist_ok=True)
-        if not native_arduino:
+        if toolchain == "platformio":
             (build_path / "platformio.ini").write_bytes(b"[env:kitchen]\nplatform = espressif32\n")
         firmware_bin = pioenvs / "firmware.bin"
     firmware_bin.write_bytes(b"FIRMWARE")
@@ -680,7 +678,6 @@ def _write_receiver_state(
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         abs_path.write_bytes(payload)
 
-    toolchain = "esp-idf" if native_idf else "arduino" if native_arduino else "platformio"
     storage_path = resolve_storage_path(configuration)
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_text(
@@ -897,7 +894,7 @@ def test_pack_build_artifacts_native_idf_omits_pio_metadata(tmp_path: Path) -> N
     """Native ESP-IDF (no platformio.ini / idedata) packs storage + build/ files, no PIO members."""
     _write_receiver_state(
         tmp_path,
-        native_idf=True,
+        toolchain="esp-idf",
         extra_build_files={
             "build/firmware.factory.bin": b"FACTORY",
             "build/firmware.ota.bin": b"OTA",
@@ -923,7 +920,7 @@ def test_pack_build_artifacts_native_arduino_packs_idedata_without_pio_ini(
     tmp_path: Path,
 ) -> None:
     """A native Arduino build packs its ``<name>.arduino.json`` idedata and no platformio.ini."""
-    _write_receiver_state(tmp_path, target_platform="ESP8266", native_arduino=True)
+    _write_receiver_state(tmp_path, target_platform="ESP8266", toolchain="arduino")
 
     packed = pack_build_artifacts("kitchen.yaml")
 
@@ -1395,7 +1392,7 @@ def test_load_build_artifacts_rejects_non_dict_idedata(
     )
     monkeypatch.setattr(
         "esphome_device_builder.helpers.build_artifacts.resolve_idedata_path",
-        lambda _configuration, *, name, toolchain=None: idedata_path,
+        lambda *_args, **_kwargs: idedata_path,
     )
 
     with pytest.raises(TypeError, match="not a JSON object"):

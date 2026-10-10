@@ -58,7 +58,7 @@ from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
 
 from .json import loads as json_loads
-from .storage_path import resolve_idedata_path, resolve_storage_path
+from .storage_path import resolve_idedata_path, resolve_idedata_paths, resolve_storage_path
 from .validated_config_cache import unlink_validated_cache
 
 _LOGGER = logging.getLogger(__name__)
@@ -267,7 +267,7 @@ def _firmware_offset_for_platform(target_platform: str) -> str:
 
 def wipe_device_build_dir(configuration: str) -> None:
     """
-    Remove the per-device build dir + idedata cache if they exist.
+    Remove the per-device build dir + every idedata cache if they exist.
 
     No-op when the StorageJSON sidecar is gone or the device
     has never been built; rmtree failures debug-log + fall
@@ -279,13 +279,11 @@ def wipe_device_build_dir(configuration: str) -> None:
     if storage is None:
         return
     if storage.name:
-        idedata_path = resolve_idedata_path(
-            configuration, name=storage.name, toolchain=storage.toolchain
-        )
-        try:
-            idedata_path.unlink(missing_ok=True)
-        except OSError as exc:
-            _LOGGER.debug("wipe_device_build_dir: unlink(%s) failed: %s", idedata_path, exc)
+        for idedata_path in resolve_idedata_paths(configuration, name=storage.name):
+            try:
+                idedata_path.unlink(missing_ok=True)
+            except OSError as exc:
+                _LOGGER.debug("wipe_device_build_dir: unlink(%s) failed: %s", idedata_path, exc)
     if not storage.build_path:
         return
     try:

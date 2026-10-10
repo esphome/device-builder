@@ -56,9 +56,9 @@ def _forbid_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(backtrace, "run_subprocess_capture", _boom)
 
 
-def _write_idedata(tmp_path: Path, name: str = "kitchen") -> Path:
-    """Seed the cached idedata that makes a PlatformIO build look decodable."""
-    idedata_path = tmp_path / ".esphome" / "idedata" / f"{name}.json"
+def _write_idedata(tmp_path: Path, name: str = "kitchen", suffix: str = ".json") -> Path:
+    """Seed the cached idedata that makes a PlatformIO or native Arduino build look decodable."""
+    idedata_path = tmp_path / ".esphome" / "idedata" / f"{name}{suffix}"
     idedata_path.parent.mkdir(parents=True, exist_ok=True)
     idedata_path.write_text('{"prog_path": "/build/firmware.elf", "cc_path": "/bin/gcc"}')
     return idedata_path
@@ -191,6 +191,27 @@ async def test_decode_backtrace_esp_idf_without_a_cmake_cache_does_not_spawn(
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
     assert result["unavailable_reason"] == "no_build"
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_native_arduino_decodes_off_its_own_cache(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A native Arduino build is decodable off ``<name>.arduino.json`` alone."""
+    _yaml, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    write_storage_json(
+        tmp_path, "kitchen.yaml", build_path=build_path, overrides={"toolchain": "arduino"}
+    )
+    _write_idedata(tmp_path, suffix=".arduino.json")
+    controller = make_controller(tmp_path)
+    _stub_helper(monkeypatch, _DECODED_REPLY)
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == ""
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
