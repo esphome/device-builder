@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 _INHERIT_ERROR_MARK = "encryption key to inherit"
+_SECRET_TOKEN = re.compile(r"!secret\s+(\S+)")
 
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
@@ -178,7 +180,8 @@ async def validate_rewritten_yaml_or_raise(
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
     sentence. An error marked inside *secrets_path* (the config dir's
-    ``secrets.yaml``) refuses as ``INVALID_ARGS`` naming that file.
+    ``secrets.yaml``), or pinned to a ``!secret`` value of *content*,
+    refuses as ``INVALID_ARGS`` naming that file.
     """
     if editor is None:
         return ValidationVerdict()
@@ -217,6 +220,7 @@ async def validate_rewritten_yaml_or_raise(
         on_failure=on_failure,
         failure_tail=failure_tail,
         secrets_path=secrets_path,
+        secret_value_problem=_secret_value_problem(result, content),
     )
 
 
@@ -227,9 +231,13 @@ def _validation_failure(
     on_failure: ErrorCode,
     failure_tail: str | None,
     secrets_path: Path | None,
+    secret_value_problem: str | None = None,
 ) -> CommandError:
     """Build the refusal ``CommandError`` for a failed validation."""
-    if (problem := _secrets_file_problem(errors, secrets_path)) is not None:
+    problem = _secrets_file_problem(errors, secrets_path)
+    if problem is None:
+        problem = secret_value_problem
+    if problem is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         if on_failure is ErrorCode.INTERNAL_ERROR:
             # Action only: the clause names keys from the user's secrets file.
@@ -310,6 +318,36 @@ def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str |
     if len(errors) == 1 and all(Path(p) == secrets_path for p in marked_paths(errors[0])):
         return secrets_problem(errors[0])
     return f"doesn't parse: {summarise([trim_marks(msg) for msg in errors])}"
+
+
+def _secret_value_problem(result: dict, content: str) -> str | None:
+    """Return the ``secrets.yaml <problem>`` clause when every error sits on a ``!secret`` value."""
+    if result.get("yaml_errors"):
+        return None
+    entries = result.get("validation_errors", [])
+    if not entries:
+        return None
+    lines = content.splitlines()
+    parts: list[str] = []
+    for entry in entries:
+        if (key := _secret_key_at(entry.get("range"), lines)) is None:
+            return None
+        parts.append(f"{key}: {str(entry.get('message', '')).removesuffix('.')}")
+    if len(parts) == 1:
+        return f"has an invalid {parts[0]}"
+    return f"has invalid values: {summarise(parts)}"
+
+
+def _secret_key_at(range_: dict | None, lines: list[str]) -> str | None:
+    """Return the secret name when *range_* covers exactly a ``!secret <name>`` token of *lines*."""
+    if not range_ or range_.get("document", "<file>") != "<file>":
+        return None
+    line = range_.get("start_line")
+    if not isinstance(line, int) or line != range_.get("end_line") or not 0 <= line < len(lines):
+        return None
+    token = lines[line][range_.get("start_col", 0) : range_.get("end_col")]
+    match = _SECRET_TOKEN.fullmatch(token.strip())
+    return match.group(1) if match else None
 
 
 def _entry_confined_to_packages(

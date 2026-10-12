@@ -856,6 +856,51 @@ async def test_create_device_secrets_parse_error_surfaces_invalid_args(
     assert not (tmp_path / "kitchen.yaml").exists()
 
 
+async def test_create_device_short_wifi_password_secret_surfaces_invalid_args(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A wifi_password secret esphome rejects names secrets.yaml, not the generator."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    (tmp_path / "secrets.yaml").write_text(
+        'wifi_ssid: "MyNet"\nwifi_password: "abc"\n', encoding="utf-8"
+    )
+    token = "!secret wifi_password"
+
+    async def reject_password(*, configuration: str, content: str, **kwargs: Any) -> dict:
+        lines = content.splitlines()
+        line = next(i for i, text in enumerate(lines) if token in text)
+        col = lines[line].index(token)
+        return {
+            "yaml_errors": [],
+            "validation_errors": [
+                {
+                    "range": {
+                        "document": "<file>",
+                        "start_line": line,
+                        "start_col": col,
+                        "end_line": line,
+                        "end_col": col + len(token),
+                    },
+                    "message": "WPA password must be at least 8 characters long.",
+                }
+            ],
+        }
+
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=reject_password)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.message == (
+        "Can't create: secrets.yaml has an invalid wifi_password: WPA password must be "
+        "at least 8 characters long. Fix it on the Secrets page and try again."
+    )
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == []
+
+
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     tmp_path: Path, make_controller: MakeControllerFactory
