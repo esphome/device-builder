@@ -20,7 +20,7 @@ from .top_block import _locate_top_block
 
 _KEY_PATH = ("encryption", "key")
 _OLD_KEY_PATH = ("encryption", "old_key")
-_OLD_KEY_RE = re.compile(r"\bold_key\s*:")
+_OLD_KEY_RE = re.compile(r"[\"']?\bold_key\b[\"']?\s*:")
 
 
 def read_ota_encryption_key(yaml_text: str) -> str | None:
@@ -65,7 +65,12 @@ def ota_block_mentions_old_key(yaml_text: str) -> bool:
     try:
         located = _locate_top_block(lines, "ota")
     except YamlUpsertNotSupportedError:
-        span: range | list[int] = [idx for idx, line in enumerate(lines) if line.startswith("ota:")]
+        # An inline header: its value may wrap onto indented lines, up to the next column-0 line.
+        start = next(idx for idx, line in enumerate(lines) if line.startswith("ota:"))
+        end = start + 1
+        while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t"):
+            end += 1
+        span = range(start, end)
     else:
         if located is None:
             return False

@@ -513,6 +513,15 @@ def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
         pytest.param(
             "ota: {platform: esphome, encryption: {old_key: x}}\n", True, id="flow-header"
         ),
+        pytest.param(
+            'ota: {platform: esphome,\n  encryption: {old_key: "x"}}\n', True, id="flow-wrapped"
+        ),
+        pytest.param(BARE_ENCRYPTION + '      "old_key": x\n', True, id="quoted-child"),
+        pytest.param(
+            "ota: {platform: esphome}\nlogger:\n  level: DEBUG  # old_key: no\n",
+            False,
+            id="flow-then-other-block",
+        ),
         pytest.param(BARE_ENCRYPTION + "      # old_key: removed\n", False, id="comment"),
         pytest.param(
             BARE_ENCRYPTION + "lambda:\n  - lambda: 'old_key: text'\n", False, id="elsewhere"
