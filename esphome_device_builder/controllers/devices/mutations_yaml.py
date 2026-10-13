@@ -224,17 +224,17 @@ async def validate_rewritten_yaml_or_raise(
     )
     if warning is not None:
         return ValidationVerdict(warning=warning)
-    secrets_problem = _secrets_file_problem(errors, secrets_path)
-    if secrets_problem is None and on_failure is ErrorCode.INTERNAL_ERROR:
+    secrets_clause = _secrets_file_problem(errors, secrets_path)
+    if secrets_clause is None and on_failure is ErrorCode.INTERNAL_ERROR:
         # Generator output only: the dashboard placed the ``!secret`` ref, so
         # the rejected value is the user's.
-        secrets_problem = _secret_value_problem(result, content)
+        secrets_clause = _secret_value_problem(result, content)
     raise _validation_failure(
         errors,
         action=action,
         on_failure=on_failure,
         failure_tail=failure_tail,
-        secrets_problem=secrets_problem,
+        secrets_clause=secrets_clause,
     )
 
 
@@ -244,10 +244,10 @@ def _validation_failure(
     action: str,
     on_failure: ErrorCode,
     failure_tail: str | None,
-    secrets_problem: str | None,
+    secrets_clause: str | None,
 ) -> CommandError:
     """Build the refusal ``CommandError`` for a failed validation."""
-    if secrets_problem is not None:
+    if secrets_clause is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         if on_failure is ErrorCode.INTERNAL_ERROR:
             # Action only: the clause names keys from the user's secrets file.
@@ -255,7 +255,7 @@ def _validation_failure(
                 "Refusing %s: errors sit in the user's secrets.yaml, not the generator", action
             )
         return CommandError(
-            ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, secrets_problem)
+            ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, secrets_clause)
         )
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
