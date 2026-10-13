@@ -47,23 +47,41 @@ def generate_api_encryption_key() -> str:
 
 
 def rewrite_api_encryption_key(
-    yaml_text: str, new_key: str, *, keep_previous_key: bool = False
+    yaml_text: str,
+    new_key: str,
+    *,
+    keep_previous_key: bool = False,
+    replace_old_key: bool = False,
 ) -> str:
-    """Replace the literal ``api.encryption.key`` and reconcile the OTA block beneath it."""
-    previous = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
+    """
+    Replace the literal ``api.encryption.key`` and reconcile the OTA block beneath it.
+
+    *keep_previous_key* records the replaced literal as ``old_key:``; an ``old_key``
+    already there is overwritten only with *replace_old_key*.
+    """
+    previous = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH) if keep_previous_key else None
     rewritten = rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
     return _follow_ota_key(
-        rewritten, new_key, _previous_literal(previous), keep_previous_key=keep_previous_key
+        rewritten, new_key, _previous_literal(previous), replace_old_key=replace_old_key
     )
 
 
 def upsert_api_encryption_key(
-    yaml_text: str, new_key: str, *, keep_previous_key: bool = False
+    yaml_text: str,
+    new_key: str,
+    *,
+    keep_previous_key: bool = False,
+    replace_old_key: bool = False,
 ) -> str:
     """Set ``api.encryption.key``, inserting missing structure; unsafe shapes raise."""
     existing = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
     if existing is not None and _strip_yaml_quotes(existing):
-        return rewrite_api_encryption_key(yaml_text, new_key, keep_previous_key=keep_previous_key)
+        return rewrite_api_encryption_key(
+            yaml_text,
+            new_key,
+            keep_previous_key=keep_previous_key,
+            replace_old_key=replace_old_key,
+        )
     # An empty ``key:`` is a runtime-provisioned shape like a bare ``encryption:``;
     # the device then requires the OTA platform's own key, which must not change.
     if _ota_key_competes(yaml_text, new_key):
@@ -76,7 +94,7 @@ def upsert_api_encryption_key(
         if existing is not None
         else _insert_api_encryption_key(yaml_text, new_key)
     )
-    return _follow_ota_key(inserted, new_key, None, keep_previous_key=keep_previous_key)
+    return _follow_ota_key(inserted, new_key, None, replace_old_key=replace_old_key)
 
 
 def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
@@ -132,7 +150,7 @@ def _previous_literal(raw: str | None) -> str | None:
 
 
 def _follow_ota_key(
-    yaml_text: str, new_key: str, previous_key: str | None, *, keep_previous_key: bool
+    yaml_text: str, new_key: str, previous_key: str | None, *, replace_old_key: bool
 ) -> str:
     """Reconcile the OTA block with a literal api key of *new_key*; an indirected OTA key raises."""
     if not _literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), new_key):
@@ -144,9 +162,7 @@ def _follow_ota_key(
             "and must match the api encryption key."
         )
     # Before the key drop so the new line takes its indent from the existing one.
-    yaml_text = _settle_old_key(
-        yaml_text, new_key, previous_key, keep_previous_key=keep_previous_key
-    )
+    yaml_text = _settle_old_key(yaml_text, new_key, previous_key, replace_old_key=replace_old_key)
     if ota_key is None:
         return yaml_text
     # Dropped, not copied: with a static api key the firmware encrypts OTA with
@@ -155,15 +171,19 @@ def _follow_ota_key(
 
 
 def _settle_old_key(
-    yaml_text: str, new_key: str, previous_key: str | None, *, keep_previous_key: bool
+    yaml_text: str, new_key: str, previous_key: str | None, *, replace_old_key: bool
 ) -> str:
-    """Record *previous_key* as ``old_key:`` on request; one equal to *new_key* is dropped."""
-    if keep_previous_key and previous_key is not None and previous_key != new_key:
-        return set_ota_encryption_old_key(yaml_text, previous_key)
+    """Record *previous_key* as ``old_key:``; one equal to *new_key* is dropped."""
     old_key = read_ota_encryption_old_key(yaml_text)
     if old_key is not None and _literal_key_matches(old_key, new_key):
-        return drop_ota_encryption_old_key(yaml_text)
-    return yaml_text
+        yaml_text, old_key = drop_ota_encryption_old_key(yaml_text), None
+    if previous_key is None or previous_key == new_key:
+        return yaml_text
+    # An old_key already there may be the key the device still runs; only a
+    # caller that knows the device runs the replaced key may overwrite it.
+    if old_key is not None and (not replace_old_key or _literal_key_matches(old_key, previous_key)):
+        return yaml_text
+    return set_ota_encryption_old_key(yaml_text, previous_key)
 
 
 def _literal_key_matches(raw: str | None, key: str) -> bool:

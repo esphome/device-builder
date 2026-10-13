@@ -472,13 +472,14 @@ async def test_set_encryption_key_re_push_after_old_key_is_unchanged(
 
 
 @pytest.mark.usefixtures("old_key_esphome")
-async def test_set_encryption_key_second_rekey_replaces_old_key(
+async def test_set_encryption_key_second_rekey_replaces_old_key_once_the_device_runs_the_yaml(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """``old_key`` always holds the key the device may still run, not an older one."""
+    """A device reporting the YAML's config hash runs the replaced key, so ``old_key`` follows."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _configure(ctrl, tmp_path, API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n')
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
+    _configure(ctrl, tmp_path, yaml_text, expected_config_hash="h1", deployed_config_hash="h1")
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
@@ -486,6 +487,25 @@ async def test_set_encryption_key_second_rekey_replaces_old_key(
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert new_yaml.endswith("    encryption:\n" + OLD_KEY_LINE)
     assert THIRD_KEY not in new_yaml
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_second_rekey_retains_old_key_until_the_device_runs_the_yaml(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Two pushes with no install between keep the key the device still runs."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
+    _configure(ctrl, tmp_path, yaml_text, expected_config_hash="h2", deployed_config_hash="h1")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith(f'    encryption:\n      old_key: "{THIRD_KEY}"\n')
+    assert OTHER_KEY not in new_yaml
 
 
 @pytest.mark.usefixtures("old_key_esphome")
@@ -525,40 +545,113 @@ async def test_set_encryption_key_legacy_esphome_skips_old_key_and_warns(
 
 
 @pytest.mark.usefixtures("legacy_esphome")
-async def test_set_encryption_key_legacy_esphome_without_ota_block_does_not_warn(
+async def test_set_encryption_key_legacy_esphome_without_an_encryption_block_does_not_warn(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _configure(ctrl, tmp_path, API_KEY_YAML)
+    _configure(ctrl, tmp_path, API_KEY_YAML + "\nota:\n  - platform: esphome\n")
 
     with caplog.at_level(logging.WARNING):
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "updated"
-    assert "2026.11" not in caplog.text
+    assert "previous one" not in caplog.text
 
 
 @pytest.mark.usefixtures("old_key_esphome")
-async def test_set_encryption_key_validator_rejecting_old_key_keeps_the_key(
+@pytest.mark.parametrize(
+    "ota_text",
+    [
+        pytest.param("", id="no-ota-block"),
+        pytest.param("\nota: !include common/ota.yaml\n", id="include-header"),
+        pytest.param("\nota:\n  - platform: web_server\n", id="other-platform"),
+    ],
+)
+async def test_set_encryption_key_warns_when_the_ota_block_is_not_readable(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+    ota_text: str,
+) -> None:
+    """A package or included OTA block may require the key that was just replaced."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML + ota_text)
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert "not readable in this file" in caplog.text
+    assert OTHER_KEY not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_stale_dev_build_falls_back_to_a_plain_rewrite(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A dev build that passes the gate but rejects ``old_key`` gets today's write and warning."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML)
+    rejected = {
+        "yaml_errors": [],
+        "validation_errors": [{"message": "[old_key] is an invalid option for [encryption]"}],
+    }
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        side_effect=[rejected, {"yaml_errors": [], "validation_errors": []}]
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "old_key" not in new_yaml
+    assert new_yaml.endswith("    encryption:\n")
+    assert "esphome 2026.11 or newer" in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_validator_rejecting_old_key_twice_keeps_the_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
+    """The fallback runs once; a second rejection refuses and keeps the pending copy."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, OTA_KEY_YAML)
-    ctrl._db.editor.validate_yaml = AsyncMock(
-        return_value={
-            "yaml_errors": [],
-            "validation_errors": [{"message": "[old_key] is an invalid option for [ota]"}],
-        }
-    )
+    rejected = {
+        "yaml_errors": [],
+        "validation_errors": [{"message": "[old_key] is an invalid option for [encryption]"}],
+    }
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=[rejected, rejected])
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
     assert "old_key" in result["reason"]
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == OTA_KEY_YAML
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_unrelated_validation_error_is_not_retried(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML)
+    validate = AsyncMock(
+        return_value={"yaml_errors": [{"message": "boom"}], "validation_errors": []}
+    )
+    ctrl._db.editor.validate_yaml = validate
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert validate.await_count == 1
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 

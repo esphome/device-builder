@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from enum import StrEnum
 
 from .inline import _instance_bounds, _locate_handler_range
 from .scalar import (
@@ -23,9 +24,26 @@ _KEY_PATH = ("encryption", "key")
 _OLD_KEY_PATH = ("encryption", "old_key")
 
 
-def ota_encryption_block_present(yaml_text: str) -> bool:
-    """Whether the esphome OTA item has an ``encryption:`` block the line walker can read."""
-    return _locate_encryption_block(yaml_text.splitlines(keepends=True)) is not None
+class OtaEncryptionBlock(StrEnum):
+    """Whether the esphome OTA item carries ``encryption:``; UNKNOWN when the file can't show it."""
+
+    PRESENT = "present"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+
+
+def ota_encryption_block_state(yaml_text: str) -> OtaEncryptionBlock:
+    """Classify the esphome OTA item's ``encryption:`` block as read by the line walker."""
+    lines = yaml_text.splitlines(keepends=True)
+    try:
+        item = _locate_ota_esphome_item(lines)
+    except YamlUpsertNotSupportedError:
+        return OtaEncryptionBlock.UNKNOWN
+    if item is None:
+        return OtaEncryptionBlock.UNKNOWN
+    if _locate_handler_range(lines, item, "encryption") is None:
+        return OtaEncryptionBlock.ABSENT
+    return OtaEncryptionBlock.PRESENT
 
 
 def read_ota_encryption_key(yaml_text: str) -> str | None:
