@@ -469,8 +469,8 @@ async def test_set_encryption_key_re_push_after_old_key_is_unchanged(
         pytest.param("h1", "current", OTHER_KEY, id="device-runs-the-yaml"),
         pytest.param("h0", "current", THIRD_KEY, id="device-behind-the-yaml"),
         pytest.param("", "current", THIRD_KEY, id="device-hash-unknown"),
-        pytest.param("h1", "v1:stale", THIRD_KEY, id="hash-from-older-content"),
-        pytest.param("h1", "", THIRD_KEY, id="hash-never-tied-to-content"),
+        pytest.param("h1", "v1:stale", THIRD_KEY, id="regen-read-older-content"),
+        pytest.param("h1", "", THIRD_KEY, id="no-regen-stamp"),
     ],
 )
 async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_device_runs_the_yaml(
@@ -484,16 +484,14 @@ async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_de
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
     _configure(
-        ctrl,
-        tmp_path,
-        yaml_text,
-        expected_config_hash="h1",
-        deployed_config_hash=deployed_hash,
-        ota_encryption_required=True,
+        ctrl, tmp_path, yaml_text, deployed_config_hash=deployed_hash, ota_encryption_required=True
     )
     if stamped_fingerprint == "current":
         stamped_fingerprint = extract_config_content_fingerprint(yaml_text)
-    ctrl._metadata_store.update("kitchen.yaml", expected_config_fingerprint=stamped_fingerprint)
+    if stamped_fingerprint:
+        ctrl._metadata_store.update(
+            "kitchen.yaml", regen_config_hash="h1", regen_content_fingerprint=stamped_fingerprint
+        )
 
     with caplog.at_level(logging.WARNING):
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
@@ -517,16 +515,11 @@ async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
 ) -> None:
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = API_KEY_YAML + BARE_OTA_YAML + "      old_key: !secret previous_key\n"
-    _configure(
-        ctrl,
-        tmp_path,
-        yaml_text,
-        expected_config_hash="h1",
-        deployed_config_hash="h1",
-        ota_encryption_required=True,
-    )
+    _configure(ctrl, tmp_path, yaml_text, deployed_config_hash="h1", ota_encryption_required=True)
     ctrl._metadata_store.update(
-        "kitchen.yaml", expected_config_fingerprint=extract_config_content_fingerprint(yaml_text)
+        "kitchen.yaml",
+        regen_config_hash="h1",
+        regen_content_fingerprint=extract_config_content_fingerprint(yaml_text),
     )
 
     with caplog.at_level(logging.WARNING):
@@ -596,21 +589,26 @@ async def test_set_encryption_key_legacy_esphome_without_ota_encryption_does_not
 
 @pytest.mark.usefixtures("old_key_esphome")
 @pytest.mark.parametrize(
-    ("ota_text", "required", "warns"),
+    ("ota_text", "required", "expected"),
     [
-        pytest.param("", True, True, id="packaged-ota"),
-        pytest.param("\nota: !include common/ota.yaml\n", True, True, id="included-ota"),
-        pytest.param("\nota:\n  - platform: esphome\n", True, True, id="packaged-encryption"),
-        pytest.param("", False, False, id="no-ota-encryption"),
+        pytest.param("", True, "is not in this file", id="packaged-ota"),
+        pytest.param(
+            "\nota: !include common/ota.yaml\n", True, "no encryption: block", id="included"
+        ),
+        pytest.param(
+            "\nota:\n  - platform: esphome\n", True, "no encryption: block", id="packaged-enc"
+        ),
+        pytest.param("\nota: {platform: esphome}\n", True, "no encryption: block", id="flow-style"),
+        pytest.param("", False, None, id="no-ota-encryption"),
     ],
 )
-async def test_set_encryption_key_warns_when_a_required_ota_block_is_not_in_the_file(
+async def test_set_encryption_key_warns_when_a_required_ota_block_cannot_take_old_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
     ota_text: str,
     required: bool,
-    warns: bool,
+    expected: str | None,
 ) -> None:
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, API_KEY_YAML + ota_text, ota_encryption_required=required)
@@ -619,8 +617,10 @@ async def test_set_encryption_key_warns_when_a_required_ota_block_is_not_in_the_
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "updated"
-    assert ("not in this file" in caplog.text) is warns
-    assert ("reason" in result) is warns
+    assert ("reason" in result) is (expected is not None)
+    if expected is not None:
+        assert expected in result["reason"]
+        assert expected in caplog.text
     assert OTHER_KEY not in caplog.text
 
 

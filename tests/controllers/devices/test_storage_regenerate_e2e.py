@@ -979,7 +979,8 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     # Hash got written and the leftover stamps got cleared in the
     # same transaction — both halves of the closure.
     assert md.get("expected_config_hash") == "5a94a12d"
-    assert md.get("expected_config_fingerprint") == extract_config_content_fingerprint(
+    assert md.get("regen_config_hash") == "5a94a12d"
+    assert md.get("regen_content_fingerprint") == extract_config_content_fingerprint(
         (controller._db.settings.rel_path("kitchen.yaml")).read_text(encoding="utf-8")
     )
     assert not controller.state.regen.spawned_fingerprints

@@ -215,7 +215,9 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     }
     if new_hash:
         fields["expected_config_hash"] = new_hash
-        fields["expected_config_fingerprint"] = controller.state.regen.spawned_fingerprints.pop(
+        # Stamped as a pair: the hash the regen produced for the content it read.
+        fields["regen_config_hash"] = new_hash
+        fields["regen_content_fingerprint"] = controller.state.regen.spawned_fingerprints.pop(
             configuration, ""
         )
     controller._metadata_store.update(configuration, **fields)

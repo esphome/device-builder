@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -13,11 +14,7 @@ from esphome.const import __version__ as _installed_esphome_version
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config_async
-from ...helpers.device_yaml import (
-    config_has_top_level_block,
-    config_hash_in_sync,
-    extract_config_content_fingerprint,
-)
+from ...helpers.device_yaml import config_has_top_level_block, extract_config_content_fingerprint
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
@@ -45,6 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _KEY_BYTES = 32
 _KEPT_SUFFIX = "; the key was kept for a later attempt"
+_OTA_HEADER_RE = re.compile(r"^ota:", re.MULTILINE)
 
 
 class KeyHandoffResult(StrEnum):
@@ -197,7 +195,7 @@ async def _apply_to_device(
         message=f"Update API encryption key in {configuration}",
     )
     unrecorded = (
-        _unrecorded_reason(existing, new_content, key, keep_previous=keep_previous)
+        _unrecorded_reason(existing, content, new_content, key, keep_previous=keep_previous)
         if device.ota_encryption_required
         else None
     )
@@ -218,21 +216,22 @@ def _ota_old_key_supported() -> bool:
 
 
 def _runs_yaml(controller: DevicesController, device: Device, content: str) -> bool:
-    """Whether the device reports the hash of a regen that ran on this very YAML *content*."""
-    stamped = controller._metadata_store.get_field(
-        device.configuration, "expected_config_fingerprint"
+    """Whether the device reports the hash a storage regen produced for this very YAML *content*."""
+    configuration = device.configuration
+    stamped_hash = controller._metadata_store.get_field(configuration, "regen_config_hash")
+    stamped_fingerprint = controller._metadata_store.get_field(
+        configuration, "regen_content_fingerprint"
     )
     return (
-        bool(stamped)
-        and stamped == extract_config_content_fingerprint(content)
-        and config_hash_in_sync(
-            device.expected_config_hash, device.runtime_state.deployed_config_hash
-        )
+        bool(stamped_hash)
+        and stamped_hash == device.runtime_state.deployed_config_hash
+        and bool(stamped_fingerprint)
+        and stamped_fingerprint == extract_config_content_fingerprint(content)
     )
 
 
 def _unrecorded_reason(
-    existing: str | None, new_content: str, key: str, *, keep_previous: bool
+    existing: str | None, content: str, new_content: str, key: str, *, keep_previous: bool
 ) -> str | None:
     """Why a replaced literal api key did not land as ``old_key``; ``None`` when it did."""
     previous = plain_literal_value(existing)
@@ -256,9 +255,15 @@ def _unrecorded_reason(
             f"esphome {_installed_esphome_version} predates ota encryption old_key; the next "
             "OTA install needs esphome 2026.11 or newer, or a serial flash"
         )
+    where = (
+        "in this file has no encryption: block the line-based rewrite can edit (it comes "
+        "from a package or include, or has an unsupported shape)"
+        if _OTA_HEADER_RE.search(content)
+        else "is not in this file (packages or !include)"
+    )
     return (
-        "the OTA block is not in this file (packages or !include); add the previous key as "
-        "old_key under 'ota: encryption:' there, or the next install needs a serial flash"
+        f"the OTA block {where}; add the previous key as old_key where it lives, or the next "
+        "install needs a serial flash"
     )
 
 
