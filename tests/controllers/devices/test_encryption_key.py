@@ -505,8 +505,38 @@ async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_de
     assert new_yaml.count(f'key: "{KEY}"') == 1
     assert new_yaml.endswith(f'    encryption:\n      old_key: "{expected_old_key}"\n')
     assert new_yaml.count(OTHER_KEY) + new_yaml.count(THIRD_KEY) == 1
-    assert ("an earlier old_key was kept" in caplog.text) is (expected_old_key == THIRD_KEY)
+    kept = expected_old_key == THIRD_KEY
+    assert ("an earlier old_key was kept" in caplog.text) is kept
+    assert ("reason" in result) is kept
     assert OTHER_KEY not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + "      old_key: !secret previous_key\n"
+    _configure(
+        ctrl,
+        tmp_path,
+        yaml_text,
+        expected_config_hash="h1",
+        deployed_config_hash="h1",
+        ota_encryption_required=True,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert "via !secret or a substitution" in result["reason"]
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.endswith("    encryption:\n      old_key: !secret previous_key\n")
+    assert OTHER_KEY not in new_yaml
+    assert "an earlier old_key was kept" not in caplog.text
 
 
 @pytest.mark.usefixtures("old_key_esphome")
@@ -539,6 +569,7 @@ async def test_set_encryption_key_legacy_esphome_skips_old_key_and_warns(
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "updated"
+    assert "esphome 2026.11 or newer" in result["reason"]
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert "old_key" not in new_yaml
     assert new_yaml.endswith("    encryption:\n")
@@ -588,6 +619,7 @@ async def test_set_encryption_key_warns_when_a_required_ota_block_is_not_in_the_
 
     assert result["result"] == "updated"
     assert ("not in this file" in caplog.text) is warns
+    assert ("reason" in result) is warns
     assert OTHER_KEY not in caplog.text
 
 

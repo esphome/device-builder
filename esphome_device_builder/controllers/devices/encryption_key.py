@@ -102,8 +102,9 @@ async def set_encryption_key(
     # A duplicate-name sibling that refused must not vanish behind the
     # aggregate success — its YAML still carries a competing key.
     if KeyHandoffResult.NOT_WRITABLE in outcomes:
-        response["reason"] = reason
         _LOGGER.info("HA key handoff for %s refused: %s", name, reason)
+    if reason:
+        response["reason"] = reason
     return response
 
 
@@ -181,15 +182,18 @@ async def _apply_to_device(
         expected=content,
         message=f"Update API encryption key in {configuration}",
     )
-    if device.ota_encryption_required and (
-        unrecorded := _unrecorded_reason(existing, new_content, key, keep_previous=keep_previous)
-    ):
+    unrecorded = (
+        _unrecorded_reason(existing, new_content, key, keep_previous=keep_previous)
+        if device.ota_encryption_required
+        else None
+    )
+    if unrecorded:
         _LOGGER.warning(
             "Replaced the api encryption key of %s without recording the previous one: %s",
             configuration,
             unrecorded,
         )
-    return KeyHandoffResult.UPDATED, ""
+    return KeyHandoffResult.UPDATED, unrecorded or ""
 
 
 def _ota_old_key_supported() -> bool:
@@ -224,6 +228,11 @@ def _unrecorded_reason(
     recorded = read_ota_encryption_old_key(new_content)
     if recorded is not None and _literal_key_matches(recorded, previous):
         return None
+    if recorded is not None and is_indirected_scalar(recorded):
+        return (
+            "old_key is provided via !secret or a substitution and was left as is; make sure "
+            "it resolves to the key the device runs"
+        )
     if recorded is not None:
         return (
             "an earlier old_key was kept because the device is not known to run the replaced "
