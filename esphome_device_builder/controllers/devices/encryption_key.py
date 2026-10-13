@@ -216,9 +216,13 @@ async def _apply_to_device(
         expected=content,
         message=f"Update API encryption key in {configuration}",
     )
+    # An old_key in the rewritten file proves the block even when the scanned flag is stale.
+    requires_ota_key = (
+        device.ota_encryption_required or read_ota_encryption_old_key(new_content) is not None
+    )
     unrecorded = (
         _unrecorded_reason(existing, content, new_content, key, keep_previous=keep_previous)
-        if device.ota_encryption_required
+        if requires_ota_key
         else ""
     )
     if unrecorded:

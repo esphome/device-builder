@@ -519,7 +519,8 @@ async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
 ) -> None:
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = API_KEY_YAML + BARE_OTA_YAML + "      old_key: !secret previous_key\n"
-    _configure(ctrl, tmp_path, yaml_text, deployed_config_hash="h1", ota_encryption_required=True)
+    # The scanned flag is stale on purpose: the old_key in the file is proof enough.
+    _configure(ctrl, tmp_path, yaml_text, deployed_config_hash="h1")
     _stamp_regen(ctrl, "h1", extract_config_content_fingerprint(yaml_text))
 
     with caplog.at_level(logging.WARNING):

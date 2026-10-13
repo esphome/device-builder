@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from ...helpers.api import CommandError
@@ -33,6 +34,8 @@ from .helpers import (
 
 if TYPE_CHECKING:
     from .controller import DevicesController
+
+_OLD_KEY_LINE_RE = re.compile(r"^(?!\s*#).*\bold_key\s*:", re.MULTILINE)
 
 
 async def clone_device(
@@ -130,8 +133,7 @@ async def clone_device(
         new_content = rewrite_api_encryption_key(new_content, new_key)
         # An own OTA key is sibling-shared material too.
         new_content = rewrite_own_ota_encryption_key(new_content, new_key)
-        # The source's previous key means nothing to a serial-flashed clone.
-        new_content = drop_ota_encryption_old_key(new_content)
+        new_content = _drop_source_old_key(new_content)
     except YamlUpsertNotSupportedError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
     keys_changed = new_content != before_keys
@@ -178,3 +180,14 @@ async def clone_device(
         board_id=carry_board_id,
     )
     return {"configuration": new_filename}
+
+
+def _drop_source_old_key(yaml_text: str) -> str:
+    """Drop the source's ``old_key`` (meaningless to a serial-flashed clone); unremovable raises."""
+    dropped = drop_ota_encryption_old_key(yaml_text)
+    if _OLD_KEY_LINE_RE.search(dropped):
+        raise YamlUpsertNotSupportedError(
+            "the OTA encryption old_key sits in a shape the line-based rewrite can't remove; "
+            "delete it from the source before cloning."
+        )
+    return dropped

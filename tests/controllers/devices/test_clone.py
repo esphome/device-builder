@@ -184,6 +184,26 @@ async def test_clone_device_drops_old_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_refuses_an_old_key_it_cannot_remove(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML.replace(
+        "  - platform: esphome\n",
+        f'  - platform: esphome\n    encryption: {{old_key: "{PREVIOUS_KEY}"}}\n',
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "old_key" in excinfo.value.message
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_drops_old_key_when_minting_an_own_ota_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
