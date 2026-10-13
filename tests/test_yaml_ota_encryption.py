@@ -554,6 +554,18 @@ def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
             id="inline-package",
         ),
         pytest.param("packages:\n  base: !include base.yaml\n", False, id="included-package"),
+        pytest.param(
+            "packages:\n  - ota:\n      - platform: esphome\n        encryption:\n"
+            "          old_key: x\n",
+            True,
+            id="list-form-package",
+        ),
+        pytest.param(
+            "packages:\n  outer:\n    packages:\n      inner:\n        ota:\n"
+            "          - platform: esphome\n            encryption:\n              old_key: x\n",
+            True,
+            id="nested-package",
+        ),
         pytest.param(API, False, id="no-ota"),
     ],
 )

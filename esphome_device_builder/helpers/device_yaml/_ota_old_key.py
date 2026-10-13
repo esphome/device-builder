@@ -24,9 +24,11 @@ def yaml_declares_ota_old_key(yaml_content: str) -> bool | None:
 
 
 def _ota_entries_with_inline_packages(config: dict | None) -> Iterator[dict]:
-    """Esphome OTA entries of *config* and of every inline ``packages:`` mapping it carries."""
+    """Esphome OTA entries of *config* and of every inline ``packages:`` entry, recursively."""
     yield from _ota_esphome_entries(config)
     packages = config.get(CONF_PACKAGES) if isinstance(config, dict) else None
     if isinstance(packages, dict):
-        for package in packages.values():
-            yield from _ota_esphome_entries(package)
+        packages = list(packages.values())
+    for package in packages if isinstance(packages, list) else ():
+        if isinstance(package, dict):
+            yield from _ota_entries_with_inline_packages(package)
