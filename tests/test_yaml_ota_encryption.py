@@ -352,6 +352,12 @@ def test_old_key_preserves_crlf() -> None:
             "    encryption:\n      old_key: oldkey  # kept verbatim\n",
             id="equal-to-previous-left-as-is",
         ),
+        pytest.param(
+            "      old_key: !secret previous_key\n",
+            True,
+            "    encryption:\n      old_key: !secret previous_key\n",
+            id="indirected-never-overwritten",
+        ),
     ],
 )
 def test_existing_old_key(old_key_line: str, replace: bool, expected_tail: str) -> None:

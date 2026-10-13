@@ -175,7 +175,11 @@ def _settle_old_key(
         return yaml_text
     # An old_key already there may be the key the device still runs; only a
     # caller that knows the device runs the replaced key may overwrite it.
-    if old_key is not None and (not replace_old_key or _literal_key_matches(old_key, previous_key)):
+    if old_key is not None and (
+        not replace_old_key
+        or is_indirected_scalar(old_key)
+        or _literal_key_matches(old_key, previous_key)
+    ):
         return yaml_text
     return set_ota_encryption_old_key(yaml_text, previous_key)
 

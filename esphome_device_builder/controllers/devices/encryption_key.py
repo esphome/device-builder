@@ -12,12 +12,14 @@ from esphome.const import __version__ as _installed_esphome_version
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import config_has_top_level_block, config_hash_in_sync
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
+    _literal_key_matches,
     api_key_settled,
     component_block_present,
     is_indirected_scalar,
@@ -179,16 +181,13 @@ async def _apply_to_device(
         expected=content,
         message=f"Update API encryption key in {configuration}",
     )
-    if device.ota_encryption_required and _previous_key_unrecorded(existing, new_content, key):
+    if device.ota_encryption_required and (
+        reason := _unrecorded_reason(existing, new_content, key, keep_previous=keep_previous)
+    ):
         _LOGGER.warning(
             "Replaced the api encryption key of %s without recording the previous one: %s",
             configuration,
-            f"esphome {_installed_esphome_version} predates ota encryption old_key; the next "
-            "OTA install needs esphome 2026.11 or newer, or a serial flash"
-            if not keep_previous
-            else "the OTA block is not in this file (packages or !include); add the previous "
-            "key as old_key under 'ota: encryption:' there, or the next install needs a "
-            "serial flash",
+            reason,
         )
     return KeyHandoffResult.UPDATED, ""
 
@@ -201,16 +200,44 @@ def _ota_old_key_supported() -> bool:
 
 
 def _runs_yaml(controller: DevicesController, device: Device) -> bool:
-    """Whether the device reports the YAML's config hash, with no regen of that hash pending."""
-    return device.configuration not in controller.state.regen.pending and config_hash_in_sync(
+    """Whether the device reports the hash of a regen that succeeded for the current YAML."""
+    configuration = device.configuration
+    regen = controller.state.regen
+    if configuration in regen.pending or configuration in regen.retry_timers:
+        return False
+    if coerce_sidecar_int(
+        controller._metadata_store.get_field(configuration, "regen_failed_attempts")
+    ):
+        return False
+    return config_hash_in_sync(
         device.expected_config_hash, device.runtime_state.deployed_config_hash
     )
 
 
-def _previous_key_unrecorded(existing: str | None, new_content: str, key: str) -> bool:
-    """Whether a differing literal api key was replaced without landing as ``old_key``."""
+def _unrecorded_reason(
+    existing: str | None, new_content: str, key: str, *, keep_previous: bool
+) -> str | None:
+    """Why a replaced literal api key did not land as ``old_key``; ``None`` when it did."""
     previous = plain_literal_value(existing)
-    return previous not in (None, key) and read_ota_encryption_old_key(new_content) is None
+    if previous in (None, key):
+        return None
+    recorded = read_ota_encryption_old_key(new_content)
+    if recorded is not None and _literal_key_matches(recorded, previous):
+        return None
+    if recorded is not None:
+        return (
+            "an earlier old_key was kept because the device is not known to run the replaced "
+            "key; if the next OTA install is refused, set old_key to the key the device runs"
+        )
+    if not keep_previous:
+        return (
+            f"esphome {_installed_esphome_version} predates ota encryption old_key; the next "
+            "OTA install needs esphome 2026.11 or newer, or a serial flash"
+        )
+    return (
+        "the OTA block is not in this file (packages or !include); add the previous key as "
+        "old_key under 'ota: encryption:' there, or the next install needs a serial flash"
+    )
 
 
 async def _resolved_config_has_api(

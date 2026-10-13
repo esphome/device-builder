@@ -461,36 +461,52 @@ async def test_set_encryption_key_re_push_after_old_key_is_unchanged(
 
 @pytest.mark.usefixtures("old_key_esphome")
 @pytest.mark.parametrize(
-    ("deployed_hash", "regen_pending", "expected_old_key"),
+    ("deployed_hash", "regen_state", "expected_old_key"),
     [
-        pytest.param("h1", False, OTHER_KEY, id="device-runs-the-yaml"),
-        pytest.param("h0", False, THIRD_KEY, id="device-behind-the-yaml"),
-        pytest.param("", False, THIRD_KEY, id="device-hash-unknown"),
-        pytest.param("h1", True, THIRD_KEY, id="regen-pending"),
+        pytest.param("h1", "", OTHER_KEY, id="device-runs-the-yaml"),
+        pytest.param("h0", "", THIRD_KEY, id="device-behind-the-yaml"),
+        pytest.param("", "", THIRD_KEY, id="device-hash-unknown"),
+        pytest.param("h1", "pending", THIRD_KEY, id="regen-pending"),
+        pytest.param("h1", "retry", THIRD_KEY, id="regen-retry-armed"),
+        pytest.param("h1", "failed", THIRD_KEY, id="regen-failed"),
     ],
 )
 async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_device_runs_the_yaml(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
     deployed_hash: str,
-    regen_pending: bool,
+    regen_state: str,
     expected_old_key: str,
 ) -> None:
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
     _configure(
-        ctrl, tmp_path, yaml_text, expected_config_hash="h1", deployed_config_hash=deployed_hash
+        ctrl,
+        tmp_path,
+        yaml_text,
+        expected_config_hash="h1",
+        deployed_config_hash=deployed_hash,
+        ota_encryption_required=True,
     )
-    if regen_pending:
+    if regen_state == "pending":
         ctrl.state.regen.pending.add("kitchen.yaml")
+    elif regen_state == "retry":
+        ctrl.state.regen.arm_retry("kitchen.yaml", asyncio.get_running_loop().call_later(60, int))
+    elif regen_state == "failed":
+        ctrl._metadata_store.update("kitchen.yaml", regen_failed_attempts=1)
 
-    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
+    ctrl.state.regen.cancel_retry("kitchen.yaml")
     assert result["result"] == "updated"
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert new_yaml.count(f'key: "{KEY}"') == 1
     assert new_yaml.endswith(f'    encryption:\n      old_key: "{expected_old_key}"\n')
     assert new_yaml.count(OTHER_KEY) + new_yaml.count(THIRD_KEY) == 1
+    assert ("an earlier old_key was kept" in caplog.text) is (expected_old_key == THIRD_KEY)
+    assert OTHER_KEY not in caplog.text
 
 
 @pytest.mark.usefixtures("old_key_esphome")
