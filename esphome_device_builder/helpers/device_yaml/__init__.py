@@ -37,11 +37,7 @@ from ._loading import (
     pending_changes_via_hash,
     resolution_incomplete,
 )
-from ._mqtt_block import (
-    SecretRef,
-    build_mqtt_extract,
-    extract_mqtt_block,
-)
+from ._mqtt_block import build_mqtt_extract, extract_mqtt_block
 from ._ota_old_key import yaml_declares_ota_old_key
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
@@ -80,6 +76,7 @@ from ._parsing import (
     yaml_has_top_level_block,
 )
 from ._resolve import ESPHOME_CONFIG_TIMEOUT, EsphomeConfigUnavailableError, run_esphome_config
+from ._tolerant_yaml import SecretRef
 
 __all__ = [
     "CAPTIVE_PORTAL_PLATFORMS",

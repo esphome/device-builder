@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from esphome.const import CONF_ENCRYPTION
 
-from ._mqtt_block import load_yaml_tolerant
 from ._parsing import _ota_esphome_entries
+from ._tolerant_yaml import load_yaml_tolerant
 
 _CONF_OLD_KEY = "old_key"
 
