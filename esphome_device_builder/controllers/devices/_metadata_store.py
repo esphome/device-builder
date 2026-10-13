@@ -35,6 +35,7 @@ STORE_FIELDS: frozenset[str] = frozenset(
         "queued_update",
         "api_encryption_active",
         "expected_config_hash",
+        "expected_config_fingerprint",
         "content_fingerprint",
         "build_size_bytes",
         "build_size_dir_mtime",

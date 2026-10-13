@@ -18,7 +18,10 @@ from esphome_device_builder.controllers.devices import encryption_key as encrypt
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
+from esphome_device_builder.helpers.device_yaml import (
+    EsphomeConfigUnavailableError,
+    extract_config_content_fingerprint,
+)
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
@@ -461,14 +464,13 @@ async def test_set_encryption_key_re_push_after_old_key_is_unchanged(
 
 @pytest.mark.usefixtures("old_key_esphome")
 @pytest.mark.parametrize(
-    ("deployed_hash", "regen_state", "expected_old_key"),
+    ("deployed_hash", "stamped_fingerprint", "expected_old_key"),
     [
-        pytest.param("h1", "", OTHER_KEY, id="device-runs-the-yaml"),
-        pytest.param("h0", "", THIRD_KEY, id="device-behind-the-yaml"),
-        pytest.param("", "", THIRD_KEY, id="device-hash-unknown"),
-        pytest.param("h1", "pending", THIRD_KEY, id="regen-pending"),
-        pytest.param("h1", "retry", THIRD_KEY, id="regen-retry-armed"),
-        pytest.param("h1", "failed", THIRD_KEY, id="regen-failed"),
+        pytest.param("h1", "current", OTHER_KEY, id="device-runs-the-yaml"),
+        pytest.param("h0", "current", THIRD_KEY, id="device-behind-the-yaml"),
+        pytest.param("", "current", THIRD_KEY, id="device-hash-unknown"),
+        pytest.param("h1", "v1:stale", THIRD_KEY, id="hash-from-older-content"),
+        pytest.param("h1", "", THIRD_KEY, id="hash-never-tied-to-content"),
     ],
 )
 async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_device_runs_the_yaml(
@@ -476,7 +478,7 @@ async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_de
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
     deployed_hash: str,
-    regen_state: str,
+    stamped_fingerprint: str,
     expected_old_key: str,
 ) -> None:
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -489,17 +491,13 @@ async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_de
         deployed_config_hash=deployed_hash,
         ota_encryption_required=True,
     )
-    if regen_state == "pending":
-        ctrl.state.regen.pending.add("kitchen.yaml")
-    elif regen_state == "retry":
-        ctrl.state.regen.arm_retry("kitchen.yaml", asyncio.get_running_loop().call_later(60, int))
-    elif regen_state == "failed":
-        ctrl._metadata_store.update("kitchen.yaml", regen_failed_attempts=1)
+    if stamped_fingerprint == "current":
+        stamped_fingerprint = extract_config_content_fingerprint(yaml_text)
+    ctrl._metadata_store.update("kitchen.yaml", expected_config_fingerprint=stamped_fingerprint)
 
     with caplog.at_level(logging.WARNING):
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
-    ctrl.state.regen.cancel_retry("kitchen.yaml")
     assert result["result"] == "updated"
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert new_yaml.count(f'key: "{KEY}"') == 1
@@ -526,6 +524,9 @@ async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
         expected_config_hash="h1",
         deployed_config_hash="h1",
         ota_encryption_required=True,
+    )
+    ctrl._metadata_store.update(
+        "kitchen.yaml", expected_config_fingerprint=extract_config_content_fingerprint(yaml_text)
     )
 
     with caplog.at_level(logging.WARNING):
@@ -621,6 +622,26 @@ async def test_set_encryption_key_warns_when_a_required_ota_block_is_not_in_the_
     assert ("not in this file" in caplog.text) is warns
     assert ("reason" in result) is warns
     assert OTHER_KEY not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_first_key_on_a_required_ota_block_has_nothing_to_record(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n" + BARE_OTA_YAML
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=True, ota_encryption_required=True)
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(KEY) == 1
+    assert "old_key" not in new_yaml
+    assert "previous one" not in caplog.text
 
 
 @pytest.mark.usefixtures("old_key_esphome")
@@ -767,6 +788,33 @@ async def test_set_encryption_key_partial_refusal_keeps_reason(
     # The sibling's update consumed the key, so the refusal must not claim it was kept.
     assert "kept for a later attempt" not in result["reason"]
     assert ctrl._pending_keys.get("kitchen") is None
+
+
+@pytest.mark.usefixtures("legacy_esphome")
+async def test_set_encryption_key_refusal_outranks_an_advisory_on_duplicate_names(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(OTA_KEY_YAML, encoding="utf-8")
+    (tmp_path / "kitchen (1).yaml").write_text(
+        "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n",
+        encoding="utf-8",
+    )
+    advised = make_device("kitchen", ota_encryption_required=True)
+    refused = make_device("kitchen", configuration="kitchen (1).yaml")
+    ctrl._scanner._devices_by_name["kitchen"] = [advised, refused]
+    ctrl._scanner.devices = [advised, refused]
+
+    with caplog.at_level(logging.INFO):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert "!secret" in result["reason"]
+    assert "2026.11" not in result["reason"]
+    assert "refused: the key is provided via !secret" in caplog.text
+    assert "esphome 2026.11 or newer" in caplog.text
 
 
 async def test_set_encryption_key_stores_pending_for_unadopted_device(

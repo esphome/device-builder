@@ -619,6 +619,7 @@ def test_store_fields_pinned() -> None:
                 "queued_update",
                 "api_encryption_active",
                 "expected_config_hash",
+                "expected_config_fingerprint",
                 "content_fingerprint",
                 "build_size_bytes",
                 "build_size_dir_mtime",

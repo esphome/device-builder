@@ -12,9 +12,12 @@ from esphome.const import __version__ as _installed_esphome_version
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.device_config import read_device_config_async
-from ...helpers.device_yaml import config_has_top_level_block, config_hash_in_sync
+from ...helpers.device_yaml import (
+    config_has_top_level_block,
+    config_hash_in_sync,
+    extract_config_content_fingerprint,
+)
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
@@ -65,28 +68,14 @@ async def set_encryption_key(
         _LOGGER.info("Stored pending API encryption key for unadopted device %s", name)
         return {"result": KeyHandoffResult.STORED}
 
-    outcomes: set[KeyHandoffResult] = set()
-    reason = ""
-    for device in devices:
-        try:
-            outcome, why = await _apply_to_device(controller, device, key)
-        except CommandError as err:
-            # A failing sibling (validation rejection, vanished file)
-            # must not unwind the loop: the key-retention policy and
-            # the other devices' outcomes still apply.
-            outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
-            if err.code is ErrorCode.PRECONDITION_FAILED:
-                # The first line only: the diff excerpt is for a caller that can retry.
-                why = f"{why.partition('\n')[0]}{_KEPT_SUFFIX}"
-        outcomes.add(outcome)
-        reason = reason or why
+    outcomes, refusal, advisory = await _apply_to_devices(controller, devices, key)
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
         # Consume the pending entry only once the key actually landed. Unconditional
         # on purpose: the device is configured now, so an older entry is stale cruft
         # to clear, which pop_if would keep; adoption is the side that must not drop
         # a push that overtook the key it spliced.
         controller._pending_keys.pop(name)
-        reason = reason.removesuffix(_KEPT_SUFFIX)
+        refusal = refusal.removesuffix(_KEPT_SUFFIX)
     else:
         # Nothing accepted the key — keep a copy so a later push, the
         # post-install retry, or a delete-and-readopt can consume it.
@@ -102,10 +91,35 @@ async def set_encryption_key(
     # A duplicate-name sibling that refused must not vanish behind the
     # aggregate success — its YAML still carries a competing key.
     if KeyHandoffResult.NOT_WRITABLE in outcomes:
-        _LOGGER.info("HA key handoff for %s refused: %s", name, reason)
-    if reason:
+        _LOGGER.info("HA key handoff for %s refused: %s", name, refusal)
+    if reason := refusal or advisory:
         response["reason"] = reason
     return response
+
+
+async def _apply_to_devices(
+    controller: DevicesController, devices: list[Device], key: str
+) -> tuple[set[KeyHandoffResult], str, str]:
+    """Splice *key* into every device; returns the outcomes, first refusal and first advisory."""
+    outcomes: set[KeyHandoffResult] = set()
+    refusal = advisory = ""
+    for device in devices:
+        try:
+            outcome, why = await _apply_to_device(controller, device, key)
+        except CommandError as err:
+            # A failing sibling (validation rejection, vanished file)
+            # must not unwind the loop: the key-retention policy and
+            # the other devices' outcomes still apply.
+            outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
+            if err.code is ErrorCode.PRECONDITION_FAILED:
+                # The first line only: the diff excerpt is for a caller that can retry.
+                why = f"{why.partition('\n')[0]}{_KEPT_SUFFIX}"
+        outcomes.add(outcome)
+        if outcome is KeyHandoffResult.NOT_WRITABLE:
+            refusal = refusal or why
+        else:
+            advisory = advisory or why
+    return outcomes, refusal, advisory
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
@@ -157,7 +171,7 @@ async def _apply_to_device(
             content,
             key,
             keep_previous_key=keep_previous,
-            replace_old_key=_runs_yaml(controller, device),
+            replace_old_key=_runs_yaml(controller, device, content),
         )
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
@@ -203,18 +217,17 @@ def _ota_old_key_supported() -> bool:
     return hasattr(espota2, "CONF_OLD_KEY")
 
 
-def _runs_yaml(controller: DevicesController, device: Device) -> bool:
-    """Whether the device reports the hash of a regen that succeeded for the current YAML."""
-    configuration = device.configuration
-    regen = controller.state.regen
-    if configuration in regen.pending or configuration in regen.retry_timers:
-        return False
-    if coerce_sidecar_int(
-        controller._metadata_store.get_field(configuration, "regen_failed_attempts")
-    ):
-        return False
-    return config_hash_in_sync(
-        device.expected_config_hash, device.runtime_state.deployed_config_hash
+def _runs_yaml(controller: DevicesController, device: Device, content: str) -> bool:
+    """Whether the device reports the hash of a regen that ran on this very YAML *content*."""
+    stamped = controller._metadata_store.get_field(
+        device.configuration, "expected_config_fingerprint"
+    )
+    return (
+        bool(stamped)
+        and stamped == extract_config_content_fingerprint(content)
+        and config_hash_in_sync(
+            device.expected_config_hash, device.runtime_state.deployed_config_hash
+        )
     )
 
 

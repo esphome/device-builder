@@ -31,6 +31,7 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController, storage_regen
 from esphome_device_builder.controllers.devices._state import RegenState
+from esphome_device_builder.helpers.device_yaml import extract_config_content_fingerprint
 from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 from tests._storage_fixtures import write_storage_json
@@ -902,6 +903,14 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
 
 
 # ---------------------------------------------------------------------------
+def test_content_fingerprint_is_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
+    assert storage_regen._content_fingerprint(tmp_path / "missing.yaml") == ""
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    assert storage_regen._content_fingerprint(tmp_path / "kitchen.yaml").startswith(
+        CONTENT_FINGERPRINT_VERSION
+    )
+
+
 # Real ``_finalize_regen_success`` — covers the in-executor closure that
 # reads ``build_info.json`` and writes the sidecar in one transaction.
 # ---------------------------------------------------------------------------
@@ -970,6 +979,10 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     # Hash got written and the leftover stamps got cleared in the
     # same transaction — both halves of the closure.
     assert md.get("expected_config_hash") == "5a94a12d"
+    assert md.get("expected_config_fingerprint") == extract_config_content_fingerprint(
+        (controller._db.settings.rel_path("kitchen.yaml")).read_text(encoding="utf-8")
+    )
+    assert not controller.state.regen.spawned_fingerprints
     assert "regen_failed_mtime" not in md
     assert "regen_failed_at" not in md
 

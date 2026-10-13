@@ -6,12 +6,14 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
+from ...helpers.device_yaml import extract_config_content_fingerprint
 from ...helpers.subprocess import run_subprocess_capture
 
 if TYPE_CHECKING:
@@ -107,6 +109,11 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                 # A restart mid-window resumes the remainder, not an early spawn.
                 _arm_retry(controller, configuration, remaining)
                 return
+        # Read before the spawn: an edit landing mid-run must not be
+        # stamped as the content the hash was generated from.
+        regen.spawned_fingerprints[configuration] = await run_in_executor(
+            _content_fingerprint, config_path
+        )
         # Delegates so tests patching the class intercept.
         async with controller._regenerate_lock:
             failure = await controller._spawn_only_generate(configuration)
@@ -131,6 +138,7 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         _arm_ttl_recheck(controller, configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
+        controller.state.regen.spawned_fingerprints.pop(configuration, None)
 
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> str | None:
@@ -207,6 +215,9 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     }
     if new_hash:
         fields["expected_config_hash"] = new_hash
+        fields["expected_config_fingerprint"] = controller.state.regen.spawned_fingerprints.pop(
+            configuration, ""
+        )
     controller._metadata_store.update(configuration, **fields)
     if not new_hash:
         _LOGGER.warning(
@@ -272,3 +283,11 @@ def _arm_retry(controller: DevicesController, configuration: str, delay: float) 
 def _fire_retry(controller: DevicesController, configuration: str) -> None:
     controller.state.regen.retry_timers.pop(configuration, None)
     schedule(controller, configuration)
+
+
+def _content_fingerprint(config_path: Path) -> str:
+    """Fingerprint of the YAML at *config_path*; empty when it can't be read."""
+    try:
+        return extract_config_content_fingerprint(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return ""
