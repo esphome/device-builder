@@ -182,12 +182,12 @@ async def _apply_to_device(
         message=f"Update API encryption key in {configuration}",
     )
     if device.ota_encryption_required and (
-        reason := _unrecorded_reason(existing, new_content, key, keep_previous=keep_previous)
+        unrecorded := _unrecorded_reason(existing, new_content, key, keep_previous=keep_previous)
     ):
         _LOGGER.warning(
             "Replaced the api encryption key of %s without recording the previous one: %s",
             configuration,
-            reason,
+            unrecorded,
         )
     return KeyHandoffResult.UPDATED, ""
 
@@ -219,7 +219,7 @@ def _unrecorded_reason(
 ) -> str | None:
     """Why a replaced literal api key did not land as ``old_key``; ``None`` when it did."""
     previous = plain_literal_value(existing)
-    if previous in (None, key):
+    if previous is None or previous == key:
         return None
     recorded = read_ota_encryption_old_key(new_content)
     if recorded is not None and _literal_key_matches(recorded, previous):
