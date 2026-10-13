@@ -21,14 +21,13 @@ from ...helpers.device_yaml import (
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
+    OldKeyOutcome,
     YamlUpsertNotSupportedError,
     api_key_settled,
     component_block_present,
     is_indirected_scalar,
-    plain_literal_value,
-    read_ota_encryption_old_key,
     read_yaml_scalar,
-    upsert_api_encryption_key,
+    rotate_api_encryption_key,
 )
 from ...models import ErrorCode
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
@@ -44,27 +43,6 @@ _LOGGER = logging.getLogger(__name__)
 
 _KEY_BYTES = 32
 _KEPT_SUFFIX = "; the key was kept for a later attempt"
-_OLD_KEY_INDIRECTED = (
-    "old_key is provided via !secret or a substitution and was left as is; make sure it "
-    "resolves to the key the device runs"
-)
-_OLD_KEY_KEPT = (
-    "an earlier old_key was kept because the device is not known to run the replaced key; "
-    "if the next OTA install is refused, set old_key to the key the device runs"
-)
-_OLD_KEY_UNSUPPORTED = (
-    "esphome {} predates ota encryption old_key; the next OTA install needs esphome 2026.11 "
-    "or newer, or a serial flash"
-)
-_OTA_BLOCK_UNEDITABLE = (
-    "the OTA block in this file has no encryption: block the line-based rewrite can edit (it "
-    "comes from a package or include, or has an unsupported shape); add the previous key as "
-    "old_key where it lives, or the next install needs a serial flash"
-)
-_OTA_BLOCK_ELSEWHERE = (
-    "the OTA block is not in this file (packages or !include); add the previous key as "
-    "old_key where it lives, or the next install needs a serial flash"
-)
 
 
 class KeyHandoffResult(StrEnum):
@@ -88,14 +66,14 @@ async def set_encryption_key(
         _LOGGER.info("Stored pending API encryption key for unadopted device %s", name)
         return {"result": KeyHandoffResult.STORED}
 
-    outcomes, refusal, advisory = await _apply_to_devices(controller, devices, key)
+    outcomes, reason = await _apply_to_devices(controller, devices, key)
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
         # Consume the pending entry only once the key actually landed. Unconditional
         # on purpose: the device is configured now, so an older entry is stale cruft
         # to clear, which pop_if would keep; adoption is the side that must not drop
         # a push that overtook the key it spliced.
         controller._pending_keys.pop(name)
-        refusal = refusal.removesuffix(_KEPT_SUFFIX)
+        reason = reason.removesuffix(_KEPT_SUFFIX)
     else:
         # Nothing accepted the key — keep a copy so a later push, the
         # post-install retry, or a delete-and-readopt can consume it.
@@ -111,16 +89,16 @@ async def set_encryption_key(
     # A duplicate-name sibling that refused must not vanish behind the
     # aggregate success — its YAML still carries a competing key.
     if KeyHandoffResult.NOT_WRITABLE in outcomes:
-        _LOGGER.info("HA key handoff for %s refused: %s", name, refusal)
-    if reason := refusal or advisory:
+        _LOGGER.info("HA key handoff for %s refused: %s", name, reason)
+    if reason:
         response["reason"] = reason
     return response
 
 
 async def _apply_to_devices(
     controller: DevicesController, devices: list[Device], key: str
-) -> tuple[set[KeyHandoffResult], str, str]:
-    """Splice *key* into every device; returns the outcomes, first refusal and first advisory."""
+) -> tuple[set[KeyHandoffResult], str]:
+    """Splice *key* into every device; returns the outcomes and the first refusal, else advisory."""
     outcomes: set[KeyHandoffResult] = set()
     refusal = advisory = ""
     for device in devices:
@@ -139,7 +117,7 @@ async def _apply_to_devices(
             refusal = refusal or why
         else:
             advisory = advisory or why
-    return outcomes, refusal, advisory
+    return outcomes, refusal or advisory
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
@@ -187,10 +165,10 @@ async def _apply_to_device(
 
     keep_previous = _ota_old_key_supported()
     try:
-        new_content = upsert_api_encryption_key(
+        new_content, old_key_outcome = rotate_api_encryption_key(
             content,
             key,
-            keep_previous_key=keep_previous,
+            record_previous=keep_previous,
             replace_old_key=_runs_yaml(controller, device, content),
         )
     except YamlUpsertNotSupportedError as exc:
@@ -216,14 +194,11 @@ async def _apply_to_device(
         expected=content,
         message=f"Update API encryption key in {configuration}",
     )
-    # An old_key in the rewritten file proves the block even when the scanned flag is stale.
-    requires_ota_key = (
-        device.ota_encryption_required or read_ota_encryption_old_key(new_content) is not None
-    )
-    unrecorded = (
-        _unrecorded_reason(existing, content, new_content, key, keep_previous=keep_previous)
-        if requires_ota_key
-        else ""
+    unrecorded = _unrecorded_reason(
+        old_key_outcome,
+        content,
+        keep_previous=keep_previous,
+        required=device.ota_encryption_required,
     )
     if unrecorded:
         _LOGGER.warning(
@@ -245,32 +220,49 @@ def _runs_yaml(controller: DevicesController, device: Device, content: str) -> b
     """Whether the device reports the hash a storage regen produced for this very YAML *content*."""
     md = controller._metadata_store.get(device.configuration)
     deployed = device.runtime_state.deployed_config_hash
-    return bool(deployed) and (
-        md.get("regen_config_hash"),
-        md.get("regen_content_fingerprint"),
-    ) == (
-        deployed,
-        extract_config_content_fingerprint(content),
+    return (
+        bool(deployed)
+        and md.get("regen_config_hash") == deployed
+        and md.get("regen_content_fingerprint") == extract_config_content_fingerprint(content)
     )
 
 
 def _unrecorded_reason(
-    existing: str | None, content: str, new_content: str, key: str, *, keep_previous: bool
+    outcome: OldKeyOutcome, content: str, *, keep_previous: bool, required: bool
 ) -> str:
-    """Why a replaced literal api key did not land as ``old_key``; empty when it did."""
-    previous = plain_literal_value(existing)
-    if previous is None or previous == key:
+    """Why the replaced api key did not land as ``old_key``; empty when it did or was not needed."""
+    if outcome is OldKeyOutcome.KEPT_INDIRECTED:
+        return (
+            "old_key is provided via !secret or a substitution and was left as is; make sure "
+            "it resolves to the key the device runs"
+        )
+    if outcome is OldKeyOutcome.KEPT_EXISTING:
+        return (
+            "an earlier old_key was kept because the device is not known to run the replaced "
+            "key; if the next OTA install is refused, set old_key to the key the device runs"
+        )
+    # A block missing from the file only matters when the resolved config requires encryption.
+    if outcome is OldKeyOutcome.NO_ENCRYPTION_BLOCK and not required:
         return ""
-    recorded = read_ota_encryption_old_key(new_content)
-    if recorded is not None:
-        if plain_literal_value(recorded) == previous:
-            return ""
-        return _OLD_KEY_INDIRECTED if is_indirected_scalar(recorded) else _OLD_KEY_KEPT
-    if not keep_previous:
-        return _OLD_KEY_UNSUPPORTED.format(_installed_esphome_version)
-    if yaml_has_top_level_block(content, "ota"):
-        return _OTA_BLOCK_UNEDITABLE
-    return _OTA_BLOCK_ELSEWHERE
+    if outcome is OldKeyOutcome.NOT_RECORDED or (
+        outcome is OldKeyOutcome.NO_ENCRYPTION_BLOCK and not keep_previous
+    ):
+        return (
+            f"esphome {_installed_esphome_version} predates ota encryption old_key; the next "
+            "OTA install needs esphome 2026.11 or newer, or a serial flash"
+        )
+    if outcome is OldKeyOutcome.NO_ENCRYPTION_BLOCK:
+        where = (
+            "in this file has no encryption: block the line-based rewrite can edit (it comes "
+            "from a package or include, or has an unsupported shape)"
+            if yaml_has_top_level_block(content, "ota")
+            else "is not in this file (packages or !include)"
+        )
+        return (
+            f"the OTA block {where}; add the previous key as old_key where it lives, or the next "
+            "install needs a serial flash"
+        )
+    return ""
 
 
 async def _resolved_config_has_api(

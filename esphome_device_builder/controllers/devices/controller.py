@@ -948,7 +948,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     def _stamp_regen_failure(self, configuration: str, mtime: float) -> int:
         return storage_regen.stamp_failure(self, configuration, mtime)
 
-    async def _finalize_regen_success(self, configuration: str, fingerprint: str = "") -> None:
+    async def _finalize_regen_success(self, configuration: str, fingerprint: str) -> None:
         await storage_regen.finalize_success(self, configuration, fingerprint)
 
     @api_command("devices/get_encryption_key")

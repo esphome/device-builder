@@ -6,6 +6,7 @@ import pytest
 
 from esphome_device_builder.helpers.device_yaml import yaml_declares_ota_old_key
 from esphome_device_builder.helpers.yaml import (
+    OldKeyOutcome,
     YamlUpsertNotSupportedError,
     api_key_settled,
     drop_ota_encryption_old_key,
@@ -13,6 +14,7 @@ from esphome_device_builder.helpers.yaml import (
     read_ota_encryption_old_key,
     rewrite_api_encryption_key,
     rewrite_own_ota_encryption_key,
+    rotate_api_encryption_key,
     upsert_api_encryption_key,
 )
 from esphome_device_builder.helpers.yaml.api_encryption import _ota_key_competes
@@ -286,6 +288,14 @@ BARE_OTA = BARE_ENCRYPTION.removeprefix(API)
 OLD_KEY_LINE = '      old_key: "oldkey"\n'
 
 
+def _rotate(
+    yaml_text: str, new_key: str, *, record_previous: bool, replace_old_key: bool = False
+) -> str:
+    return rotate_api_encryption_key(
+        yaml_text, new_key, record_previous=record_previous, replace_old_key=replace_old_key
+    )[0]
+
+
 @pytest.mark.parametrize(
     ("yaml_text", "expected_tail"),
     [
@@ -320,7 +330,7 @@ OLD_KEY_LINE = '      old_key: "oldkey"\n'
     ],
 )
 def test_previous_key_is_recorded_as_old_key(yaml_text: str, expected_tail: str) -> None:
-    out = rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    out = _rotate(yaml_text, NEW, record_previous=True)
     assert out.count(f'key: "{NEW}"') == 1
     assert out.endswith(expected_tail)
     assert "# dropped" not in out
@@ -330,7 +340,7 @@ def test_old_key_preserves_crlf() -> None:
     yaml_text = API.replace("\n", "\r\n") + (
         "ota:\r\n  - platform: esphome\r\n    encryption:\r\n      key: oldkey\r\n"
     )
-    out = rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    out = _rotate(yaml_text, NEW, record_previous=True)
     assert out.endswith('    encryption:\r\n      old_key: "oldkey"\r\n')
     assert "\n" not in out.replace("\r\n", "")
 
@@ -362,8 +372,8 @@ def test_old_key_preserves_crlf() -> None:
     ],
 )
 def test_existing_old_key(old_key_line: str, replace: bool, expected_tail: str) -> None:
-    out = rewrite_api_encryption_key(
-        BARE_ENCRYPTION + old_key_line, NEW, keep_previous_key=True, replace_old_key=replace
+    out = _rotate(
+        BARE_ENCRYPTION + old_key_line, NEW, record_previous=True, replace_old_key=replace
     )
     assert out.count(f'key: "{NEW}"') == 1
     assert out.endswith(expected_tail)
@@ -374,7 +384,7 @@ def test_old_key_equal_to_new_key_is_dropped(keep: bool) -> None:
     yaml_text = (
         API.replace("oldkey", NEW) + BARE_OTA + f'      key: "{NEW}"\n      old_key: "{NEW}"\n'
     )
-    out = upsert_api_encryption_key(yaml_text, NEW, keep_previous_key=keep)
+    out = _rotate(yaml_text, NEW, record_previous=keep)
     assert out.count(NEW) == 1
     assert out.endswith("    encryption:\n")
 
@@ -383,14 +393,14 @@ def test_differing_old_key_is_kept_when_api_already_matches() -> None:
     yaml_text = (
         API.replace("oldkey", NEW) + BARE_OTA + '      key: "stale"\n      old_key: "older"\n'
     )
-    out = upsert_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    out = _rotate(yaml_text, NEW, record_previous=True)
     assert out.endswith('    encryption:\n      old_key: "older"\n')
 
 
 @pytest.mark.parametrize("empty", ["", '""'], ids=["bare", "quoted"])
 def test_old_key_not_written_for_empty_previous_key(empty: str) -> None:
     api = f"api:\n  encryption:\n    key: {empty}\n".replace("key: \n", "key:\n")
-    out = upsert_api_encryption_key(api + BARE_OTA, NEW, keep_previous_key=True)
+    out = _rotate(api + BARE_OTA, NEW, record_previous=True)
     assert "old_key" not in out
     assert out.endswith("    encryption:\n")
 
@@ -405,7 +415,7 @@ def test_old_key_not_written_for_empty_previous_key(empty: str) -> None:
     ],
 )
 def test_old_key_not_written_without_an_encryption_block(yaml_text: str) -> None:
-    out = rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    out = _rotate(yaml_text, NEW, record_previous=True)
     assert out == rewrite_api_encryption_key(yaml_text, NEW)
     assert "old_key" not in out
 
@@ -419,22 +429,22 @@ def test_default_neither_records_nor_drops_old_key(rewrite) -> None:
     assert "oldkey" not in out
 
 
-def test_indirected_api_key_ignores_keep_previous_key() -> None:
+def test_indirected_api_key_ignores_record_previous() -> None:
     yaml_text = LIST_FORM.replace('key: "oldkey"\n', "key: !secret api_key\n", 1)
-    assert rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True) == yaml_text
+    assert _rotate(yaml_text, NEW, record_previous=True) == yaml_text
 
 
-def test_indirected_ota_key_still_raises_with_keep_previous_key() -> None:
+def test_indirected_ota_key_still_raises_with_record_previous() -> None:
     yaml_text = API + BARE_OTA + "      key: !secret ota_key\n"
     with pytest.raises(YamlUpsertNotSupportedError, match="OTA encryption key"):
-        rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+        _rotate(yaml_text, NEW, record_previous=True)
 
 
 def test_multi_line_old_key_refuses_the_replace() -> None:
     yaml_text = BARE_ENCRYPTION + "      old_key: >-\n        older\n"
     with pytest.raises(YamlUpsertNotSupportedError, match="old_key spans more than one line"):
-        rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True, replace_old_key=True)
-    assert rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True).endswith(
+        _rotate(yaml_text, NEW, record_previous=True, replace_old_key=True)
+    assert _rotate(yaml_text, NEW, record_previous=True).endswith(
         "      old_key: >-\n        older\n"
     )
 
@@ -542,3 +552,61 @@ def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
 )
 def test_yaml_declares_ota_old_key(yaml_text: str, expected: bool) -> None:
     assert yaml_declares_ota_old_key(yaml_text) is expected
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "record", "replace", "expected"),
+    [
+        pytest.param(BARE_ENCRYPTION, True, False, OldKeyOutcome.RECORDED, id="recorded"),
+        pytest.param(BARE_ENCRYPTION, False, False, OldKeyOutcome.NOT_RECORDED, id="not-recorded"),
+        pytest.param(
+            API + "ota:\n  - platform: esphome\n",
+            True,
+            False,
+            OldKeyOutcome.NO_ENCRYPTION_BLOCK,
+            id="no-block",
+        ),
+        pytest.param(
+            BARE_ENCRYPTION + '      old_key: "older"\n',
+            True,
+            False,
+            OldKeyOutcome.KEPT_EXISTING,
+            id="kept-existing",
+        ),
+        pytest.param(
+            BARE_ENCRYPTION + '      old_key: "older"\n',
+            True,
+            True,
+            OldKeyOutcome.RECORDED,
+            id="replaced",
+        ),
+        pytest.param(
+            BARE_ENCRYPTION + "      old_key: !secret previous\n",
+            True,
+            True,
+            OldKeyOutcome.KEPT_INDIRECTED,
+            id="kept-indirected",
+        ),
+        pytest.param(
+            API.replace("oldkey", NEW) + BARE_OTA,
+            True,
+            False,
+            OldKeyOutcome.NOT_NEEDED,
+            id="same-key",
+        ),
+        pytest.param(
+            LIST_FORM.replace('key: "oldkey"\n', "key: !secret api_key\n", 1),
+            True,
+            False,
+            OldKeyOutcome.NOT_NEEDED,
+            id="indirected-api-key",
+        ),
+    ],
+)
+def test_rotate_api_encryption_key_outcome(
+    yaml_text: str, record: bool, replace: bool, expected: OldKeyOutcome
+) -> None:
+    _, outcome = rotate_api_encryption_key(
+        yaml_text, NEW, record_previous=record, replace_old_key=replace
+    )
+    assert outcome is expected

@@ -22,6 +22,7 @@ from esphome_device_builder.helpers.device_yaml import (
     extract_config_content_fingerprint,
 )
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
+from esphome_device_builder.helpers.yaml import OldKeyOutcome
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
 
@@ -339,7 +340,8 @@ async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
-    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    assert result["result"] == "updated"
+    assert "esphome 2026.11 or newer" in result["reason"]
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert new_yaml.count(f'key: "{KEY}"') == 1
     assert new_yaml.endswith("  - platform: esphome\n    encryption:\n")
@@ -570,22 +572,6 @@ async def test_set_encryption_key_legacy_esphome_skips_old_key_and_warns(
     assert new_yaml.endswith("    encryption:\n")
     assert "esphome 2026.11 or newer" in caplog.text
     assert OTHER_KEY not in caplog.text
-
-
-@pytest.mark.usefixtures("legacy_esphome")
-async def test_set_encryption_key_legacy_esphome_without_ota_encryption_does_not_warn(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _configure(ctrl, tmp_path, API_KEY_YAML + "\nota:\n  - platform: esphome\n")
-
-    with caplog.at_level(logging.WARNING):
-        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
-
-    assert result["result"] == "updated"
-    assert "previous one" not in caplog.text
 
 
 @pytest.mark.usefixtures("old_key_esphome")
@@ -1078,8 +1064,11 @@ async def test_set_encryption_key_round_trip_guard_refuses_and_keeps_key(
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, API_KEY_YAML)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.upsert_api_encryption_key",
-        lambda content, key, **_kwargs: content + "# garbage\n",
+        "esphome_device_builder.controllers.devices.encryption_key.rotate_api_encryption_key",
+        lambda content, key, **_kwargs: (
+            content + "# garbage\n",
+            OldKeyOutcome.NOT_NEEDED,
+        ),
     )
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)

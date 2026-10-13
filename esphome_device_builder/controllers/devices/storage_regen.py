@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
+from ...helpers.atomic_io import read_text_with_stat
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import extract_config_content_fingerprint
@@ -196,7 +197,7 @@ def stamp_failure(controller: DevicesController, configuration: str, mtime: floa
 
 
 async def finalize_success(
-    controller: DevicesController, configuration: str, fingerprint: str = ""
+    controller: DevicesController, configuration: str, fingerprint: str
 ) -> None:
     """
     Read ``config_hash`` from ``build_info.json`` and clear the failure stamp.
@@ -288,7 +289,7 @@ def _fire_retry(controller: DevicesController, configuration: str) -> None:
 def _content_fingerprint(config_path: Path) -> str:
     """Fingerprint of the YAML at *config_path*; empty when it can't be read."""
     try:
-        return extract_config_content_fingerprint(config_path.read_text(encoding="utf-8"))
+        return extract_config_content_fingerprint(read_text_with_stat(config_path)[1])
     except (OSError, UnicodeDecodeError):
         _LOGGER.debug(
             "Storage regenerate for %s: fingerprint read failed", config_path, exc_info=True

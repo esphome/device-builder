@@ -32,6 +32,16 @@ def read_ota_encryption_old_key(yaml_text: str) -> str | None:
     return _read_encryption_scalar(yaml_text, _OLD_KEY_PATH)
 
 
+def read_ota_encryption_keys(yaml_text: str) -> tuple[str | None, str | None]:
+    """Raw ``(key, old_key)`` of the esphome OTA item's ``encryption:`` block from one walk."""
+    lines = yaml_text.splitlines(keepends=True)
+    block = _locate_encryption_block(lines)
+    if block is None:
+        return None, None
+    text = "".join(lines[block[0] : block[1]])
+    return read_yaml_scalar(text, _KEY_PATH), read_yaml_scalar(text, _OLD_KEY_PATH)
+
+
 def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | None]) -> str:
     """Rewrite the esphome OTA item's ``encryption: key:`` scalar through *transform*."""
     lines = yaml_text.splitlines(keepends=True)
@@ -45,17 +55,22 @@ def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | 
 
 def set_ota_encryption_old_key(yaml_text: str, old_key: str) -> str:
     """Write ``old_key:`` under the item's ``encryption:``, replacing any existing line."""
-    return _splice_encryption_child(yaml_text, "old_key", old_key)
+    return _splice_encryption_child(yaml_text, _OLD_KEY_PATH[-1], old_key)
 
 
 def drop_ota_encryption_key(yaml_text: str) -> str:
     """Drop the ``key:`` lines under the item's ``encryption:``; a multi-line value raises."""
-    return _splice_encryption_child(yaml_text, "key", None)
+    return _splice_encryption_child(yaml_text, _KEY_PATH[-1], None)
 
 
 def drop_ota_encryption_old_key(yaml_text: str) -> str:
     """Drop the ``old_key:`` lines under the item's ``encryption:``; a multi-line value raises."""
-    return _splice_encryption_child(yaml_text, "old_key", None)
+    return _splice_encryption_child(yaml_text, _OLD_KEY_PATH[-1], None)
+
+
+def _has_encryption_block(yaml_text: str) -> bool:
+    """Whether the esphome OTA item has an ``encryption:`` block the line walker can edit."""
+    return _locate_encryption_block(yaml_text.splitlines(keepends=True)) is not None
 
 
 def _read_encryption_scalar(yaml_text: str, path: tuple[str, str]) -> str | None:

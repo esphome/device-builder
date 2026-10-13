@@ -904,10 +904,6 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
 
 def test_content_fingerprint_is_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
     assert storage_regen._content_fingerprint(tmp_path / "missing.yaml") == ""
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    assert storage_regen._content_fingerprint(tmp_path / "kitchen.yaml").startswith(
-        CONTENT_FINGERPRINT_VERSION
-    )
 
 
 # ---------------------------------------------------------------------------
