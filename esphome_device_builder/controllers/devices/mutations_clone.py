@@ -183,9 +183,9 @@ async def clone_device(
 def _drop_source_old_key(yaml_text: str) -> str:
     """Drop the source's ``old_key`` (meaningless to a serial-flashed clone); unremovable raises."""
     dropped = drop_ota_encryption_old_key(yaml_text)
-    if "old_key" in dropped and yaml_declares_ota_old_key(dropped):
+    if "old_key" in dropped and yaml_declares_ota_old_key(dropped) is not False:
         raise YamlUpsertNotSupportedError(
-            "the OTA encryption old_key sits in a shape the line-based rewrite can't remove; "
-            "delete it from the source before cloning."
+            "the OTA encryption old_key sits in a shape the line-based rewrite can't remove "
+            "or verify; delete it from the source before cloning."
         )
     return dropped

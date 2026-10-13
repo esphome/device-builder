@@ -546,11 +546,11 @@ def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
             id="other-platform",
         ),
         pytest.param("ota: !include common/ota.yaml\n", False, id="include-header"),
-        pytest.param("ota: [\n", False, id="unparsable"),
+        pytest.param("ota: [\n", None, id="unparsable"),
         pytest.param(API, False, id="no-ota"),
     ],
 )
-def test_yaml_declares_ota_old_key(yaml_text: str, expected: bool) -> None:
+def test_yaml_declares_ota_old_key(yaml_text: str, expected: bool | None) -> None:
     assert yaml_declares_ota_old_key(yaml_text) is expected
 
 
