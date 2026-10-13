@@ -225,6 +225,17 @@ def test_secret_value_problem_names_the_secret_the_error_sits_on() -> None:
     )
 
 
+def test_secret_value_problem_unquotes_the_secret_name() -> None:
+    content = "wifi:\n  password: !secret 'wifi_password'\n"
+    result = {
+        "yaml_errors": [],
+        "validation_errors": [_pinned_to(content, "!secret 'wifi_password'", _WPA_TOO_SHORT)],
+    }
+    assert mutations_yaml._secret_value_problem(result, content) == (
+        "has an invalid wifi_password: WPA password must be at least 8 characters long"
+    )
+
+
 def test_secret_value_problem_summarises_several_secrets() -> None:
     result = {
         "yaml_errors": [],
@@ -340,4 +351,32 @@ async def test_secret_value_error_refuses_as_invalid_args_even_for_generator_out
     assert excinfo.value.message == (
         "Can't create: secrets.yaml has an invalid wifi_password: WPA password must be "
         "at least 8 characters long. Fix it on the Secrets page and try again."
+    )
+
+
+async def test_secret_value_error_in_user_yaml_keeps_the_editor_refusal() -> None:
+    """A ``!secret`` the user placed is theirs to fix in the editor, with the caller's tail."""
+    editor = MagicMock()
+    editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                _pinned_to(_STUB_WITH_SECRETS, "!secret wifi_password", _WPA_TOO_SHORT)
+            ],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await mutations_yaml.validate_rewritten_yaml_or_raise(
+            editor,
+            "kitchen.yaml",
+            _STUB_WITH_SECRETS,
+            action="rename",
+            failure_tail=". Fix the config and retry the rename.",
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.message == (
+        "Can't rename — config doesn't validate: WPA password must be at least 8 "
+        "characters long. Fix the config and retry the rename."
     )

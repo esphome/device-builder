@@ -180,8 +180,9 @@ async def validate_rewritten_yaml_or_raise(
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
     sentence. An error marked inside *secrets_path* (the config dir's
-    ``secrets.yaml``), or pinned to a ``!secret`` value of *content*,
-    refuses as ``INVALID_ARGS`` naming that file.
+    ``secrets.yaml``), or, for generator output (``INTERNAL_ERROR``), one
+    pinned to a ``!secret`` value of *content*, refuses as ``INVALID_ARGS``
+    naming that file.
     """
     if editor is None:
         return ValidationVerdict()
@@ -214,13 +215,17 @@ async def validate_rewritten_yaml_or_raise(
     )
     if warning is not None:
         return ValidationVerdict(warning=warning)
+    secrets_problem = _secrets_file_problem(errors, secrets_path)
+    if secrets_problem is None and on_failure is ErrorCode.INTERNAL_ERROR:
+        # Generator output only: the dashboard placed the ``!secret`` ref, so
+        # the rejected value is the user's.
+        secrets_problem = _secret_value_problem(result, content)
     raise _validation_failure(
         errors,
         action=action,
         on_failure=on_failure,
         failure_tail=failure_tail,
-        secrets_path=secrets_path,
-        secret_value_problem=_secret_value_problem(result, content),
+        secrets_problem=secrets_problem,
     )
 
 
@@ -230,21 +235,19 @@ def _validation_failure(
     action: str,
     on_failure: ErrorCode,
     failure_tail: str | None,
-    secrets_path: Path | None,
-    secret_value_problem: str | None = None,
+    secrets_problem: str | None,
 ) -> CommandError:
     """Build the refusal ``CommandError`` for a failed validation."""
-    problem = _secrets_file_problem(errors, secrets_path)
-    if problem is None:
-        problem = secret_value_problem
-    if problem is not None:
+    if secrets_problem is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         if on_failure is ErrorCode.INTERNAL_ERROR:
             # Action only: the clause names keys from the user's secrets file.
             _LOGGER.warning(
                 "Refusing %s: errors sit in the user's secrets.yaml, not the generator", action
             )
-        return CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
+        return CommandError(
+            ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, secrets_problem)
+        )
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
             ". Please report this with a redacted snippet of just the "
@@ -347,7 +350,7 @@ def _secret_key_at(range_: dict | None, lines: list[str]) -> str | None:
         return None
     token = lines[line][range_.get("start_col", 0) : range_.get("end_col")]
     match = _SECRET_TOKEN.fullmatch(token.strip())
-    return match.group(1) if match else None
+    return match.group(1).strip("\"'") if match else None
 
 
 def _entry_confined_to_packages(
