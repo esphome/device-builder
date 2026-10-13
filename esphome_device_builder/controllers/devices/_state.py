@@ -43,14 +43,11 @@ class RegenState:
     armed backoff retries. Failure history (attempt count, stamp) lives
     in the metadata store; ``unreadable_strikes`` counts stat failures
     the stamp can't key (no mtime to record against).
-    ``spawned_fingerprints`` holds the content fingerprint each in-flight
-    run read before spawning, stamped beside the hash on success.
     """
 
     pending: set[str] = field(default_factory=set)
     retry_timers: dict[str, asyncio.TimerHandle] = field(default_factory=dict)
     unreadable_strikes: dict[str, int] = field(default_factory=dict)
-    spawned_fingerprints: dict[str, str] = field(default_factory=dict)
 
     def arm_retry(self, configuration: str, handle: asyncio.TimerHandle) -> None:
         """Install *handle* as the pending retry, cancelling any prior one."""

@@ -95,7 +95,7 @@ def upsert_api_encryption_key(
         if existing is not None
         else _insert_api_encryption_key(yaml_text, new_key)
     )
-    return _follow_ota_key(inserted, new_key, None, replace_old_key=False)
+    return _follow_ota_key(inserted, new_key)
 
 
 def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
@@ -144,7 +144,7 @@ def _literal_swap(new_key: str) -> Callable[[str], str | None]:
 
 
 def _follow_ota_key(
-    yaml_text: str, new_key: str, previous_key: str | None, *, replace_old_key: bool
+    yaml_text: str, new_key: str, previous_key: str | None = None, *, replace_old_key: bool = False
 ) -> str:
     """Reconcile the OTA block with a literal api key of *new_key*; an indirected OTA key raises."""
     if not _literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), new_key):

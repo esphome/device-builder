@@ -109,17 +109,15 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                 # A restart mid-window resumes the remainder, not an early spawn.
                 _arm_retry(controller, configuration, remaining)
                 return
-        # Read before the spawn: an edit landing mid-run must not be
-        # stamped as the content the hash was generated from.
-        regen.spawned_fingerprints[configuration] = await run_in_executor(
-            _content_fingerprint, config_path
-        )
         # Delegates so tests patching the class intercept.
         async with controller._regenerate_lock:
+            # Read right before the spawn: an edit landing mid-run must not
+            # be stamped as the content the hash was generated from.
+            fingerprint = await run_in_executor(_content_fingerprint, config_path)
             failure = await controller._spawn_only_generate(configuration)
         if failure is None:
             regen.cancel_retry(configuration)
-            await controller._finalize_regen_success(configuration)
+            await controller._finalize_regen_success(configuration, fingerprint)
             await controller._scanner.reload(configuration)
             return
         # Stamp against the pre-spawn mtime: an edit landing mid-run must
@@ -138,7 +136,6 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         _arm_ttl_recheck(controller, configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
-        controller.state.regen.spawned_fingerprints.pop(configuration, None)
 
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> str | None:
@@ -198,9 +195,13 @@ def stamp_failure(controller: DevicesController, configuration: str, mtime: floa
     return attempts
 
 
-async def finalize_success(controller: DevicesController, configuration: str) -> None:
+async def finalize_success(
+    controller: DevicesController, configuration: str, fingerprint: str = ""
+) -> None:
     """
     Read ``config_hash`` from ``build_info.json`` and clear the failure stamp.
+
+    *fingerprint* is the content the regen read; it is stamped beside the hash.
 
     ``read_build_info_hash`` is blocking — runs on the
     executor; the store merge afterwards is in-RAM with a
@@ -215,11 +216,8 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     }
     if new_hash:
         fields["expected_config_hash"] = new_hash
-        # Stamped as a pair: the hash the regen produced for the content it read.
         fields["regen_config_hash"] = new_hash
-        fields["regen_content_fingerprint"] = controller.state.regen.spawned_fingerprints.pop(
-            configuration, ""
-        )
+        fields["regen_content_fingerprint"] = fingerprint
     controller._metadata_store.update(configuration, **fields)
     if not new_hash:
         _LOGGER.warning(

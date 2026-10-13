@@ -132,7 +132,7 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     )
     persist_calls: list[str] = []
 
-    async def _fake_finalize(_self: Any, configuration: str) -> None:
+    async def _fake_finalize(_self: Any, configuration: str, fingerprint: str = "") -> None:
         persist_calls.append(configuration)
 
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", _fake_finalize)
@@ -902,7 +902,6 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
     assert len(spawn_calls) == 1
 
 
-# ---------------------------------------------------------------------------
 def test_content_fingerprint_is_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
     assert storage_regen._content_fingerprint(tmp_path / "missing.yaml") == ""
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
@@ -911,6 +910,7 @@ def test_content_fingerprint_is_empty_when_the_yaml_cannot_be_read(tmp_path: Pat
     )
 
 
+# ---------------------------------------------------------------------------
 # Real ``_finalize_regen_success`` — covers the in-executor closure that
 # reads ``build_info.json`` and writes the sidecar in one transaction.
 # ---------------------------------------------------------------------------
@@ -983,7 +983,6 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     assert md.get("regen_content_fingerprint") == extract_config_content_fingerprint(
         (controller._db.settings.rel_path("kitchen.yaml")).read_text(encoding="utf-8")
     )
-    assert not controller.state.regen.spawned_fingerprints
     assert "regen_failed_mtime" not in md
     assert "regen_failed_at" not in md
 

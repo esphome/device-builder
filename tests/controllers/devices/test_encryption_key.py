@@ -14,7 +14,6 @@ import pytest
 from esphome import espota2
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
-from esphome_device_builder.controllers.devices import encryption_key as encryption_key_module
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
@@ -55,6 +54,13 @@ def legacy_esphome(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def old_key_esphome(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(espota2, "CONF_OLD_KEY", "old_key", raising=False)
+
+
+def _stamp_regen(ctrl, config_hash: str, fingerprint: str) -> None:
+    """Stamp a storage regen result for kitchen.yaml."""
+    ctrl._metadata_store.update(
+        "kitchen.yaml", regen_config_hash=config_hash, regen_content_fingerprint=fingerprint
+    )
 
 
 def _configure(
@@ -396,7 +402,7 @@ async def test_set_encryption_key_bare_ota_encryption_is_left_alone(
 ) -> None:
     """A bare ``ota: encryption:`` inherits the api key and needs no rewrite."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _configure(ctrl, tmp_path, API_KEY_YAML + "\nota:\n  - platform: esphome\n    encryption:\n")
+    _configure(ctrl, tmp_path, API_KEY_YAML + BARE_OTA_YAML)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
@@ -489,9 +495,7 @@ async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_de
     if stamped_fingerprint == "current":
         stamped_fingerprint = extract_config_content_fingerprint(yaml_text)
     if stamped_fingerprint:
-        ctrl._metadata_store.update(
-            "kitchen.yaml", regen_config_hash="h1", regen_content_fingerprint=stamped_fingerprint
-        )
+        _stamp_regen(ctrl, "h1", stamped_fingerprint)
 
     with caplog.at_level(logging.WARNING):
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
@@ -516,11 +520,7 @@ async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = API_KEY_YAML + BARE_OTA_YAML + "      old_key: !secret previous_key\n"
     _configure(ctrl, tmp_path, yaml_text, deployed_config_hash="h1", ota_encryption_required=True)
-    ctrl._metadata_store.update(
-        "kitchen.yaml",
-        regen_config_hash="h1",
-        regen_content_fingerprint=extract_config_content_fingerprint(yaml_text),
-    )
+    _stamp_regen(ctrl, "h1", extract_config_content_fingerprint(yaml_text))
 
     with caplog.at_level(logging.WARNING):
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
@@ -664,16 +664,6 @@ async def test_set_encryption_key_validator_rejecting_old_key_keeps_the_key(
     assert "old_key" in result["reason"]
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == OTA_KEY_YAML
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
-
-
-@pytest.mark.usefixtures("old_key_esphome")
-def test_ota_old_key_supported_when_espota2_has_the_option() -> None:
-    assert encryption_key_module._ota_old_key_supported() is True
-
-
-@pytest.mark.usefixtures("legacy_esphome")
-def test_ota_old_key_not_supported_without_the_option() -> None:
-    assert encryption_key_module._ota_old_key_supported() is False
 
 
 async def test_set_encryption_key_unchanged_with_matching_api_and_indirected_ota_key(

@@ -5,9 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from .inline import _instance_bounds, _locate_handler_range
+from .inline import _instance_bounds, _key_block_frame, _locate_handler_range
 from .scalar import (
-    ESPHOME_YAML_INDENT,
     YamlUpsertNotSupportedError,
     _quote,
     _split_value_and_comment,
@@ -79,7 +78,7 @@ def _splice_encryption_child(yaml_text: str, child: str, value: str | None) -> s
     start, end = block
     kept = _drop_encryption_child(lines, start, end, child)
     if value is not None:
-        indent = _encryption_child_indent(lines[start], kept)
+        indent = _key_block_frame(lines, start, end, leading_ws(lines[start])).child_indent
         kept.append(f"{indent}{child}: {_quote(value)}{nl}")
     return "".join([*lines[: start + 1], *kept, *lines[end:]])
 
@@ -99,14 +98,6 @@ def _drop_encryption_child(lines: list[str], start: int, end: int, child: str) -
                 "rewrite can't safely drop it."
             )
     return kept
-
-
-def _encryption_child_indent(header: str, body: list[str]) -> str:
-    """Indent of the block's first real child, else one level under *header*."""
-    for line in body:
-        if line.strip() and not line.lstrip().startswith("#"):
-            return leading_ws(line)
-    return leading_ws(header) + ESPHOME_YAML_INDENT
 
 
 def _continues_on_next_line(lines: list[str], key_idx: int, end: int) -> bool:
