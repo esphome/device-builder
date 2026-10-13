@@ -15,7 +15,12 @@ from ...helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
-from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
+from ...helpers.secrets_state import (
+    WIFI_PASSWORD_SECRET_REF,
+    WIFI_SSID_SECRET_REF,
+    secrets_problem,
+    secrets_unparsable_message,
+)
 from ...helpers.text import summarise
 from ...helpers.yaml import generate_api_encryption_key
 from ...helpers.yaml.marks import marked_paths, trim_marks
@@ -31,6 +36,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _INHERIT_ERROR_MARK = "encryption key to inherit"
 _SECRET_TOKEN = re.compile(r"!secret\s+(\S+)")
+# The only refs generated YAML emits; any other name is the generator's bug.
+_GENERATED_SECRET_NAMES = frozenset(
+    ref.removeprefix("!secret ") for ref in (WIFI_SSID_SECRET_REF, WIFI_PASSWORD_SECRET_REF)
+)
 
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
@@ -333,9 +342,11 @@ def _secret_value_problem(result: dict, content: str) -> str | None:
     lines = content.splitlines()
     parts: list[str] = []
     for entry in entries:
-        if (key := _secret_key_at(entry.get("range"), lines)) is None:
+        key = _secret_key_at(entry.get("range"), lines)
+        message = str(entry.get("message", "")).removesuffix(".")
+        if key not in _GENERATED_SECRET_NAMES or not message:
             return None
-        parts.append(f"{key}: {str(entry.get('message', '')).removesuffix('.')}")
+        parts.append(f"{key}: {message}")
     if len(parts) == 1:
         return f"has an invalid {parts[0]}"
     return f"has invalid values: {summarise(parts)}"
@@ -345,10 +356,12 @@ def _secret_key_at(range_: dict | None, lines: list[str]) -> str | None:
     """Return the secret name when *range_* covers exactly a ``!secret <name>`` token of *lines*."""
     if not range_ or range_.get("document", "<file>") != "<file>":
         return None
-    line = range_.get("start_line")
-    if not isinstance(line, int) or line != range_.get("end_line") or not 0 <= line < len(lines):
+    line, start, end = (range_.get(k) for k in ("start_line", "start_col", "end_col"))
+    if not (isinstance(line, int) and isinstance(start, int) and isinstance(end, int)):
         return None
-    token = lines[line][range_.get("start_col", 0) : range_.get("end_col")]
+    if line != range_.get("end_line") or not 0 <= line < len(lines):
+        return None
+    token = lines[line][start:end]
     match = _SECRET_TOKEN.fullmatch(token.strip())
     return match.group(1).strip("\"'") if match else None
 

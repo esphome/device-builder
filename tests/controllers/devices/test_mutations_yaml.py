@@ -288,6 +288,38 @@ def test_secret_value_problem_summarises_several_secrets() -> None:
                 )
             ],
         },
+        # A secret the generator never emits is the generator's bug, not the user's.
+        {
+            "yaml_errors": [],
+            "validation_errors": [
+                _pinned_to(
+                    "api:\n  encryption:\n    key: !secret api_key\n",
+                    "!secret api_key",
+                    "Invalid key format",
+                )
+            ],
+        },
+        # An empty message has nothing to attribute.
+        {
+            "yaml_errors": [],
+            "validation_errors": [_pinned_to(_STUB_WITH_SECRETS, "!secret wifi_password", "")],
+        },
+        # Column bounds that aren't ints.
+        {
+            "yaml_errors": [],
+            "validation_errors": [
+                {
+                    "range": {
+                        "document": "<file>",
+                        "start_line": 5,
+                        "start_col": None,
+                        "end_line": 5,
+                        "end_col": None,
+                    },
+                    "message": _WPA_TOO_SHORT,
+                }
+            ],
+        },
         # A multi-line range is a mapping, not a scalar secret.
         {
             "yaml_errors": [],
