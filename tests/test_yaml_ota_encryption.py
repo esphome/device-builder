@@ -8,6 +8,7 @@ from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
     api_key_settled,
     drop_ota_encryption_old_key,
+    ota_block_mentions_old_key,
     read_ota_encryption_key,
     read_ota_encryption_old_key,
     rewrite_api_encryption_key,
@@ -500,3 +501,25 @@ def test_read_ota_encryption_old_key(yaml_text: str, expected: str | None) -> No
 def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
     yaml_text = API.replace("oldkey", NEW) + BARE_OTA + ota_tail
     assert api_key_settled(yaml_text, NEW) is expected
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(BARE_ENCRYPTION + OLD_KEY_LINE, True, id="block-child"),
+        pytest.param(
+            "ota:\n  - platform: esphome\n    encryption: {old_key: x}\n", True, id="inline"
+        ),
+        pytest.param(
+            "ota: {platform: esphome, encryption: {old_key: x}}\n", True, id="flow-header"
+        ),
+        pytest.param(BARE_ENCRYPTION + "      # old_key: removed\n", False, id="comment"),
+        pytest.param(
+            BARE_ENCRYPTION + "lambda:\n  - lambda: 'old_key: text'\n", False, id="elsewhere"
+        ),
+        pytest.param("ota: !include common/ota.yaml\n", False, id="include-header"),
+        pytest.param(API, False, id="no-ota"),
+    ],
+)
+def test_ota_block_mentions_old_key(yaml_text: str, expected: bool) -> None:
+    assert ota_block_mentions_old_key(yaml_text) is expected

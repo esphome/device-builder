@@ -20,6 +20,7 @@ from .top_block import _locate_top_block
 
 _KEY_PATH = ("encryption", "key")
 _OLD_KEY_PATH = ("encryption", "old_key")
+_OLD_KEY_RE = re.compile(r"\bold_key\s*:")
 
 
 def read_ota_encryption_key(yaml_text: str) -> str | None:
@@ -56,6 +57,22 @@ def drop_ota_encryption_key(yaml_text: str) -> str:
 def drop_ota_encryption_old_key(yaml_text: str) -> str:
     """Drop the ``old_key:`` lines under the item's ``encryption:``; a multi-line value raises."""
     return _splice_encryption_child(yaml_text, "old_key", None)
+
+
+def ota_block_mentions_old_key(yaml_text: str) -> bool:
+    """Whether the top-level ``ota:`` block (or its inline header) still spells ``old_key:``."""
+    lines = yaml_text.splitlines(keepends=True)
+    try:
+        located = _locate_top_block(lines, "ota")
+    except YamlUpsertNotSupportedError:
+        span: range | list[int] = [idx for idx, line in enumerate(lines) if line.startswith("ota:")]
+    else:
+        if located is None:
+            return False
+        span = range(located[0], located[1])
+    return any(
+        _OLD_KEY_RE.search(_split_value_and_comment(lines[idx].rstrip("\n\r"))[0]) for idx in span
+    )
 
 
 def _read_encryption_scalar(yaml_text: str, path: tuple[str, str]) -> str | None:

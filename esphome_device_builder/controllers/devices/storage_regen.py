@@ -290,4 +290,7 @@ def _content_fingerprint(config_path: Path) -> str:
     try:
         return extract_config_content_fingerprint(config_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError):
+        _LOGGER.debug(
+            "Storage regenerate for %s: fingerprint read failed", config_path, exc_info=True
+        )
         return ""

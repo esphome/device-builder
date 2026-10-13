@@ -184,6 +184,22 @@ async def test_clone_device_drops_old_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_ignores_old_key_text_outside_the_ota_block(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML.replace(
+        "  - platform: esphome\n", "  - platform: esphome\n    encryption:  # old_key: gone\n"
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert "# old_key: gone" in (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_refuses_an_old_key_it_cannot_remove(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
