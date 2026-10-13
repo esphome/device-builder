@@ -479,6 +479,13 @@ def compute_has_pending_changes(
     return yaml_mtime is not None and yaml_mtime > bin_mtime
 
 
+def config_hash_in_sync(expected_config_hash: str, deployed_config_hash: str) -> bool:
+    """Report whether both hashes are known and equal: the device runs the YAML's last build."""
+    return bool(expected_config_hash and deployed_config_hash) and (
+        expected_config_hash == deployed_config_hash
+    )
+
+
 def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: str) -> bool:
     """Report whether the pending verdict is hash-driven: both hashes known and differing."""
     return bool(

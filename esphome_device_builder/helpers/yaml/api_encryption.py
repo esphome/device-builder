@@ -22,6 +22,7 @@ from .scalar import (
     _strip_yaml_quotes,
     is_indirected_scalar,
     is_plain_literal_scalar,
+    plain_literal_value,
     read_yaml_scalar,
     rewrite_yaml_scalar,
 )
@@ -62,7 +63,7 @@ def rewrite_api_encryption_key(
     previous = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH) if keep_previous_key else None
     rewritten = rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
     return _follow_ota_key(
-        rewritten, new_key, _previous_literal(previous), replace_old_key=replace_old_key
+        rewritten, new_key, plain_literal_value(previous), replace_old_key=replace_old_key
     )
 
 
@@ -94,7 +95,7 @@ def upsert_api_encryption_key(
         if existing is not None
         else _insert_api_encryption_key(yaml_text, new_key)
     )
-    return _follow_ota_key(inserted, new_key, None, replace_old_key=replace_old_key)
+    return _follow_ota_key(inserted, new_key, None, replace_old_key=False)
 
 
 def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
@@ -140,13 +141,6 @@ def _literal_swap(new_key: str) -> Callable[[str], str | None]:
         return None if is_indirected_scalar(raw) else rendered
 
     return _swap
-
-
-def _previous_literal(raw: str | None) -> str | None:
-    """Return the unquoted *raw* when it is a non-empty plain literal, else ``None``."""
-    if raw is None or not is_plain_literal_scalar(raw):
-        return None
-    return _strip_yaml_quotes(raw)
 
 
 def _follow_ota_key(

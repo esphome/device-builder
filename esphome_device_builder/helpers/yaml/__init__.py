@@ -69,9 +69,7 @@ from .inline import synthetic_instance_index as synthetic_instance_index
 from .inline import upsert_inline_handler as upsert_inline_handler
 from .inline import upsert_nested_handler as upsert_nested_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
-from .ota_encryption import OtaEncryptionBlock as OtaEncryptionBlock
 from .ota_encryption import drop_ota_encryption_old_key as drop_ota_encryption_old_key
-from .ota_encryption import ota_encryption_block_state as ota_encryption_block_state
 from .ota_encryption import read_ota_encryption_key as read_ota_encryption_key
 from .ota_encryption import read_ota_encryption_old_key as read_ota_encryption_old_key
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
@@ -87,6 +85,7 @@ from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
 from .scalar import is_indirected_scalar as is_indirected_scalar
 from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
 from .scalar import parse_config_boolean as parse_config_boolean
+from .scalar import plain_literal_value as plain_literal_value
 from .scalar import read_yaml_scalar as read_yaml_scalar
 from .scalar import rewrite_yaml_scalar as rewrite_yaml_scalar
 from .scan import child_block_end as child_block_end

@@ -395,3 +395,10 @@ def is_plain_literal_scalar(value: str) -> bool:
     """
     unquoted = _strip_yaml_quotes(value)
     return bool(unquoted) and not unquoted.startswith("!") and "$" not in unquoted
+
+
+def plain_literal_value(value: str | None) -> str | None:
+    """Return the unquoted *value* when it is a non-empty plain literal, else ``None``."""
+    if value is None or not is_plain_literal_scalar(value):
+        return None
+    return _strip_yaml_quotes(value)

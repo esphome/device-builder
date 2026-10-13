@@ -13,19 +13,15 @@ from esphome.const import __version__ as _installed_esphome_version
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config_async
-from ...helpers.device_yaml import config_has_top_level_block
+from ...helpers.device_yaml import config_has_top_level_block, config_hash_in_sync
 from ...helpers.mac_addresses import normalize_mac
-from ...helpers.version_compat import version_at_least
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
-    OtaEncryptionBlock,
     YamlUpsertNotSupportedError,
-    _strip_yaml_quotes,
     api_key_settled,
     component_block_present,
     is_indirected_scalar,
-    is_plain_literal_scalar,
-    ota_encryption_block_state,
+    plain_literal_value,
     read_ota_encryption_old_key,
     read_yaml_scalar,
     upsert_api_encryption_key,
@@ -39,14 +35,11 @@ if TYPE_CHECKING:
     from ...models import Device
     from ..config.settings import DashboardSettings
     from .controller import DevicesController
-    from .mutations_yaml import ValidationVerdict
 
 _LOGGER = logging.getLogger(__name__)
 
 _KEY_BYTES = 32
 _KEPT_SUFFIX = "; the key was kept for a later attempt"
-_OTA_OLD_KEY_SINCE = "2026.11.0b1"
-_ACTION = "update encryption key"
 
 
 class KeyHandoffResult(StrEnum):
@@ -158,7 +151,10 @@ async def _apply_to_device(
     keep_previous = _ota_old_key_supported()
     try:
         new_content = upsert_api_encryption_key(
-            content, key, keep_previous_key=keep_previous, replace_old_key=_runs_yaml(device)
+            content,
+            key,
+            keep_previous_key=keep_previous,
+            replace_old_key=_runs_yaml(controller, device),
         )
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
@@ -167,8 +163,8 @@ async def _apply_to_device(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
 
-    verdict, new_content, keep_previous = await _validate_with_old_key_fallback(
-        controller, configuration, content, new_content, key, keep_previous=keep_previous
+    verdict = await controller._validate_rewritten_yaml_or_raise(
+        configuration, new_content, action="update encryption key", tolerate_unavailable=True
     )
     if verdict.unavailable:
         reason = (
@@ -183,86 +179,38 @@ async def _apply_to_device(
         expected=content,
         message=f"Update API encryption key in {configuration}",
     )
-    if _replaces_literal_key(existing, key):
-        _warn_if_previous_key_unrecorded(
-            configuration, content, new_content, keep_previous=keep_previous
+    if device.ota_encryption_required and _previous_key_unrecorded(existing, new_content, key):
+        _LOGGER.warning(
+            "Replaced the api encryption key of %s without recording the previous one: %s",
+            configuration,
+            f"esphome {_installed_esphome_version} predates ota encryption old_key; the next "
+            "OTA install needs esphome 2026.11 or newer, or a serial flash"
+            if not keep_previous
+            else "the OTA block is not in this file (packages or !include); add the previous "
+            "key as old_key under 'ota: encryption:' there, or the next install needs a "
+            "serial flash",
         )
     return KeyHandoffResult.UPDATED, ""
 
 
-async def _validate_with_old_key_fallback(
-    controller: DevicesController,
-    configuration: str,
-    content: str,
-    new_content: str,
-    key: str,
-    *,
-    keep_previous: bool,
-) -> tuple[ValidationVerdict, str, bool]:
-    """Validate the rewrite; a rejection naming ``old_key`` falls back once to the plain rewrite."""
-    try:
-        verdict = await controller._validate_rewritten_yaml_or_raise(
-            configuration, new_content, action=_ACTION, tolerate_unavailable=True
-        )
-    except CommandError as err:
-        if not keep_previous or "old_key" not in err.message:
-            raise
-        # The version gate admits every 2026.11 dev build, including those
-        # that predate old_key.
-        new_content = upsert_api_encryption_key(content, key)
-        verdict = await controller._validate_rewritten_yaml_or_raise(
-            configuration, new_content, action=_ACTION, tolerate_unavailable=True
-        )
-        return verdict, new_content, False
-    return verdict, new_content, keep_previous
-
-
 def _ota_old_key_supported() -> bool:
     """Whether the installed esphome accepts ``ota: encryption: old_key:``."""
-    return version_at_least(_installed_esphome_version, _OTA_OLD_KEY_SINCE)
+    from esphome import espota2  # noqa: PLC0415
+
+    return hasattr(espota2, "CONF_OLD_KEY")
 
 
-def _runs_yaml(device: Device) -> bool:
-    """Whether the device reports the config hash of the YAML, so it runs the YAML's key."""
-    expected = device.expected_config_hash
-    return bool(expected) and device.runtime_state.deployed_config_hash == expected
-
-
-def _replaces_literal_key(existing: str | None, key: str) -> bool:
-    """Whether the write swaps a non-empty literal api key for *key*."""
-    return (
-        existing is not None
-        and is_plain_literal_scalar(existing)
-        and _strip_yaml_quotes(existing) != key
+def _runs_yaml(controller: DevicesController, device: Device) -> bool:
+    """Whether the device reports the YAML's config hash, with no regen of that hash pending."""
+    return device.configuration not in controller.state.regen.pending and config_hash_in_sync(
+        device.expected_config_hash, device.runtime_state.deployed_config_hash
     )
 
 
-def _warn_if_previous_key_unrecorded(
-    configuration: str, content: str, new_content: str, *, keep_previous: bool
-) -> None:
-    """Warn when the replaced api key was not kept as ``old_key`` and the device may require it."""
-    if read_ota_encryption_old_key(new_content) is not None:
-        return
-    state = ota_encryption_block_state(content)
-    if state is OtaEncryptionBlock.ABSENT:
-        return
-    if state is OtaEncryptionBlock.PRESENT and not keep_previous:
-        _LOGGER.warning(
-            "Replaced the api encryption key of %s without recording the previous one "
-            "(esphome %s predates ota encryption old_key); the next OTA install needs "
-            "esphome 2026.11 or newer, or a serial flash",
-            configuration,
-            _installed_esphome_version,
-        )
-        return
-    if state is OtaEncryptionBlock.UNKNOWN:
-        _LOGGER.warning(
-            "Replaced the api encryption key of %s without recording the previous one: the "
-            "OTA block is not readable in this file (packages or !include). If the device "
-            "requires OTA encryption, add the previous key as old_key under "
-            "'ota: encryption:' there, or the next install needs a serial flash",
-            configuration,
-        )
+def _previous_key_unrecorded(existing: str | None, new_content: str, key: str) -> bool:
+    """Whether a differing literal api key was replaced without landing as ``old_key``."""
+    previous = plain_literal_value(existing)
+    return previous not in (None, key) and read_ota_encryption_old_key(new_content) is None
 
 
 async def _resolved_config_has_api(

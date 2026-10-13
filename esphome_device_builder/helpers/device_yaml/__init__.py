@@ -31,6 +31,7 @@ from ._generation import (
 )
 from ._loading import (
     compute_has_pending_changes,
+    config_hash_in_sync,
     dotted_loaded_platforms,
     load_device_from_storage,
     load_device_yaml,
@@ -100,6 +101,7 @@ __all__ = [
     "build_mqtt_extract",
     "compute_has_pending_changes",
     "config_has_top_level_block",
+    "config_hash_in_sync",
     "configuration_filename",
     "configuration_stem",
     "content_fingerprint_is_current",

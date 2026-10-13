@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from enum import StrEnum
 
 from .inline import _instance_bounds, _locate_handler_range
 from .scalar import (
@@ -24,36 +23,14 @@ _KEY_PATH = ("encryption", "key")
 _OLD_KEY_PATH = ("encryption", "old_key")
 
 
-class OtaEncryptionBlock(StrEnum):
-    """Whether the esphome OTA item carries ``encryption:``; UNKNOWN when the file can't show it."""
-
-    PRESENT = "present"
-    ABSENT = "absent"
-    UNKNOWN = "unknown"
-
-
-def ota_encryption_block_state(yaml_text: str) -> OtaEncryptionBlock:
-    """Classify the esphome OTA item's ``encryption:`` block as read by the line walker."""
-    lines = yaml_text.splitlines(keepends=True)
-    try:
-        item = _locate_ota_esphome_item(lines)
-    except YamlUpsertNotSupportedError:
-        return OtaEncryptionBlock.UNKNOWN
-    if item is None:
-        return OtaEncryptionBlock.UNKNOWN
-    if _locate_handler_range(lines, item, "encryption") is None:
-        return OtaEncryptionBlock.ABSENT
-    return OtaEncryptionBlock.PRESENT
-
-
 def read_ota_encryption_key(yaml_text: str) -> str | None:
     """Raw ``encryption: key:`` of the esphome OTA item; ``None`` when absent or unreadable."""
-    lines = yaml_text.splitlines(keepends=True)
-    block = _locate_encryption_block(lines)
-    if block is None:
-        return None
-    start, end = block
-    return read_yaml_scalar("".join(lines[start:end]), _KEY_PATH)
+    return _read_encryption_scalar(yaml_text, _KEY_PATH)
+
+
+def read_ota_encryption_old_key(yaml_text: str) -> str | None:
+    """Raw ``encryption: old_key:`` of the esphome OTA item; ``None`` when absent or unreadable."""
+    return _read_encryption_scalar(yaml_text, _OLD_KEY_PATH)
 
 
 def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | None]) -> str:
@@ -67,48 +44,43 @@ def rewrite_ota_encryption_key(yaml_text: str, transform: Callable[[str], str | 
     return "".join([*lines[:start], rewritten, *lines[end:]])
 
 
-def read_ota_encryption_old_key(yaml_text: str) -> str | None:
-    """Raw ``encryption: old_key:`` of the esphome OTA item; ``None`` when absent or unreadable."""
+def set_ota_encryption_old_key(yaml_text: str, old_key: str) -> str:
+    """Write ``old_key:`` under the item's ``encryption:``, replacing any existing line."""
+    return _splice_encryption_child(yaml_text, "old_key", old_key)
+
+
+def drop_ota_encryption_key(yaml_text: str) -> str:
+    """Drop the ``key:`` lines under the item's ``encryption:``; a multi-line value raises."""
+    return _splice_encryption_child(yaml_text, "key", None)
+
+
+def drop_ota_encryption_old_key(yaml_text: str) -> str:
+    """Drop the ``old_key:`` lines under the item's ``encryption:``; a multi-line value raises."""
+    return _splice_encryption_child(yaml_text, "old_key", None)
+
+
+def _read_encryption_scalar(yaml_text: str, path: tuple[str, str]) -> str | None:
+    """Raw scalar at *path* inside the esphome OTA item's ``encryption:`` block."""
     lines = yaml_text.splitlines(keepends=True)
     block = _locate_encryption_block(lines)
     if block is None:
         return None
     start, end = block
-    return read_yaml_scalar("".join(lines[start:end]), _OLD_KEY_PATH)
+    return read_yaml_scalar("".join(lines[start:end]), path)
 
 
-def set_ota_encryption_old_key(yaml_text: str, old_key: str) -> str:
-    """Write ``old_key:`` under the item's ``encryption:``, replacing any existing line."""
-    text, nl = normalize_trailing_newline(yaml_text)
+def _splice_encryption_child(yaml_text: str, child: str, value: str | None) -> str:
+    """Drop the item's ``encryption: <child>:`` lines, appending ``child: value`` when given."""
+    text, nl = normalize_trailing_newline(yaml_text) if value is not None else (yaml_text, "")
     lines = text.splitlines(keepends=True)
     block = _locate_encryption_block(lines)
     if block is None:
         return yaml_text
     start, end = block
-    kept = _drop_encryption_child(lines, start, end, "old_key")
-    indent = _encryption_child_indent(lines[start], kept)
-    new_line = f"{indent}old_key: {_quote(old_key)}{nl}"
-    return "".join([*lines[: start + 1], *kept, new_line, *lines[end:]])
-
-
-def drop_ota_encryption_key(yaml_text: str) -> str:
-    """Drop the ``key:`` lines under the item's ``encryption:``; a multi-line value raises."""
-    return _drop_ota_encryption_child(yaml_text, "key")
-
-
-def drop_ota_encryption_old_key(yaml_text: str) -> str:
-    """Drop the ``old_key:`` lines under the item's ``encryption:``; a multi-line value raises."""
-    return _drop_ota_encryption_child(yaml_text, "old_key")
-
-
-def _drop_ota_encryption_child(yaml_text: str, child: str) -> str:
-    """Drop every ``<child>:`` line under the item's ``encryption:``."""
-    lines = yaml_text.splitlines(keepends=True)
-    block = _locate_encryption_block(lines)
-    if block is None:
-        return yaml_text
-    start, end = block
     kept = _drop_encryption_child(lines, start, end, child)
+    if value is not None:
+        indent = _encryption_child_indent(lines[start], kept)
+        kept.append(f"{indent}{child}: {_quote(value)}{nl}")
     return "".join([*lines[: start + 1], *kept, *lines[end:]])
 
 
