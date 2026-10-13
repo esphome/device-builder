@@ -16,6 +16,7 @@ from ...helpers.yaml import (
     ESPHOME_FRIENDLY_NAME_PATH,
     ESPHOME_NAME_PATH,
     YamlUpsertNotSupportedError,
+    drop_ota_encryption_old_key,
     generate_api_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
@@ -129,6 +130,8 @@ async def clone_device(
         new_content = rewrite_api_encryption_key(new_content, new_key)
         # An own OTA key is sibling-shared material too.
         new_content = rewrite_own_ota_encryption_key(new_content, new_key)
+        # The source's previous key means nothing to a serial-flashed clone.
+        new_content = drop_ota_encryption_old_key(new_content)
     except YamlUpsertNotSupportedError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
     keys_changed = new_content != before_keys

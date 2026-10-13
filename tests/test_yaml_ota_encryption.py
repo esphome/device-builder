@@ -6,13 +6,20 @@ import pytest
 
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
+    api_key_settled,
+    drop_ota_encryption_old_key,
+    ota_encryption_block_present,
     read_ota_encryption_key,
+    read_ota_encryption_old_key,
     rewrite_api_encryption_key,
     rewrite_own_ota_encryption_key,
     upsert_api_encryption_key,
 )
 from esphome_device_builder.helpers.yaml.api_encryption import _ota_key_competes
-from esphome_device_builder.helpers.yaml.ota_encryption import drop_ota_encryption_key
+from esphome_device_builder.helpers.yaml.ota_encryption import (
+    drop_ota_encryption_key,
+    set_ota_encryption_old_key,
+)
 
 NEW = "bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmV3a2V5bmU="
 API = 'api:\n  encryption:\n    key: "oldkey"\n\n'
@@ -273,3 +280,211 @@ def test_empty_api_key_next_to_a_differing_own_ota_key_is_refused() -> None:
 )
 def test_ota_key_competes(yaml_text: str, expected: bool) -> None:
     assert _ota_key_competes(yaml_text, "k") is expected
+
+
+BARE_OTA = BARE_ENCRYPTION.removeprefix(API)
+OLD_KEY_LINE = '      old_key: "oldkey"\n'
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected_tail"),
+    [
+        pytest.param(BARE_ENCRYPTION, "    encryption:\n" + OLD_KEY_LINE, id="bare-list"),
+        pytest.param(
+            LIST_FORM, "    encryption:\n" + OLD_KEY_LINE + "    port: 3232\n", id="keyed-list"
+        ),
+        pytest.param(MAPPING_FORM, '  encryption:\n    old_key: "oldkey"\n', id="mapping"),
+        pytest.param(
+            SECOND_ITEM, "    password: hunter2\n    encryption:\n" + OLD_KEY_LINE, id="second-item"
+        ),
+        pytest.param(
+            BARE_ENCRYPTION + "\n    port: 3232\n",
+            "    encryption:\n" + OLD_KEY_LINE + "\n    port: 3232\n",
+            id="blank-before-sibling",
+        ),
+        pytest.param(
+            BARE_ENCRYPTION + "      # note\n    port: 1\n",
+            "    encryption:\n      # note\n" + OLD_KEY_LINE + "    port: 1\n",
+            id="deeper-comment-child",
+        ),
+        pytest.param(
+            API + "ota:\n    - platform: esphome\n      encryption:\n          key: oldkey\n",
+            '      encryption:\n          old_key: "oldkey"\n',
+            id="four-space-indent",
+        ),
+        pytest.param(
+            BARE_ENCRYPTION.rstrip("\n"),
+            "    encryption:\n" + OLD_KEY_LINE,
+            id="no-trailing-newline",
+        ),
+    ],
+)
+def test_previous_key_is_recorded_as_old_key(yaml_text: str, expected_tail: str) -> None:
+    out = rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    assert out.count(f'key: "{NEW}"') == 1
+    assert out.endswith(expected_tail)
+    assert "# dropped" not in out
+
+
+def test_old_key_preserves_crlf() -> None:
+    yaml_text = API.replace("\n", "\r\n") + (
+        "ota:\r\n  - platform: esphome\r\n    encryption:\r\n      key: oldkey\r\n"
+    )
+    out = rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    assert out.endswith('    encryption:\r\n      old_key: "oldkey"\r\n')
+    assert "\n" not in out.replace("\r\n", "")
+
+
+def test_existing_old_key_is_replaced() -> None:
+    out = rewrite_api_encryption_key(
+        BARE_ENCRYPTION + '      old_key: "older"\n', NEW, keep_previous_key=True
+    )
+    assert out.endswith("    encryption:\n" + OLD_KEY_LINE)
+    assert "older" not in out
+
+
+@pytest.mark.parametrize("keep", [True, False], ids=["keep", "default"])
+def test_old_key_equal_to_new_key_is_dropped(keep: bool) -> None:
+    yaml_text = (
+        API.replace("oldkey", NEW) + BARE_OTA + f'      key: "{NEW}"\n      old_key: "{NEW}"\n'
+    )
+    out = upsert_api_encryption_key(yaml_text, NEW, keep_previous_key=keep)
+    assert out.count(NEW) == 1
+    assert out.endswith("    encryption:\n")
+
+
+def test_differing_old_key_is_kept_when_api_already_matches() -> None:
+    yaml_text = (
+        API.replace("oldkey", NEW) + BARE_OTA + '      key: "stale"\n      old_key: "older"\n'
+    )
+    out = upsert_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    assert out.endswith('    encryption:\n      old_key: "older"\n')
+
+
+@pytest.mark.parametrize("empty", ["", '""'], ids=["bare", "quoted"])
+def test_old_key_not_written_for_empty_previous_key(empty: str) -> None:
+    api = f"api:\n  encryption:\n    key: {empty}\n".replace("key: \n", "key:\n")
+    out = upsert_api_encryption_key(api + BARE_OTA, NEW, keep_previous_key=True)
+    assert "old_key" not in out
+    assert out.endswith("    encryption:\n")
+
+
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        pytest.param(API + "ota:\n  - platform: esphome\n    password: x\n", id="no-encryption"),
+        pytest.param(OTHER_PLATFORM_ONLY, id="other-platform"),
+        pytest.param(API + "ota: !include common/ota.yaml\n", id="include-header"),
+        pytest.param(API + "esphome:\n  name: x\n", id="no-ota"),
+    ],
+)
+def test_old_key_not_written_without_an_encryption_block(yaml_text: str) -> None:
+    out = rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+    assert out == rewrite_api_encryption_key(yaml_text, NEW)
+    assert "old_key" not in out
+
+
+@pytest.mark.parametrize(
+    "rewrite", [rewrite_api_encryption_key, upsert_api_encryption_key], ids=["rewrite", "upsert"]
+)
+def test_default_neither_records_nor_drops_old_key(rewrite) -> None:
+    out = rewrite(LIST_FORM.replace("    port", '      old_key: "older"\n    port'), NEW)
+    assert out.endswith('    encryption:\n      old_key: "older"\n    port: 3232\n')
+    assert "oldkey" not in out
+
+
+def test_indirected_api_key_ignores_keep_previous_key() -> None:
+    yaml_text = LIST_FORM.replace('key: "oldkey"\n', "key: !secret api_key\n", 1)
+    assert rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True) == yaml_text
+
+
+def test_indirected_ota_key_still_raises_with_keep_previous_key() -> None:
+    yaml_text = API + BARE_OTA + "      key: !secret ota_key\n"
+    with pytest.raises(YamlUpsertNotSupportedError, match="OTA encryption key"):
+        rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+
+
+def test_multi_line_old_key_refuses_the_rewrite() -> None:
+    yaml_text = BARE_ENCRYPTION + "      old_key: >-\n        older\n"
+    with pytest.raises(YamlUpsertNotSupportedError, match="old_key spans more than one line"):
+        rewrite_api_encryption_key(yaml_text, NEW, keep_previous_key=True)
+
+
+def test_drop_ota_encryption_key_leaves_old_key_alone() -> None:
+    out = drop_ota_encryption_key(LIST_FORM.replace("    port", '      old_key: "older"\n    port'))
+    assert out.endswith('    encryption:\n      old_key: "older"\n    port: 3232\n')
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(
+            "ota:\n  - platform: esphome\n", "ota:\n  - platform: esphome\n", id="no-block"
+        ),
+        pytest.param(
+            "ota:\r\n  - platform: esphome\r\n    encryption:\r\n"
+            "      old_key: a\r\n    port: 1\r\n",
+            "ota:\r\n  - platform: esphome\r\n    encryption:\r\n    port: 1\r\n",
+            id="crlf",
+        ),
+        pytest.param(
+            BARE_ENCRYPTION + "      old_key: a\n      old_key: b\n",
+            BARE_ENCRYPTION,
+            id="two-lines",
+        ),
+    ],
+)
+def test_drop_old_key(yaml_text: str, expected: str) -> None:
+    assert drop_ota_encryption_old_key(yaml_text) == expected
+
+
+def test_set_old_key_without_a_block_is_a_noop() -> None:
+    yaml_text = "ota:\n  - platform: esphome"
+    assert set_ota_encryption_old_key(yaml_text, "x") == yaml_text
+
+
+def test_read_ota_encryption_key_ignores_old_key() -> None:
+    assert read_ota_encryption_key(BARE_ENCRYPTION + '      old_key: "older"\n') is None
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(BARE_ENCRYPTION + '      old_key: "older"\n', '"older"', id="list"),
+        pytest.param(MAPPING_FORM + "    old_key: older\n", "older", id="mapping"),
+        pytest.param(LIST_FORM, None, id="absent"),
+        pytest.param(API, None, id="no-ota"),
+    ],
+)
+def test_read_ota_encryption_old_key(yaml_text: str, expected: str | None) -> None:
+    assert read_ota_encryption_old_key(yaml_text) == expected
+
+
+@pytest.mark.parametrize(
+    ("ota_tail", "expected"),
+    [
+        pytest.param('      old_key: "older"\n', True, id="old-key-differs"),
+        pytest.param(f'      old_key: "{NEW}"\n', False, id="old-key-equals"),
+        pytest.param('      key: "stale"\n      old_key: "older"\n', False, id="stale-key"),
+        pytest.param("", True, id="bare"),
+    ],
+)
+def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
+    yaml_text = API.replace("oldkey", NEW) + BARE_OTA + ota_tail
+    assert api_key_settled(yaml_text, NEW) is expected
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        pytest.param(BARE_ENCRYPTION, True, id="bare"),
+        pytest.param(LIST_FORM, True, id="keyed"),
+        pytest.param(MAPPING_FORM, True, id="mapping"),
+        pytest.param("ota:\n  - platform: esphome\n    password: x\n", False, id="absent"),
+        pytest.param(OTHER_PLATFORM_ONLY, False, id="other-platform"),
+        pytest.param("ota: !include common/ota.yaml\n", False, id="include-header"),
+        pytest.param(API, False, id="no-ota"),
+    ],
+)
+def test_ota_encryption_block_present(yaml_text: str, expected: bool) -> None:
+    assert ota_encryption_block_present(yaml_text) is expected

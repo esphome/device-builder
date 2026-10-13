@@ -8,17 +8,23 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from esphome.const import __version__ as _installed_esphome_version
+
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import config_has_top_level_block
 from ...helpers.mac_addresses import normalize_mac
+from ...helpers.version_compat import version_at_least
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
+    _strip_yaml_quotes,
     api_key_settled,
     component_block_present,
     is_indirected_scalar,
+    is_plain_literal_scalar,
+    ota_encryption_block_present,
     read_yaml_scalar,
     upsert_api_encryption_key,
 )
@@ -36,6 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _KEY_BYTES = 32
 _KEPT_SUFFIX = "; the key was kept for a later attempt"
+_OTA_OLD_KEY_SINCE = "2026.11.0b1"
 
 
 class KeyHandoffResult(StrEnum):
@@ -144,8 +151,9 @@ async def _apply_to_device(
             )
             return KeyHandoffResult.NOT_WRITABLE, reason
 
+    keep_previous = _ota_old_key_supported()
     try:
-        new_content = upsert_api_encryption_key(content, key)
+        new_content = upsert_api_encryption_key(content, key, keep_previous_key=keep_previous)
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
     if not api_key_settled(new_content, key):
@@ -169,7 +177,30 @@ async def _apply_to_device(
         expected=content,
         message=f"Update API encryption key in {configuration}",
     )
+    if not keep_previous and _replaces_required_key(content, existing, key):
+        _LOGGER.warning(
+            "Replaced the api encryption key of %s without recording the previous one "
+            "(esphome %s predates ota encryption old_key); the next OTA install needs "
+            "esphome 2026.11 or newer, or a serial flash",
+            configuration,
+            _installed_esphome_version,
+        )
     return KeyHandoffResult.UPDATED, ""
+
+
+def _ota_old_key_supported() -> bool:
+    """Whether the installed esphome accepts ``ota: encryption: old_key:``."""
+    return version_at_least(_installed_esphome_version, _OTA_OLD_KEY_SINCE)
+
+
+def _replaces_required_key(content: str, existing: str | None, key: str) -> bool:
+    """Whether the write swaps a literal api key the device's OTA block makes it require."""
+    return (
+        existing is not None
+        and is_plain_literal_scalar(existing)
+        and _strip_yaml_quotes(existing) != key
+        and ota_encryption_block_present(content)
+    )
 
 
 async def _resolved_config_has_api(

@@ -52,6 +52,8 @@ def test_release_line_at_least(version: str, expected: bool) -> None:
         pytest.param("2026.8.0-dev", "2026.8.0b5", True, id="dev_same_line"),
         pytest.param("2026.7.0-dev", "2026.8.0b5", False, id="dev_earlier_line"),
         pytest.param("2026.8.0", "2026.8", True, id="short_minimum"),
+        pytest.param("2026.11.0b1", "2026.11.0", False, id="beta_before_final"),
+        pytest.param("2026.11.0-dev", "2026.11.0b1", True, id="dev_meets_beta_floor"),
         pytest.param("2026.8.0b4+local", "2026.8.0b5", False, id="local_segment_still_orders"),
         pytest.param("2026.8.0b5+local", "2026.8.0b5", True, id="local_segment_same"),
         pytest.param("garbage", "2026.8.0", False, id="unparseable_version"),

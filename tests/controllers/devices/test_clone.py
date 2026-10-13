@@ -144,6 +144,71 @@ async def test_clone_device_mints_a_fresh_own_ota_key_without_an_api_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_drops_old_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """The source's previous OTA key means nothing to a serial-flashed clone."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    old_key = '    encryption:\n      old_key: "PREVIOUSKEYBASE64BASE64BASE64BASE64BASE64A=="\n'
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + old_key)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert "old_key" not in new_yaml
+    assert "  - platform: esphome\n    encryption:\n" in new_yaml
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == source
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_drops_old_key_next_to_a_secret_api_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    yaml = (
+        "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
+        "api:\n  encryption:\n    key: !secret api_key\n"
+        "ota:\n  - platform: esphome\n    encryption:\n"
+        '      old_key: "PREVIOUSKEYBASE64BASE64BASE64BASE64BASE64A=="\n'
+    )
+    (tmp_path / "kitchen.yaml").write_text(yaml, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert "key: !secret api_key" in new_yaml
+    assert "old_key" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_drops_old_key_when_minting_an_own_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    api_start = SOURCE_YAML.index("api:\n")
+    api_end = SOURCE_YAML.index("ota:\n")
+    ota_keys = (
+        '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
+        '      old_key: "PREVIOUSKEYBASE64BASE64BASE64BASE64BASE64A=="\n'
+    )
+    source = (SOURCE_YAML[:api_start] + "mqtt:\n  broker: b\n\n" + SOURCE_YAML[api_end:]).replace(
+        "  - platform: esphome\n", "  - platform: esphome\n" + ota_keys
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert len(re.findall(r'key: "([A-Za-z0-9+/=]+)"', new_yaml)) == 1
+    assert "old_key" not in new_yaml
+    assert "PREVIOUSKEY" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_validates_the_rewrite_when_a_key_changed(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
