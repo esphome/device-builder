@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from esphome.const import CONF_ENCRYPTION
+from collections.abc import Iterator
+
+from esphome.const import CONF_ENCRYPTION, CONF_PACKAGES
 
 from ._parsing import _ota_esphome_entries
 from ._tolerant_yaml import load_yaml_tolerant
@@ -17,5 +19,14 @@ def yaml_declares_ota_old_key(yaml_content: str) -> bool | None:
         return None
     return any(
         isinstance(encryption := entry.get(CONF_ENCRYPTION), dict) and _CONF_OLD_KEY in encryption
-        for entry in _ota_esphome_entries(config)
+        for entry in _ota_entries_with_inline_packages(config)
     )
+
+
+def _ota_entries_with_inline_packages(config: dict | None) -> Iterator[dict]:
+    """Esphome OTA entries of *config* and of every inline ``packages:`` mapping it carries."""
+    yield from _ota_esphome_entries(config)
+    packages = config.get(CONF_PACKAGES) if isinstance(config, dict) else None
+    if isinstance(packages, dict):
+        for package in packages.values():
+            yield from _ota_esphome_entries(package)

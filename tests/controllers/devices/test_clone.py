@@ -206,6 +206,25 @@ async def test_clone_device_ignores_old_key_text_that_is_not_a_key(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_refuses_an_old_key_inside_an_inline_package(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML + (
+        "\npackages:\n  base:\n    ota:\n      - platform: esphome\n        encryption:\n"
+        f'          old_key: "{PREVIOUS_KEY}"\n'
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "old_key" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_refuses_an_old_key_it_cannot_verify(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
