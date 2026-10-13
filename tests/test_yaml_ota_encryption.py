@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from esphome_device_builder.helpers.device_yaml import yaml_declares_ota_old_key
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
     api_key_settled,
     drop_ota_encryption_old_key,
-    ota_block_mentions_old_key,
     read_ota_encryption_key,
     read_ota_encryption_old_key,
     rewrite_api_encryption_key,
@@ -507,6 +507,7 @@ def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
     ("yaml_text", "expected"),
     [
         pytest.param(BARE_ENCRYPTION + OLD_KEY_LINE, True, id="block-child"),
+        pytest.param(MAPPING_FORM + "    old_key: x\n", True, id="mapping-form"),
         pytest.param(
             "ota:\n  - platform: esphome\n    encryption: {old_key: x}\n", True, id="inline"
         ),
@@ -517,18 +518,27 @@ def test_api_key_settled_with_old_key(ota_tail: str, expected: bool) -> None:
             'ota: {platform: esphome,\n  encryption: {old_key: "x"}}\n', True, id="flow-wrapped"
         ),
         pytest.param(BARE_ENCRYPTION + '      "old_key": x\n', True, id="quoted-child"),
-        pytest.param(
-            "ota: {platform: esphome}\nlogger:\n  level: DEBUG  # old_key: no\n",
-            False,
-            id="flow-then-other-block",
-        ),
         pytest.param(BARE_ENCRYPTION + "      # old_key: removed\n", False, id="comment"),
         pytest.param(
-            BARE_ENCRYPTION + "lambda:\n  - lambda: 'old_key: text'\n", False, id="elsewhere"
+            BARE_ENCRYPTION + "    on_begin:\n      - lambda: 'old_key: text'\n",
+            False,
+            id="string-under-ota",
+        ),
+        pytest.param(
+            BARE_ENCRYPTION
+            + '    on_begin:\n      - lambda: |-\n          ESP_LOGD("t", "old_key: 1");\n',
+            False,
+            id="block-scalar-under-ota",
+        ),
+        pytest.param(
+            "ota:\n  - platform: web_server\n    encryption:\n      old_key: x\n",
+            False,
+            id="other-platform",
         ),
         pytest.param("ota: !include common/ota.yaml\n", False, id="include-header"),
+        pytest.param("ota: [\n", False, id="unparsable"),
         pytest.param(API, False, id="no-ota"),
     ],
 )
-def test_ota_block_mentions_old_key(yaml_text: str, expected: bool) -> None:
-    assert ota_block_mentions_old_key(yaml_text) is expected
+def test_yaml_declares_ota_old_key(yaml_text: str, expected: bool) -> None:
+    assert yaml_declares_ota_old_key(yaml_text) is expected

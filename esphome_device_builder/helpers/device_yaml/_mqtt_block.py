@@ -48,6 +48,14 @@ def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[s
     return mqtt, _extract_resolved_substitutions(data)
 
 
+def load_yaml_tolerant(yaml_content: str) -> Any | None:
+    """Parse *yaml_content* tolerantly: ``!secret`` kept, other tags ignored, ``None`` on error."""
+    try:
+        return yaml.load(yaml_content, Loader=_TolerantYamlLoader)  # noqa: S506
+    except yaml.YAMLError:
+        return None
+
+
 def build_mqtt_extract(
     yaml_content: str,
     resolved_config: dict[str, Any] | None,

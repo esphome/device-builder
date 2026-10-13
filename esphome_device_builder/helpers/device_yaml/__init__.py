@@ -42,6 +42,7 @@ from ._mqtt_block import (
     build_mqtt_extract,
     extract_mqtt_block,
 )
+from ._ota_old_key import yaml_declares_ota_old_key
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
     DEFAULT_API_PORT,
@@ -137,6 +138,7 @@ __all__ = [
     "retarget_fallback_ap_ssid",
     "run_esphome_config",
     "safe_stat_key",
+    "yaml_declares_ota_old_key",
     "yaml_has_api_encryption",
     "yaml_has_top_level_block",
 ]

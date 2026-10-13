@@ -70,7 +70,6 @@ from .inline import upsert_inline_handler as upsert_inline_handler
 from .inline import upsert_nested_handler as upsert_nested_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
 from .ota_encryption import drop_ota_encryption_old_key as drop_ota_encryption_old_key
-from .ota_encryption import ota_block_mentions_old_key as ota_block_mentions_old_key
 from .ota_encryption import read_ota_encryption_key as read_ota_encryption_key
 from .ota_encryption import read_ota_encryption_old_key as read_ota_encryption_old_key
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH

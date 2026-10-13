@@ -11,6 +11,7 @@ from ...helpers.device_yaml import (
     configuration_stem,
     parse_esphome_meta,
     retarget_fallback_ap_ssid,
+    yaml_declares_ota_old_key,
 )
 from ...helpers.yaml import (
     ESPHOME_FRIENDLY_NAME_PATH,
@@ -18,7 +19,6 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     drop_ota_encryption_old_key,
     generate_api_encryption_key,
-    ota_block_mentions_old_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
     rewrite_own_ota_encryption_key,
@@ -183,7 +183,7 @@ async def clone_device(
 def _drop_source_old_key(yaml_text: str) -> str:
     """Drop the source's ``old_key`` (meaningless to a serial-flashed clone); unremovable raises."""
     dropped = drop_ota_encryption_old_key(yaml_text)
-    if ota_block_mentions_old_key(dropped):
+    if yaml_declares_ota_old_key(dropped):
         raise YamlUpsertNotSupportedError(
             "the OTA encryption old_key sits in a shape the line-based rewrite can't remove; "
             "delete it from the source before cloning."
