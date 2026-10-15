@@ -64,7 +64,7 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 
 
 async def _run(controller: DevicesController, configuration: str) -> None:
-    rerun = False
+    spawned = False
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
@@ -100,18 +100,17 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                     return
             # Delegates so tests patching the class intercept.
             failure = await controller._spawn_only_generate(configuration)
+            spawned = True
         # A scan that stored a moved digest while this run was pending had its
         # own schedule dropped, so the run that just finished reruns for it.
         if failure is None:
             regen.cancel_retry(configuration)
             await controller._finalize_regen_success(configuration, current)
             await controller._scanner.reload(configuration)
-            rerun = _digest_moved(store, configuration, stored, current)
             return
         # Stamp against the pre-spawn digest: an edit landing mid-run must
         # not have the old content's failure charged to the new file.
         recorded = controller._stamp_regen_failure(configuration, current)
-        rerun = _digest_moved(store, configuration, stored, current)
         if recorded < _MAX_REGEN_ATTEMPTS:
             _arm_retry(controller, configuration, _delay_for(recorded))
             return
@@ -123,9 +122,12 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             failure,
         )
         _arm_ttl_recheck(controller, configuration)
+    except asyncio.CancelledError:
+        spawned = False  # a shutdown must not start another run
+        raise
     finally:
         controller.state.regen.pending.discard(configuration)
-        if rerun:
+        if spawned and current and _digest_moved(store, configuration, stored, current):
             controller.state.regen.cancel_retry(configuration)
             schedule(controller, configuration)
 
