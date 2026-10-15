@@ -18,7 +18,7 @@ from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
-from ...constants import SECRETS_FILENAME
+from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..atomic_io import read_text_with_stat
@@ -157,6 +157,8 @@ def load_device_from_storage(
 
     yaml_stat, yaml_content, secrets_key = _snapshot_source_files(path)
     yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
+    if batch is None:
+        batch = LoadBatch()
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
     # YAML would miss configs that pull the api block in via include
@@ -514,7 +516,7 @@ def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: st
 
 
 def load_device_yaml_tracked(
-    path: Path, batch: LoadBatch | None = None
+    path: Path, yaml_content: str, batch: LoadBatch
 ) -> tuple[dict | None, tuple[str, ...] | None]:
     """``load_device_yaml`` plus the files it pulled in; ``None`` files when a load step failed."""
     with track_loaded_files() as loaded:
@@ -523,11 +525,10 @@ def load_device_yaml_tracked(
         if (
             config is None
             or _has_packages_block(config)
-            or not _load_deferred_includes(path, config)
+            or not _load_deferred_includes(path, config, yaml_content, loaded)
         ):
             return config, None
-    prefix = batch.data_dir_prefix if batch is not None else None
-    return config, normalize_dependencies(path, loaded, prefix)
+    return config, normalize_dependencies(path, loaded, batch.data_dir_prefix)
 
 
 def load_device_yaml(path: Path) -> dict | None:
@@ -611,8 +612,15 @@ def resolution_incomplete(config: dict | None) -> bool:
     )
 
 
-def _load_deferred_includes(path: Path, config: dict) -> bool:
+def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded: list[str]) -> bool:
     """Load the ``!include`` nodes still pending after the package merge; False when one failed."""
+    # A deferred node needs an ``!include`` tag in the device file or in a non-secrets file
+    # it pulled in; checking the text first spares most devices the tree walk.
+    own = os.fspath(path)
+    if "!include" not in yaml_content and all(
+        name == own or is_secrets_file(name) for name in loaded
+    ):
+        return True
     if not _holds_marker(config, yaml_util.IncludeFile):
         return True
     # The substitution pass resolves a templated path (``!include dev/${name}.yaml``)
@@ -630,16 +638,14 @@ def _load_resolved_sources(
     path: Path,
     yaml_content: str,
     dependencies: tuple[str, ...] | None,
-    batch: LoadBatch | None,
+    batch: LoadBatch,
     *,
     shallow: bool,
 ) -> tuple[dict | None, tuple[str, ...] | None, DependencySources | None]:
     """Resolve the config (deep only) and read its dependency files; unknown stays ``None``."""
-    if batch is None:
-        batch = LoadBatch()
     resolved_config: dict | None = None
     if not shallow:
-        resolved_config, discovered = load_device_yaml_tracked(path, batch)
+        resolved_config, discovered = load_device_yaml_tracked(path, yaml_content, batch)
         if discovered is not None:
             dependencies = discovered
     if dependencies is None:

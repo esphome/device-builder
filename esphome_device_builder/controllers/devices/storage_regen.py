@@ -220,7 +220,7 @@ async def finalize_success(
 
     *fingerprint* and *dependency_fingerprint* are the content the regen
     read; they are stamped beside the hash, an unknown dependency digest
-    leaving the prior stamp in place.
+    as the empty string.
 
     ``read_build_info_hash`` is blocking — runs on the
     executor; the store merge afterwards is in-RAM with a
@@ -238,9 +238,11 @@ async def finalize_success(
         fields["expected_config_hash"] = new_hash
         fields["regen_config_hash"] = new_hash
         fields["regen_content_fingerprint"] = fingerprint
-        if dependency_fingerprint:
-            fields["regen_dependency_fingerprint"] = dependency_fingerprint
     controller._metadata_store.update(configuration, **fields)
+    if new_hash:
+        controller._metadata_store.set_field(
+            configuration, "regen_dependency_fingerprint", dependency_fingerprint
+        )
     if not new_hash:
         _LOGGER.warning(
             "Could not read config_hash from build_info.json for %s; "

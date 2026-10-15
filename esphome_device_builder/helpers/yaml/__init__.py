@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 
@@ -115,6 +116,14 @@ def load_yaml_fast_then_esphome(path: Path) -> Any:
             return yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
     except yaml.YAMLError:
         return yaml_util.load_yaml(path)
+
+
+def parse_yaml_fast_then_esphome(path: Path, text: str) -> Any:
+    """Parse *text*, read from *path*, with the fast C loader, retrying with ESPHome's loader."""
+    try:
+        return yaml.load(text, Loader=FastestSafeLoader)  # noqa: S506
+    except yaml.YAMLError:
+        return yaml_util.parse_yaml(path, io.StringIO(text))
 
 
 def write_user_yaml(path: Path, content: str | bytes) -> None:

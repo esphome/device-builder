@@ -66,8 +66,7 @@ def on_scan_change(
         controller._state_monitor.address_retargeted(device.name)
     dropped_retry = _reconcile_regen_state(controller, kind, device)
     if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
-        _sync_dependencies(controller, device)
-        _sync_content_fingerprint(controller, kind, device)
+        _sync_fingerprints(controller, kind, device)
     _nudge_mqtt(controller, kind, device, previous)
     _schedule_regen_if_needed(controller, kind, device, dropped_retry=dropped_retry)
     if kind is ScanChange.REMOVED:
@@ -202,19 +201,14 @@ def _nudge_mqtt(
         controller.schedule_mqtt_reconcile()
 
 
-def _sync_dependencies(controller: DevicesController, device: Device) -> None:
-    """Persist the dependency list a deep load discovered."""
-    if device.dependencies is not None:
-        controller._metadata_store.set_field(
-            device.configuration, "dependencies", list(device.dependencies)
-        )
-
-
-def _sync_content_fingerprint(
-    controller: DevicesController, kind: ScanChange, device: Device
-) -> None:
-    """Seed the stored fingerprints; regen when an out-of-band edit moved one."""
+def _sync_fingerprints(controller: DevicesController, kind: ScanChange, device: Device) -> None:
+    """Seed the stored dependency list and digests; regen when an out-of-band edit moved one."""
     configuration = device.configuration
+    store = controller._metadata_store
+    if device.dependencies is not None:
+        dependencies = list(device.dependencies)
+        if store.get_field(configuration, "dependencies") != dependencies:
+            store.set_field(configuration, "dependencies", dependencies)
     for key, current, is_current in (
         ("content_fingerprint", device.content_fingerprint, content_fingerprint_is_current),
         (
@@ -227,7 +221,7 @@ def _sync_content_fingerprint(
             # Empty means the source was unreadable (or unknown) this sweep: no
             # information, so neither compare nor overwrite the stored digest.
             continue
-        stored = controller._metadata_store.get_field(configuration, key)
+        stored = store.get_field(configuration, key)
         if stored == current:
             continue
         # An out-of-band edit (git pull, external editor — live as UPDATED,
@@ -237,4 +231,4 @@ def _sync_content_fingerprint(
         # (#2612).
         if is_current(stored) and kind is not ScanChange.RELOADED:
             controller._schedule_storage_regenerate(configuration)
-        controller._metadata_store.set_field(configuration, key, current)
+        store.set_field(configuration, key, current)

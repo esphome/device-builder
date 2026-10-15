@@ -3992,6 +3992,10 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 # ---------------------------------------------------------------------------
 
 
+def _load_tracked(yaml_file: Path) -> tuple[dict | None, tuple[str, ...] | None]:
+    return load_device_yaml_tracked(yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch())
+
+
 def _write_include_fleet(config_dir: Path) -> Path:
     """Device YAML pulling in a package, a deferred include and a secret."""
     (config_dir / "packages").mkdir()
@@ -4023,7 +4027,7 @@ _FLEET_DEPENDENCIES = (
 
 def test_load_device_yaml_tracked_reports_dependencies(tmp_path: Path) -> None:
     """Packages, deferred includes and the secrets lookup chain all land in the list."""
-    config, dependencies = load_device_yaml_tracked(_write_include_fleet(tmp_path))
+    config, dependencies = _load_tracked(_write_include_fleet(tmp_path))
 
     assert config is not None
     assert dependencies == _FLEET_DEPENDENCIES
@@ -4041,7 +4045,7 @@ def test_load_device_yaml_tracked_resolves_a_templated_include_to_one_file(
         "substitutions:\n  kind: dht\nsensor: !include sensors/${kind}.yaml\n", encoding="utf-8"
     )
 
-    _, dependencies = load_device_yaml_tracked(yaml_file)
+    _, dependencies = _load_tracked(yaml_file)
 
     assert dependencies == ("sensors/dht.yaml",)
 
@@ -4051,7 +4055,7 @@ def test_load_device_yaml_tracked_returns_none_on_parse_failure(tmp_path: Path) 
     yaml_file = tmp_path / "kitchen.yaml"
     yaml_file.write_text("esphome: [\n", encoding="utf-8")
 
-    assert load_device_yaml_tracked(yaml_file) == (None, None)
+    assert _load_tracked(yaml_file) == (None, None)
 
 
 def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
@@ -4069,6 +4073,7 @@ def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path
             config_dir / ".." / "outside.yaml",
             config_dir / "b.yaml",
         ],
+        LoadBatch().data_dir_prefix,
     )
 
     assert dependencies == tuple(
@@ -4117,7 +4122,7 @@ def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_an_include_f
         mock.Mock(side_effect=EsphomeError("boom")),
     )
 
-    config, dependencies = load_device_yaml_tracked(yaml_file)
+    config, dependencies = _load_tracked(yaml_file)
 
     assert config is not None
     assert dependencies is None
@@ -4133,7 +4138,7 @@ def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_a_package_me
         mock.Mock(side_effect=RuntimeError("boom")),
     )
 
-    config, dependencies = load_device_yaml_tracked(yaml_file)
+    config, dependencies = _load_tracked(yaml_file)
 
     assert config is not None
     assert dependencies is None
@@ -4189,7 +4194,7 @@ def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
         encoding="utf-8",
     )
 
-    _config, dependencies = load_device_yaml_tracked(yaml_file)
+    _config, dependencies = _load_tracked(yaml_file)
     sources = read_dependency_sources(
         Path("configs"), dependencies, yaml_file.read_text(encoding="utf-8")
     )

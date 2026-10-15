@@ -18,8 +18,6 @@ from esphome.storage_json import StorageJSON
 
 from ._chip import resolve_chip_mcu
 from ._dependencies import (
-    DependencyStatKey,
-    DependencyStatKeys,
     LoadBatch,
     dependency_fingerprint,
     dependency_fingerprint_is_current,
@@ -51,6 +49,8 @@ from ._ota_old_key import yaml_declares_ota_old_key
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
     DEFAULT_API_PORT,
+    DependencyStatKey,
+    DependencyStatKeys,
     EsphomeMeta,
     _extract_resolved_substitutions,
     _parse_inline_value,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import os
@@ -19,7 +18,7 @@ from esphome.core import CORE, EsphomeError
 
 from ...constants import is_secrets_file, secret_ref_names
 from ..atomic_io import read_text_with_stat
-from ..yaml import FastestSafeLoader
+from ..yaml import parse_yaml_fast_then_esphome
 from ._parsing import (
     _has_version_prefix,
     _sha256_lines,
@@ -35,19 +34,20 @@ _LOAD_LISTENERS: list[Callable[[Path], None]] = (
     _PUBLIC_LISTENERS if _PUBLIC_LISTENERS is not None else yaml_util._load_listeners  # noqa: SLF001
 )
 
-DependencyStatKey = tuple[int, int]
-DependencyStatKeys = tuple[DependencyStatKey, ...]
 
 # One permanent listener dispatching to the loading thread's recorder: the hook
 # is process-global and other executor threads parse YAML concurrently (editor
 # validation, secrets reads), and esphome's ``track_yaml_loads`` has no thread
 # filter; a per-call listener would also race its own removal on older esphome.
-_RECORDER = threading.local()
+class _Recorder(threading.local):
+    loaded: list[str] | None = None
+
+
+_RECORDER = _Recorder()
 
 
 def _on_load(fname: Path) -> None:
-    loaded: list[str] | None = getattr(_RECORDER, "loaded", None)
-    if loaded is not None:
+    if (loaded := _RECORDER.loaded) is not None:
         loaded.append(os.fspath(fname))
 
 
@@ -65,7 +65,7 @@ class DependencySources(NamedTuple):
 
 
 class SourceText(NamedTuple):
-    """One dependency file as read: a secrets file parsed, any other as significant lines."""
+    """One dependency file as read; ``secrets`` is set for a secrets file, ``lines`` otherwise."""
 
     mtime: float
     lines: list[str]
@@ -98,7 +98,7 @@ class SourceFingerprints(NamedTuple):
 def track_loaded_files() -> Iterator[list[str]]:
     """Record every file esphome's YAML loader opens on this thread while active."""
     loaded: list[str] = []
-    outer: list[str] | None = getattr(_RECORDER, "loaded", None)
+    outer = _RECORDER.loaded
     _RECORDER.loaded = loaded
     try:
         yield loaded
@@ -106,9 +106,7 @@ def track_loaded_files() -> Iterator[list[str]]:
         _RECORDER.loaded = outer
 
 
-def normalize_dependencies(
-    path: Path, loaded: Iterable[str], data_prefix: str | None = None
-) -> tuple[str, ...]:
+def normalize_dependencies(path: Path, loaded: Iterable[str], data_prefix: str) -> tuple[str, ...]:
     """
     Sorted, deduplicated *loaded* paths, relative to *path*'s directory or absolute.
 
@@ -118,8 +116,6 @@ def normalize_dependencies(
     """
     own = os.path.normcase(os.path.abspath(path))  # noqa: PTH100
     config_prefix = os.path.dirname(own) + os.sep  # noqa: PTH120
-    if data_prefix is None:
-        data_prefix = data_dir_prefix()
     dependencies: set[str] = set()
     for raw in set(loaded):
         normalized = os.path.normcase(os.path.abspath(raw))  # noqa: PTH100
@@ -147,14 +143,15 @@ def read_dependency_sources(
     """
     if batch is None:
         batch = LoadBatch()
-    sources: list[tuple[str, bool, SourceText | None]] = []
+    sources: list[tuple[str, SourceText | None]] = []
     for dependency in dependencies:
         if dependency in batch.unreadable:
             return None
-        secret = is_secrets_file(dependency)
         if dependency not in batch.sources:
             try:
-                batch.sources[dependency] = _read_source(config_dir / dependency, secrets=secret)
+                batch.sources[dependency] = _read_source(
+                    config_dir / dependency, secrets=is_secrets_file(dependency)
+                )
             except (OSError, UnicodeDecodeError, yaml.YAMLError, EsphomeError) as err:
                 batch.unreadable.add(dependency)
                 _LOGGER.warning(
@@ -163,24 +160,22 @@ def read_dependency_sources(
                     err,
                 )
                 return None
-        sources.append((dependency, secret, batch.sources[dependency]))
+        sources.append((dependency, batch.sources[dependency]))
+    read = [source for _, source in sources if source is not None]
     referenced = (
-        _referenced_secrets(yaml_content, sources)
-        if any(secret for _, secret, _ in sources)
+        _referenced_secrets(yaml_content, read)
+        if any(source.secrets is not None for source in read)
         else frozenset()
     )
     lines: list[tuple[str, list[str]]] = []
-    for dependency, _secret, source in sources:
+    for dependency, source in sources:
         if source is None:
             lines.append((dependency, []))
         elif source.secrets is not None:
             lines.append((dependency, _secret_lines(source.secrets, referenced)))
         else:
             lines.append((dependency, source.lines))
-    newest_mtime = max(
-        (source.mtime for _, secret, source in sources if source is not None and not secret),
-        default=None,
-    )
+    newest_mtime = max((source.mtime for source in read if source.secrets is None), default=None)
     return DependencySources(lines, newest_mtime)
 
 
@@ -225,14 +220,11 @@ def read_source_fingerprints(
     )
 
 
-def _referenced_secrets(
-    yaml_content: str, sources: Iterable[tuple[str, bool, SourceText | None]]
-) -> frozenset[str]:
-    """``!secret`` names *yaml_content* and the non-secret *sources* reference."""
+def _referenced_secrets(yaml_content: str, sources: Iterable[SourceText]) -> frozenset[str]:
+    """``!secret`` names *yaml_content* and *sources* reference."""
     names = secret_ref_names(yaml_content)
-    for _, secret, source in sources:
-        if source is not None and not secret:
-            names += source.secret_refs
+    for source in sources:
+        names += source.secret_refs
     return frozenset(names)
 
 
@@ -257,9 +249,6 @@ def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
 
 
 def _parse_secrets(path: Path, text: str) -> dict[str, object]:
-    """Parse a secrets file; esphome tags fall back to esphome's loader."""
-    try:
-        data = yaml.load(text, Loader=FastestSafeLoader)  # noqa: S506
-    except yaml.YAMLError:
-        data = yaml_util.parse_yaml(path, io.StringIO(text))
+    """Parse a secrets file into its mapping; anything else reads as empty."""
+    data = parse_yaml_fast_then_esphome(path, text)
     return data if isinstance(data, dict) else {}

@@ -167,12 +167,21 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     assert controller.state.regen.pending == set()
 
 
-async def test_out_of_band_content_edit_spawns_only_generate(
+@pytest.mark.parametrize(
+    ("field", "version"),
+    [
+        ("content_fingerprint", CONTENT_FINGERPRINT_VERSION),
+        ("dependency_fingerprint", DEPENDENCY_FINGERPRINT_VERSION),
+    ],
+)
+async def test_out_of_band_edit_spawns_only_generate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    field: str,
+    version: str,
 ) -> None:
-    """A scanner UPDATED with changed config text regenerates StorageJSON (#2486)."""
+    """A scanner UPDATED whose content or dependency digest moved regenerates StorageJSON."""
     controller = make_controller(
         tmp_path,
         with_state_monitor=True,
@@ -191,18 +200,12 @@ async def test_out_of_band_content_edit_spawns_only_generate(
     )
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    _seed_store(
-        controller,
-        "kitchen.yaml",
-        content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}pre-edit-digest",
-    )
+    same = f"{CONTENT_FINGERPRINT_VERSION}same"
+    _seed_store(controller, "kitchen.yaml", **{"content_fingerprint": same, field: f"{version}pre"})
 
     controller._on_scan_change(
         ScanChange.UPDATED,
-        make_device(
-            name="kitchen",
-            content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}post-edit-digest",
-        ),
+        make_device(name="kitchen", **{"content_fingerprint": same, field: f"{version}post"}),
     )
     await _drain(controller)
 
@@ -1578,52 +1581,6 @@ async def test_cancel_all_retry_timers_cancels_pending_handles() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_out_of_band_dependency_edit_spawns_only_generate(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """A scanner UPDATED whose dependency digest moved regenerates StorageJSON."""
-    controller = make_controller(
-        tmp_path,
-        with_state_monitor=True,
-        with_regenerate_state=True,
-        esphome_cmd=["esphome"],
-    )
-    spawn_calls: list[tuple[str, ...]] = []
-
-    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
-        spawn_calls.append(args)
-        return _capture_result(returncode=0)
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
-        _fake_spawn,
-    )
-    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    _seed_store(
-        controller,
-        "kitchen.yaml",
-        content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}same",
-        dependency_fingerprint=f"{DEPENDENCY_FINGERPRINT_VERSION}pre-edit",
-    )
-
-    controller._on_scan_change(
-        ScanChange.UPDATED,
-        make_device(
-            name="kitchen",
-            content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}same",
-            dependency_fingerprint=f"{DEPENDENCY_FINGERPRINT_VERSION}post-edit",
-            loaded_integrations=["wifi"],
-            expected_config_hash="abcd1234",
-        ),
-    )
-    await _drain(controller)
-
-    assert len(spawn_calls) == 1
-
-
 @pytest.mark.parametrize("package_changed", [True, False])
 async def test_spent_ladder_releases_when_a_dependency_changes(
     tmp_path: Path,
@@ -1675,12 +1632,12 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     controller.state.regen.cancel_retry("kitchen.yaml")
 
 
-async def test_regenerate_success_keeps_the_prior_dependency_stamp_when_unknown(
+async def test_regenerate_success_stamps_an_unknown_dependency_digest_literally(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A regen that ran without a dependency list leaves the stored dependency stamp alone."""
+    """A regen that ran without a dependency list stamps the empty digest over the prior one."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     controller._scanner.devices = [make_device(name="kitchen")]
@@ -1699,7 +1656,7 @@ async def test_regenerate_success_keeps_the_prior_dependency_stamp_when_unknown(
 
     md = _read_store(controller, "kitchen.yaml")
     assert md["regen_config_hash"] == "abcd1234"
-    assert md["regen_dependency_fingerprint"] == "1:prior"
+    assert md["regen_dependency_fingerprint"] == ""
 
 
 async def test_stamp_failure_records_an_unknown_dependency_digest_literally(

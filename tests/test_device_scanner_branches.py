@@ -14,7 +14,6 @@ so the regression surfaces in CI rather than in a user's logs.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -27,6 +26,7 @@ from esphome_device_builder.controllers._device_scanner import (
     ScanChange,
 )
 from esphome_device_builder.models import Device
+from tests.conftest import bump_mtime
 
 
 def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
@@ -574,11 +574,6 @@ def _write_include_fleet(config_dir: Path) -> tuple[Path, Path]:
     return kitchen, package
 
 
-def _bump_mtime(path: Path) -> None:
-    stat = path.stat()
-    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
-
-
 async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path) -> None:
     """A package edit surfaces as UPDATED on the devices that pull it in and nowhere else."""
     cfg = tmp_path / "configs"
@@ -597,7 +592,7 @@ async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path)
     assert events == []
 
     package.write_text("esphome:\n  name: kitchen\nlogger:\n", encoding="utf-8")
-    _bump_mtime(package)
+    bump_mtime(package)
     await scanner.scan()
 
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
@@ -620,7 +615,7 @@ async def test_dependency_touch_fires_one_updated_with_the_digest_unchanged(
     await scanner.scan()
     events.clear()
 
-    _bump_mtime(package)
+    bump_mtime(package)
     await scanner.scan()
 
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
