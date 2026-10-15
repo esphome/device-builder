@@ -4,7 +4,8 @@ Device YAML file scanner.
 Watches the configured directory for new / changed / removed device
 YAML files, materialises them into ``Device`` instances, and emits a
 single change event per file via callbacks. Cache keys (inode, dev,
-mtime, size) are used to avoid re-parsing files that haven't changed.
+mtime, size, plus a stat key per dependency file) are used to avoid
+re-parsing files that haven't changed.
 """
 
 from __future__ import annotations
@@ -21,18 +22,24 @@ from typing import NamedTuple
 from esphome import util
 
 from ..helpers.async_ import run_in_executor
-from ..helpers.device_yaml import load_device_from_storage
+from ..helpers.device_yaml import (
+    DependencyStatKey,
+    DependencyStatKeys,
+    dependency_stat_keys,
+    load_device_from_storage,
+)
 from ..models import Device
 from ._wake_worker import WakeWorker
 
 _LOGGER = logging.getLogger(__name__)
 
-# (inode, device, mtime, size) — combined cache key for change detection.
-_CacheKey = tuple[int, int, float, int]
+# (inode, device, mtime, size, dependency stat keys) — combined cache key
+# for change detection.
+_CacheKey = tuple[int, int, float, int, DependencyStatKeys]
 
 # Never matches a real stat: assigning it forces the next scan to
 # re-read the file.
-_POISONED_CACHE_KEY: _CacheKey = (-1, -1, -1.0, -1)
+_POISONED_CACHE_KEY: _CacheKey = (-1, -1, -1.0, -1, ())
 
 
 class DeviceFileMetadata(NamedTuple):
@@ -69,6 +76,16 @@ class DeviceFileMetadata(NamedTuple):
     deployed_name: str = ""
     # Epoch the device's last known outage began, if any.
     offline_since: float | None = None
+    # Files the YAML pulls in, as persisted by the last deep load;
+    # ``None`` when never discovered.
+    dependencies: tuple[str, ...] | None = None
+
+
+class _LoadedDevice(NamedTuple):
+    """A materialised device with the stat keys of the dependencies it was read against."""
+
+    device: Device
+    dependency_keys: DependencyStatKeys
 
 
 class ScanChange(StrEnum):
@@ -379,8 +396,8 @@ class DeviceScanner(WakeWorker[str]):
             previous_cache_key = self._index.cache_key(path)
             previous = self._index.by_path[path]
             loaded = await run_in_executor(self._load_devices, {path})
-            device = loaded.get(path)
-            if device is None:
+            entry = loaded.get(path)
+            if entry is None:
                 # Poison the cache key so the next scan re-reads the
                 # file instead of trusting the stale row — a shallow
                 # seed would otherwise stay shallow forever.
@@ -388,6 +405,7 @@ class DeviceScanner(WakeWorker[str]):
                 # ``_load_devices`` already warned for this failure.
                 _LOGGER.debug("Reload of %s failed; will retry on the next scan", filename)
                 return False
+            device, dependency_keys = entry
             # Refresh the cache key; if the YAML disappears in the
             # race window between load and re-stat, keep the
             # snapshotted previous key so the next ``_do_scan``
@@ -399,9 +417,10 @@ class DeviceScanner(WakeWorker[str]):
                     stat.st_dev,
                     stat.st_mtime,
                     stat.st_size,
+                    dependency_keys,
                 )
             except OSError:
-                cache_key = previous_cache_key
+                cache_key = _with_dependency_keys(previous_cache_key, dependency_keys)
             self._index.set(path, device, cache_key)
             # Dataclass eq spans every field the wire serializes (and
             # more), so an equal rebuild is a guaranteed no-op frame.
@@ -430,7 +449,9 @@ class DeviceScanner(WakeWorker[str]):
                 _LOGGER.debug("Background reload of %s returned no update", filename)
 
     async def _do_scan(self, *, shallow: bool = False) -> None:
-        path_to_cache_key = await run_in_executor(self._build_cache_keys)
+        path_to_cache_key = await run_in_executor(
+            partial(self._build_cache_keys, self._known_dependencies())
+        )
 
         old_paths = set(self._index.by_path.keys())
         new_paths = set(path_to_cache_key.keys())
@@ -447,10 +468,12 @@ class DeviceScanner(WakeWorker[str]):
             loaded = await run_in_executor(
                 partial(self._load_devices, paths_to_load, shallow=shallow)
             )
-            for path, device in loaded.items():
+            for path, (device, dependency_keys) in loaded.items():
                 kind = ScanChange.ADDED if path in added_paths else ScanChange.UPDATED
                 previous = self._index.by_path.get(path)
-                self._index.set(path, device, path_to_cache_key[path])
+                self._index.set(
+                    path, device, _with_dependency_keys(path_to_cache_key[path], dependency_keys)
+                )
                 self._notify(kind, device, previous)
 
         for path in removed_paths:
@@ -472,25 +495,54 @@ class DeviceScanner(WakeWorker[str]):
         except Exception:
             _LOGGER.exception("Scan change handler failed for %s (%s)", device.configuration, kind)
 
-    def _build_cache_keys(self) -> dict[Path, _CacheKey]:
+    def _known_dependencies(self) -> dict[Path, tuple[str, ...]]:
+        """Snapshot each indexed device's dependency list for the executor."""
+        return {p: d.dependencies or () for p, d in self._index.by_path.items()}
+
+    def _build_cache_keys(
+        self, deps_by_path: Mapping[Path, tuple[str, ...]] | None = None
+    ) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
+        if deps_by_path is None:
+            deps_by_path = self._known_dependencies()
         result: dict[Path, _CacheKey] = {}
+        # A package shared by the fleet is stat'ed once per scan.
+        memo: dict[str, DependencyStatKey] = {}
         for file in util.list_yaml_files([self._config_dir]):
             try:
                 stat = file.stat()
             except OSError:
                 continue
-            result[file] = (stat.st_ino, stat.st_dev, stat.st_mtime, stat.st_size)
+            dependencies = deps_by_path.get(file, ())
+            missing = [d for d in dependencies if d not in memo]
+            memo.update(zip(missing, dependency_stat_keys(self._config_dir, missing), strict=True))
+            result[file] = (
+                stat.st_ino,
+                stat.st_dev,
+                stat.st_mtime,
+                stat.st_size,
+                tuple(memo[d] for d in dependencies),
+            )
         return result
 
-    def _load_devices(self, paths: set[Path], *, shallow: bool = False) -> dict[Path, Device]:
+    def _load_devices(
+        self, paths: set[Path], *, shallow: bool = False
+    ) -> dict[Path, _LoadedDevice]:
         """Materialise Device models for *paths*. Logs and skips on failure."""
-        result: dict[Path, Device] = {}
+        result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
         for path in paths:
             try:
                 metadata = get_metadata(self._config_dir, path.name)
-                result[path] = load_device_from_storage(
+                previous = self._index.by_path.get(path)
+                known = (
+                    previous.dependencies
+                    if previous is not None and previous.dependencies is not None
+                    else metadata.dependencies
+                )
+                # Stat before the read so an edit landing mid-load flips the next scan.
+                dependency_keys = dependency_stat_keys(self._config_dir, known or ())
+                device = load_device_from_storage(
                     path,
                     metadata.board_id,
                     metadata.ip,
@@ -505,9 +557,21 @@ class DeviceScanner(WakeWorker[str]):
                     api_encryption_active=metadata.api_encryption_active,
                     deployed_name=metadata.deployed_name,
                     offline_since=metadata.offline_since,
-                    previous=self._index.by_path.get(path),
+                    previous=previous,
                     shallow=shallow,
+                    dependencies=known,
                 )
+                if device.dependencies != known:
+                    dependency_keys = dependency_stat_keys(
+                        self._config_dir, device.dependencies or ()
+                    )
+                result[path] = _LoadedDevice(device, dependency_keys)
             except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep
                 _LOGGER.warning("Failed to load device from %s", path.name)
         return result
+
+
+def _with_dependency_keys(key: _CacheKey, dependency_keys: DependencyStatKeys) -> _CacheKey:
+    """Return *key* with its dependency portion replaced by *dependency_keys*."""
+    ino, dev, mtime, size, _ = key
+    return (ino, dev, mtime, size, dependency_keys)

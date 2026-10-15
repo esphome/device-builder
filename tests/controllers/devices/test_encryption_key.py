@@ -19,6 +19,7 @@ from esphome_device_builder.controllers.devices.encryption_key import _locate_an
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import (
     EsphomeConfigUnavailableError,
+    dependency_fingerprint_for,
     extract_config_content_fingerprint,
 )
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
@@ -1125,3 +1126,38 @@ async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:
     store.set("a", OTHER_KEY, "AA:BB:CC:DD:EE:FF")
     assert store.pop("a") == {"key": OTHER_KEY, "mac": "AA:BB:CC:DD:EE:FF"}
     assert store.pop("a") is None
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+@pytest.mark.parametrize("dependencies_match", [True, False])
+async def test_set_encryption_key_old_key_vouch_covers_dependencies(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    dependencies_match: bool,
+) -> None:
+    """The regen stamp vouches for the previous key only while its dependency digest holds."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
+    _configure(
+        ctrl,
+        tmp_path,
+        yaml_text,
+        deployed_config_hash="h1",
+        ota_encryption_required=True,
+        dependencies=("packages/common.yaml",),
+    )
+    _stamp_regen(ctrl, "h1", extract_config_content_fingerprint(yaml_text))
+    stamped = dependency_fingerprint_for(tmp_path, ("packages/common.yaml",), yaml_text)
+    ctrl._metadata_store.update(
+        "kitchen.yaml",
+        regen_dependency_fingerprint=stamped if dependencies_match else "1:stale",
+    )
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    expected_old_key = OTHER_KEY if dependencies_match else THIRD_KEY
+    assert new_yaml.endswith(f'    encryption:\n      old_key: "{expected_old_key}"\n')

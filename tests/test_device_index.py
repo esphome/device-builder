@@ -48,12 +48,12 @@ def test_set_inserts_new_device_into_every_map() -> None:
     path = Path("/cfg/kitchen.yaml")
     device = _device("kitchen", "kitchen.yaml")
 
-    index.set(path, device, (1, 2, 3.0, 4))
+    index.set(path, device, (1, 2, 3.0, 4, ()))
 
     assert index.by_path == {path: device}
     assert index.devices == [device]
     assert index.get_by_name("kitchen") == [device]
-    assert index.cache_key(path) == (1, 2, 3.0, 4)
+    assert index.cache_key(path) == (1, 2, 3.0, 4, ())
 
 
 def test_set_updates_existing_path_in_place() -> None:
@@ -69,12 +69,12 @@ def test_set_updates_existing_path_in_place() -> None:
     stale = _device("kitchen", "kitchen.yaml", friendly_name="Stale")
     fresh = _device("kitchen", "kitchen.yaml", friendly_name="Fresh")
 
-    index.set(path, stale, (0, 0, 0.0, 0))
-    index.set(path, fresh, (1, 2, 3.0, 4))
+    index.set(path, stale, (0, 0, 0.0, 0, ()))
+    index.set(path, fresh, (1, 2, 3.0, 4, ()))
 
     assert index.by_path[path] is fresh
     assert index.get_by_name("kitchen") == [fresh]
-    assert index.cache_key(path) == (1, 2, 3.0, 4)
+    assert index.cache_key(path) == (1, 2, 3.0, 4, ())
 
 
 def test_set_handles_yaml_rename_by_rebucketing() -> None:
@@ -90,8 +90,8 @@ def test_set_handles_yaml_rename_by_rebucketing() -> None:
     old = _device("kitchen", "device.yaml")
     new = _device("lounge", "device.yaml")
 
-    index.set(path, old, (0, 0, 0.0, 0))
-    index.set(path, new, (1, 1, 1.0, 1))
+    index.set(path, old, (0, 0, 0.0, 0, ()))
+    index.set(path, new, (1, 1, 1.0, 1, ()))
 
     assert index.get_by_name("kitchen") == []
     assert index.get_by_name("lounge") == [new]
@@ -109,9 +109,9 @@ def test_set_keeps_bucket_sorted_by_configuration_filename() -> None:
     """
     index = _DeviceIndex()
     # Insert in non-alphabetical order to prove the sort is real.
-    index.set(Path("/cfg/zebra.yaml"), _device("dup", "zebra.yaml"), (0, 0, 0.0, 0))
-    index.set(Path("/cfg/alpha.yaml"), _device("dup", "alpha.yaml"), (0, 0, 0.0, 0))
-    index.set(Path("/cfg/mike.yaml"), _device("dup", "mike.yaml"), (0, 0, 0.0, 0))
+    index.set(Path("/cfg/zebra.yaml"), _device("dup", "zebra.yaml"), (0, 0, 0.0, 0, ()))
+    index.set(Path("/cfg/alpha.yaml"), _device("dup", "alpha.yaml"), (0, 0, 0.0, 0, ()))
+    index.set(Path("/cfg/mike.yaml"), _device("dup", "mike.yaml"), (0, 0, 0.0, 0, ()))
 
     bucket = index.get_by_name("dup")
     assert [d.configuration for d in bucket] == ["alpha.yaml", "mike.yaml", "zebra.yaml"]
@@ -127,7 +127,7 @@ def test_get_by_name_returns_a_snapshot() -> None:
     """
     index = _DeviceIndex()
     device = _device("kitchen", "kitchen.yaml")
-    index.set(Path("/cfg/kitchen.yaml"), device, (0, 0, 0.0, 0))
+    index.set(Path("/cfg/kitchen.yaml"), device, (0, 0, 0.0, 0, ()))
 
     bucket = index.get_by_name("kitchen")
     bucket.clear()
@@ -153,7 +153,7 @@ def test_pop_removes_from_every_map_and_returns_device() -> None:
     index = _DeviceIndex()
     path = Path("/cfg/kitchen.yaml")
     device = _device("kitchen", "kitchen.yaml")
-    index.set(path, device, (1, 2, 3.0, 4))
+    index.set(path, device, (1, 2, 3.0, 4, ()))
 
     popped = index.pop(path)
 
@@ -180,8 +180,8 @@ def test_pop_leaves_sibling_in_shared_name_bucket() -> None:
     index = _DeviceIndex()
     a = _device("kitchen", "a.yaml")
     b = _device("kitchen", "b.yaml")
-    index.set(Path("/cfg/a.yaml"), a, (0, 0, 0.0, 0))
-    index.set(Path("/cfg/b.yaml"), b, (0, 0, 0.0, 0))
+    index.set(Path("/cfg/a.yaml"), a, (0, 0, 0.0, 0, ()))
+    index.set(Path("/cfg/b.yaml"), b, (0, 0, 0.0, 0, ()))
 
     index.pop(Path("/cfg/a.yaml"))
 
@@ -197,7 +197,7 @@ def test_find_path_by_filename_returns_matching_path() -> None:
     """``find_path_by_filename`` matches by ``Path.name``, not full path string."""
     index = _DeviceIndex()
     path = Path("/cfg/kitchen.yaml")
-    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0))
+    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0, ()))
 
     assert index.find_path_by_filename("kitchen.yaml") == path
 
@@ -217,7 +217,7 @@ def test_get_by_configuration_returns_the_device() -> None:
     """``set`` makes the device resolvable by its ``configuration`` filename."""
     index = _DeviceIndex()
     device = _device("kitchen", "kitchen.yaml")
-    index.set(Path("/cfg/kitchen.yaml"), device, (0, 0, 0.0, 0))
+    index.set(Path("/cfg/kitchen.yaml"), device, (0, 0, 0.0, 0, ()))
 
     assert index.get_by_configuration("kitchen.yaml") is device
 
@@ -234,8 +234,8 @@ def test_get_by_configuration_follows_in_place_update() -> None:
     path = Path("/cfg/kitchen.yaml")
     stale = _device("kitchen", "kitchen.yaml", friendly_name="Stale")
     fresh = _device("kitchen", "kitchen.yaml", friendly_name="Fresh")
-    index.set(path, stale, (0, 0, 0.0, 0))
-    index.set(path, fresh, (1, 2, 3.0, 4))
+    index.set(path, stale, (0, 0, 0.0, 0, ()))
+    index.set(path, fresh, (1, 2, 3.0, 4, ()))
 
     assert index.get_by_configuration("kitchen.yaml") is fresh
 
@@ -244,9 +244,9 @@ def test_get_by_configuration_survives_name_change() -> None:
     """A same-file ``esphome.name`` edit keeps the configuration lookup valid."""
     index = _DeviceIndex()
     path = Path("/cfg/device.yaml")
-    index.set(path, _device("kitchen", "device.yaml"), (0, 0, 0.0, 0))
+    index.set(path, _device("kitchen", "device.yaml"), (0, 0, 0.0, 0, ()))
     renamed = _device("lounge", "device.yaml")
-    index.set(path, renamed, (1, 1, 1.0, 1))
+    index.set(path, renamed, (1, 1, 1.0, 1, ()))
 
     assert index.get_by_configuration("device.yaml") is renamed
 
@@ -255,7 +255,7 @@ def test_get_by_configuration_returns_none_after_pop() -> None:
     """Popping the path drops the configuration entry too."""
     index = _DeviceIndex()
     path = Path("/cfg/kitchen.yaml")
-    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0))
+    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0, ()))
     index.pop(path)
 
     assert index.get_by_configuration("kitchen.yaml") is None
@@ -266,8 +266,8 @@ def test_get_by_configuration_distinguishes_name_sharing_siblings() -> None:
     index = _DeviceIndex()
     a = _device("kitchen", "a.yaml")
     b = _device("kitchen", "b.yaml")
-    index.set(Path("/cfg/a.yaml"), a, (0, 0, 0.0, 0))
-    index.set(Path("/cfg/b.yaml"), b, (0, 0, 0.0, 0))
+    index.set(Path("/cfg/a.yaml"), a, (0, 0, 0.0, 0, ()))
+    index.set(Path("/cfg/b.yaml"), b, (0, 0, 0.0, 0, ()))
 
     assert index.get_by_configuration("a.yaml") is a
     assert index.get_by_configuration("b.yaml") is b
@@ -290,7 +290,7 @@ def test_rebuild_in_path_order_re_keys_devices_and_cache_keys() -> None:
     index = _DeviceIndex()
     paths = [Path(f"/cfg/{n}.yaml") for n in ("zebra", "alpha", "mike")]
     for p in paths:
-        index.set(p, _device(p.stem, p.name), (0, 0, 0.0, 0))
+        index.set(p, _device(p.stem, p.name), (0, 0, 0.0, 0, ()))
 
     # Apply lexicographic order — opposite of insertion order.
     index.rebuild_in_path_order(sorted(paths))
@@ -314,8 +314,8 @@ def test_rebuild_in_path_order_ignores_extra_paths_never_indexed() -> None:
     a = Path("/cfg/a.yaml")
     b = Path("/cfg/b.yaml")
     c = Path("/cfg/c.yaml")  # never .set() — simulates failed load
-    index.set(a, _device("a", "a.yaml"), (0, 0, 0.0, 0))
-    index.set(b, _device("b", "b.yaml"), (0, 0, 0.0, 0))
+    index.set(a, _device("a", "a.yaml"), (0, 0, 0.0, 0, ()))
+    index.set(b, _device("b", "b.yaml"), (0, 0, 0.0, 0, ()))
 
     index.rebuild_in_path_order([a, b, c])
 
@@ -338,8 +338,8 @@ def test_rebuild_in_path_order_rejects_omitting_indexed_paths() -> None:
     index = _DeviceIndex()
     a = Path("/cfg/a.yaml")
     b = Path("/cfg/b.yaml")
-    index.set(a, _device("a", "a.yaml"), (0, 0, 0.0, 0))
-    index.set(b, _device("b", "b.yaml"), (0, 0, 0.0, 0))
+    index.set(a, _device("a", "a.yaml"), (0, 0, 0.0, 0, ()))
+    index.set(b, _device("b", "b.yaml"), (0, 0, 0.0, 0, ()))
 
     with pytest.raises(ValueError, match=r"missing 1 indexed path"):
         index.rebuild_in_path_order([a])  # omits b — must refuse
@@ -361,7 +361,7 @@ def test_by_path_view_rejects_mutation() -> None:
     """
     index = _DeviceIndex()
     path = Path("/cfg/kitchen.yaml")
-    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0))
+    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0, ()))
 
     by_path = index.by_path
     with pytest.raises(TypeError):
@@ -382,7 +382,7 @@ def test_by_path_view_reflects_subsequent_mutations() -> None:
     assert dict(by_path) == {}
 
     path = Path("/cfg/kitchen.yaml")
-    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0))
+    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0, ()))
     assert path in by_path
     assert by_path[path].name == "kitchen"
 
@@ -404,7 +404,7 @@ def test_by_path_reflects_rebuild_path_order() -> None:
     index = _DeviceIndex()
     paths = [Path(f"/cfg/{n}.yaml") for n in ("zebra", "alpha")]
     for p in paths:
-        index.set(p, _device(p.stem, p.name), (0, 0, 0.0, 0))
+        index.set(p, _device(p.stem, p.name), (0, 0, 0.0, 0, ()))
 
     index.rebuild_in_path_order(sorted(paths))
 

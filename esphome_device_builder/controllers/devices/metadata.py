@@ -139,6 +139,12 @@ class DeviceMetadataBase(DeviceBuilderBase):
             for key in ("offline_since", "last_seen")
             if isinstance(stamp := store_md.get(key), (int, float))
         ]
+        raw_dependencies = store_md.get("dependencies")
+        dependencies = (
+            tuple(item for item in raw_dependencies if isinstance(item, str))
+            if isinstance(raw_dependencies, list)
+            else None
+        )
         return DeviceFileMetadata(
             board_id=board_id,
             ip=ip,
@@ -153,6 +159,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             api_encryption_active=api_encryption_active,
             deployed_name=deployed_name,
             offline_since=max(stamps, default=None),
+            dependencies=dependencies,
         )
 
     def _make_metadata_resolver(self) -> MetadataResolver:

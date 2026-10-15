@@ -188,6 +188,11 @@ class Device(DashboardModel):
     address: str = ""  # mDNS hostname from StorageJSON (e.g. "my_device.local")
     # Versioned digest of the config YAML text; out-of-band-edit detector.
     content_fingerprint: str = field(default="", metadata={"serialize": "omit"})
+    # Files the YAML pulls in (``!include`` / ``packages:`` / secrets),
+    # relative to the config dir; ``None`` until a deep load discovers them.
+    dependencies: tuple[str, ...] | None = field(default=None, metadata={"serialize": "omit"})
+    # Versioned digest of the dependencies' content; out-of-band-edit detector.
+    dependency_fingerprint: str = field(default="", metadata={"serialize": "omit"})
     # Last-known resolved IP — primary IPv4 when available, else the
     # first scoped IPv6. Populated by mDNS resolution and DNS
     # pre-resolve in the ping sweep, persisted through the device-builder

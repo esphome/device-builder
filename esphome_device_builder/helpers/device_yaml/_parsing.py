@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -206,6 +206,24 @@ def extract_config_content_fingerprint(yaml_content: str) -> str:
 def content_fingerprint_is_current(stored: object) -> bool:
     """Return True when *stored* is a digest the current algorithm produced."""
     return isinstance(stored, str) and stored.startswith(CONTENT_FINGERPRINT_VERSION)
+
+
+# Prefix on every stored dependency digest; bump when the algorithm changes.
+DEPENDENCY_FINGERPRINT_VERSION = "1:"
+
+
+def extract_dependency_fingerprint(sources: Iterable[tuple[str, Iterable[str]]] | None) -> str:
+    """Versioned digest of each dependency's path and significant lines; empty when unknown."""
+    if sources is None:
+        return ""
+    lines = [line for dependency, body in sources for line in (dependency, *body)]
+    digest = hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    return f"{DEPENDENCY_FINGERPRINT_VERSION}{digest}"
+
+
+def dependency_fingerprint_is_current(stored: object) -> bool:
+    """Return True when *stored* is a dependency digest the current algorithm produced."""
+    return isinstance(stored, str) and stored.startswith(DEPENDENCY_FINGERPRINT_VERSION)
 
 
 # The blocks that decide *which* component modules esphome loads:

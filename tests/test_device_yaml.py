@@ -20,6 +20,7 @@ import pytest
 import yaml
 from esphome import yaml_util
 from esphome.const import ALLOWED_NAME_CHARS
+from esphome.core import CORE
 
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
@@ -38,20 +39,26 @@ from esphome_device_builder.helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
     load_device_from_storage,
+    load_device_yaml_tracked,
     parse_esphome_meta,
     parse_platform_from_yaml,
     pending_changes_via_hash,
+    read_dependency_sources,
     resolve_chip_mcu,
 )
+from esphome_device_builder.helpers.device_yaml._dependencies import normalize_dependencies
 from esphome_device_builder.helpers.device_yaml._loading import _snapshot_source_files
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
+    DEPENDENCY_FINGERPRINT_VERSION,
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
     content_fingerprint_is_current,
+    dependency_fingerprint_is_current,
     device_ap_label,
     extract_component_source_fingerprint,
     extract_config_content_fingerprint,
+    extract_dependency_fingerprint,
     extract_logger_baud_rate,
     extract_logger_interface,
     extract_ota_partition_access,
@@ -3971,3 +3978,181 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
     (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
     config = device_yaml.load_device_yaml(tmp_path / "k.yaml")
     assert device_yaml.resolution_incomplete(config) is expected
+
+
+# ---------------------------------------------------------------------------
+# Dependencies: !include / packages / secrets
+# ---------------------------------------------------------------------------
+
+
+def _write_include_fleet(config_dir: Path) -> Path:
+    """Device YAML pulling in a package, a deferred include and a secret."""
+    (config_dir / "packages").mkdir()
+    (config_dir / "packages" / "common.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n  encryption:\n    key: !secret api_key\n",
+        encoding="utf-8",
+    )
+    (config_dir / "packages" / "filters.yaml").write_text("- multiply: 2\n", encoding="utf-8")
+    (config_dir / "secrets.yaml").write_text("api_key: abc\nunrelated: zzz\n", encoding="utf-8")
+    yaml_file = config_dir / "kitchen.yaml"
+    yaml_file.write_text(
+        "packages:\n  common: !include packages/common.yaml\n"
+        "sensor:\n  - platform: template\n    name: x\n"
+        "    filters: !include packages/filters.yaml\n",
+        encoding="utf-8",
+    )
+    return yaml_file
+
+
+# esphome probes ``secrets.yaml`` beside the including file before falling
+# back to the config dir, so the package's (absent) sibling is tracked too.
+_FLEET_DEPENDENCIES = (
+    "packages/common.yaml",
+    "packages/filters.yaml",
+    "packages/secrets.yaml",
+    "secrets.yaml",
+)
+
+
+def test_load_device_yaml_tracked_reports_dependencies(tmp_path: Path) -> None:
+    """Packages, deferred includes and the secrets lookup chain all land in the list."""
+    config, dependencies = load_device_yaml_tracked(_write_include_fleet(tmp_path))
+
+    assert config is not None
+    assert dependencies == _FLEET_DEPENDENCIES
+
+
+def test_load_device_yaml_tracked_returns_none_on_parse_failure(tmp_path: Path) -> None:
+    """A broken file reports no list rather than a truncated one."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text("esphome: [\n", encoding="utf-8")
+
+    assert load_device_yaml_tracked(yaml_file) == (None, None)
+
+
+def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
+    """Drop the device file (via a symlink) and the package cache; relativise inside the dir."""
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    outside = tmp_path / "outside.yaml"
+
+    dependencies = normalize_dependencies(
+        link / "kitchen.yaml",
+        [
+            real / "kitchen.yaml",
+            real / "b.yaml",
+            real / "packages" / "a.yaml",
+            Path(CORE.data_dir) / "packages" / "abcd1234" / "remote.yaml",
+            outside,
+            real / "b.yaml",
+        ],
+    )
+
+    assert dependencies == (str(outside.resolve()), "b.yaml", "packages/a.yaml")
+
+
+def test_extract_dependency_fingerprint_shape() -> None:
+    """Unknown digests to empty, a known empty list to a constant, and the path is part of it."""
+    assert extract_dependency_fingerprint(None) == ""
+    empty = extract_dependency_fingerprint([])
+    assert empty.startswith(DEPENDENCY_FINGERPRINT_VERSION)
+    assert empty == extract_dependency_fingerprint(())
+    assert extract_dependency_fingerprint([("a.yaml", ["x: 1"])]) != extract_dependency_fingerprint(
+        [("b.yaml", ["x: 1"])]
+    )
+    assert dependency_fingerprint_is_current(empty)
+    assert not dependency_fingerprint_is_current("d" * 64)
+    assert not dependency_fingerprint_is_current(None)
+
+
+def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_path: Path) -> None:
+    """Only the ``!secret`` names in play digest; secrets never move ``newest_mtime``."""
+    yaml_file = _write_include_fleet(tmp_path)
+    far_future = time.time() + 10_000
+    os.utime(tmp_path / "secrets.yaml", (far_future, far_future))
+
+    sources = read_dependency_sources(
+        tmp_path, _FLEET_DEPENDENCIES, yaml_file.read_text(encoding="utf-8")
+    )
+
+    lines = dict(sources.lines)
+    assert lines["secrets.yaml"] == ["api_key: abc"]
+    assert lines["packages/secrets.yaml"] == []
+    assert lines["packages/filters.yaml"] == ["- multiply: 2"]
+    assert sources.stat_keys[2] == (-1, -1)
+    assert sources.newest_mtime is not None
+    assert sources.newest_mtime < far_future
+
+
+def test_load_device_from_storage_dependency_digest_agrees_between_shallow_and_deep(
+    tmp_path: Path,
+) -> None:
+    """A shallow load fed the persisted list digests exactly what the deep load discovers."""
+    yaml_file = _write_include_fleet(tmp_path)
+
+    deep = load_device_from_storage(yaml_file)
+    shallow = load_device_from_storage(yaml_file, shallow=True, dependencies=deep.dependencies)
+    unknown = load_device_from_storage(yaml_file, shallow=True)
+
+    assert deep.dependencies == _FLEET_DEPENDENCIES
+    assert deep.dependency_fingerprint.startswith(DEPENDENCY_FINGERPRINT_VERSION)
+    assert shallow.dependency_fingerprint == deep.dependency_fingerprint
+    assert unknown.dependencies is None
+    assert unknown.dependency_fingerprint == ""
+
+
+def test_load_device_from_storage_keeps_known_dependencies_when_parse_fails(
+    tmp_path: Path,
+) -> None:
+    """A mid-edit syntax error keeps digesting the last known list."""
+    _write_include_fleet(tmp_path)
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text("esphome: [\n", encoding="utf-8")
+
+    device = load_device_from_storage(yaml_file, dependencies=("packages/common.yaml",))
+
+    assert device.dependencies == ("packages/common.yaml",)
+    assert device.dependency_fingerprint.startswith(DEPENDENCY_FINGERPRINT_VERSION)
+
+
+def test_dependency_digest_moves_only_on_content_in_play(tmp_path: Path) -> None:
+    """Comments and unrelated secrets leave it alone; package and used-secret edits move it."""
+    yaml_file = _write_include_fleet(tmp_path)
+    filters = tmp_path / "packages" / "filters.yaml"
+    secrets = tmp_path / "secrets.yaml"
+    baseline = load_device_from_storage(yaml_file).dependency_fingerprint
+
+    filters.write_text("# a note\n- multiply: 2\n", encoding="utf-8")
+    assert load_device_from_storage(yaml_file).dependency_fingerprint == baseline
+
+    secrets.write_text("api_key: abc\nunrelated: yyy\n", encoding="utf-8")
+    assert load_device_from_storage(yaml_file).dependency_fingerprint == baseline
+
+    secrets.write_text("api_key: abz\nunrelated: yyy\n", encoding="utf-8")
+    rotated = load_device_from_storage(yaml_file).dependency_fingerprint
+    assert rotated != baseline
+
+    filters.write_text("- multiply: 3\n", encoding="utf-8")
+    assert load_device_from_storage(yaml_file).dependency_fingerprint not in (baseline, rotated)
+
+
+def test_load_device_from_storage_pending_changes_sees_a_newer_package(tmp_path: Path) -> None:
+    """Without hashes, a package edited after the last compile counts as pending."""
+    yaml_file = _write_include_fleet(tmp_path)
+    build_path = tmp_path / ".esphome" / "build" / "kitchen"
+    firmware = build_path / ".pioenvs" / "firmware.bin"
+    firmware.parent.mkdir(parents=True)
+    firmware.write_bytes(b"")
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=firmware, build_path=build_path)
+    package = tmp_path / "packages" / "common.yaml"
+    os.utime(yaml_file, (1000, 1000))
+    os.utime(firmware, (2000, 2000))
+    os.utime(tmp_path / "packages" / "filters.yaml", (1500, 1500))
+
+    os.utime(package, (1500, 1500))
+    assert load_device_from_storage(yaml_file).has_pending_changes is False
+
+    os.utime(package, (3000, 3000))
+    assert load_device_from_storage(yaml_file).has_pending_changes is True

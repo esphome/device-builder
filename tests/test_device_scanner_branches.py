@@ -14,6 +14,7 @@ so the regression surfaces in CI rather than in a user's logs.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -555,3 +556,94 @@ async def test_plain_scan_does_not_redeepen_shallow_rows(tmp_path: Path) -> None
     # The unchanged cache key skipped the file entirely; only reload /
     # request deepens the row.
     assert seen == [True]
+
+
+# ---------------------------------------------------------------------------
+# Dependency files in the change key
+# ---------------------------------------------------------------------------
+
+
+def _write_include_fleet(config_dir: Path) -> tuple[Path, Path]:
+    """``kitchen.yaml`` pulling in ``packages/common.yaml``; ``porch.yaml`` standalone."""
+    (config_dir / "packages").mkdir()
+    package = config_dir / "packages" / "common.yaml"
+    package.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    kitchen = config_dir / "kitchen.yaml"
+    kitchen.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
+    _write_yaml(config_dir, "porch")
+    return kitchen, package
+
+
+def _bump_mtime(path: Path) -> None:
+    stat = path.stat()
+    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
+
+
+async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path) -> None:
+    """A package edit surfaces as UPDATED on the devices that pull it in and nowhere else."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    kitchen, package = _write_include_fleet(cfg)
+    scanner, events = _make_scanner(cfg)
+
+    await scanner.scan()
+    assert sorted((kind, device.name) for kind, device, _ in events) == [
+        (ScanChange.ADDED, "kitchen"),
+        (ScanChange.ADDED, "porch"),
+    ]
+    assert scanner.by_path[kitchen].dependencies == ("packages/common.yaml",)
+    events.clear()
+    await scanner.scan()
+    assert events == []
+
+    package.write_text("esphome:\n  name: kitchen\nlogger:\n", encoding="utf-8")
+    _bump_mtime(package)
+    await scanner.scan()
+
+    assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
+    _, device, previous = events[0]
+    assert previous is not None
+    assert device.dependency_fingerprint != previous.dependency_fingerprint
+    events.clear()
+    await scanner.scan()
+    assert events == []
+
+
+async def test_dependency_touch_fires_one_updated_with_the_digest_unchanged(
+    tmp_path: Path,
+) -> None:
+    """An mtime-only change reloads once; the digest the regen gate reads stays put."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _, package = _write_include_fleet(cfg)
+    scanner, events = _make_scanner(cfg)
+    await scanner.scan()
+    events.clear()
+
+    _bump_mtime(package)
+    await scanner.scan()
+
+    assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
+    _, device, previous = events[0]
+    assert previous is not None
+    assert device.dependency_fingerprint == previous.dependency_fingerprint
+    events.clear()
+    await scanner.scan()
+    assert events == []
+
+
+async def test_reload_keeps_dependency_keys_so_the_next_scan_is_quiet(tmp_path: Path) -> None:
+    """A reload re-stats the device file and carries the dependency keys the load read against."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    kitchen, package = _write_include_fleet(cfg)
+    scanner, events = _make_scanner(cfg)
+    await scanner.scan()
+    events.clear()
+
+    assert await scanner.reload("kitchen.yaml") is True
+    await scanner.scan()
+
+    assert events == []
+    stat = package.stat()
+    assert scanner._index.cache_key(kitchen)[4] == ((stat.st_mtime_ns, stat.st_size),)

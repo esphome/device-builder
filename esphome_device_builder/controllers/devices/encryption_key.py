@@ -15,6 +15,7 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import (
     config_has_top_level_block,
+    dependency_fingerprint_for,
     extract_config_content_fingerprint,
     yaml_has_top_level_block,
 )
@@ -169,7 +170,7 @@ async def _apply_to_device(
             content,
             key,
             record_previous=keep_previous,
-            replace_old_key=_runs_yaml(controller, device, content),
+            replace_old_key=await _runs_yaml(controller, device, content),
         )
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
@@ -216,15 +217,25 @@ def _ota_old_key_supported() -> bool:
     return hasattr(espota2, "CONF_OLD_KEY")
 
 
-def _runs_yaml(controller: DevicesController, device: Device, content: str) -> bool:
+async def _runs_yaml(controller: DevicesController, device: Device, content: str) -> bool:
     """Whether the device reports the hash a storage regen produced for this very YAML *content*."""
     md = controller._metadata_store.get(device.configuration)
     deployed = device.runtime_state.deployed_config_hash
-    return (
-        bool(deployed)
+    if not (
+        deployed
         and md.get("regen_config_hash") == deployed
         and md.get("regen_content_fingerprint") == extract_config_content_fingerprint(content)
+    ):
+        return False
+    stamped = md.get("regen_dependency_fingerprint")
+    if not stamped:
+        # The regen predates dependency tracking; the content digest is all it vouched.
+        return True
+    config_path = controller._db.settings.rel_path(device.configuration)
+    current = await run_in_executor(
+        dependency_fingerprint_for, config_path.parent, device.dependencies or (), content
     )
+    return bool(stamped == current)
 
 
 def _unrecorded_reason(

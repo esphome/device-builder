@@ -32,7 +32,10 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController, storage_regen
 from esphome_device_builder.controllers.devices._state import RegenState
 from esphome_device_builder.helpers.device_yaml import extract_config_content_fingerprint
-from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
+from esphome_device_builder.helpers.device_yaml._parsing import (
+    CONTENT_FINGERPRINT_VERSION,
+    DEPENDENCY_FINGERPRINT_VERSION,
+)
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wait_until
@@ -132,7 +135,9 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     )
     persist_calls: list[str] = []
 
-    async def _fake_finalize(_self: Any, configuration: str, fingerprint: str = "") -> None:
+    async def _fake_finalize(
+        _self: Any, configuration: str, fingerprint: str = "", dependency_fingerprint: str = ""
+    ) -> None:
         persist_calls.append(configuration)
 
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", _fake_finalize)
@@ -1560,3 +1565,171 @@ async def test_cancel_all_retry_timers_cancels_pending_handles() -> None:
 
     assert all(handle.cancelled() for handle in handles)
     assert state.retry_timers == {}
+
+
+# ---------------------------------------------------------------------------
+# Dependency files
+# ---------------------------------------------------------------------------
+
+
+async def test_out_of_band_dependency_edit_spawns_only_generate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A scanner UPDATED whose dependency digest moved regenerates StorageJSON."""
+    controller = make_controller(
+        tmp_path,
+        with_state_monitor=True,
+        with_regenerate_state=True,
+        esphome_cmd=["esphome"],
+    )
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        return _capture_result(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    _seed_store(
+        controller,
+        "kitchen.yaml",
+        content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}same",
+        dependency_fingerprint=f"{DEPENDENCY_FINGERPRINT_VERSION}pre-edit",
+    )
+
+    controller._on_scan_change(
+        ScanChange.UPDATED,
+        make_device(
+            name="kitchen",
+            content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}same",
+            dependency_fingerprint=f"{DEPENDENCY_FINGERPRINT_VERSION}post-edit",
+            loaded_integrations=["wifi"],
+            expected_config_hash="abcd1234",
+        ),
+    )
+    await _drain(controller)
+
+    assert len(spawn_calls) == 1
+
+
+@pytest.mark.parametrize("package_changed", [True, False])
+async def test_spent_ladder_releases_when_a_dependency_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    package_changed: bool,
+) -> None:
+    """A spent stamp holds only while the dependency digest it recorded still matches."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
+    current = storage_regen._source_fingerprints(yaml_path, ("packages/common.yaml",))[1]
+    _seed_store(
+        controller,
+        "kitchen.yaml",
+        dependencies=["packages/common.yaml"],
+        regen_failed_mtime=yaml_path.stat().st_mtime,
+        regen_failed_at=time.time() - 5.0,
+        regen_failed_attempts=storage_regen._MAX_REGEN_ATTEMPTS,
+        regen_failed_dependency_fingerprint=(
+            f"{DEPENDENCY_FINGERPRINT_VERSION}stale" if package_changed else current
+        ),
+    )
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        return _capture_result(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert len(spawn_calls) == (1 if package_changed else 0)
+    controller.state.regen.cancel_retry("kitchen.yaml")
+
+
+async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Both stamps carry the dependency digest the spawn read."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
+    _seed_store(controller, "kitchen.yaml", dependencies=["packages/common.yaml"])
+    expected = storage_regen._source_fingerprints(yaml_path, ("packages/common.yaml",))[1]
+    outcomes = iter([2, 0])
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
+        return _capture_result(returncode=next(outcomes))
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.read_build_info_hash",
+        lambda _path: "abcd1234",
+    )
+    clock = {"offset": 0.0}
+    real_time = time.time
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.time.time",
+        lambda: real_time() + clock["offset"],
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+    assert (
+        _read_store(controller, "kitchen.yaml")["regen_failed_dependency_fingerprint"] == expected
+    )
+
+    # Past the first backoff window, the retry spawns and succeeds.
+    clock["offset"] = storage_regen._delay_for(1) + 1.0
+    controller.state.regen.cancel_retry("kitchen.yaml")
+    storage_regen._fire_retry(controller, "kitchen.yaml")
+    await _drain(controller)
+    md = _read_store(controller, "kitchen.yaml")
+    assert md["regen_dependency_fingerprint"] == expected
+    assert "regen_failed_dependency_fingerprint" not in md
+
+
+@pytest.mark.parametrize(
+    ("stored", "current", "fresh"),
+    [
+        pytest.param(None, "1:x", True, id="legacy-stamp"),
+        pytest.param("1:x", "1:x", True, id="match"),
+        pytest.param("1:x", "1:y", False, id="moved"),
+    ],
+)
+def test_fresh_stamp_compares_the_dependency_fingerprint(
+    stored: str | None, current: str, fresh: bool
+) -> None:
+    md: dict[str, Any] = {
+        "regen_failed_mtime": 5.0,
+        "regen_failed_at": 1000.0,
+        "regen_failed_attempts": 1,
+    }
+    if stored is not None:
+        md["regen_failed_dependency_fingerprint"] = stored
+
+    stamp = storage_regen._fresh_stamp(md, 5.0, 1060.0, dependency_fingerprint=current)
+
+    assert (stamp is not None) is fresh
