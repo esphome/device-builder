@@ -25,8 +25,9 @@ from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import (
     DependencyStatKey,
     DependencyStatKeys,
-    dependency_stat_keys,
+    SourceMemo,
     load_device_from_storage,
+    safe_stat_key,
 )
 from ..models import Device
 from ._wake_worker import WakeWorker
@@ -523,8 +524,9 @@ class DeviceScanner(WakeWorker[str]):
         self, memo: dict[str, DependencyStatKey], dependencies: Iterable[str]
     ) -> DependencyStatKeys:
         """Stat *dependencies* through *memo*, so a package shared by the fleet is stat'ed once."""
-        missing = [d for d in dependencies if d not in memo]
-        memo.update(zip(missing, dependency_stat_keys(self._config_dir, missing), strict=True))
+        for dependency in dependencies:
+            if dependency not in memo:
+                memo[dependency] = safe_stat_key(self._config_dir / dependency)
         return tuple(memo[d] for d in dependencies)
 
     def _load_devices(
@@ -534,6 +536,7 @@ class DeviceScanner(WakeWorker[str]):
         result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
         memo: dict[str, DependencyStatKey] = {}
+        source_memo: SourceMemo = {}
         for path in paths:
             try:
                 metadata = get_metadata(self._config_dir, path.name)
@@ -563,6 +566,7 @@ class DeviceScanner(WakeWorker[str]):
                     previous=previous,
                     shallow=shallow,
                     dependencies=known,
+                    source_memo=source_memo,
                 )
                 if device.dependencies != known:
                     dependency_keys = self._dependency_keys(memo, device.dependencies or ())

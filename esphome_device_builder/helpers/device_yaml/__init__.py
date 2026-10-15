@@ -20,9 +20,8 @@ from ._chip import resolve_chip_mcu
 from ._dependencies import (
     DependencyStatKey,
     DependencyStatKeys,
-    SourceFingerprints,
+    SourceMemo,
     dependency_fingerprint,
-    dependency_stat_keys,
     read_source_fingerprints,
 )
 from ._generation import (
@@ -100,7 +99,7 @@ __all__ = [
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",
     "SecretRef",
-    "SourceFingerprints",
+    "SourceMemo",
     "StorageJSON",
     "_extract_resolved_substitutions",
     "_has_native_wifi",
@@ -118,7 +117,6 @@ __all__ = [
     "dependency_fingerprint",
     "dependency_fingerprint_is_current",
     "dependency_stamp_matches",
-    "dependency_stat_keys",
     "detect_platform_from_yaml",
     "device_ap_label",
     "device_uses_mqtt",

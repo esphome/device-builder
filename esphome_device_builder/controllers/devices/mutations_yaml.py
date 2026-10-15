@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
+from ...constants import SECRET_REF_RE
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
@@ -35,7 +35,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 _INHERIT_ERROR_MARK = "encryption key to inherit"
-_SECRET_TOKEN = re.compile(r"!secret\s+(\S+)")
 # The only refs generated YAML emits; any other name is the generator's bug.
 _GENERATED_SECRET_NAMES = frozenset(
     ref.removeprefix("!secret ") for ref in (WIFI_SSID_SECRET_REF, WIFI_PASSWORD_SECRET_REF)
@@ -362,7 +361,7 @@ def _secret_key_at(range_: dict | None, lines: list[str]) -> str | None:
     if line != range_.get("end_line") or not 0 <= line < len(lines):
         return None
     token = lines[line][start:end]
-    match = _SECRET_TOKEN.fullmatch(token.strip())
+    match = SECRET_REF_RE.fullmatch(token.strip())
     return match.group(1).strip("\"'") if match else None
 
 

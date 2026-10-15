@@ -88,13 +88,12 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             )
             return
         regen.clear_strikes(configuration)
-        # The scanner's digest lags a dependency edit by one poll at most, and
-        # that edit reschedules the regen anyway.
+        current = await run_in_executor(read_source_fingerprints, config_path, dependencies)
         stamp = _fresh_stamp(
             controller._metadata_store.get(configuration),
             current_mtime,
             time.time(),
-            dependency_fingerprint=device.dependency_fingerprint if device is not None else "",
+            dependency_fingerprint=current.dependency,
         )
         if stamp is not None:
             attempts, age = stamp
@@ -119,22 +118,18 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         async with controller._regenerate_lock:
             # Read right before the spawn: an edit landing mid-run must not
             # be stamped as the content the hash was generated from.
-            fingerprint, dependency_fingerprint = await run_in_executor(
-                read_source_fingerprints, config_path, dependencies
-            )
+            current = await run_in_executor(read_source_fingerprints, config_path, dependencies)
             failure = await controller._spawn_only_generate(configuration)
         if failure is None:
             regen.cancel_retry(configuration)
             await controller._finalize_regen_success(
-                configuration, fingerprint, dependency_fingerprint
+                configuration, current.content, current.dependency
             )
             await controller._scanner.reload(configuration)
             return
         # Stamp against the pre-spawn mtime: an edit landing mid-run must
         # not have the old content's failure charged to the new file.
-        recorded = controller._stamp_regen_failure(
-            configuration, current_mtime, dependency_fingerprint
-        )
+        recorded = controller._stamp_regen_failure(configuration, current_mtime, current.dependency)
         if recorded < _MAX_REGEN_ATTEMPTS:
             _arm_retry(controller, configuration, _delay_for(recorded))
             return
@@ -267,7 +262,7 @@ def _fresh_stamp(
 
     A missing or unparseable attempt count reads as terminal;
     future-dated stamps clamp to age 0. A stamp without a dependency
-    digest predates dependency tracking and matches any.
+    digest matches any.
     """
     cached_mtime = md.get("regen_failed_mtime")
     cached_at = md.get("regen_failed_at")

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import functools
 import os
-import re
 import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -13,21 +13,19 @@ from typing import NamedTuple
 
 from esphome import yaml_util
 from esphome.core import CORE
+from esphome.helpers import is_ha_addon
 
-from ...constants import is_secrets_file
+from ...constants import SECRET_REF_RE, is_secrets_file
 from ..atomic_io import read_text_with_stat
 from ._parsing import (
     _capture_top_level_lines,
     _significant_lines,
     extract_config_content_fingerprint,
     extract_dependency_fingerprint,
-    safe_stat_key,
 )
 
 DependencyStatKey = tuple[int, int]
 DependencyStatKeys = tuple[DependencyStatKey, ...]
-
-_SECRET_REF_RE = re.compile(r"!secret\s+([^\s#]+)")
 
 
 @dataclass(slots=True)
@@ -38,6 +36,17 @@ class DependencySources:
     newest_mtime: float | None
 
 
+class SourceText(NamedTuple):
+    """One dependency file as read: its mtime and text."""
+
+    mtime: float
+    text: str
+
+
+# Per-batch read memo so a file shared by the fleet is read once; ``None`` is unreadable.
+SourceMemo = dict[str, SourceText | None]
+
+
 class SourceFingerprints(NamedTuple):
     """The content and dependency digests of one device YAML."""
 
@@ -46,17 +55,17 @@ class SourceFingerprints(NamedTuple):
 
 
 @contextmanager
-def track_loaded_files() -> Iterator[list[Path]]:
+def track_loaded_files() -> Iterator[list[str]]:
     """Record every file esphome's YAML loader opens on this thread while active."""
     owner = threading.get_ident()
-    loaded: list[Path] = []
+    loaded: list[str] = []
 
     def _on_load(fname: Path) -> None:
         # The hook is process-global and other executor threads parse YAML
         # concurrently (editor validation, secrets reads); only this thread's
         # loads belong to the device being tracked.
         if threading.get_ident() == owner:
-            loaded.append(Path(fname))
+            loaded.append(os.fspath(fname))
 
     # esphome's public ``track_yaml_loads`` has no thread filter.
     yaml_util._load_listeners.append(_on_load)  # noqa: SLF001
@@ -66,18 +75,22 @@ def track_loaded_files() -> Iterator[list[Path]]:
         yaml_util._load_listeners.remove(_on_load)  # noqa: SLF001
 
 
-def normalize_dependencies(path: Path, loaded: Iterable[Path]) -> tuple[str, ...]:
+def normalize_dependencies(path: Path, loaded: Iterable[str]) -> tuple[str, ...]:
     """
-    Sorted, deduplicated *loaded* paths as strings, relative to *path*'s directory when inside it.
+    Sorted, deduplicated *loaded* paths, relative to *path*'s directory when inside it.
 
     Drops *path* itself and anything under ``CORE.data_dir`` (the git package cache).
     Paths compare lexically: every file the loader reports descends from *path*.
     """
     own = os.path.normcase(os.path.normpath(path))
-    config_prefix = str(Path(own).parent) + os.sep
-    data_prefix = os.path.normcase(os.path.normpath(CORE.data_dir)) + os.sep
+    config_prefix = (os.path.dirname(own) or os.curdir) + os.sep  # noqa: PTH120
+    data_prefix = _data_dir_prefix(
+        config_path=CORE.config_path,
+        ha_addon=is_ha_addon(),
+        data_dir_env=os.environ.get("ESPHOME_DATA_DIR"),
+    )
     dependencies: set[str] = set()
-    for raw in loaded:
+    for raw in set(loaded):
         normalized = os.path.normcase(os.path.normpath(raw))
         if normalized == own or normalized.startswith(data_prefix):
             continue
@@ -88,7 +101,10 @@ def normalize_dependencies(path: Path, loaded: Iterable[Path]) -> tuple[str, ...
 
 
 def read_dependency_sources(
-    config_dir: Path, dependencies: Iterable[str], yaml_content: str
+    config_dir: Path,
+    dependencies: Iterable[str],
+    yaml_content: str,
+    memo: SourceMemo | None = None,
 ) -> DependencySources:
     """
     Read *dependencies* (relative to *config_dir*, or absolute) into digest lines.
@@ -96,31 +112,29 @@ def read_dependency_sources(
     A secrets file contributes only the keys *yaml_content* and the other
     dependencies reference; ``newest_mtime`` spans the non-secret files.
     """
-    read: list[tuple[str, tuple[float, str] | None]] = []
+    if memo is None:
+        memo = {}
+    sources: list[tuple[str, bool, SourceText | None]] = []
     for dependency in dependencies:
-        try:
-            stat, text = read_text_with_stat(config_dir / dependency)
-        except (OSError, UnicodeDecodeError):
-            read.append((dependency, None))
-            continue
-        read.append((dependency, (stat.st_mtime, text)))
-    referenced: frozenset[str] = frozenset()
-    if any(is_secrets_file(dependency) for dependency, _ in read):
-        referenced = frozenset(
-            name
-            for text in (yaml_content, *(r[1] for d, r in read if r and not is_secrets_file(d)))
-            for name in _SECRET_REF_RE.findall(text)
-        )
+        if dependency not in memo:
+            memo[dependency] = _read_source(config_dir / dependency)
+        sources.append((dependency, is_secrets_file(dependency), memo[dependency]))
+    referenced = (
+        _referenced_secrets(yaml_content, sources)
+        if any(secret for _, secret, _ in sources)
+        else frozenset()
+    )
     lines: list[tuple[str, list[str]]] = []
-    for dependency, source in read:
+    for dependency, secret, source in sources:
         if source is None:
             lines.append((dependency, []))
-        elif is_secrets_file(dependency):
-            lines.append((dependency, _capture_top_level_lines(source[1], referenced)))
+        elif secret:
+            lines.append((dependency, _capture_top_level_lines(source.text, referenced)))
         else:
-            lines.append((dependency, _significant_lines(source[1])))
+            lines.append((dependency, _significant_lines(source.text)))
     newest_mtime = max(
-        (r[0] for d, r in read if r is not None and not is_secrets_file(d)), default=None
+        (source.mtime for _, secret, source in sources if source is not None and not secret),
+        default=None,
     )
     return DependencySources(lines, newest_mtime)
 
@@ -150,6 +164,26 @@ def read_source_fingerprints(
     )
 
 
-def dependency_stat_keys(config_dir: Path, dependencies: Iterable[str]) -> DependencyStatKeys:
-    """``safe_stat_key`` per dependency, in order."""
-    return tuple(safe_stat_key(config_dir / dependency) for dependency in dependencies)
+def _referenced_secrets(
+    yaml_content: str, sources: Iterable[tuple[str, bool, SourceText | None]]
+) -> frozenset[str]:
+    """``!secret`` names *yaml_content* and the non-secret *sources* reference."""
+    names = SECRET_REF_RE.findall(yaml_content)
+    for _, secret, source in sources:
+        if source is not None and not secret:
+            names += SECRET_REF_RE.findall(source.text)
+    return frozenset(names)
+
+
+def _read_source(path: Path) -> SourceText | None:
+    try:
+        stat, text = read_text_with_stat(path)
+    except (OSError, UnicodeDecodeError):
+        return None
+    return SourceText(stat.st_mtime, text)
+
+
+@functools.lru_cache(maxsize=1)
+def _data_dir_prefix(*, config_path: Path | None, ha_addon: bool, data_dir_env: str | None) -> str:
+    """Normalised ``CORE.data_dir`` prefix, keyed on every input esphome resolves it from."""
+    return os.path.normcase(os.path.normpath(Path(CORE.data_dir))) + os.sep

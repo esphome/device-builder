@@ -29,6 +29,7 @@ from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._chip import resolve_chip_mcu
 from ._dependencies import (
     DependencySources,
+    SourceMemo,
     normalize_dependencies,
     read_dependency_sources,
     track_loaded_files,
@@ -95,6 +96,7 @@ def load_device_from_storage(
     previous: Device | None = None,
     shallow: bool = False,
     dependencies: tuple[str, ...] | None = None,
+    source_memo: SourceMemo | None = None,
 ) -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
@@ -147,7 +149,8 @@ def load_device_from_storage(
 
     *dependencies* is the last known list of files the YAML pulls in,
     used when the parse is skipped (shallow) or fails; a deep load
-    discovers the current list itself.
+    discovers the current list itself. *source_memo* shares dependency
+    reads across the devices of one scan batch.
     """
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
@@ -160,7 +163,7 @@ def load_device_from_storage(
     # or split it across packages. ``None`` on parse failure is fine;
     # ``api_encrypted`` falls back to False.
     resolved_config, dependencies, sources = _load_resolved_sources(
-        path, yaml_content, dependencies, shallow=shallow
+        path, yaml_content, dependencies, source_memo, shallow=shallow
     )
     yaml_mtime = _newest_source_mtime(yaml_mtime, sources)
     # Feed the merged ``substitutions:`` from the resolved config back
@@ -617,6 +620,7 @@ def _load_resolved_sources(
     path: Path,
     yaml_content: str,
     dependencies: tuple[str, ...] | None,
+    memo: SourceMemo | None,
     *,
     shallow: bool,
 ) -> tuple[dict | None, tuple[str, ...] | None, DependencySources | None]:
@@ -631,7 +635,7 @@ def _load_resolved_sources(
     return (
         resolved_config,
         dependencies,
-        read_dependency_sources(path.parent, dependencies, yaml_content),
+        read_dependency_sources(path.parent, dependencies, yaml_content, memo),
     )
 
 
@@ -664,12 +668,15 @@ def _has_substituted_block(config: dict) -> bool:
 
 def _holds_marker(value: object, markers: type | tuple[type, ...]) -> bool:
     """Whether an instance of *markers* survives anywhere in *value*."""
-    if isinstance(value, markers):
-        return True
-    if isinstance(value, dict):
-        return any(_holds_marker(v, markers) for v in value.values())
-    if isinstance(value, list):
-        return any(_holds_marker(v, markers) for v in value)
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, markers):
+            return True
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
     return False
 
 

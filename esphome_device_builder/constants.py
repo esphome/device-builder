@@ -37,6 +37,8 @@ DEFAULT_HOST = "0.0.0.0"
 SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 # Both spellings esphome accepts, for guards; pinned against esphome.const in tests.
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
+# A ``!secret <name>`` reference; ``findall`` yields the names, ``fullmatch`` checks one token.
+SECRET_REF_RE = re.compile(r"!secret\s+(\S+)")
 
 
 # No NTFS stream suffix (``::$DATA``); the extension rules out the 8.3 alias ``SECRET~1.YAM``.

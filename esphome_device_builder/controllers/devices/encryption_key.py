@@ -16,7 +16,6 @@ from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import (
     config_has_top_level_block,
     dependency_fingerprint,
-    dependency_stamp_matches,
     extract_config_content_fingerprint,
     yaml_has_top_level_block,
 )
@@ -229,17 +228,17 @@ async def _runs_yaml(controller: DevicesController, device: Device, content: str
     ):
         return False
     stamped = md.get("regen_dependency_fingerprint")
-    current = (
-        await run_in_executor(
+    if not stamped:
+        return True
+    return bool(
+        stamped
+        == await run_in_executor(
             dependency_fingerprint,
             controller._db.settings.rel_path(device.configuration).parent,
             device.dependencies,
             content,
         )
-        if stamped
-        else ""
     )
-    return dependency_stamp_matches(stamped, current)
 
 
 def _unrecorded_reason(

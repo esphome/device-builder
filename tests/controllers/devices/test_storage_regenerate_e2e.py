@@ -1634,16 +1634,18 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     """A spent stamp holds only while the device's dependency digest still matches it."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
-    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    stamped = f"{DEPENDENCY_FINGERPRINT_VERSION}stamped"
-    controller._scanner.devices = [
-        make_device(
-            name="kitchen",
-            dependency_fingerprint=(
-                f"{DEPENDENCY_FINGERPRINT_VERSION}edited" if package_changed else stamped
-            ),
-        )
-    ]
+    yaml_path.write_text(
+        "esphome:\n  name: kitchen\npackages:\n  common: !include packages/common.yaml\n",
+        encoding="utf-8",
+    )
+    package = tmp_path / "packages" / "common.yaml"
+    package.parent.mkdir()
+    package.write_text("logger:\n  level: INFO\n", encoding="utf-8")
+    dependencies = ("packages/common.yaml",)
+    stamped = (
+        await asyncio.to_thread(read_source_fingerprints, yaml_path, dependencies)
+    ).dependency
+    controller._scanner.devices = [make_device(name="kitchen", dependencies=dependencies)]
     _seed_store(
         controller,
         "kitchen.yaml",
@@ -1652,6 +1654,8 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
         regen_failed_attempts=storage_regen._MAX_REGEN_ATTEMPTS,
         regen_failed_dependency_fingerprint=stamped,
     )
+    if package_changed:
+        package.write_text("logger:\n  level: DEBUG\n", encoding="utf-8")
     spawn_calls: list[tuple[str, ...]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:

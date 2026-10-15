@@ -27,7 +27,9 @@ from esphome_device_builder.definitions import (
     load_board_index,
 )
 from esphome_device_builder.helpers import device_yaml
+from esphome_device_builder.helpers.atomic_io import read_text_with_stat
 from esphome_device_builder.helpers.device_yaml import (
+    SourceMemo,
     _has_native_wifi,
     _parse_inline_value,
     board_provides_network,
@@ -4102,6 +4104,22 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     assert lines["packages/filters.yaml"] == ["- multiply: 2"]
     assert sources.newest_mtime is not None
     assert sources.newest_mtime < far_future
+
+
+def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
+    """A batch memo serves a second device's read of the same file without touching disk."""
+    content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")
+    memo: SourceMemo = {}
+
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat",
+        wraps=read_text_with_stat,
+    ) as read:
+        first = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, memo)
+        second = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, memo)
+
+    assert read.call_count == len(_FLEET_DEPENDENCIES)
+    assert second == first
 
 
 def test_load_device_from_storage_dependency_digest_agrees_between_shallow_and_deep(
