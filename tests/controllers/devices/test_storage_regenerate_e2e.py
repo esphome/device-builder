@@ -1646,6 +1646,38 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     controller.state.regen.cancel_retry("kitchen.yaml")
 
 
+async def test_regenerate_keys_on_the_device_file_while_its_list_is_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A device without a dependency list still spawns, stamping the device-only digest."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome: [\n", encoding="utf-8")
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        return _capture_result(returncode=2, output=b"bad yaml")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert len(spawn_calls) == 1
+    md = _read_store(controller, "kitchen.yaml")
+    assert md["regen_failed_attempts"] == 1
+    assert md["regen_failed_content_fingerprint"] == await asyncio.to_thread(
+        read_source_fingerprint, yaml_path, ()
+    )
+    controller.state.regen.cancel_retry("kitchen.yaml")
+
+
 async def test_regenerate_strikes_instead_of_stamping_when_the_digest_is_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

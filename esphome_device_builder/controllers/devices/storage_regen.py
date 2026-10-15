@@ -257,11 +257,15 @@ async def _current_digest(
         _arm_strike(controller, configuration)
         return None
     device = controller.get_by_configuration(configuration)
+    # A device whose list is unknown (its parse fails, or it is not indexed yet)
+    # still regens so esphome reports the real error; the stamp keys on the
+    # file alone until the list is known.
     dependencies = device.dependencies if device is not None else None
+    if dependencies is None:
+        dependencies = ()
     current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
     if not current:
-        # A source unreadable or the dependency list unknown: nothing to stamp
-        # a failure against.
+        # A source unreadable: nothing to stamp a failure against.
         _LOGGER.warning("Storage regenerate for %s: sources unreadable; retrying", configuration)
         _arm_strike(controller, configuration)
         return None
