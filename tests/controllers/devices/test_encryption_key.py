@@ -1149,8 +1149,10 @@ async def test_set_encryption_key_old_key_vouch_covers_dependencies(
         dependencies=("packages/common.yaml",),
     )
     _stamp_regen(ctrl, "h1", extract_config_content_fingerprint(yaml_text))
-    stamped = read_source_fingerprints(
-        tmp_path / "kitchen.yaml", ("packages/common.yaml",)
+    stamped = (
+        await asyncio.to_thread(
+            read_source_fingerprints, tmp_path / "kitchen.yaml", ("packages/common.yaml",)
+        )
     ).dependency
     ctrl._metadata_store.update(
         "kitchen.yaml",

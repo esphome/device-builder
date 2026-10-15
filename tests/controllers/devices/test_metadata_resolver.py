@@ -500,7 +500,7 @@ def test_corrupt_build_size_bytes_falls_back_to_zero(
         pytest.param(None, None, id="absent"),
     ],
 )
-async def test_resolve_device_metadata_coerces_dependencies(
+def test_resolve_device_metadata_coerces_dependencies(
     tmp_path: Path, monkeypatch: Any, stored: Any, expected: tuple[str, ...] | None
 ) -> None:
     """Only a list of strings reads as a known dependency list."""
