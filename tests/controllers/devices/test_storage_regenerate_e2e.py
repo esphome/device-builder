@@ -31,7 +31,10 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController, storage_regen
 from esphome_device_builder.controllers.devices._state import RegenState
-from esphome_device_builder.helpers.device_yaml import extract_config_content_fingerprint
+from esphome_device_builder.helpers.device_yaml import (
+    extract_config_content_fingerprint,
+    read_source_fingerprints,
+)
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
     DEPENDENCY_FINGERPRINT_VERSION,
@@ -907,8 +910,8 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
     assert len(spawn_calls) == 1
 
 
-def test_content_fingerprint_is_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
-    assert storage_regen._content_fingerprint(tmp_path / "missing.yaml") == ""
+def test_source_fingerprints_are_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
+    assert read_source_fingerprints(tmp_path / "missing.yaml", ()) == ("", "")
 
 
 # ---------------------------------------------------------------------------
@@ -1067,7 +1070,10 @@ def test_fresh_stamp_attempts_read(attempts_value: Any, expected_attempts: int) 
     md: dict[str, Any] = {"regen_failed_mtime": 5.0, "regen_failed_at": 1000.0}
     if attempts_value is not None:
         md["regen_failed_attempts"] = attempts_value
-    assert storage_regen._fresh_stamp(md, 5.0, 1060.0) == (expected_attempts, 60.0)
+    assert storage_regen._fresh_stamp(md, 5.0, 1060.0, dependency_fingerprint="") == (
+        expected_attempts,
+        60.0,
+    )
 
 
 @pytest.mark.parametrize(
@@ -1095,13 +1101,13 @@ def test_fresh_stamp_ignores_invalid_stamps(
     md: dict[str, Any], current_mtime: float, now: float
 ) -> None:
     """A missing, stale, expired, or unparseable stamp reads as no stamp."""
-    assert storage_regen._fresh_stamp(md, current_mtime, now) is None
+    assert storage_regen._fresh_stamp(md, current_mtime, now, dependency_fingerprint="") is None
 
 
 def test_fresh_stamp_clamps_future_dated_stamp() -> None:
     """Clock skew can't lock the regen out: a future stamp clamps to age 0."""
     md = {"regen_failed_mtime": 5.0, "regen_failed_at": 2000.0, "regen_failed_attempts": 1}
-    assert storage_regen._fresh_stamp(md, 5.0, 1000.0) == (1, 0.0)
+    assert storage_regen._fresh_stamp(md, 5.0, 1000.0, dependency_fingerprint="") == (1, 0.0)
 
 
 async def test_ttl_expiry_grants_fresh_budget(
@@ -1631,11 +1637,13 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
     (tmp_path / "packages").mkdir()
     (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
-    current = storage_regen._source_fingerprints(yaml_path, ("packages/common.yaml",))[1]
+    current = read_source_fingerprints(yaml_path, ("packages/common.yaml",)).dependency
+    controller._scanner.devices = [
+        make_device(name="kitchen", dependencies=("packages/common.yaml",))
+    ]
     _seed_store(
         controller,
         "kitchen.yaml",
-        dependencies=["packages/common.yaml"],
         regen_failed_mtime=yaml_path.stat().st_mtime,
         regen_failed_at=time.time() - 5.0,
         regen_failed_attempts=storage_regen._MAX_REGEN_ATTEMPTS,
@@ -1673,8 +1681,10 @@ async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
     yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
     (tmp_path / "packages").mkdir()
     (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
-    _seed_store(controller, "kitchen.yaml", dependencies=["packages/common.yaml"])
-    expected = storage_regen._source_fingerprints(yaml_path, ("packages/common.yaml",))[1]
+    controller._scanner.devices = [
+        make_device(name="kitchen", dependencies=("packages/common.yaml",))
+    ]
+    expected = read_source_fingerprints(yaml_path, ("packages/common.yaml",)).dependency
     outcomes = iter([2, 0])
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:

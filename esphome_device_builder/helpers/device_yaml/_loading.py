@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 from collections.abc import Callable, Iterable
@@ -11,6 +12,7 @@ from typing import Any, cast
 
 from esphome import const, yaml_util
 from esphome.components.packages import resolve_packages
+from esphome.components.substitutions import do_substitution_pass
 from esphome.config_helpers import Extend, Remove
 from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
@@ -376,8 +378,8 @@ def load_device_from_storage(
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         content_fingerprint=extract_config_content_fingerprint(yaml_content),
         dependencies=dependencies,
-        dependency_fingerprint=extract_dependency_fingerprint(
-            sources.lines if sources is not None else None
+        dependency_fingerprint=(
+            extract_dependency_fingerprint(sources.lines) if sources is not None else ""
         ),
         ip=ip,
         deployed_name=deployed_name,
@@ -513,8 +515,7 @@ def load_device_yaml_tracked(path: Path) -> tuple[dict | None, tuple[str, ...] |
         config = load_device_yaml(path)
         if config is None:
             return None, None
-        # Deferred ``!include`` nodes outside ``packages:`` only load on demand.
-        yaml_util.force_load_include_files(config, warn_on_unresolved=False)
+        _load_deferred_includes(config)
     return config, normalize_dependencies(path, loaded)
 
 
@@ -597,6 +598,17 @@ def resolution_incomplete(config: dict | None) -> bool:
         or _holds_deferred_marker(config)
         or _has_substituted_block(config)
     )
+
+
+def _load_deferred_includes(config: dict) -> None:
+    """Load the ``!include`` nodes still pending after the package merge."""
+    # The substitution pass resolves a templated path (``!include dev/${name}.yaml``)
+    # to the one file esphome would load; a force-load would glob every candidate.
+    # The shallow copy keeps the pass's ``substitutions:`` pop off *config*.
+    try:
+        do_substitution_pass(copy.copy(config))
+    except Exception:
+        _LOGGER.debug("Deferred include resolution failed", exc_info=True)
 
 
 def _load_resolved_sources(

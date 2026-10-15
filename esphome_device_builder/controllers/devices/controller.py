@@ -946,12 +946,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         return await storage_regen.spawn_only_generate(self, configuration)
 
     def _stamp_regen_failure(
-        self, configuration: str, mtime: float, dependency_fingerprint: str = ""
+        self, configuration: str, mtime: float, dependency_fingerprint: str
     ) -> int:
         return storage_regen.stamp_failure(self, configuration, mtime, dependency_fingerprint)
 
     async def _finalize_regen_success(
-        self, configuration: str, fingerprint: str, dependency_fingerprint: str = ""
+        self, configuration: str, fingerprint: str, dependency_fingerprint: str
     ) -> None:
         await storage_regen.finalize_success(
             self, configuration, fingerprint, dependency_fingerprint

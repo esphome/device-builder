@@ -15,7 +15,7 @@ from ...helpers.ip import is_unusable_address
 from ...helpers.metadata_sidecar import metadata_transaction
 from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata, MetadataResolver
-from ._metadata_store import STORE_FIELDS
+from ._metadata_store import STORE_FIELDS, stored_str_tuple
 
 if TYPE_CHECKING:
     from ...models import Device
@@ -120,12 +120,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
         # Defensive coercion: a corrupt sidecar entry shouldn't
         # fail the whole scan.
         build_size_bytes = coerce_sidecar_int(store_md.get("build_size_bytes"))
-        raw_labels = shared_md.get("labels")
-        labels: tuple[str, ...]
-        if isinstance(raw_labels, list):
-            labels = tuple(item for item in raw_labels if isinstance(item, str))
-        else:
-            labels = ()
+        labels = stored_str_tuple(shared_md.get("labels")) or ()
         deployed_config_hash = str(store_md.get("deployed_config_hash", ""))
         deployed_version = str(store_md.get("deployed_version", ""))
         network = str(store_md.get("network", ""))
@@ -139,12 +134,6 @@ class DeviceMetadataBase(DeviceBuilderBase):
             for key in ("offline_since", "last_seen")
             if isinstance(stamp := store_md.get(key), (int, float))
         ]
-        raw_dependencies = store_md.get("dependencies")
-        dependencies = (
-            tuple(item for item in raw_dependencies if isinstance(item, str))
-            if isinstance(raw_dependencies, list)
-            else None
-        )
         return DeviceFileMetadata(
             board_id=board_id,
             ip=ip,
@@ -159,7 +148,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             api_encryption_active=api_encryption_active,
             deployed_name=deployed_name,
             offline_since=max(stamps, default=None),
-            dependencies=dependencies,
+            dependencies=stored_str_tuple(store_md.get("dependencies")),
         )
 
     def _make_metadata_resolver(self) -> MetadataResolver:

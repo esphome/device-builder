@@ -86,9 +86,9 @@ def test_build_cache_keys_fleet(
     synthesize_fleet(tmp_path, fleet_size)
     scanner = _make_scanner(tmp_path)
 
-    warm = scanner._build_cache_keys()
+    warm = scanner._build_cache_keys({})
     assert len(warm) == fleet_size
 
     @benchmark
     def run() -> None:
-        scanner._build_cache_keys()
+        scanner._build_cache_keys({})

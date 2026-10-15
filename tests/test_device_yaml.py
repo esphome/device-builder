@@ -39,15 +39,19 @@ from esphome_device_builder.helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
     load_device_from_storage,
-    load_device_yaml_tracked,
     parse_esphome_meta,
     parse_platform_from_yaml,
     pending_changes_via_hash,
-    read_dependency_sources,
     resolve_chip_mcu,
 )
-from esphome_device_builder.helpers.device_yaml._dependencies import normalize_dependencies
-from esphome_device_builder.helpers.device_yaml._loading import _snapshot_source_files
+from esphome_device_builder.helpers.device_yaml._dependencies import (
+    normalize_dependencies,
+    read_dependency_sources,
+)
+from esphome_device_builder.helpers.device_yaml._loading import (
+    _snapshot_source_files,
+    load_device_yaml_tracked,
+)
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
     DEPENDENCY_FINGERPRINT_VERSION,
@@ -4022,6 +4026,23 @@ def test_load_device_yaml_tracked_reports_dependencies(tmp_path: Path) -> None:
     assert dependencies == _FLEET_DEPENDENCIES
 
 
+def test_load_device_yaml_tracked_resolves_a_templated_include_to_one_file(
+    tmp_path: Path,
+) -> None:
+    """A templated include records the file the substitution selects, not every candidate."""
+    (tmp_path / "sensors").mkdir()
+    (tmp_path / "sensors" / "dht.yaml").write_text("- platform: dht\n", encoding="utf-8")
+    (tmp_path / "sensors" / "bme.yaml").write_text("- platform: bme280\n", encoding="utf-8")
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text(
+        "substitutions:\n  kind: dht\nsensor: !include sensors/${kind}.yaml\n", encoding="utf-8"
+    )
+
+    _, dependencies = load_device_yaml_tracked(yaml_file)
+
+    assert dependencies == ("sensors/dht.yaml",)
+
+
 def test_load_device_yaml_tracked_returns_none_on_parse_failure(tmp_path: Path) -> None:
     """A broken file reports no list rather than a truncated one."""
     yaml_file = tmp_path / "kitchen.yaml"
@@ -4054,8 +4075,7 @@ def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path
 
 
 def test_extract_dependency_fingerprint_shape() -> None:
-    """Unknown digests to empty, a known empty list to a constant, and the path is part of it."""
-    assert extract_dependency_fingerprint(None) == ""
+    """A known empty list digests to a constant, and the path is part of the digest."""
     empty = extract_dependency_fingerprint([])
     assert empty.startswith(DEPENDENCY_FINGERPRINT_VERSION)
     assert empty == extract_dependency_fingerprint(())
@@ -4081,7 +4101,6 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     assert lines["secrets.yaml"] == ["api_key: abc"]
     assert lines["packages/secrets.yaml"] == []
     assert lines["packages/filters.yaml"] == ["- multiply: 2"]
-    assert sources.stat_keys[2] == (-1, -1)
     assert sources.newest_mtime is not None
     assert sources.newest_mtime < far_future
 

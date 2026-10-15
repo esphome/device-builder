@@ -9,13 +9,19 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from esphome import yaml_util
 from esphome.core import CORE
 
 from ...constants import is_secrets_file
 from ..atomic_io import read_text_with_stat
-from ._parsing import _capture_top_level_lines, _significant_lines, extract_dependency_fingerprint
+from ._parsing import (
+    _capture_top_level_lines,
+    _significant_lines,
+    extract_config_content_fingerprint,
+    extract_dependency_fingerprint,
+)
 
 DependencyStatKey = tuple[int, int]
 DependencyStatKeys = tuple[DependencyStatKey, ...]
@@ -27,11 +33,17 @@ _SECRET_REF_RE = re.compile(r"!secret\s+([^\s#]+)")
 
 @dataclass(slots=True)
 class DependencySources:
-    """What a device's dependency files contribute to its digest and change key."""
+    """What a device's dependency files contribute to its digest and pending-changes mtime."""
 
     lines: list[tuple[str, list[str]]]
-    stat_keys: DependencyStatKeys
     newest_mtime: float | None
+
+
+class SourceFingerprints(NamedTuple):
+    """The content and dependency digests of one device YAML."""
+
+    content: str
+    dependency: str
 
 
 @contextmanager
@@ -80,7 +92,7 @@ def read_dependency_sources(
     config_dir: Path, dependencies: Iterable[str], yaml_content: str
 ) -> DependencySources:
     """
-    Read *dependencies* (relative to *config_dir*, or absolute) into digest lines and stat keys.
+    Read *dependencies* (relative to *config_dir*, or absolute) into digest lines.
 
     A secrets file contributes only the keys *yaml_content* and the other
     dependencies reference; ``newest_mtime`` spans the non-secret files.
@@ -102,12 +114,8 @@ def read_dependency_sources(
         )
     )
     lines: list[tuple[str, list[str]]] = []
-    stat_keys: list[DependencyStatKey] = []
     newest_mtime: float | None = None
     for dependency, content, stat_result in read:
-        stat_keys.append(
-            (stat_result.st_mtime_ns, stat_result.st_size) if stat_result else UNREADABLE_STAT_KEY
-        )
         if content is None:
             lines.append((dependency, []))
         elif is_secrets_file(dependency):
@@ -118,16 +126,25 @@ def read_dependency_sources(
                 newest_mtime is None or stat_result.st_mtime > newest_mtime
             ):
                 newest_mtime = stat_result.st_mtime
-    return DependencySources(lines, tuple(stat_keys), newest_mtime)
+    return DependencySources(lines, newest_mtime)
 
 
-def dependency_fingerprint_for(
-    config_dir: Path, dependencies: Iterable[str], yaml_content: str
-) -> str:
-    """Versioned digest of *dependencies* as read from disk now."""
-    return extract_dependency_fingerprint(
-        read_dependency_sources(config_dir, dependencies, yaml_content).lines
+def read_source_fingerprints(
+    config_path: Path, dependencies: tuple[str, ...] | None
+) -> SourceFingerprints:
+    """Digests of *config_path* as on disk now; empty when unreadable, or unknown dependencies."""
+    try:
+        content = read_text_with_stat(config_path)[1]
+    except (OSError, UnicodeDecodeError):
+        return SourceFingerprints("", "")
+    dependency = (
+        extract_dependency_fingerprint(
+            read_dependency_sources(config_path.parent, dependencies, content).lines
+        )
+        if dependencies is not None
+        else ""
     )
+    return SourceFingerprints(extract_config_content_fingerprint(content), dependency)
 
 
 def dependency_stat_keys(config_dir: Path, dependencies: Iterable[str]) -> DependencyStatKeys:

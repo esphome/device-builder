@@ -500,11 +500,9 @@ class DeviceScanner(WakeWorker[str]):
         return {p: d.dependencies or () for p, d in self._index.by_path.items()}
 
     def _build_cache_keys(
-        self, deps_by_path: Mapping[Path, tuple[str, ...]] | None = None
+        self, deps_by_path: Mapping[Path, tuple[str, ...]]
     ) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
-        if deps_by_path is None:
-            deps_by_path = self._known_dependencies()
         result: dict[Path, _CacheKey] = {}
         # A package shared by the fleet is stat'ed once per scan.
         memo: dict[str, DependencyStatKey] = {}

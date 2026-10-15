@@ -6,18 +6,13 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
-from ...helpers.atomic_io import read_text_with_stat
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
-from ...helpers.device_yaml import (
-    dependency_fingerprint_for,
-    extract_config_content_fingerprint,
-)
+from ...helpers.device_yaml import read_source_fingerprints
 from ...helpers.subprocess import run_subprocess_capture
 
 if TYPE_CHECKING:
@@ -69,7 +64,8 @@ async def _run(controller: DevicesController, configuration: str) -> None:
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
-        dependencies = _known_dependencies(controller, configuration)
+        device = controller.get_by_configuration(configuration)
+        dependencies = device.dependencies if device is not None else None
         try:
             current_mtime = (await run_in_executor(config_path.stat)).st_mtime
         except FileNotFoundError:
@@ -92,14 +88,18 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             )
             return
         regen.clear_strikes(configuration)
-        dependency_fingerprint = (
-            await run_in_executor(_source_fingerprints, config_path, dependencies)
-        )[1]
-        stamp = _fresh_stamp(
-            controller._metadata_store.get(configuration),
-            current_mtime,
-            time.time(),
-            dependency_fingerprint=dependency_fingerprint,
+        md = controller._metadata_store.get(configuration)
+        stamp = (
+            _fresh_stamp(
+                md,
+                current_mtime,
+                time.time(),
+                dependency_fingerprint=(
+                    await run_in_executor(read_source_fingerprints, config_path, dependencies)
+                ).dependency,
+            )
+            if md.get("regen_failed_mtime")
+            else None
         )
         if stamp is not None:
             attempts, age = stamp
@@ -125,7 +125,7 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             # Read right before the spawn: an edit landing mid-run must not
             # be stamped as the content the hash was generated from.
             fingerprint, dependency_fingerprint = await run_in_executor(
-                _source_fingerprints, config_path, dependencies
+                read_source_fingerprints, config_path, dependencies
             )
             failure = await controller._spawn_only_generate(configuration)
         if failure is None:
@@ -194,10 +194,7 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
 
 
 def stamp_failure(
-    controller: DevicesController,
-    configuration: str,
-    mtime: float,
-    dependency_fingerprint: str = "",
+    controller: DevicesController, configuration: str, mtime: float, dependency_fingerprint: str
 ) -> int:
     """
     Record one more failed attempt against *mtime* and *dependency_fingerprint*.
@@ -224,10 +221,7 @@ def stamp_failure(
 
 
 async def finalize_success(
-    controller: DevicesController,
-    configuration: str,
-    fingerprint: str,
-    dependency_fingerprint: str = "",
+    controller: DevicesController, configuration: str, fingerprint: str, dependency_fingerprint: str
 ) -> None:
     """
     Read ``config_hash`` from ``build_info.json`` and clear the failure stamp.
@@ -271,7 +265,7 @@ def _fresh_stamp(
     current_mtime: float,
     now: float,
     *,
-    dependency_fingerprint: str = "",
+    dependency_fingerprint: str,
 ) -> tuple[int, float] | None:
     """
     Return ``(attempts, age)`` for an unexpired stamp matching the current sources.
@@ -328,34 +322,3 @@ def _arm_retry(controller: DevicesController, configuration: str, delay: float) 
 def _fire_retry(controller: DevicesController, configuration: str) -> None:
     controller.state.regen.retry_timers.pop(configuration, None)
     schedule(controller, configuration)
-
-
-def _known_dependencies(controller: DevicesController, configuration: str) -> tuple[str, ...]:
-    """Return the device's discovered dependency list, else the persisted one, else none."""
-    device = controller.get_by_configuration(configuration)
-    if device is not None and device.dependencies is not None:
-        return device.dependencies
-    stored = controller._metadata_store.get_field(configuration, "dependencies")
-    if not isinstance(stored, list):
-        return ()
-    return tuple(item for item in stored if isinstance(item, str))
-
-
-def _content_fingerprint(config_path: Path) -> str:
-    """Fingerprint of the YAML at *config_path*; empty when it can't be read."""
-    return _source_fingerprints(config_path, ())[0]
-
-
-def _source_fingerprints(config_path: Path, dependencies: tuple[str, ...]) -> tuple[str, str]:
-    """Content and dependency fingerprints of the YAML at *config_path*; empty when unreadable."""
-    try:
-        content = read_text_with_stat(config_path)[1]
-    except (OSError, UnicodeDecodeError):
-        _LOGGER.debug(
-            "Storage regenerate for %s: fingerprint read failed", config_path, exc_info=True
-        )
-        return "", ""
-    return (
-        extract_config_content_fingerprint(content),
-        dependency_fingerprint_for(config_path.parent, dependencies, content),
-    )

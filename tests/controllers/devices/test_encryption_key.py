@@ -19,8 +19,8 @@ from esphome_device_builder.controllers.devices.encryption_key import _locate_an
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import (
     EsphomeConfigUnavailableError,
-    dependency_fingerprint_for,
     extract_config_content_fingerprint,
+    read_source_fingerprints,
 )
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.helpers.yaml import OldKeyOutcome
@@ -1149,7 +1149,9 @@ async def test_set_encryption_key_old_key_vouch_covers_dependencies(
         dependencies=("packages/common.yaml",),
     )
     _stamp_regen(ctrl, "h1", extract_config_content_fingerprint(yaml_text))
-    stamped = dependency_fingerprint_for(tmp_path, ("packages/common.yaml",), yaml_text)
+    stamped = read_source_fingerprints(
+        tmp_path / "kitchen.yaml", ("packages/common.yaml",)
+    ).dependency
     ctrl._metadata_store.update(
         "kitchen.yaml",
         regen_dependency_fingerprint=stamped if dependencies_match else "1:stale",

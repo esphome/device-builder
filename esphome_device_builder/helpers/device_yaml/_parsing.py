@@ -212,13 +212,10 @@ def content_fingerprint_is_current(stored: object) -> bool:
 DEPENDENCY_FINGERPRINT_VERSION = "1:"
 
 
-def extract_dependency_fingerprint(sources: Iterable[tuple[str, Iterable[str]]] | None) -> str:
-    """Versioned digest of each dependency's path and significant lines; empty when unknown."""
-    if sources is None:
-        return ""
+def extract_dependency_fingerprint(sources: Iterable[tuple[str, Iterable[str]]]) -> str:
+    """Versioned digest of each dependency's path and significant lines."""
     lines = [line for dependency, body in sources for line in (dependency, *body)]
-    digest = hashlib.sha256("\n".join(lines).encode()).hexdigest()
-    return f"{DEPENDENCY_FINGERPRINT_VERSION}{digest}"
+    return f"{DEPENDENCY_FINGERPRINT_VERSION}{_sha256_lines(lines)}"
 
 
 def dependency_fingerprint_is_current(stored: object) -> bool:
@@ -790,8 +787,10 @@ def _capture_top_level_lines(yaml_content: str, keys: frozenset[str]) -> list[st
 
 def _digest_lines(lines: list[str]) -> str:
     """sha256 of *lines* joined by newline; empty string when there are none."""
-    if not lines:
-        return ""
+    return _sha256_lines(lines) if lines else ""
+
+
+def _sha256_lines(lines: Iterable[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 

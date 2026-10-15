@@ -205,11 +205,10 @@ def _nudge_mqtt(
 
 def _sync_dependencies(controller: DevicesController, device: Device) -> None:
     """Persist the dependency list a deep load discovered."""
-    if device.dependencies is None:
-        return
-    dependencies = list(device.dependencies)
-    if controller._metadata_store.get_field(device.configuration, "dependencies") != dependencies:
-        controller._metadata_store.set_field(device.configuration, "dependencies", dependencies)
+    if device.dependencies is not None:
+        controller._metadata_store.set_field(
+            device.configuration, "dependencies", list(device.dependencies)
+        )
 
 
 def _sync_content_fingerprint(
