@@ -35,9 +35,9 @@ from esphome_device_builder.helpers.device_yaml import (
     extract_config_content_fingerprint,
     read_source_fingerprints,
 )
+from esphome_device_builder.helpers.device_yaml._dependencies import DEPENDENCY_FINGERPRINT_VERSION
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
-    DEPENDENCY_FINGERPRINT_VERSION,
 )
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 from tests._storage_fixtures import write_storage_json

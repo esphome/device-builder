@@ -30,6 +30,7 @@ from ._chip import resolve_chip_mcu
 from ._dependencies import (
     DependencySources,
     SourceMemo,
+    extract_dependency_fingerprint,
     normalize_dependencies,
     read_dependency_sources,
     track_loaded_files,
@@ -46,7 +47,6 @@ from ._parsing import (
     detect_platform_from_yaml,
     extract_component_ids,
     extract_config_content_fingerprint,
-    extract_dependency_fingerprint,
     extract_directly_referenced_integrations,
     extract_esphome_meta_from_config,
     extract_logger_baud_rate,
@@ -516,9 +516,8 @@ def load_device_yaml_tracked(path: Path) -> tuple[dict | None, tuple[str, ...] |
     """``load_device_yaml`` plus the files it pulled in; both ``None`` when the parse fails."""
     with track_loaded_files() as loaded:
         config = load_device_yaml(path)
-        if config is None:
-            return None, None
-        _load_deferred_includes(config)
+        if config is None or not _load_deferred_includes(path, config):
+            return config, None
     return config, normalize_dependencies(path, loaded)
 
 
@@ -603,17 +602,19 @@ def resolution_incomplete(config: dict | None) -> bool:
     )
 
 
-def _load_deferred_includes(config: dict) -> None:
-    """Load the ``!include`` nodes still pending after the package merge."""
+def _load_deferred_includes(path: Path, config: dict) -> bool:
+    """Load the ``!include`` nodes still pending after the package merge; False when one failed."""
     if not _holds_marker(config, yaml_util.IncludeFile):
-        return
+        return True
     # The substitution pass resolves a templated path (``!include dev/${name}.yaml``)
     # to the one file esphome would load; a force-load would glob every candidate.
     # The shallow copy keeps the pass's ``substitutions:`` pop off *config*.
     try:
         do_substitution_pass(copy.copy(config))
-    except Exception:
-        _LOGGER.debug("Deferred include resolution failed", exc_info=True)
+    except Exception as err:  # noqa: BLE001 — esphome raises its own hierarchy plus yaml errors
+        _LOGGER.warning("Could not resolve the deferred includes of %s: %s", path.name, err)
+        return False
+    return True
 
 
 def _load_resolved_sources(

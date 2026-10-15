@@ -19,13 +19,17 @@ from ...constants import SECRET_REF_RE, is_secrets_file
 from ..atomic_io import read_text_with_stat
 from ._parsing import (
     _capture_top_level_lines,
+    _has_version_prefix,
+    _sha256_lines,
     _significant_lines,
     extract_config_content_fingerprint,
-    extract_dependency_fingerprint,
 )
 
 DependencyStatKey = tuple[int, int]
 DependencyStatKeys = tuple[DependencyStatKey, ...]
+
+# Prefix on every stored dependency digest; bump when the algorithm changes.
+DEPENDENCY_FINGERPRINT_VERSION = "1:"
 
 
 @dataclass(slots=True)
@@ -137,6 +141,22 @@ def read_dependency_sources(
         default=None,
     )
     return DependencySources(lines, newest_mtime)
+
+
+def extract_dependency_fingerprint(sources: Iterable[tuple[str, Iterable[str]]]) -> str:
+    """Versioned digest of each dependency's path and significant lines."""
+    lines = [line for dependency, body in sources for line in (dependency, *body)]
+    return f"{DEPENDENCY_FINGERPRINT_VERSION}{_sha256_lines(lines)}"
+
+
+def dependency_fingerprint_is_current(stored: object) -> bool:
+    """Return True when *stored* is a dependency digest the current algorithm produced."""
+    return _has_version_prefix(stored, DEPENDENCY_FINGERPRINT_VERSION)
+
+
+def dependency_stamp_matches(stamped: object, current: str) -> bool:
+    """Whether a stamped dependency digest covers *current*; a pre-tracking stamp covers any."""
+    return stamped is None or stamped == current
 
 
 def dependency_fingerprint(

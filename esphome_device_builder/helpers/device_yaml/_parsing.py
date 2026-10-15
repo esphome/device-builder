@@ -208,26 +208,6 @@ def content_fingerprint_is_current(stored: object) -> bool:
     return _has_version_prefix(stored, CONTENT_FINGERPRINT_VERSION)
 
 
-# Prefix on every stored dependency digest; bump when the algorithm changes.
-DEPENDENCY_FINGERPRINT_VERSION = "1:"
-
-
-def extract_dependency_fingerprint(sources: Iterable[tuple[str, Iterable[str]]]) -> str:
-    """Versioned digest of each dependency's path and significant lines."""
-    lines = [line for dependency, body in sources for line in (dependency, *body)]
-    return f"{DEPENDENCY_FINGERPRINT_VERSION}{_sha256_lines(lines)}"
-
-
-def dependency_fingerprint_is_current(stored: object) -> bool:
-    """Return True when *stored* is a dependency digest the current algorithm produced."""
-    return _has_version_prefix(stored, DEPENDENCY_FINGERPRINT_VERSION)
-
-
-def dependency_stamp_matches(stamped: object, current: str) -> bool:
-    """Whether a regen's stamped dependency digest covers *current*; an absent stamp covers any."""
-    return not stamped or stamped == current
-
-
 def _has_version_prefix(stored: object, version: str) -> bool:
     return isinstance(stored, str) and stored.startswith(version)
 

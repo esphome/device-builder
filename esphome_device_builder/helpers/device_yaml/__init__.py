@@ -22,6 +22,8 @@ from ._dependencies import (
     DependencyStatKeys,
     SourceMemo,
     dependency_fingerprint,
+    dependency_fingerprint_is_current,
+    dependency_stamp_matches,
     read_source_fingerprints,
 )
 from ._generation import (
@@ -57,8 +59,6 @@ from ._parsing import (
     configuration_filename,
     configuration_stem,
     content_fingerprint_is_current,
-    dependency_fingerprint_is_current,
-    dependency_stamp_matches,
     detect_platform_from_yaml,
     device_ap_label,
     device_uses_mqtt,

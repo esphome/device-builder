@@ -39,9 +39,9 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
+from esphome_device_builder.helpers.device_yaml._dependencies import DEPENDENCY_FINGERPRINT_VERSION
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
-    DEPENDENCY_FINGERPRINT_VERSION,
 )
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (

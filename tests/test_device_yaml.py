@@ -20,7 +20,7 @@ import pytest
 import yaml
 from esphome import yaml_util
 from esphome.const import ALLOWED_NAME_CHARS
-from esphome.core import CORE
+from esphome.core import CORE, EsphomeError
 
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
@@ -47,6 +47,10 @@ from esphome_device_builder.helpers.device_yaml import (
     resolve_chip_mcu,
 )
 from esphome_device_builder.helpers.device_yaml._dependencies import (
+    DEPENDENCY_FINGERPRINT_VERSION,
+    dependency_fingerprint_is_current,
+    dependency_stamp_matches,
+    extract_dependency_fingerprint,
     normalize_dependencies,
     read_dependency_sources,
 )
@@ -56,15 +60,12 @@ from esphome_device_builder.helpers.device_yaml._loading import (
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
-    DEPENDENCY_FINGERPRINT_VERSION,
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
     content_fingerprint_is_current,
-    dependency_fingerprint_is_current,
     device_ap_label,
     extract_component_source_fingerprint,
     extract_config_content_fingerprint,
-    extract_dependency_fingerprint,
     extract_logger_baud_rate,
     extract_logger_interface,
     extract_ota_partition_access,
@@ -4104,6 +4105,43 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     assert lines["packages/filters.yaml"] == ["- multiply: 2"]
     assert sources.newest_mtime is not None
     assert sources.newest_mtime < far_future
+
+
+def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_an_include_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed deferred include pass yields the parsed config and ``None`` dependencies."""
+    yaml_file = _write_include_fleet(tmp_path)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.device_yaml._loading.do_substitution_pass",
+        mock.Mock(side_effect=EsphomeError("boom")),
+    )
+
+    config, dependencies = load_device_yaml_tracked(yaml_file)
+
+    assert config is not None
+    assert dependencies is None
+
+
+def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references(
+    tmp_path: Path,
+) -> None:
+    """``!secret "name"`` and ``{key: !secret name}`` capture the bare key."""
+    (tmp_path / "secrets.yaml").write_text("quoted: 1\nflow: 2\nunused: 3\n", encoding="utf-8")
+    content = 'a: !secret "quoted"\nb: {x: !secret flow}\n'
+
+    sources = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
+
+    assert dict(sources.lines)["secrets.yaml"] == ["quoted: 1", "flow: 2"]
+
+
+def test_dependency_stamp_matches_distinguishes_unknown_from_pre_tracking() -> None:
+    """Only an absent stamp covers any digest; an empty one covers only unknown dependencies."""
+    assert dependency_stamp_matches(None, "1:abc")
+    assert dependency_stamp_matches("", "")
+    assert not dependency_stamp_matches("", "1:abc")
+    assert dependency_stamp_matches("1:abc", "1:abc")
+    assert not dependency_stamp_matches("1:abc", "1:def")
 
 
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
