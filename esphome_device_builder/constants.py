@@ -51,6 +51,8 @@ def secret_ref_name(match: re.Match[str]) -> str:
 
 def secret_ref_names(text: str) -> list[str]:
     """Names of every ``!secret`` reference in *text*, skipping commented-out lines."""
+    if "#" not in text:
+        return [secret_ref_name(match) for match in SECRET_REF_RE.finditer(text)]
     names: list[str] = []
     for match in SECRET_REF_RE.finditer(text):
         line_start = text.rfind("\n", 0, match.start()) + 1

@@ -211,15 +211,38 @@ def _referenced_secrets(yaml_content: str, sources: Iterable[SourceText]) -> fro
 
 def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
     """*path* as read, or ``None`` when absent (esphome probes files that need not exist)."""
+    if secrets:
+        return _read_secrets(path)
     try:
         stat, text = read_text_with_stat(path)
     except FileNotFoundError:
         return None
     key = (stat.st_mtime_ns, stat.st_size)
-    if secrets:
-        return SourceText(stat.st_mtime, key, "", [], _secret_lines(path, text))
-    digest = _digest_lines(_significant_lines(text))
-    return SourceText(stat.st_mtime, key, digest, secret_ref_names(text), None)
+    return SourceText(
+        stat.st_mtime, key, _digest_lines(_significant_lines(text)), secret_ref_names(text), None
+    )
+
+
+# Parsed secrets files by path; every device load of a fleet reads the same one, so an
+# unchanged file costs a stat instead of a read and a YAML parse.
+_SECRETS_CACHE: dict[str, SourceText] = {}
+
+
+def _read_secrets(path: Path) -> SourceText | None:
+    """*path* parsed into secret lines, served from the cache while its stat key holds."""
+    name = os.fspath(path)
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    cached = _SECRETS_CACHE.get(name)
+    if cached is not None and cached.stat_key == (stat.st_mtime_ns, stat.st_size):
+        return cached
+    stat, text = read_text_with_stat(path)
+    key = (stat.st_mtime_ns, stat.st_size)
+    source = SourceText(stat.st_mtime, key, "", [], _secret_lines(path, text))
+    _SECRETS_CACHE[name] = source
+    return source
 
 
 def _secret_lines(path: Path, text: str) -> dict[str, str]:

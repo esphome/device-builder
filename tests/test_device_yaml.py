@@ -4278,8 +4278,29 @@ def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> No
         first = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
         second = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
 
-    assert read.call_count == len(_FLEET_DEPENDENCIES)
+    assert read.call_count == sum((tmp_path / d).is_file() for d in _FLEET_DEPENDENCIES)
     assert second == first
+
+
+def test_read_dependency_sources_serves_an_unchanged_secrets_file_from_the_cache(
+    tmp_path: Path,
+) -> None:
+    """A later batch stats an unchanged secrets file instead of reading it; an edit re-reads."""
+    content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")
+    secrets = tmp_path / "secrets.yaml"
+    first = read_dependency_sources(_FLEET_DEPENDENCIES, content, LoadBatch(tmp_path))
+
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat",
+        wraps=read_text_with_stat,
+    ) as read:
+        cached = read_dependency_sources(_FLEET_DEPENDENCIES, content, LoadBatch(tmp_path))
+        secrets.write_text("api_key: abcdef\nunrelated: zzz\n", encoding="utf-8")
+        edited = read_dependency_sources(_FLEET_DEPENDENCIES, content, LoadBatch(tmp_path))
+
+    assert cached == first
+    assert [c.args[0].name for c in read.call_args_list].count("secrets.yaml") == 1
+    assert dict(edited.lines)["secrets.yaml"] == ['api_key: "abcdef"']
 
 
 def test_load_device_from_storage_digest_agrees_between_shallow_and_deep(
