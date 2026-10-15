@@ -20,6 +20,7 @@ import asyncio
 import itertools
 import json
 import logging
+import os
 import re
 import ssl
 import sys
@@ -1254,6 +1255,12 @@ def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
         "status": JobStatus.RUNNING,
     }
     return FirmwareJob(**(base | overrides))
+
+
+def bump_mtime(path: Path) -> None:
+    """Push *path*'s mtime past any same-size rewrite the filesystem's clock would hide."""
+    stat = path.stat()
+    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
 
 
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:

@@ -49,7 +49,6 @@ from esphome_device_builder.helpers.device_yaml import (
 from esphome_device_builder.helpers.device_yaml._dependencies import (
     normalize_dependencies,
     read_dependency_sources,
-    source_fingerprint,
 )
 from esphome_device_builder.helpers.device_yaml._loading import (
     _snapshot_source_files,
@@ -86,6 +85,7 @@ from esphome_device_builder.models import (
     ReachabilitySource,
 )
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import bump_mtime
 
 
 def _make_esp32_board(
@@ -898,10 +898,10 @@ def test_extract_config_content_fingerprint_without_content() -> None:
 def test_extract_config_content_fingerprint_covers_dependency_paths_and_lines() -> None:
     """A dependency's path and its lines both move the digest."""
     base = extract_config_content_fingerprint("wifi:\n", ())
-    with_a = extract_config_content_fingerprint("wifi:\n", [("a.yaml", ["x: 1"])])
+    with_a = extract_config_content_fingerprint("wifi:\n", [("a.yaml", "d1")])
     assert with_a != base
-    assert with_a != extract_config_content_fingerprint("wifi:\n", [("b.yaml", ["x: 1"])])
-    assert with_a != extract_config_content_fingerprint("wifi:\n", [("a.yaml", ["x: 2"])])
+    assert with_a != extract_config_content_fingerprint("wifi:\n", [("b.yaml", "d1")])
+    assert with_a != extract_config_content_fingerprint("wifi:\n", [("a.yaml", "d2")])
 
 
 _EXTERNAL_COMPONENTS_YAML = (
@@ -2592,7 +2592,7 @@ def test_snapshot_degrades_to_a_bare_stat_when_open_fails(
         return real_open(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", _denied)
-    yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(path)
+    yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(path, LoadBatch(path.parent))
 
     assert yaml_content == ""
     assert yaml_stat is not None
@@ -3995,12 +3995,6 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 # ---------------------------------------------------------------------------
 
 
-def _bump_mtime(path: Path) -> None:
-    """Push *path*'s mtime past any same-size rewrite the filesystem's clock would hide."""
-    stat = path.stat()
-    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
-
-
 def _load_tracked(yaml_file: Path) -> tuple[dict | None, tuple[str, ...] | None]:
     return load_device_yaml_tracked(
         yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent)
@@ -4066,7 +4060,7 @@ def test_load_device_yaml_tracked_returns_none_on_parse_failure(tmp_path: Path) 
     yaml_file = tmp_path / "kitchen.yaml"
     yaml_file.write_text("esphome: [\n", encoding="utf-8")
 
-    assert _load_tracked(yaml_file) == (None, None)
+    assert _load_tracked(yaml_file) == (None, ())
 
 
 def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
@@ -4103,9 +4097,9 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     )
 
     lines = dict(sources.lines)
-    assert lines["secrets.yaml"] == ['api_key: "abc"']
-    assert lines["packages/secrets.yaml"] == []
-    assert lines["packages/filters.yaml"] == [_digest_lines(["- multiply: 2"])]
+    assert lines["secrets.yaml"] == _digest_lines(['api_key: "abc"'])
+    assert lines["packages/secrets.yaml"] == ""
+    assert lines["packages/filters.yaml"] == _digest_lines(["- multiply: 2"])
     assert sources.newest_mtime is not None
     assert sources.newest_mtime < far_future
 
@@ -4174,18 +4168,14 @@ def test_load_batch_stat_key_uses_the_read_or_a_fresh_stat(tmp_path: Path) -> No
 def test_read_dependency_sources_treats_a_prestatted_absent_secrets_file_as_absent(
     tmp_path: Path,
 ) -> None:
-    """A scanner pre-stat of ``(0, 0)`` for a probed secrets file reads nothing and digests none."""
-    batch = LoadBatch(tmp_path, stat_keys={"packages/secrets.yaml": (0, 0)})
+    """A pre-statted absent secrets file (key ``(0, 0)``) reads nothing and digests empty."""
+    batch = LoadBatch(tmp_path)
+    assert batch.stat_key("packages/secrets.yaml") == (0, 0)
 
     sources = read_dependency_sources(("packages/secrets.yaml",), "a: !secret x\n", batch)
 
-    assert sources.lines == [("packages/secrets.yaml", [])]
+    assert sources.lines == [("packages/secrets.yaml", "")]
     assert batch.sources["packages/secrets.yaml"] is None
-
-
-def test_source_fingerprint_is_empty_for_an_unknown_list(tmp_path: Path) -> None:
-    """No dependency list means no digest, whatever the device text says."""
-    assert source_fingerprint(tmp_path, None, "esphome:\n  name: x\n") == ""
 
 
 def test_read_dependency_sources_ignores_commented_and_quoted_secret_references(
@@ -4197,7 +4187,7 @@ def test_read_dependency_sources_ignores_commented_and_quoted_secret_references(
 
     sources = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
 
-    assert dict(sources.lines)["secrets.yaml"] == ['live: "a"']
+    assert dict(sources.lines)["secrets.yaml"] == _digest_lines(['live: "a"'])
 
 
 def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references(
@@ -4211,7 +4201,9 @@ def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references
 
     sources = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
 
-    assert dict(sources.lines)["secrets.yaml"] == ["flow: 2", "quoted: 1", "wifi password: 3"]
+    assert dict(sources.lines)["secrets.yaml"] == _digest_lines(
+        ["flow: 2", "quoted: 1", "wifi password: 3"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -4229,22 +4221,22 @@ def test_read_dependency_sources_digests_resolved_secret_values(
 
     before = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
     secrets.write_text(secrets_text.replace("old", "new"), encoding="utf-8")
-    _bump_mtime(secrets)
+    bump_mtime(secrets)
     after = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
 
-    assert dict(before.lines)["secrets.yaml"] == ['wifi_password: "old"']
-    assert dict(after.lines)["secrets.yaml"] == ['wifi_password: "new"']
+    assert dict(before.lines)["secrets.yaml"] == _digest_lines(['wifi_password: "old"'])
+    assert dict(after.lines)["secrets.yaml"] == _digest_lines(['wifi_password: "new"'])
 
 
 @pytest.mark.parametrize(
-    ("secrets_text", "expected"),
+    ("secrets_text", "digests"),
     [
-        pytest.param("- a\n- b\n", [], id="not-a-mapping"),
-        pytest.param("wifi_password: !lambda 'return 1;'\n", ["wifi_password: "], id="esphome-tag"),
+        pytest.param("- a\n- b\n", False, id="not-a-mapping"),
+        pytest.param("wifi_password: !lambda 'return 1;'\n", True, id="esphome-tag"),
     ],
 )
 def test_read_dependency_sources_secrets_parse_edge_cases(
-    tmp_path: Path, secrets_text: str, expected: list[str]
+    tmp_path: Path, secrets_text: str, digests: bool
 ) -> None:
     """A non-mapping secrets file has no keys; an esphome tag falls back to esphome's loader."""
     (tmp_path / "secrets.yaml").write_text(secrets_text, encoding="utf-8")
@@ -4253,8 +4245,7 @@ def test_read_dependency_sources_secrets_parse_edge_cases(
         ("secrets.yaml",), "p: !secret wifi_password\n", LoadBatch(tmp_path)
     )
 
-    lines = dict(sources.lines)["secrets.yaml"]
-    assert [line[: len(prefix)] for line, prefix in zip(lines, expected, strict=True)] == expected
+    assert bool(dict(sources.lines)["secrets.yaml"]) is digests
 
 
 def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
@@ -4279,13 +4270,13 @@ def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
 
     shared = os.path.normcase(os.path.abspath("shared/filters.yaml"))  # noqa: PTH100
     assert dependencies == (shared,)
-    assert dict(sources.lines) == {shared: [_digest_lines(["- multiply: 2"])]}
+    assert dict(sources.lines) == {shared: _digest_lines(["- multiply: 2"])}
 
 
-def test_unreadable_dependency_digests_as_empty_and_warns_once_per_batch(
+def test_unreadable_dependency_withholds_the_digest_and_warns_once_per_batch(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """An unreadable dependency keeps its stat key and digests empty; the batch warns once."""
+    """An unreadable dependency keeps its stat key but yields no digest; the batch warns once."""
     yaml_file = _write_include_fleet(tmp_path)
     content = yaml_file.read_text(encoding="utf-8")
     filters = tmp_path / "packages" / "filters.yaml"
@@ -4297,14 +4288,15 @@ def test_unreadable_dependency_digests_as_empty_and_warns_once_per_batch(
         first = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
         second = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
 
-    assert dict(first.lines)["packages/filters.yaml"] == [""]
-    assert second == first
+    assert first is None
+    assert second is None
     assert (
         sum("Could not read packages/filters.yaml" in r.getMessage() for r in caplog.records) == 1
     )
     assert batch.stat_key("packages/filters.yaml") == safe_stat_key(filters)
     device = load_device_from_storage(yaml_file, shallow=True, dependencies=_FLEET_DEPENDENCIES)
-    assert device.content_fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert device.dependencies == _FLEET_DEPENDENCIES
+    assert device.content_fingerprint == ""
 
 
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
@@ -4319,7 +4311,7 @@ def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> No
         first = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
         second = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
 
-    assert read.call_count == sum((tmp_path / d).is_file() for d in _FLEET_DEPENDENCIES)
+    assert read.call_count == len(_FLEET_DEPENDENCIES)
     assert second == first
 
 
@@ -4340,8 +4332,8 @@ def test_read_dependency_sources_serves_an_unchanged_secrets_file_from_the_cache
         edited = read_dependency_sources(_FLEET_DEPENDENCIES, content, LoadBatch(tmp_path))
 
     assert cached == first
-    assert [c.args[0].name for c in read.call_args_list].count("secrets.yaml") == 1
-    assert dict(edited.lines)["secrets.yaml"] == ['api_key: "abcdef"']
+    assert [c.args[0] for c in read.call_args_list].count(secrets) == 1
+    assert dict(edited.lines)["secrets.yaml"] == _digest_lines(['api_key: "abcdef"'])
 
 
 def test_load_device_from_storage_digest_agrees_between_shallow_and_deep(
@@ -4386,11 +4378,11 @@ def test_digest_moves_only_on_content_in_play(tmp_path: Path) -> None:
     assert load_device_from_storage(yaml_file).content_fingerprint == baseline
 
     secrets.write_text("api_key: abc\nunrelated: yyy\n", encoding="utf-8")
-    _bump_mtime(secrets)
+    bump_mtime(secrets)
     assert load_device_from_storage(yaml_file).content_fingerprint == baseline
 
     secrets.write_text("api_key: abz\nunrelated: yyy\n", encoding="utf-8")
-    _bump_mtime(secrets)
+    bump_mtime(secrets)
     rotated = load_device_from_storage(yaml_file).content_fingerprint
     assert rotated != baseline
 

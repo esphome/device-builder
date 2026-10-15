@@ -912,8 +912,9 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
     assert len(spawn_calls) == 1
 
 
-def test_source_fingerprint_is_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
-    assert read_source_fingerprint(tmp_path / "missing.yaml", ()) == ""
+def test_source_fingerprint_raises_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        read_source_fingerprint(tmp_path / "missing.yaml", ())
 
 
 # ---------------------------------------------------------------------------
@@ -1353,17 +1354,17 @@ async def test_regenerate_warns_when_yaml_unreadable(
         "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
         _fake_spawn,
     )
-    real_stat = Path.stat
+    real_read = storage_regen.read_source_fingerprint
     denials = 2
 
-    def _flaky_stat(self: Path, **kwargs: Any) -> Any:
+    def _flaky_read(config_path: Path, dependencies: tuple[str, ...]) -> str:
         nonlocal denials
-        if self.name == "kitchen.yaml" and denials:
+        if denials:
             denials -= 1
             raise PermissionError("denied")
-        return real_stat(self, **kwargs)
+        return real_read(config_path, dependencies)
 
-    monkeypatch.setattr(Path, "stat", _flaky_stat)
+    monkeypatch.setattr(storage_regen, "read_source_fingerprint", _flaky_read)
 
     with caplog.at_level(logging.WARNING):
         controller._schedule_storage_regenerate("kitchen.yaml")
@@ -1651,7 +1652,7 @@ async def test_edit_landing_mid_run_regens_again(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """An edit that lands while esphome runs gets its own regen once the run completes."""
+    """An edit whose scan stored a new digest while esphome ran gets its own regen after."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
@@ -1661,9 +1662,12 @@ async def test_edit_landing_mid_run_regens_again(
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
         spawn_calls.append(args)
         if len(spawn_calls) == 1:
+            # The edit lands and its scan stores the moved digest, its own schedule dropped.
             await asyncio.to_thread(
                 yaml_path.write_text, "esphome:\n  name: kitchen2\n", encoding="utf-8"
             )
+            moved = await asyncio.to_thread(read_source_fingerprint, yaml_path, ())
+            _seed_store(controller, "kitchen.yaml", content_fingerprint=moved)
         return _capture_result(returncode=0)
 
     monkeypatch.setattr(
@@ -1679,6 +1683,38 @@ async def test_edit_landing_mid_run_regens_again(
     await _drain(controller)
 
     assert len(spawn_calls) == 2
+
+
+async def test_regenerate_strikes_when_a_dependency_is_unreadable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unreadable dependency yields no digest, so the ladder re-arms with a RAM strike."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").mkdir()
+    _index(controller, "kitchen.yaml", "packages/common.yaml")
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        return _capture_result(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        controller._schedule_storage_regenerate("kitchen.yaml")
+        await _drain(controller)
+
+    assert spawn_calls == []
+    assert any("a dependency is unreadable" in r.getMessage() for r in caplog.records)
+    assert controller.state.regen.unreadable_strikes == {"kitchen.yaml": 1}
 
 
 async def test_regenerate_keys_on_the_device_file_while_its_list_is_unknown(

@@ -15,7 +15,6 @@ so the regression surfaces in CI rather than in a user's logs.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -30,6 +29,7 @@ from esphome_device_builder.controllers._device_scanner import (
 )
 from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
 from esphome_device_builder.models import Device
+from tests.conftest import bump_mtime
 
 
 def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
@@ -573,12 +573,7 @@ async def test_plain_scan_does_not_redeepen_shallow_rows(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
-def _bump_mtime(path: Path) -> None:
-    stat = path.stat()
-    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
-
-
-def _write_include_fleet(config_dir: Path) -> tuple[Path, Path]:
+def _write_package_fleet(config_dir: Path) -> tuple[Path, Path]:
     """``kitchen.yaml`` pulling in ``packages/common.yaml``; ``porch.yaml`` standalone."""
     (config_dir / "packages").mkdir()
     package = config_dir / "packages" / "common.yaml"
@@ -593,7 +588,7 @@ async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path)
     """A package edit surfaces as UPDATED on the devices that pull it in and nowhere else."""
     cfg = tmp_path / "configs"
     cfg.mkdir()
-    kitchen, package = _write_include_fleet(cfg)
+    kitchen, package = _write_package_fleet(cfg)
     scanner, events = _make_scanner(cfg)
 
     await scanner.scan()
@@ -607,7 +602,7 @@ async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path)
     assert events == []
 
     package.write_text("esphome:\n  name: kitchen\nlogger:\n", encoding="utf-8")
-    _bump_mtime(package)
+    bump_mtime(package)
     await scanner.scan()
 
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
@@ -646,7 +641,7 @@ async def test_secret_edit_updates_a_device_whose_package_probes_an_absent_secre
         assert events == []
 
         secrets.write_text("api_key: xyz\n", encoding="utf-8")
-        _bump_mtime(secrets)
+        bump_mtime(secrets)
         await scanner.scan()
 
     assert "packages/secrets.yaml" in scanner.by_path[kitchen].dependencies
@@ -662,12 +657,12 @@ async def test_dependency_touch_fires_one_updated_with_the_digest_unchanged(
     """An mtime-only change reloads once; the digest the regen gate reads stays put."""
     cfg = tmp_path / "configs"
     cfg.mkdir()
-    _, package = _write_include_fleet(cfg)
+    _, package = _write_package_fleet(cfg)
     scanner, events = _make_scanner(cfg)
     await scanner.scan()
     events.clear()
 
-    _bump_mtime(package)
+    bump_mtime(package)
     await scanner.scan()
 
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
@@ -683,7 +678,7 @@ async def test_reload_keeps_dependency_keys_so_the_next_scan_is_quiet(tmp_path: 
     """A reload re-stats the device file and carries the dependency keys the load read against."""
     cfg = tmp_path / "configs"
     cfg.mkdir()
-    kitchen, package = _write_include_fleet(cfg)
+    kitchen, package = _write_package_fleet(cfg)
     scanner, events = _make_scanner(cfg)
     await scanner.scan()
     events.clear()

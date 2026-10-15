@@ -62,7 +62,7 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 
 
 async def _run(controller: DevicesController, configuration: str) -> None:
-    rerun = False
+    current: str | None = None
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
@@ -100,12 +100,6 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             regen.cancel_retry(configuration)
             await controller._finalize_regen_success(configuration, current)
             await controller._scanner.reload(configuration)
-            # An edit landing mid-run had its schedule dropped as a duplicate and
-            # its digest re-seeded by the reload, so it only shows up here.
-            latest = await run_in_executor(
-                read_source_fingerprint, config_path, _dependencies_of(controller, configuration)
-            )
-            rerun = bool(latest) and latest != current
             return
         # Stamp against the pre-spawn digest: an edit landing mid-run must
         # not have the old content's failure charged to the new file.
@@ -123,7 +117,10 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         _arm_ttl_recheck(controller, configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
-        if rerun:
+        # A schedule while this run was pending was dropped, and the scan or
+        # reload behind it stored its digest; run again until the two agree.
+        stored = controller._metadata_store.get(configuration).get("content_fingerprint")
+        if current and stored and stored != current:
             schedule(controller, configuration)
 
 
@@ -251,40 +248,31 @@ def _delay_for(attempts: int) -> float:
 async def _current_digest(
     controller: DevicesController, configuration: str, config_path: Path
 ) -> str | None:
-    """Return the digest a regen keys on; ``None`` after arming a retry for an unreadable source."""
+    """Return the digest a regen keys on; ``None`` once a bad source was handled."""
     regen = controller.state.regen
+    # A device not indexed yet regens on its file alone, so esphome reports the real error.
+    device = controller.get_by_configuration(configuration)
+    dependencies = (device.dependencies if device is not None else None) or ()
     try:
-        await run_in_executor(config_path.stat)
+        current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
     except FileNotFoundError:
         _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
         regen.clear_strikes(configuration)
         return None
-    except OSError:
+    except (OSError, UnicodeDecodeError) as err:
         _LOGGER.warning(
-            "Storage regenerate for %s: config unreadable; retrying", configuration, exc_info=True
+            "Storage regenerate for %s: config unreadable (%s); retrying", configuration, err
         )
         _arm_strike(controller, configuration)
         return None
-    current = await run_in_executor(
-        read_source_fingerprint, config_path, _dependencies_of(controller, configuration)
-    )
     if not current:
-        # The device file itself unreadable: nothing to stamp a failure against.
-        _LOGGER.warning("Storage regenerate for %s: config unreadable; retrying", configuration)
+        _LOGGER.warning(
+            "Storage regenerate for %s: a dependency is unreadable; retrying", configuration
+        )
         _arm_strike(controller, configuration)
         return None
     regen.clear_strikes(configuration)
     return current
-
-
-def _dependencies_of(controller: DevicesController, configuration: str) -> tuple[str, ...]:
-    """Return the indexed device's dependency list, empty while unknown so the regen still runs."""
-    # A device whose list is unknown (its parse fails, or it is not indexed yet)
-    # still regens so esphome reports the real error; the stamp keys on the
-    # file alone until the list is known.
-    device = controller.get_by_configuration(configuration)
-    dependencies = device.dependencies if device is not None else None
-    return dependencies if dependencies is not None else ()
 
 
 def _arm_strike(controller: DevicesController, configuration: str) -> None:

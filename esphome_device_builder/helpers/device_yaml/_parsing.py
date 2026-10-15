@@ -199,13 +199,13 @@ CONTENT_FINGERPRINT_VERSION = "2:"
 
 
 def extract_config_content_fingerprint(
-    yaml_content: str, dependencies: Iterable[tuple[str, Iterable[str]]]
+    yaml_content: str, dependencies: Iterable[tuple[str, str]]
 ) -> str:
-    """Versioned digest of the YAML's significant lines plus each dependency's path and lines."""
+    """Versioned digest of the YAML's significant lines plus each dependency's path and digest."""
     lines = _significant_lines(yaml_content)
-    for dependency, body in dependencies:
+    for dependency, digest in dependencies:
         lines.append(dependency)
-        lines.extend(body)
+        lines.append(digest)
     return f"{CONTENT_FINGERPRINT_VERSION}{hashlib.sha256('\n'.join(lines).encode()).hexdigest()}"
 
 

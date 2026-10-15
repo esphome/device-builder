@@ -54,8 +54,7 @@ def secret_ref_names(text: str) -> list[str]:
     names: list[str] = []
     for match in SECRET_REF_RE.finditer(text):
         start = match.start()
-        before = text[start - 1] if start else ""
-        if before.isalnum() or (before and before in "_\"'"):
+        if start and (text[start - 1].isalnum() or text[start - 1] in "_\"'"):
             continue
         if text[text.rfind("\n", 0, start) + 1 : start].lstrip()[:1] == "#":
             continue

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from functools import partial
@@ -26,7 +25,6 @@ from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import (
     LoadBatch,
     load_device_from_storage,
-    safe_stat_key,
 )
 from ..models import Device
 from ._wake_worker import WakeWorker
@@ -506,7 +504,7 @@ class DeviceScanner(WakeWorker[str]):
     ) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
         result: dict[Path, _CacheKey] = {}
-        memo: dict[str, _DependencyStatKey] = {}
+        batch = LoadBatch(self._config_dir)
         for file in util.list_yaml_files([self._config_dir]):
             try:
                 stat = file.stat()
@@ -518,19 +516,9 @@ class DeviceScanner(WakeWorker[str]):
                 stat.st_dev,
                 stat.st_mtime,
                 stat.st_size,
-                self._dependency_keys(memo, dependencies) if dependencies else (),
+                tuple(batch.stat_key(d) for d in dependencies) if dependencies else (),
             )
         return result
-
-    def _dependency_keys(
-        self, memo: dict[str, _DependencyStatKey], dependencies: Iterable[str]
-    ) -> _DependencyStatKeys:
-        """Stat *dependencies* through *memo*, so a package shared by the fleet is stat'ed once."""
-        for dependency in dependencies:
-            if dependency not in memo:
-                memo[dependency] = safe_stat_key(os.path.join(self._config_dir, dependency))  # noqa: PTH118
-        keys = [memo[d] for d in dependencies]
-        return tuple(keys)
 
     def _load_devices(
         self, paths: set[Path], *, shallow: bool = False
@@ -538,8 +526,7 @@ class DeviceScanner(WakeWorker[str]):
         """Materialise Device models for *paths*. Logs and skips on failure."""
         result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
-        memo: dict[str, _DependencyStatKey] = {}
-        batch = LoadBatch(self._config_dir, stat_keys=memo)
+        batch = LoadBatch(self._config_dir)
         for path in paths:
             try:
                 metadata = get_metadata(self._config_dir, path.name)
@@ -549,8 +536,6 @@ class DeviceScanner(WakeWorker[str]):
                     if previous is not None and previous.dependencies is not None
                     else metadata.dependencies
                 )
-                # Stat before the read so an edit landing mid-load flips the next scan.
-                dependency_keys = self._dependency_keys(memo, known or ())
                 device = load_device_from_storage(
                     path,
                     metadata.board_id,
@@ -573,10 +558,9 @@ class DeviceScanner(WakeWorker[str]):
                     dependencies=known,
                     batch=batch,
                 )
-                if device.dependencies != known:
-                    # The read's own fstat keys a newly discovered file, so an edit
-                    # landing after the read still flips the next scan.
-                    dependency_keys = tuple(batch.stat_key(d) for d in device.dependencies or ())
+                # The read's own fstat keys each file, so an edit landing after
+                # the read still flips the next scan.
+                dependency_keys = tuple(batch.stat_key(d) for d in device.dependencies or ())
                 result[path] = _LoadedDevice(device, dependency_keys)
             except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep
                 _LOGGER.warning("Failed to load device from %s", path.name)

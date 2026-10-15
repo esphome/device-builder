@@ -28,7 +28,6 @@ from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._chip import resolve_chip_mcu
 from ._dependencies import (
-    DependencySources,
     LoadBatch,
     normalize_dependencies,
     read_dependency_sources,
@@ -57,7 +56,6 @@ from ._parsing import (
     name_add_mac_suffix_enabled,
     ota_encryption_declared,
     parse_esphome_meta,
-    safe_stat_key,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
@@ -154,17 +152,24 @@ def load_device_from_storage(
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
 
-    yaml_stat, yaml_content, secrets_key = _snapshot_source_files(path)
-    yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     if batch is None:
         batch = LoadBatch(path.parent)
+    yaml_stat, yaml_content, secrets_key = _snapshot_source_files(path, batch)
+    yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
     # YAML would miss configs that pull the api block in via include
     # or split it across packages. ``None`` on parse failure is fine;
     # ``api_encrypted`` falls back to False.
-    resolved_config, dependencies, sources = _load_resolved_sources(
-        path, yaml_content, dependencies, batch, shallow=shallow
+    resolved_config, dependencies = (
+        load_device_yaml_tracked(path, yaml_content, batch, dependencies)
+        if not shallow
+        else (None, dependencies)
+    )
+    sources = (
+        read_dependency_sources(dependencies, yaml_content, batch)
+        if dependencies is not None
+        else None
     )
     if sources is not None and sources.newest_mtime is not None:
         yaml_mtime = max(yaml_mtime or 0.0, sources.newest_mtime)
@@ -442,7 +447,9 @@ def load_device_from_storage(
     )
 
 
-def _snapshot_source_files(path: Path) -> tuple[os.stat_result | None, str, tuple[int, int]]:
+def _snapshot_source_files(
+    path: Path, batch: LoadBatch
+) -> tuple[os.stat_result | None, str, tuple[int, int]]:
     """
     Read the YAML off one handle and stamp the secrets mtime before the esphome parse.
 
@@ -457,7 +464,7 @@ def _snapshot_source_files(path: Path) -> tuple[os.stat_result | None, str, tupl
             yaml_stat = path.stat()
         except OSError:
             yaml_stat = None
-    return yaml_stat, yaml_content, safe_stat_key(path.parent / SECRETS_FILENAME)
+    return yaml_stat, yaml_content, batch.stat_key(SECRETS_FILENAME)
 
 
 def compute_has_pending_changes(
@@ -520,18 +527,18 @@ def load_device_yaml_tracked(
     yaml_content: str,
     batch: LoadBatch,
     known: tuple[str, ...] | None = None,
-) -> tuple[dict | None, tuple[str, ...] | None]:
+) -> tuple[dict | None, tuple[str, ...]]:
     """
-    ``load_device_yaml`` plus the files it pulled in; ``None`` files when the parse failed.
+    ``load_device_yaml`` plus the files it pulled in.
 
-    A failed deferred include pass keeps *known*, the last complete list, in the result
+    A parse that failed part way keeps *known*, the last complete list, in the result
     so the files it missed stay watched.
     """
     with track_loaded_files() as loaded:
         config = load_device_yaml(path)
-        if config is None:
-            return None, None
-        complete = _load_deferred_includes(path, config, yaml_content, loaded)
+        complete = config is not None and _load_deferred_includes(
+            path, config, yaml_content, loaded
+        )
     if not complete and known:
         loaded.extend(batch.path_of(dependency) for dependency in known)
     return config, normalize_dependencies(path, loaded, batch.data_dir_prefix())
@@ -638,31 +645,6 @@ def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded:
         _LOGGER.warning("Could not resolve the deferred includes of %s: %s", path.name, err)
         return False
     return True
-
-
-def _load_resolved_sources(
-    path: Path,
-    yaml_content: str,
-    dependencies: tuple[str, ...] | None,
-    batch: LoadBatch,
-    *,
-    shallow: bool,
-) -> tuple[dict | None, tuple[str, ...] | None, DependencySources | None]:
-    """Resolve the config (deep only) and read its dependency files; unknown stays ``None``."""
-    resolved_config: dict | None = None
-    if not shallow:
-        resolved_config, discovered = load_device_yaml_tracked(
-            path, yaml_content, batch, dependencies
-        )
-        if discovered is not None:
-            dependencies = discovered
-    if dependencies is None:
-        return resolved_config, None, None
-    return (
-        resolved_config,
-        dependencies,
-        read_dependency_sources(dependencies, yaml_content, batch),
-    )
 
 
 def _has_packages_block(config: dict) -> bool:
