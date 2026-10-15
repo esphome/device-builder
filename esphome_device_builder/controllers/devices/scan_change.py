@@ -62,7 +62,7 @@ def on_scan_change(
         controller._state_monitor.address_retargeted(device.name)
     dropped_retry = _reconcile_regen_state(controller, kind, device)
     if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
-        _sync_fingerprints(controller, kind, device)
+        _sync_content_fingerprint(controller, kind, device)
     _nudge_mqtt(controller, kind, device, previous)
     _schedule_regen_if_needed(controller, kind, device, dropped_retry=dropped_retry)
     if kind is ScanChange.REMOVED:
@@ -197,7 +197,9 @@ def _nudge_mqtt(
         controller.schedule_mqtt_reconcile()
 
 
-def _sync_fingerprints(controller: DevicesController, kind: ScanChange, device: Device) -> None:
+def _sync_content_fingerprint(
+    controller: DevicesController, kind: ScanChange, device: Device
+) -> None:
     """Seed the stored dependency list and digest; regen when an out-of-band edit moved it."""
     configuration = device.configuration
     store = controller._metadata_store

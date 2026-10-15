@@ -773,10 +773,8 @@ def _capture_top_level_lines(yaml_content: str, keys: frozenset[str]) -> list[st
 
 def _digest_lines(lines: list[str]) -> str:
     """sha256 of *lines* joined by newline; empty string when there are none."""
-    return _sha256_lines(lines) if lines else ""
-
-
-def _sha256_lines(lines: Iterable[str]) -> str:
+    if not lines:
+        return ""
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 

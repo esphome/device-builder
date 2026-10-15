@@ -33,8 +33,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._metadata_store import _STORE_FILENAME
 from esphome_device_builder.models import EventType
 
 from .conftest import MakeDbFactory
@@ -258,8 +260,9 @@ async def test_start_refines_shallow_seed_then_reconciles(
     )
     # A persisted dependency list keeps the seed shallow; a device without one
     # loads deep on the cold start instead.
-    (tmp_path / ".esphome").mkdir()
-    (tmp_path / ".esphome" / ".device-builder-devices.json").write_text(
+    data_dir = Path(CORE.data_dir)
+    data_dir.mkdir()
+    (data_dir / _STORE_FILENAME).write_text(
         '{"kitchen.yaml": {"dependencies": []}}', encoding="utf-8"
     )
     db = make_db(tmp_path)

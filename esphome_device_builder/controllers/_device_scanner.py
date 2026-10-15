@@ -511,12 +511,13 @@ class DeviceScanner(WakeWorker[str]):
                 stat = file.stat()
             except OSError:
                 continue
+            dependencies = deps_by_path.get(file)
             result[file] = (
                 stat.st_ino,
                 stat.st_dev,
                 stat.st_mtime,
                 stat.st_size,
-                self._dependency_keys(memo, deps_by_path.get(file, ())),
+                self._dependency_keys(memo, dependencies) if dependencies else (),
             )
         return result
 
@@ -527,7 +528,8 @@ class DeviceScanner(WakeWorker[str]):
         for dependency in dependencies:
             if dependency not in memo:
                 memo[dependency] = safe_stat_key(self._config_dir / dependency)
-        return tuple(memo[d] for d in dependencies)
+        keys = [memo[d] for d in dependencies]
+        return tuple(keys)
 
     def _load_devices(
         self, paths: set[Path], *, shallow: bool = False
@@ -536,7 +538,7 @@ class DeviceScanner(WakeWorker[str]):
         result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
         memo: dict[str, DependencyStatKey] = {}
-        batch = LoadBatch()
+        batch = LoadBatch(self._config_dir)
         for path in paths:
             try:
                 metadata = get_metadata(self._config_dir, path.name)

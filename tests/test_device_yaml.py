@@ -56,6 +56,7 @@ from esphome_device_builder.helpers.device_yaml._loading import (
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
+    _digest_lines,
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
     device_ap_label,
@@ -83,6 +84,7 @@ from esphome_device_builder.models import (
     ReachabilitySource,
 )
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import bump_mtime
 
 
 def _make_esp32_board(
@@ -3992,7 +3994,9 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 
 
 def _load_tracked(yaml_file: Path) -> tuple[dict | None, tuple[str, ...] | None]:
-    return load_device_yaml_tracked(yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch())
+    return load_device_yaml_tracked(
+        yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent)
+    )
 
 
 def _write_include_fleet(config_dir: Path) -> Path:
@@ -4072,7 +4076,7 @@ def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path
             config_dir / ".." / "outside.yaml",
             config_dir / "b.yaml",
         ],
-        LoadBatch().data_dir_prefix,
+        LoadBatch(tmp_path).data_dir_prefix(),
     )
 
     assert dependencies == tuple(
@@ -4083,19 +4087,19 @@ def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path
 def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_path: Path) -> None:
     """Only the ``!secret`` names in play digest; secrets never move ``newest_mtime``."""
     yaml_file = _write_include_fleet(tmp_path)
-    far_future = time.time() + 10_000
-    os.utime(tmp_path / "secrets.yaml", (far_future, far_future))
+    secrets = tmp_path / "secrets.yaml"
+    bump_mtime(secrets)
 
     sources = read_dependency_sources(
-        tmp_path, _FLEET_DEPENDENCIES, yaml_file.read_text(encoding="utf-8")
+        _FLEET_DEPENDENCIES, yaml_file.read_text(encoding="utf-8"), LoadBatch(tmp_path)
     )
 
     lines = dict(sources.lines)
     assert lines["secrets.yaml"] == ['api_key: "abc"']
     assert lines["packages/secrets.yaml"] == []
-    assert lines["packages/filters.yaml"] == ["- multiply: 2"]
+    assert lines["packages/filters.yaml"] == [_digest_lines(["- multiply: 2"])]
     assert sources.newest_mtime is not None
-    assert sources.newest_mtime < far_future
+    assert sources.newest_mtime < secrets.stat().st_mtime
 
 
 def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_an_include_fails(
@@ -4139,7 +4143,7 @@ def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references
     )
     content = "a: !secret \"quoted\"\nb: {x: !secret flow}\nc: !secret 'wifi password'\n"
 
-    sources = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
+    sources = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
 
     assert dict(sources.lines)["secrets.yaml"] == ["flow: 2", "quoted: 1", "wifi password: 3"]
 
@@ -4157,9 +4161,9 @@ def test_read_dependency_sources_digests_resolved_secret_values(
     secrets.write_text(secrets_text, encoding="utf-8")
     content = "p: !secret wifi_password\n"
 
-    before = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
+    before = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
     secrets.write_text(secrets_text.replace("old", "new"), encoding="utf-8")
-    after = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
+    after = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
 
     assert dict(before.lines)["secrets.yaml"] == ['wifi_password: "old"']
     assert dict(after.lines)["secrets.yaml"] == ['wifi_password: "new"']
@@ -4182,12 +4186,12 @@ def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
 
     _config, dependencies = _load_tracked(yaml_file)
     sources = read_dependency_sources(
-        Path("configs"), dependencies, yaml_file.read_text(encoding="utf-8")
+        dependencies, yaml_file.read_text(encoding="utf-8"), LoadBatch(Path("configs"))
     )
 
     shared = os.path.normcase(os.path.abspath("shared/filters.yaml"))  # noqa: PTH100
     assert dependencies == (shared,)
-    assert dict(sources.lines) == {shared: ["- multiply: 2"]}
+    assert dict(sources.lines) == {shared: [_digest_lines(["- multiply: 2"])]}
 
 
 def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path: Path) -> None:
@@ -4196,14 +4200,14 @@ def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path:
     content = yaml_file.read_text(encoding="utf-8")
     (tmp_path / "packages" / "filters.yaml").unlink()
     (tmp_path / "packages" / "filters.yaml").mkdir()
-    batch = LoadBatch()
+    batch = LoadBatch(tmp_path)
 
-    assert read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch) is None
+    assert read_dependency_sources(_FLEET_DEPENDENCIES, content, batch) is None
     assert batch.unreadable == {"packages/filters.yaml"}
     with mock.patch(
         "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat"
     ) as read:
-        assert read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch) is None
+        assert read_dependency_sources(_FLEET_DEPENDENCIES, content, batch) is None
     read.assert_not_called()
     device = load_device_from_storage(yaml_file, shallow=True, dependencies=_FLEET_DEPENDENCIES)
     assert device.dependencies == _FLEET_DEPENDENCIES
@@ -4213,14 +4217,14 @@ def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path:
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
     """A batch memo serves a second device's read of the same file without touching disk."""
     content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")
-    batch = LoadBatch()
+    batch = LoadBatch(tmp_path)
 
     with mock.patch(
         "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat",
         wraps=read_text_with_stat,
     ) as read:
-        first = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch)
-        second = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch)
+        first = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
+        second = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
 
     assert read.call_count == len(_FLEET_DEPENDENCIES)
     assert second == first

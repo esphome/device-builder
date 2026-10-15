@@ -456,14 +456,15 @@ Two rules the refine established that every later caller inherits:
   30/60/120s between them) — a transient environment failure (interrupted
   package clone, DNS) is indistinguishable from a broken YAML without
   parsing subprocess output, so every failure retries. Every failure stamps
-  the store (`regen_failed_mtime`/`_at`/`_attempts`), making the stamp the
-  single source of truth: the ladder resumes across restarts at the recorded
-  attempt (a restart inside a backoff window re-arms the *remainder*, not an
-  immediate spawn), a spent budget holds until the YAML's mtime moves or the
-  four-hour TTL expires (a timer re-checks at expiry, so an untouched file
-  recovers without a scan event), and shutdown only cancels the in-RAM
-  timers. An edit resets the ladder by construction — failures stamp against
-  the pre-spawn mtime, so even an edit landing mid-run starts fresh. Success
+  the store (`regen_failed_content_fingerprint`/`_at`/`_attempts`), making the
+  stamp the single source of truth: the ladder resumes across restarts at the
+  recorded attempt (a restart inside a backoff window re-arms the *remainder*,
+  not an immediate spawn), a spent budget holds until the digest moves (the
+  device file or a dependency edited) or the four-hour TTL expires (a timer
+  re-checks at expiry, so an untouched file recovers without a scan event),
+  and shutdown only cancels the in-RAM timers. An edit resets the ladder by
+  construction: failures stamp against the pre-spawn digest, so even an edit
+  landing mid-run starts fresh. Success
   at any attempt clears the stamp triple and reloads the scanner, which also
   repairs an earlier swallowed in-process package resolve; a run cancelled
   mid-subprocess kills the child and records nothing (an interrupted clone

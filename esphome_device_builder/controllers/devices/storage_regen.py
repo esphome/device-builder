@@ -14,7 +14,6 @@ from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import read_source_fingerprint
 from ...helpers.subprocess import run_subprocess_capture
-from ._metadata_store import stored_str_tuple
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -74,8 +73,8 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         except OSError:
             # A transient errno (EACCES, EIO on a network mount) must not
             # strand the ladder: the firing timer already popped itself.
-            # Without a readable file the stamp can't key the failure, so a
-            # RAM strike escalates the re-arm up to the TTL.
+            # The digest read below would treat it as unknown rather than
+            # fail, so a RAM strike escalates the re-arm up to the TTL.
             strikes = regen.record_strike(configuration)
             _LOGGER.warning(
                 "Storage regenerate for %s: config unreadable; retrying",
@@ -87,10 +86,10 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             )
             return
         regen.clear_strikes(configuration)
-        md = controller._metadata_store.get(configuration)
-        dependencies = stored_str_tuple(md.get("dependencies"), strict=True)
+        device = controller.get_by_configuration(configuration)
+        dependencies = device.dependencies if device is not None else None
         current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
-        stamp = _fresh_stamp(md, current, time.time())
+        stamp = _fresh_stamp(controller._metadata_store.get(configuration), current, time.time())
         if stamp is not None:
             attempts, age = stamp
             if attempts >= _MAX_REGEN_ATTEMPTS:
@@ -242,7 +241,7 @@ def _fresh_stamp(md: Mapping[str, Any], current: str, now: float) -> tuple[int, 
     """
     cached = md.get("regen_failed_content_fingerprint")
     cached_at = md.get("regen_failed_at")
-    if cached is None or cached != current or not cached_at:
+    if cached != current or not cached_at:
         return None
     try:
         age = max(0.0, now - float(cached_at))

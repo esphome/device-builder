@@ -223,10 +223,7 @@ async def _runs_yaml(controller: DevicesController, device: Device, content: str
     if not (deployed and md.get("regen_config_hash") == deployed):
         return False
     current = await run_in_executor(
-        source_fingerprint,
-        controller._db.settings.rel_path(device.configuration).parent,
-        device.dependencies,
-        content,
+        source_fingerprint, controller._db.settings.config_dir, device.dependencies, content
     )
     return bool(current) and md.get("regen_content_fingerprint") == current
 

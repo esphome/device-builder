@@ -19,7 +19,7 @@ from esphome.core import CORE, EsphomeError
 from ...constants import is_secrets_file, secret_ref_names
 from ..atomic_io import read_text_with_stat
 from ..yaml import parse_yaml_fast_then_esphome
-from ._parsing import _significant_lines, extract_config_content_fingerprint
+from ._parsing import _digest_lines, _significant_lines, extract_config_content_fingerprint
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,26 +57,30 @@ class DependencySources(NamedTuple):
 
 
 class SourceText(NamedTuple):
-    """One dependency file as read; ``secrets`` is set for a secrets file, ``lines`` otherwise."""
+    """One dependency file as read: a secrets file has ``secret_lines``, any other a ``digest``."""
 
     mtime: float
-    lines: list[str]
+    digest: str
     secret_refs: list[str]
-    secrets: dict[str, object] | None
-
-
-def data_dir_prefix() -> str:
-    """``CORE.data_dir`` as an absolute, normalised path prefix."""
-    return os.path.normcase(os.path.abspath(Path(CORE.data_dir))) + os.sep  # noqa: PTH100
+    secret_lines: dict[str, str] | None
 
 
 @dataclass(slots=True)
 class LoadBatch:
-    """State the devices of one scan batch share: the data dir prefix and dependency reads."""
+    """State the devices of one config dir's scan batch share: reads and the data dir prefix."""
 
-    data_dir_prefix: str = field(default_factory=data_dir_prefix)
+    config_dir: Path
     sources: dict[str, SourceText | None] = field(default_factory=dict)
     unreadable: set[str] = field(default_factory=set)
+    _data_dir_prefix: str | None = None
+
+    def data_dir_prefix(self) -> str:
+        """``CORE.data_dir`` as an absolute, normalised path prefix, resolved once per batch."""
+        if self._data_dir_prefix is None:
+            self._data_dir_prefix = (
+                os.path.normcase(os.path.abspath(Path(CORE.data_dir))) + os.sep  # noqa: PTH100
+            )
+        return self._data_dir_prefix
 
 
 @contextmanager
@@ -113,21 +117,16 @@ def normalize_dependencies(path: Path, loaded: Iterable[str], data_prefix: str) 
 
 
 def read_dependency_sources(
-    config_dir: Path,
-    dependencies: Iterable[str],
-    yaml_content: str,
-    batch: LoadBatch | None = None,
+    dependencies: Iterable[str], yaml_content: str, batch: LoadBatch
 ) -> DependencySources | None:
     """
-    Read *dependencies* (relative to *config_dir*, or absolute) into digest lines.
+    Read *dependencies* (relative to the batch's config dir, or absolute) into digest lines.
 
-    A secrets file contributes only the resolved values of the keys *yaml_content*
-    and the other dependencies reference; ``newest_mtime`` spans the non-secret files.
-    ``None`` when a file exists but cannot be read or parsed, so no digest is drawn
-    from it.
+    A file contributes its digest; a secrets file only the resolved values of the keys
+    *yaml_content* and the other dependencies reference. ``newest_mtime`` spans the
+    non-secret files. ``None`` when a file exists but cannot be read or parsed, so no
+    digest is drawn from it.
     """
-    if batch is None:
-        batch = LoadBatch()
     sources: list[tuple[str, SourceText | None]] = []
     for dependency in dependencies:
         if dependency in batch.unreadable:
@@ -135,7 +134,7 @@ def read_dependency_sources(
         if dependency not in batch.sources:
             try:
                 batch.sources[dependency] = _read_source(
-                    config_dir / dependency, secrets=is_secrets_file(dependency)
+                    batch.config_dir / dependency, secrets=is_secrets_file(dependency)
                 )
             except (OSError, UnicodeDecodeError, yaml.YAMLError, EsphomeError) as err:
                 batch.unreadable.add(dependency)
@@ -149,18 +148,23 @@ def read_dependency_sources(
     read = [source for _, source in sources if source is not None]
     referenced = (
         _referenced_secrets(yaml_content, read)
-        if any(source.secrets is not None for source in read)
+        if any(source.secret_lines is not None for source in read)
         else frozenset()
     )
     lines: list[tuple[str, list[str]]] = []
     for dependency, source in sources:
         if source is None:
             lines.append((dependency, []))
-        elif source.secrets is not None:
-            lines.append((dependency, _secret_lines(source.secrets, referenced)))
+        elif source.secret_lines is not None:
+            secret_lines = source.secret_lines
+            lines.append(
+                (dependency, [secret_lines[n] for n in sorted(referenced) if n in secret_lines])
+            )
         else:
-            lines.append((dependency, source.lines))
-    newest_mtime = max((source.mtime for source in read if source.secrets is None), default=None)
+            lines.append((dependency, [source.digest]))
+    newest_mtime = max(
+        (source.mtime for source in read if source.secret_lines is None), default=None
+    )
     return DependencySources(lines, newest_mtime)
 
 
@@ -170,7 +174,7 @@ def source_fingerprint(
     """Digest of *yaml_content* and *dependencies* as on disk now; empty when either is unknown."""
     if dependencies is None:
         return ""
-    sources = read_dependency_sources(config_dir, dependencies, yaml_content)
+    sources = read_dependency_sources(dependencies, yaml_content, LoadBatch(config_dir))
     return extract_config_content_fingerprint(yaml_content, sources.lines) if sources else ""
 
 
@@ -192,15 +196,6 @@ def _referenced_secrets(yaml_content: str, sources: Iterable[SourceText]) -> fro
     return frozenset(names)
 
 
-def _secret_lines(secrets: dict[str, object], referenced: frozenset[str]) -> list[str]:
-    """One ``name: value`` line per referenced key *secrets* defines, sorted by name."""
-    return [
-        f"{name}: {json.dumps(secrets[name], sort_keys=True, default=str)}"
-        for name in sorted(referenced)
-        if name in secrets
-    ]
-
-
 def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
     """*path* as read, or ``None`` when absent (esphome probes files that need not exist)."""
     try:
@@ -208,11 +203,17 @@ def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
     except FileNotFoundError:
         return None
     if secrets:
-        return SourceText(stat.st_mtime, [], [], _parse_secrets(path, text))
-    return SourceText(stat.st_mtime, _significant_lines(text), secret_ref_names(text), None)
+        return SourceText(stat.st_mtime, "", [], _secret_lines(path, text))
+    digest = _digest_lines(_significant_lines(text))
+    return SourceText(stat.st_mtime, digest, secret_ref_names(text), None)
 
 
-def _parse_secrets(path: Path, text: str) -> dict[str, object]:
-    """Parse a secrets file into its mapping; anything else reads as empty."""
+def _secret_lines(path: Path, text: str) -> dict[str, str]:
+    """One ``name: value`` digest line per key of the secrets file; a non-mapping has none."""
     data = parse_yaml_fast_then_esphome(path, text)
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(name): f"{name}: {json.dumps(value, sort_keys=True, default=str)}"
+        for name, value in data.items()
+    }

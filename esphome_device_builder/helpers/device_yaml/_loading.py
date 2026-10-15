@@ -157,7 +157,7 @@ def load_device_from_storage(
     yaml_stat, yaml_content, secrets_key = _snapshot_source_files(path)
     yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     if batch is None:
-        batch = LoadBatch()
+        batch = LoadBatch(path.parent)
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
     # YAML would miss configs that pull the api block in via include
@@ -528,7 +528,7 @@ def load_device_yaml_tracked(
             or not _load_deferred_includes(path, config, yaml_content, loaded)
         ):
             return config, None
-    return config, normalize_dependencies(path, loaded, batch.data_dir_prefix)
+    return config, normalize_dependencies(path, loaded, batch.data_dir_prefix())
 
 
 def load_device_yaml(path: Path) -> dict | None:
@@ -618,7 +618,7 @@ def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded:
     # it pulled in; checking the text first spares most devices the tree walk.
     own = os.fspath(path)
     if "!include" not in yaml_content and all(
-        name == own or is_secrets_file(name) for name in loaded
+        name == own or is_secrets_file(name) for name in set(loaded)
     ):
         return True
     if not _holds_marker(config, yaml_util.IncludeFile):
@@ -653,7 +653,7 @@ def _load_resolved_sources(
     return (
         resolved_config,
         dependencies,
-        read_dependency_sources(path.parent, dependencies, yaml_content, batch),
+        read_dependency_sources(dependencies, yaml_content, batch),
     )
 
 

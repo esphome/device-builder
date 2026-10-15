@@ -62,8 +62,8 @@ def _read_store(controller: DevicesController, filename: str) -> dict[str, Any]:
 
 
 def _digest(controller: DevicesController, filename: str, *dependencies: str) -> str:
-    """Persist *dependencies* for *filename* and return the digest a regen of it reads."""
-    _seed_store(controller, filename, dependencies=list(dependencies))
+    """Index *filename* with *dependencies* and return the digest a regen of it reads."""
+    controller._scanner.devices = [make_device(name=Path(filename).stem, dependencies=dependencies)]
     return read_source_fingerprint(controller._db.settings.config_dir / filename, dependencies)
 
 
@@ -630,7 +630,7 @@ async def test_regenerate_clears_failure_stamp_on_success(
     await _drain(controller)
 
     md = _read_store(controller, "kitchen.yaml")
-    assert "regen_failed_mtime" not in md
+    assert "regen_failed_content_fingerprint" not in md
     assert "regen_failed_at" not in md
 
 
@@ -931,10 +931,10 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     # Pre-seed a leftover failure stamp from a notional prior backend
     # so the test can verify it's cleared in the same transaction
     # that writes the new hash.
+    _digest(controller, "kitchen.yaml")
     _seed_store(
         controller,
         "kitchen.yaml",
-        dependencies=[],
         regen_failed_content_fingerprint="2:stale",
         regen_failed_at=2.0,
     )

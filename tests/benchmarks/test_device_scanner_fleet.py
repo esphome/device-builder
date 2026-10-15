@@ -16,11 +16,12 @@ from ._fleet import synthesize_fleet
 
 
 def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
-    """Empty-field metadata; isolates ``_load_devices`` from sidecar IO."""
+    """Empty-field metadata with the fleet's persisted list; isolates ``_load_devices`` from IO."""
     return DeviceFileMetadata(
         board_id="esp32-c3-devkitm-1",
         ip="",
         expected_config_hash="",
+        dependencies=("secrets.yaml",),
     )
 
 
