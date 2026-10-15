@@ -504,24 +504,28 @@ class DeviceScanner(WakeWorker[str]):
     ) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
         result: dict[Path, _CacheKey] = {}
-        # A package shared by the fleet is stat'ed once per scan.
         memo: dict[str, DependencyStatKey] = {}
         for file in util.list_yaml_files([self._config_dir]):
             try:
                 stat = file.stat()
             except OSError:
                 continue
-            dependencies = deps_by_path.get(file, ())
-            missing = [d for d in dependencies if d not in memo]
-            memo.update(zip(missing, dependency_stat_keys(self._config_dir, missing), strict=True))
             result[file] = (
                 stat.st_ino,
                 stat.st_dev,
                 stat.st_mtime,
                 stat.st_size,
-                tuple(memo[d] for d in dependencies),
+                self._dependency_keys(memo, deps_by_path.get(file, ())),
             )
         return result
+
+    def _dependency_keys(
+        self, memo: dict[str, DependencyStatKey], dependencies: Iterable[str]
+    ) -> DependencyStatKeys:
+        """Stat *dependencies* through *memo*, so a package shared by the fleet is stat'ed once."""
+        missing = [d for d in dependencies if d not in memo]
+        memo.update(zip(missing, dependency_stat_keys(self._config_dir, missing), strict=True))
+        return tuple(memo[d] for d in dependencies)
 
     def _load_devices(
         self, paths: set[Path], *, shallow: bool = False
@@ -529,6 +533,7 @@ class DeviceScanner(WakeWorker[str]):
         """Materialise Device models for *paths*. Logs and skips on failure."""
         result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
+        memo: dict[str, DependencyStatKey] = {}
         for path in paths:
             try:
                 metadata = get_metadata(self._config_dir, path.name)
@@ -539,7 +544,7 @@ class DeviceScanner(WakeWorker[str]):
                     else metadata.dependencies
                 )
                 # Stat before the read so an edit landing mid-load flips the next scan.
-                dependency_keys = dependency_stat_keys(self._config_dir, known or ())
+                dependency_keys = self._dependency_keys(memo, known or ())
                 device = load_device_from_storage(
                     path,
                     metadata.board_id,
@@ -560,9 +565,7 @@ class DeviceScanner(WakeWorker[str]):
                     dependencies=known,
                 )
                 if device.dependencies != known:
-                    dependency_keys = dependency_stat_keys(
-                        self._config_dir, device.dependencies or ()
-                    )
+                    dependency_keys = self._dependency_keys(memo, device.dependencies or ())
                 result[path] = _LoadedDevice(device, dependency_keys)
             except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep
                 _LOGGER.warning("Failed to load device from %s", path.name)

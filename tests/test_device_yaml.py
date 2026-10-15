@@ -4068,7 +4068,9 @@ def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path
         ],
     )
 
-    assert dependencies == (str(outside), "b.yaml", "packages/a.yaml")
+    assert dependencies == tuple(
+        sorted((os.path.normcase(str(outside)), "b.yaml", "packages/a.yaml"))
+    )
 
 
 def test_extract_dependency_fingerprint_shape() -> None:

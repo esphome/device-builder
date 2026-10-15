@@ -12,7 +12,7 @@ from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
-from ...helpers.device_yaml import read_source_fingerprints
+from ...helpers.device_yaml import dependency_stamp_matches, read_source_fingerprints
 from ...helpers.subprocess import run_subprocess_capture
 
 if TYPE_CHECKING:
@@ -88,18 +88,13 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             )
             return
         regen.clear_strikes(configuration)
-        md = controller._metadata_store.get(configuration)
-        stamp = (
-            _fresh_stamp(
-                md,
-                current_mtime,
-                time.time(),
-                dependency_fingerprint=(
-                    await run_in_executor(read_source_fingerprints, config_path, dependencies)
-                ).dependency,
-            )
-            if md.get("regen_failed_mtime")
-            else None
+        # The scanner's digest lags a dependency edit by one poll at most, and
+        # that edit reschedules the regen anyway.
+        stamp = _fresh_stamp(
+            controller._metadata_store.get(configuration),
+            current_mtime,
+            time.time(),
+            dependency_fingerprint=device.dependency_fingerprint if device is not None else "",
         )
         if stamp is not None:
             attempts, age = stamp
@@ -278,10 +273,8 @@ def _fresh_stamp(
     cached_at = md.get("regen_failed_at")
     if not cached_mtime or not cached_at:
         return None
-    cached_dependency_fingerprint = md.get("regen_failed_dependency_fingerprint")
-    if (
-        cached_dependency_fingerprint is not None
-        and cached_dependency_fingerprint != dependency_fingerprint
+    if not dependency_stamp_matches(
+        md.get("regen_failed_dependency_fingerprint"), dependency_fingerprint
     ):
         return None
     try:

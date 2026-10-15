@@ -21,12 +21,11 @@ from ._parsing import (
     _significant_lines,
     extract_config_content_fingerprint,
     extract_dependency_fingerprint,
+    safe_stat_key,
 )
 
 DependencyStatKey = tuple[int, int]
 DependencyStatKeys = tuple[DependencyStatKey, ...]
-
-UNREADABLE_STAT_KEY: DependencyStatKey = (-1, -1)
 
 _SECRET_REF_RE = re.compile(r"!secret\s+([^\s#]+)")
 
@@ -78,7 +77,7 @@ def normalize_dependencies(path: Path, loaded: Iterable[Path]) -> tuple[str, ...
     config_prefix = str(Path(own).parent) + os.sep
     data_prefix = os.path.normcase(os.path.normpath(CORE.data_dir)) + os.sep
     dependencies: set[str] = set()
-    for raw in set(loaded):
+    for raw in loaded:
         normalized = os.path.normcase(os.path.normpath(raw))
         if normalized == own or normalized.startswith(data_prefix):
             continue
@@ -97,36 +96,44 @@ def read_dependency_sources(
     A secrets file contributes only the keys *yaml_content* and the other
     dependencies reference; ``newest_mtime`` spans the non-secret files.
     """
-    read: list[tuple[str, str | None, os.stat_result | None]] = []
+    read: list[tuple[str, tuple[float, str] | None]] = []
     for dependency in dependencies:
         try:
             stat, text = read_text_with_stat(config_dir / dependency)
         except (OSError, UnicodeDecodeError):
-            read.append((dependency, None, None))
+            read.append((dependency, None))
             continue
-        read.append((dependency, text, stat))
-    referenced = frozenset(
-        _SECRET_REF_RE.findall(
-            "\n".join(
-                [yaml_content]
-                + [text for dep, text, _ in read if text is not None and not is_secrets_file(dep)]
-            )
+        read.append((dependency, (stat.st_mtime, text)))
+    referenced: frozenset[str] = frozenset()
+    if any(is_secrets_file(dependency) for dependency, _ in read):
+        referenced = frozenset(
+            name
+            for text in (yaml_content, *(r[1] for d, r in read if r and not is_secrets_file(d)))
+            for name in _SECRET_REF_RE.findall(text)
         )
-    )
     lines: list[tuple[str, list[str]]] = []
-    newest_mtime: float | None = None
-    for dependency, content, stat_result in read:
-        if content is None:
+    for dependency, source in read:
+        if source is None:
             lines.append((dependency, []))
         elif is_secrets_file(dependency):
-            lines.append((dependency, _capture_top_level_lines(content, referenced)))
+            lines.append((dependency, _capture_top_level_lines(source[1], referenced)))
         else:
-            lines.append((dependency, _significant_lines(content)))
-            if stat_result is not None and (
-                newest_mtime is None or stat_result.st_mtime > newest_mtime
-            ):
-                newest_mtime = stat_result.st_mtime
+            lines.append((dependency, _significant_lines(source[1])))
+    newest_mtime = max(
+        (r[0] for d, r in read if r is not None and not is_secrets_file(d)), default=None
+    )
     return DependencySources(lines, newest_mtime)
+
+
+def dependency_fingerprint(
+    config_dir: Path, dependencies: tuple[str, ...] | None, yaml_content: str
+) -> str:
+    """Versioned digest of *dependencies* as on disk now; empty when they are unknown."""
+    if dependencies is None:
+        return ""
+    return extract_dependency_fingerprint(
+        read_dependency_sources(config_dir, dependencies, yaml_content).lines
+    )
 
 
 def read_source_fingerprints(
@@ -137,24 +144,12 @@ def read_source_fingerprints(
         content = read_text_with_stat(config_path)[1]
     except (OSError, UnicodeDecodeError):
         return SourceFingerprints("", "")
-    dependency = (
-        extract_dependency_fingerprint(
-            read_dependency_sources(config_path.parent, dependencies, content).lines
-        )
-        if dependencies is not None
-        else ""
+    return SourceFingerprints(
+        extract_config_content_fingerprint(content),
+        dependency_fingerprint(config_path.parent, dependencies, content),
     )
-    return SourceFingerprints(extract_config_content_fingerprint(content), dependency)
 
 
 def dependency_stat_keys(config_dir: Path, dependencies: Iterable[str]) -> DependencyStatKeys:
-    """``(mtime_ns, size)`` per dependency, in order; unreadable files key as ``(-1, -1)``."""
-    keys: list[DependencyStatKey] = []
-    for dependency in dependencies:
-        try:
-            stat = (config_dir / dependency).stat()
-        except OSError:
-            keys.append(UNREADABLE_STAT_KEY)
-            continue
-        keys.append((stat.st_mtime_ns, stat.st_size))
-    return tuple(keys)
+    """``safe_stat_key`` per dependency, in order."""
+    return tuple(safe_stat_key(config_dir / dependency) for dependency in dependencies)

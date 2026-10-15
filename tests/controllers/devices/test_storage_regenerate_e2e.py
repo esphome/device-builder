@@ -1631,17 +1631,18 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     make_controller: MakeControllerFactory,
     package_changed: bool,
 ) -> None:
-    """A spent stamp holds only while the dependency digest it recorded still matches."""
+    """A spent stamp holds only while the device's dependency digest still matches it."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
-    yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
-    (tmp_path / "packages").mkdir()
-    (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
-    current = (
-        await asyncio.to_thread(read_source_fingerprints, yaml_path, ("packages/common.yaml",))
-    ).dependency
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    stamped = f"{DEPENDENCY_FINGERPRINT_VERSION}stamped"
     controller._scanner.devices = [
-        make_device(name="kitchen", dependencies=("packages/common.yaml",))
+        make_device(
+            name="kitchen",
+            dependency_fingerprint=(
+                f"{DEPENDENCY_FINGERPRINT_VERSION}edited" if package_changed else stamped
+            ),
+        )
     ]
     _seed_store(
         controller,
@@ -1649,9 +1650,7 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
         regen_failed_mtime=yaml_path.stat().st_mtime,
         regen_failed_at=time.time() - 5.0,
         regen_failed_attempts=storage_regen._MAX_REGEN_ATTEMPTS,
-        regen_failed_dependency_fingerprint=(
-            f"{DEPENDENCY_FINGERPRINT_VERSION}stale" if package_changed else current
-        ),
+        regen_failed_dependency_fingerprint=stamped,
     )
     spawn_calls: list[tuple[str, ...]] = []
 
@@ -1683,12 +1682,16 @@ async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
     yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
     (tmp_path / "packages").mkdir()
     (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
-    controller._scanner.devices = [
-        make_device(name="kitchen", dependencies=("packages/common.yaml",))
-    ]
     expected = (
         await asyncio.to_thread(read_source_fingerprints, yaml_path, ("packages/common.yaml",))
     ).dependency
+    controller._scanner.devices = [
+        make_device(
+            name="kitchen",
+            dependencies=("packages/common.yaml",),
+            dependency_fingerprint=expected,
+        )
+    ]
     outcomes = iter([2, 0])
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:

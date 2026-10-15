@@ -595,7 +595,7 @@ def resolution_incomplete(config: dict | None) -> bool:
     return (
         config is None
         or _has_packages_block(config)
-        or _holds_deferred_marker(config)
+        or _holds_marker(config, _DEFERRED_MARKERS)
         or _has_substituted_block(config)
     )
 
@@ -660,11 +660,6 @@ def _has_substituted_block(config: dict) -> bool:
         ):
             return True
     return False
-
-
-def _holds_deferred_marker(value: object) -> bool:
-    """Whether an ``!include`` / ``!remove`` / ``!extend`` marker survives anywhere in *value*."""
-    return _holds_marker(value, _DEFERRED_MARKERS)
 
 
 def _holds_marker(value: object, markers: type | tuple[type, ...]) -> bool:
