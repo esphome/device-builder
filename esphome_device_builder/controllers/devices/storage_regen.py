@@ -13,7 +13,7 @@ from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
-from ...helpers.device_yaml import read_source_fingerprint
+from ...helpers.device_yaml import UnreadableDependencyError, read_source_fingerprint
 from ...helpers.subprocess import run_subprocess_capture
 
 if TYPE_CHECKING:
@@ -264,15 +264,15 @@ async def _current_digest(
         _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
         regen.clear_strikes(configuration)
         return None
-    except (OSError, UnicodeDecodeError) as err:
+    except (OSError, UnicodeDecodeError):
         _LOGGER.warning(
-            "Storage regenerate for %s: config unreadable (%s); retrying", configuration, err
+            "Storage regenerate for %s: config unreadable; retrying", configuration, exc_info=True
         )
         _arm_strike(controller, configuration)
         return None
-    if not current:
+    except UnreadableDependencyError as err:
         _LOGGER.warning(
-            "Storage regenerate for %s: a dependency is unreadable; retrying", configuration
+            "Storage regenerate for %s: dependency %s unreadable; retrying", configuration, err
         )
         _arm_strike(controller, configuration)
         return None

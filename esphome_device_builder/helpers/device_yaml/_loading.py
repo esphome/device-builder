@@ -28,7 +28,9 @@ from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._chip import resolve_chip_mcu
 from ._dependencies import (
+    DependencySources,
     LoadBatch,
+    UnreadableDependencyError,
     normalize_dependencies,
     read_dependency_sources,
     track_loaded_files,
@@ -161,16 +163,12 @@ def load_device_from_storage(
     # YAML would miss configs that pull the api block in via include
     # or split it across packages. ``None`` on parse failure is fine;
     # ``api_encrypted`` falls back to False.
-    resolved_config, dependencies = (
+    resolved_config, dependencies, complete = (
         load_device_yaml_tracked(path, yaml_content, batch, dependencies)
         if not shallow
-        else (None, dependencies)
+        else (None, dependencies, True)
     )
-    sources = (
-        read_dependency_sources(dependencies, yaml_content, batch)
-        if dependencies is not None
-        else None
-    )
+    sources = _read_sources(dependencies, yaml_content, batch) if complete else None
     if sources is not None and sources.newest_mtime is not None:
         yaml_mtime = max(yaml_mtime or 0.0, sources.newest_mtime)
     # Feed the merged ``substitutions:`` from the resolved config back
@@ -386,7 +384,7 @@ def load_device_from_storage(
         # this on the next compile if the device picks a different
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
-        # Empty means no information: the file or a dependency could not be read.
+        # Empty means no information: a source unreadable or discovery incomplete.
         content_fingerprint=(
             extract_config_content_fingerprint(yaml_content, sources.lines)
             if yaml_text is not None and sources is not None
@@ -446,6 +444,18 @@ def load_device_from_storage(
             _has_ota_signing_key(resolved_config) or compiled_config_has_ota_signing_key(filename)
         ),
     )
+
+
+def _read_sources(
+    dependencies: tuple[str, ...] | None, yaml_content: str, batch: LoadBatch
+) -> DependencySources | None:
+    """``read_dependency_sources`` of a known list; ``None`` when unknown or one is unreadable."""
+    if dependencies is None:
+        return None
+    try:
+        return read_dependency_sources(dependencies, yaml_content, batch)
+    except UnreadableDependencyError:
+        return None
 
 
 def _snapshot_source_files(
@@ -529,24 +539,25 @@ def load_device_yaml_tracked(
     yaml_content: str,
     batch: LoadBatch,
     known: tuple[str, ...] | None = None,
-) -> tuple[dict | None, tuple[str, ...]]:
+) -> tuple[dict | None, tuple[str, ...], bool]:
     """
-    ``load_device_yaml`` plus the files it pulled in.
+    ``load_device_yaml`` plus the files it pulled in, and whether that discovery completed.
 
     A parse that failed part way keeps *known*, the last complete list, in the result
     so the files it missed stay watched; the cold-start refine rediscovers the rest.
     """
     with track_loaded_files() as loaded:
         config = load_device_yaml(path)
-        # A surviving ``packages:`` block means the merge failed part way.
-        complete = (
-            config is not None
-            and _load_deferred_includes(path, config, yaml_content, loaded)
-            and not _has_packages_block(config)
+        complete = config is not None and _load_deferred_includes(
+            path, config, yaml_content, loaded
         )
+        if config is not None and complete and _has_packages_block(config):
+            # A surviving ``packages:`` block means the merge failed part way.
+            _LOGGER.warning("Could not merge the packages of %s; its digest waits", path.name)
+            complete = False
     if not complete and known:
         loaded.extend(batch.path_of(dependency) for dependency in known)
-    return config, normalize_dependencies(path, loaded, batch.data_dir_prefix())
+    return config, normalize_dependencies(path, loaded, batch.data_dir_prefix()), complete
 
 
 def load_device_yaml(path: Path) -> dict | None:

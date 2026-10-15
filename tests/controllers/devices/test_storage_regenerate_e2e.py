@@ -1713,7 +1713,9 @@ async def test_regenerate_strikes_when_a_dependency_is_unreadable(
         await _drain(controller)
 
     assert spawn_calls == []
-    assert any("a dependency is unreadable" in r.getMessage() for r in caplog.records)
+    assert any(
+        "dependency packages/common.yaml unreadable" in r.getMessage() for r in caplog.records
+    )
     assert controller.state.regen.unreadable_strikes == {"kitchen.yaml": 1}
 
 

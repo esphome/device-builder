@@ -1133,6 +1133,33 @@ async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_old_key_vouch_refuses_an_unreadable_dependency(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A dependency that cannot be read leaves the previous key in place."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").mkdir()
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
+    _configure(
+        ctrl,
+        tmp_path,
+        yaml_text,
+        deployed_config_hash="h1",
+        ota_encryption_required=True,
+        dependencies=("packages/common.yaml",),
+    )
+    _stamp_regen(ctrl, "h1", "2:anything")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.endswith(f'    encryption:\n      old_key: "{THIRD_KEY}"\n')
+
+
+@pytest.mark.usefixtures("old_key_esphome")
 @pytest.mark.parametrize("stamp", ["match", "stale"])
 async def test_set_encryption_key_old_key_vouch_covers_dependencies(
     tmp_path: Path,

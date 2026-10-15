@@ -14,6 +14,7 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import (
+    UnreadableDependencyError,
     config_has_top_level_block,
     source_fingerprint,
     yaml_has_top_level_block,
@@ -222,10 +223,13 @@ async def _runs_yaml(controller: DevicesController, device: Device, content: str
     deployed = device.runtime_state.deployed_config_hash
     if not (deployed and md.get("regen_config_hash") == deployed) or device.dependencies is None:
         return False
-    current = await run_in_executor(
-        source_fingerprint, controller._db.settings.config_dir, device.dependencies, content
-    )
-    return bool(current) and md.get("regen_content_fingerprint") == current
+    try:
+        current = await run_in_executor(
+            source_fingerprint, controller._db.settings.config_dir, device.dependencies, content
+        )
+    except UnreadableDependencyError:
+        return False
+    return md.get("regen_content_fingerprint") == current
 
 
 def _unrecorded_reason(

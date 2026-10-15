@@ -19,6 +19,7 @@ from esphome.storage_json import StorageJSON
 from ._chip import resolve_chip_mcu
 from ._dependencies import (
     LoadBatch,
+    UnreadableDependencyError,
     read_source_fingerprint,
     source_fingerprint,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "LoadBatch",
     "SecretRef",
     "StorageJSON",
+    "UnreadableDependencyError",
     "_extract_resolved_substitutions",
     "_has_native_wifi",
     "_infer_native_wifi",

@@ -47,6 +47,7 @@ from esphome_device_builder.helpers.device_yaml import (
     resolve_chip_mcu,
 )
 from esphome_device_builder.helpers.device_yaml._dependencies import (
+    UnreadableDependencyError,
     normalize_dependencies,
     read_dependency_sources,
 )
@@ -3997,7 +3998,7 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 
 def _load_tracked(
     yaml_file: Path, known: tuple[str, ...] | None = None
-) -> tuple[dict | None, tuple[str, ...]]:
+) -> tuple[dict | None, tuple[str, ...], bool]:
     return load_device_yaml_tracked(
         yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent), known
     )
@@ -4034,7 +4035,7 @@ _FLEET_DEPENDENCIES = (
 
 def test_load_device_yaml_tracked_reports_dependencies(tmp_path: Path) -> None:
     """Packages, deferred includes and the secrets lookup chain all land in the list."""
-    config, dependencies = _load_tracked(_write_include_fleet(tmp_path))
+    config, dependencies, _complete = _load_tracked(_write_include_fleet(tmp_path))
 
     assert config is not None
     assert dependencies == _FLEET_DEPENDENCIES
@@ -4052,9 +4053,10 @@ def test_load_device_yaml_tracked_resolves_a_templated_include_to_one_file(
         "substitutions:\n  kind: dht\nsensor: !include sensors/${kind}.yaml\n", encoding="utf-8"
     )
 
-    _, dependencies = _load_tracked(yaml_file)
+    _, dependencies, complete = _load_tracked(yaml_file)
 
     assert dependencies == ("sensors/dht.yaml",)
+    assert complete
 
 
 def test_load_device_yaml_tracked_reports_the_files_opened_before_a_parse_failure(
@@ -4064,7 +4066,7 @@ def test_load_device_yaml_tracked_reports_the_files_opened_before_a_parse_failur
     yaml_file = tmp_path / "kitchen.yaml"
     yaml_file.write_text("esphome: [\n", encoding="utf-8")
 
-    assert _load_tracked(yaml_file) == (None, ())
+    assert _load_tracked(yaml_file) == (None, (), False)
 
 
 def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
@@ -4126,11 +4128,12 @@ def test_load_device_yaml_tracked_keeps_the_known_list_when_an_include_fails(
         "substitutions:\n  kind: dht\nsensor: !include sensors/${kind}.yaml\n", encoding="utf-8"
     )
 
-    _, dependencies = load_device_yaml_tracked(
+    _, dependencies, complete = load_device_yaml_tracked(
         yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(tmp_path), ("sensors/dht.yaml",)
     )
 
     assert dependencies == ("sensors/dht.yaml",)
+    assert not complete
 
 
 def test_load_device_yaml_tracked_keeps_the_files_opened_when_an_include_fails(
@@ -4143,7 +4146,7 @@ def test_load_device_yaml_tracked_keeps_the_files_opened_when_an_include_fails(
         mock.Mock(side_effect=EsphomeError("boom")),
     )
 
-    config, dependencies = _load_tracked(yaml_file, ())
+    config, dependencies, _complete = _load_tracked(yaml_file, ())
 
     assert config is not None
     assert dependencies == tuple(d for d in _FLEET_DEPENDENCIES if d != "packages/filters.yaml")
@@ -4159,7 +4162,7 @@ def test_load_device_yaml_tracked_keeps_the_files_opened_when_a_package_merge_fa
         mock.Mock(side_effect=RuntimeError("boom")),
     )
 
-    config, dependencies = _load_tracked(yaml_file, ("packages/nested.yaml",))
+    config, dependencies, _complete = _load_tracked(yaml_file, ("packages/nested.yaml",))
 
     assert config is not None
     assert dependencies == tuple(sorted((*_FLEET_DEPENDENCIES, "packages/nested.yaml")))
@@ -4278,7 +4281,7 @@ def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
         encoding="utf-8",
     )
 
-    _config, dependencies = _load_tracked(yaml_file)
+    _config, dependencies, _complete = _load_tracked(yaml_file)
     sources = read_dependency_sources(
         dependencies, yaml_file.read_text(encoding="utf-8"), LoadBatch(Path("configs"))
     )
@@ -4300,11 +4303,10 @@ def test_unreadable_dependency_withholds_the_digest_and_warns_once_per_batch(
     batch = LoadBatch(tmp_path)
 
     with caplog.at_level(logging.WARNING):
-        first = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
-        second = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
+        for _ in range(2):
+            with pytest.raises(UnreadableDependencyError, match=r"packages/filters\.yaml"):
+                read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
 
-    assert first is None
-    assert second is None
     assert (
         sum("Could not read packages/filters.yaml" in r.getMessage() for r in caplog.records) == 1
     )
@@ -4371,7 +4373,7 @@ def test_load_device_from_storage_digest_agrees_between_shallow_and_deep(
 def test_load_device_from_storage_keeps_known_dependencies_when_parse_fails(
     tmp_path: Path,
 ) -> None:
-    """A mid-edit syntax error keeps digesting the last known list."""
+    """A mid-edit syntax error keeps the last known list watched and withholds the digest."""
     _write_include_fleet(tmp_path)
     yaml_file = tmp_path / "kitchen.yaml"
     yaml_file.write_text("esphome: [\n", encoding="utf-8")
@@ -4379,7 +4381,7 @@ def test_load_device_from_storage_keeps_known_dependencies_when_parse_fails(
     device = load_device_from_storage(yaml_file, dependencies=("packages/common.yaml",))
 
     assert device.dependencies == ("packages/common.yaml",)
-    assert device.content_fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert device.content_fingerprint == ""
 
 
 def test_digest_moves_only_on_content_in_play(tmp_path: Path) -> None:

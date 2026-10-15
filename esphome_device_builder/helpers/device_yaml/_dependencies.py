@@ -85,6 +85,10 @@ class _Unreadable(NamedTuple):
 Source = SourceText | SecretsFile | _Unreadable | None
 
 
+class UnreadableDependencyError(Exception):
+    """A dependency exists but cannot be read; the first argument names it."""
+
+
 @dataclass(slots=True)
 class LoadBatch:
     """State the devices of one config dir's scan batch share: reads, stats and the data dir."""
@@ -155,14 +159,14 @@ def normalize_dependencies(path: Path, loaded: Iterable[str], data_prefix: str) 
 
 def read_dependency_sources(
     dependencies: Iterable[str], yaml_content: str, batch: LoadBatch
-) -> DependencySources | None:
+) -> DependencySources:
     """
     Read *dependencies* (relative to the batch's config dir, or absolute) into digest lines.
 
     A file contributes its digest; a secrets file a digest of the keys *yaml_content* and
     the other dependencies reference; an absent file an empty line. ``newest_mtime`` spans
-    the non-secret files. ``None`` when a file exists but cannot be read, with one warning
-    per batch, so no digest is drawn from it.
+    the non-secret files. Raises ``UnreadableDependencyError`` for a file that exists but
+    cannot be read, with one warning per batch, so no digest is drawn from it.
     """
     lines: list[tuple[str, str]] = []
     secrets: list[tuple[int, dict[str, str]]] = []
@@ -184,7 +188,7 @@ def read_dependency_sources(
             secrets.append((len(lines), source.lines))
             lines.append((dependency, ""))
         else:
-            return None
+            raise UnreadableDependencyError(dependency)
     if secrets:
         referenced = sorted({*secret_ref_names(yaml_content), *refs})
         for index, secret_lines in secrets:
@@ -194,13 +198,13 @@ def read_dependency_sources(
 
 
 def source_fingerprint(config_dir: Path, dependencies: tuple[str, ...], yaml_content: str) -> str:
-    """Digest of *yaml_content* and *dependencies* as on disk now; empty when one is unreadable."""
+    """Digest of *yaml_content* and *dependencies* as on disk now; raises when one is unreadable."""
     sources = read_dependency_sources(dependencies, yaml_content, LoadBatch(config_dir))
-    return extract_config_content_fingerprint(yaml_content, sources.lines) if sources else ""
+    return extract_config_content_fingerprint(yaml_content, sources.lines)
 
 
 def read_source_fingerprint(config_path: Path, dependencies: tuple[str, ...]) -> str:
-    """``source_fingerprint`` of *config_path*'s text; raises when the file cannot be read."""
+    """``source_fingerprint`` of *config_path*'s text; raises when a file cannot be read."""
     content = read_text_with_stat(config_path)[1]
     return source_fingerprint(config_path.parent, dependencies, content)
 
