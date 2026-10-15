@@ -763,15 +763,22 @@ def _significant_lines(yaml_content: str) -> list[str]:
 
 def _capture_top_level_lines(yaml_content: str, keys: frozenset[str]) -> list[str]:
     """Return the significant lines of the top-level *keys* blocks, in file order."""
-    captured: list[str] = []
-    in_block = False
-    for line in _significant_lines(yaml_content):
+    blocks = _top_level_blocks(_significant_lines(yaml_content))
+    return [line for key, block in blocks if key in keys for line in block]
+
+
+def _top_level_blocks(lines: list[str]) -> list[tuple[str, list[str]]]:
+    """Group significant *lines* under the top-level key that opens each block, in file order."""
+    blocks: list[tuple[str, list[str]]] = []
+    block: list[str] | None = None
+    for line in lines:
         key = _match_top_level_key(line)
         if key is not None:
-            in_block = key in keys
-        if in_block:
-            captured.append(line)
-    return captured
+            block = []
+            blocks.append((key, block))
+        if block is not None:
+            block.append(line)
+    return blocks
 
 
 def _digest_lines(lines: list[str]) -> str:

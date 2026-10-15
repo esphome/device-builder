@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-import functools
 import logging
 import os
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
 from esphome import yaml_util
 from esphome.core import CORE
-from esphome.helpers import is_ha_addon
 
 from ...constants import SECRET_REF_RE, is_secrets_file
 from ..atomic_io import read_text_with_stat
 from ._parsing import (
-    _capture_top_level_lines,
     _has_version_prefix,
     _sha256_lines,
     _significant_lines,
+    _top_level_blocks,
     extract_config_content_fingerprint,
 )
 
@@ -41,8 +39,7 @@ DependencyStatKeys = tuple[DependencyStatKey, ...]
 DEPENDENCY_FINGERPRINT_VERSION = "1:"
 
 
-@dataclass(slots=True)
-class DependencySources:
+class DependencySources(NamedTuple):
     """What a device's dependency files contribute to its digest and pending-changes mtime."""
 
     lines: list[tuple[str, list[str]]]
@@ -50,14 +47,25 @@ class DependencySources:
 
 
 class SourceText(NamedTuple):
-    """One dependency file as read: its mtime and text."""
+    """One dependency file as read: its mtime, significant lines, secret references and blocks."""
 
     mtime: float
-    text: str
+    lines: list[str]
+    secret_refs: list[str]
+    blocks: list[tuple[str, list[str]]]
 
 
-# Per-batch read memo so a file shared by the fleet is read once; ``None`` is unreadable.
-SourceMemo = dict[str, SourceText | None]
+def data_dir_prefix() -> str:
+    """``CORE.data_dir`` as a normalised path prefix."""
+    return os.path.normcase(os.path.normpath(Path(CORE.data_dir))) + os.sep
+
+
+@dataclass(slots=True)
+class LoadBatch:
+    """State the devices of one scan batch share: the data dir prefix and dependency reads."""
+
+    data_dir_prefix: str = field(default_factory=data_dir_prefix)
+    sources: dict[str, SourceText | None] = field(default_factory=dict)
 
 
 class SourceFingerprints(NamedTuple):
@@ -88,20 +96,20 @@ def track_loaded_files() -> Iterator[list[str]]:
         _LOAD_LISTENERS.remove(_on_load)
 
 
-def normalize_dependencies(path: Path, loaded: Iterable[str]) -> tuple[str, ...]:
+def normalize_dependencies(
+    path: Path, loaded: Iterable[str], data_prefix: str | None = None
+) -> tuple[str, ...]:
     """
     Sorted, deduplicated *loaded* paths, relative to *path*'s directory when inside it.
 
-    Drops *path* itself and anything under ``CORE.data_dir`` (the git package cache).
-    Paths compare lexically: every file the loader reports descends from *path*.
+    Drops *path* itself and anything under *data_prefix* (``CORE.data_dir``, the git
+    package cache). Paths compare lexically: every file the loader reports descends
+    from *path*.
     """
     own = os.path.normcase(os.path.normpath(path))
     config_prefix = (os.path.dirname(own) or os.curdir) + os.sep  # noqa: PTH120
-    data_prefix = _data_dir_prefix(
-        config_path=CORE.config_path,
-        ha_addon=is_ha_addon(),
-        data_dir_env=os.environ.get("ESPHOME_DATA_DIR"),
-    )
+    if data_prefix is None:
+        data_prefix = data_dir_prefix()
     dependencies: set[str] = set()
     for raw in set(loaded):
         normalized = os.path.normcase(os.path.normpath(raw))
@@ -117,7 +125,7 @@ def read_dependency_sources(
     config_dir: Path,
     dependencies: Iterable[str],
     yaml_content: str,
-    memo: SourceMemo | None = None,
+    memo: dict[str, SourceText | None] | None = None,
 ) -> DependencySources | None:
     """
     Read *dependencies* (relative to *config_dir*, or absolute) into digest lines.
@@ -147,9 +155,10 @@ def read_dependency_sources(
         if source is None:
             lines.append((dependency, []))
         elif secret:
-            lines.append((dependency, _capture_top_level_lines(source.text, referenced)))
+            captured = [line for key, block in source.blocks if key in referenced for line in block]
+            lines.append((dependency, captured))
         else:
-            lines.append((dependency, _significant_lines(source.text)))
+            lines.append((dependency, source.lines))
     newest_mtime = max(
         (source.mtime for _, secret, source in sources if source is not None and not secret),
         default=None,
@@ -205,7 +214,7 @@ def _referenced_secrets(
     names = SECRET_REF_RE.findall(yaml_content)
     for _, secret, source in sources:
         if source is not None and not secret:
-            names += SECRET_REF_RE.findall(source.text)
+            names += source.secret_refs
     return frozenset(names)
 
 
@@ -215,10 +224,5 @@ def _read_source(path: Path) -> SourceText | None:
         stat, text = read_text_with_stat(path)
     except FileNotFoundError:
         return None
-    return SourceText(stat.st_mtime, text)
-
-
-@functools.lru_cache(maxsize=1)
-def _data_dir_prefix(*, config_path: Path | None, ha_addon: bool, data_dir_env: str | None) -> str:
-    """Normalised ``CORE.data_dir`` prefix, keyed on every input esphome resolves it from."""
-    return os.path.normcase(os.path.normpath(Path(CORE.data_dir))) + os.sep
+    lines = _significant_lines(text)
+    return SourceText(stat.st_mtime, lines, SECRET_REF_RE.findall(text), _top_level_blocks(lines))

@@ -25,7 +25,7 @@ from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import (
     DependencyStatKey,
     DependencyStatKeys,
-    SourceMemo,
+    LoadBatch,
     load_device_from_storage,
     safe_stat_key,
 )
@@ -536,7 +536,7 @@ class DeviceScanner(WakeWorker[str]):
         result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
         memo: dict[str, DependencyStatKey] = {}
-        source_memo: SourceMemo = {}
+        batch = LoadBatch()
         for path in paths:
             try:
                 metadata = get_metadata(self._config_dir, path.name)
@@ -566,7 +566,7 @@ class DeviceScanner(WakeWorker[str]):
                     previous=previous,
                     shallow=shallow,
                     dependencies=known,
-                    source_memo=source_memo,
+                    batch=batch,
                 )
                 if device.dependencies != known:
                     dependency_keys = self._dependency_keys(memo, device.dependencies or ())

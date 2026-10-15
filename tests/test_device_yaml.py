@@ -29,7 +29,7 @@ from esphome_device_builder.definitions import (
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.atomic_io import read_text_with_stat
 from esphome_device_builder.helpers.device_yaml import (
-    SourceMemo,
+    LoadBatch,
     _has_native_wifi,
     _parse_inline_value,
     board_provides_network,
@@ -1385,8 +1385,8 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
         encoding="utf-8",
     )
     with mock.patch(
-        "esphome_device_builder.helpers.device_yaml._loading._load_device_yaml",
-        wraps=device_yaml._loading._load_device_yaml,
+        "esphome_device_builder.helpers.device_yaml._loading.load_device_yaml",
+        wraps=device_yaml.load_device_yaml,
     ) as spy:
         device = load_device_from_storage(yaml_file)
     assert device.target_platform == "esp32"
@@ -4176,7 +4176,7 @@ def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path:
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
     """A batch memo serves a second device's read of the same file without touching disk."""
     content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")
-    memo: SourceMemo = {}
+    memo = LoadBatch().sources
 
     with mock.patch(
         "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat",

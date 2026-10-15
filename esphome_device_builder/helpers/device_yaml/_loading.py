@@ -29,7 +29,7 @@ from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._chip import resolve_chip_mcu
 from ._dependencies import (
     DependencySources,
-    SourceMemo,
+    LoadBatch,
     extract_dependency_fingerprint,
     normalize_dependencies,
     read_dependency_sources,
@@ -96,7 +96,7 @@ def load_device_from_storage(
     previous: Device | None = None,
     shallow: bool = False,
     dependencies: tuple[str, ...] | None = None,
-    source_memo: SourceMemo | None = None,
+    batch: LoadBatch | None = None,
 ) -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
@@ -149,8 +149,8 @@ def load_device_from_storage(
 
     *dependencies* is the last known list of files the YAML pulls in,
     used when the parse is skipped (shallow) or fails; a deep load
-    discovers the current list itself. *source_memo* shares dependency
-    reads across the devices of one scan batch.
+    discovers the current list itself. *batch* carries the state the
+    devices of one scan batch share.
     """
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
@@ -163,9 +163,10 @@ def load_device_from_storage(
     # or split it across packages. ``None`` on parse failure is fine;
     # ``api_encrypted`` falls back to False.
     resolved_config, dependencies, sources = _load_resolved_sources(
-        path, yaml_content, dependencies, source_memo, shallow=shallow
+        path, yaml_content, dependencies, batch, shallow=shallow
     )
-    yaml_mtime = _newest_source_mtime(yaml_mtime, sources)
+    if sources is not None and sources.newest_mtime is not None:
+        yaml_mtime = max(yaml_mtime or 0.0, sources.newest_mtime)
     # Feed the merged ``substitutions:`` from the resolved config back
     # into the meta readers so ``esphome.friendly_name: $room`` resolves
     # against substitutions contributed by ``packages:`` / ``!include``
@@ -512,13 +513,21 @@ def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: st
     )
 
 
-def load_device_yaml_tracked(path: Path) -> tuple[dict | None, tuple[str, ...] | None]:
-    """``load_device_yaml`` plus the files it pulled in; both ``None`` when the parse fails."""
+def load_device_yaml_tracked(
+    path: Path, batch: LoadBatch | None = None
+) -> tuple[dict | None, tuple[str, ...] | None]:
+    """``load_device_yaml`` plus the files it pulled in; ``None`` files when a load step failed."""
     with track_loaded_files() as loaded:
-        config, merged = _load_device_yaml(path)
-        if config is None or not merged or not _load_deferred_includes(path, config):
+        config = load_device_yaml(path)
+        # A surviving ``packages:`` block means the merge failed and read only part of its files.
+        if (
+            config is None
+            or _has_packages_block(config)
+            or not _load_deferred_includes(path, config)
+        ):
             return config, None
-    return config, normalize_dependencies(path, loaded)
+    prefix = batch.data_dir_prefix if batch is not None else None
+    return config, normalize_dependencies(path, loaded, prefix)
 
 
 def load_device_yaml(path: Path) -> dict | None:
@@ -543,21 +552,15 @@ def load_device_yaml(path: Path) -> dict | None:
     used by the device-card flags — share one entry point with the
     same error handling and the same package-merge contract.
     """
-    return _load_device_yaml(path)[0]
-
-
-def _load_device_yaml(path: Path) -> tuple[dict | None, bool]:
-    """``load_device_yaml`` plus whether its package merge succeeded."""
     try:
         # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
         # pass the ``Path`` directly — handing it a stringified path
         # raises ``AttributeError`` deep inside the loader.
         config = yaml_util.load_yaml(path)
     except EsphomeError:
-        return None, False
+        return None
     if not isinstance(config, dict):
-        return None, False
-    merged = True
+        return None
     # ``packages:`` is a separate pass in the ESPHome pipeline
     # (``do_packages_pass`` + ``merge_packages`` in
     # ``esphome.config.validate_config``, wrapped for external callers
@@ -584,7 +587,6 @@ def _load_device_yaml(path: Path) -> tuple[dict | None, bool]:
             # blank the device's metadata. Keep the unmerged shape
             # so the raw-YAML fallback paths at the call sites
             # still work.
-            merged = False
             _LOGGER.debug(
                 "Package merge failed for %s; using unmerged config",
                 path,
@@ -596,7 +598,7 @@ def _load_device_yaml(path: Path) -> tuple[dict | None, bool]:
     # ``isinstance(config, dict)`` narrowing earlier. Cast at the
     # return so the public ``dict | None`` signature is honest
     # without forcing every caller to re-narrow on receive.
-    return cast("dict[Any, Any] | None", config), merged
+    return cast("dict[Any, Any] | None", config)
 
 
 def resolution_incomplete(config: dict | None) -> bool:
@@ -628,14 +630,16 @@ def _load_resolved_sources(
     path: Path,
     yaml_content: str,
     dependencies: tuple[str, ...] | None,
-    memo: SourceMemo | None,
+    batch: LoadBatch | None,
     *,
     shallow: bool,
 ) -> tuple[dict | None, tuple[str, ...] | None, DependencySources | None]:
     """Resolve the config (deep only) and read its dependency files; unknown stays ``None``."""
+    if batch is None:
+        batch = LoadBatch()
     resolved_config: dict | None = None
     if not shallow:
-        resolved_config, discovered = load_device_yaml_tracked(path)
+        resolved_config, discovered = load_device_yaml_tracked(path, batch)
         if discovered is not None:
             dependencies = discovered
     if dependencies is None:
@@ -643,17 +647,8 @@ def _load_resolved_sources(
     return (
         resolved_config,
         dependencies,
-        read_dependency_sources(path.parent, dependencies, yaml_content, memo),
+        read_dependency_sources(path.parent, dependencies, yaml_content, batch.sources),
     )
-
-
-def _newest_source_mtime(
-    yaml_mtime: float | None, sources: DependencySources | None
-) -> float | None:
-    """Return the device file's mtime, or a newer non-secret dependency's."""
-    if sources is None or sources.newest_mtime is None:
-        return yaml_mtime
-    return max(yaml_mtime or 0.0, sources.newest_mtime)
 
 
 def _has_packages_block(config: dict) -> bool:

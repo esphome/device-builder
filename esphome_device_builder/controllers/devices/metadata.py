@@ -148,7 +148,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             api_encryption_active=api_encryption_active,
             deployed_name=deployed_name,
             offline_since=max(stamps, default=None),
-            dependencies=stored_str_tuple(store_md.get("dependencies")),
+            dependencies=stored_str_tuple(store_md.get("dependencies"), strict=True),
         )
 
     def _make_metadata_resolver(self) -> MetadataResolver:

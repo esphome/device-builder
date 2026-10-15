@@ -20,7 +20,7 @@ from ._chip import resolve_chip_mcu
 from ._dependencies import (
     DependencyStatKey,
     DependencyStatKeys,
-    SourceMemo,
+    LoadBatch,
     dependency_fingerprint,
     dependency_fingerprint_is_current,
     dependency_stamp_matches,
@@ -98,8 +98,8 @@ __all__ = [
     "DependencyStatKeys",
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",
+    "LoadBatch",
     "SecretRef",
-    "SourceMemo",
     "StorageJSON",
     "_extract_resolved_substitutions",
     "_has_native_wifi",
