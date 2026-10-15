@@ -84,7 +84,6 @@ from esphome_device_builder.models import (
     ReachabilitySource,
 )
 from tests._storage_fixtures import write_storage_json
-from tests.conftest import bump_mtime
 
 
 def _make_esp32_board(
@@ -4087,8 +4086,8 @@ def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path
 def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_path: Path) -> None:
     """Only the ``!secret`` names in play digest; secrets never move ``newest_mtime``."""
     yaml_file = _write_include_fleet(tmp_path)
-    secrets = tmp_path / "secrets.yaml"
-    bump_mtime(secrets)
+    far_future = time.time() + 10_000
+    os.utime(tmp_path / "secrets.yaml", (far_future, far_future))
 
     sources = read_dependency_sources(
         _FLEET_DEPENDENCIES, yaml_file.read_text(encoding="utf-8"), LoadBatch(tmp_path)
@@ -4099,7 +4098,7 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     assert lines["packages/secrets.yaml"] == []
     assert lines["packages/filters.yaml"] == [_digest_lines(["- multiply: 2"])]
     assert sources.newest_mtime is not None
-    assert sources.newest_mtime < secrets.stat().st_mtime
+    assert sources.newest_mtime < far_future
 
 
 def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_an_include_fails(
@@ -4167,6 +4166,27 @@ def test_read_dependency_sources_digests_resolved_secret_values(
 
     assert dict(before.lines)["secrets.yaml"] == ['wifi_password: "old"']
     assert dict(after.lines)["secrets.yaml"] == ['wifi_password: "new"']
+
+
+@pytest.mark.parametrize(
+    ("secrets_text", "expected"),
+    [
+        pytest.param("- a\n- b\n", [], id="not-a-mapping"),
+        pytest.param("wifi_password: !lambda 'return 1;'\n", ["wifi_password: "], id="esphome-tag"),
+    ],
+)
+def test_read_dependency_sources_secrets_parse_edge_cases(
+    tmp_path: Path, secrets_text: str, expected: list[str]
+) -> None:
+    """A non-mapping secrets file has no keys; an esphome tag falls back to esphome's loader."""
+    (tmp_path / "secrets.yaml").write_text(secrets_text, encoding="utf-8")
+
+    sources = read_dependency_sources(
+        ("secrets.yaml",), "p: !secret wifi_password\n", LoadBatch(tmp_path)
+    )
+
+    lines = dict(sources.lines)["secrets.yaml"]
+    assert [line[: len(prefix)] for line, prefix in zip(lines, expected, strict=True)] == expected
 
 
 def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(

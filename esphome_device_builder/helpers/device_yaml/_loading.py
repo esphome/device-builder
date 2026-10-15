@@ -607,7 +607,7 @@ def resolution_incomplete(config: dict | None) -> bool:
     return (
         config is None
         or _has_packages_block(config)
-        or _holds_marker(config, _DEFERRED_MARKERS)
+        or _holds_deferred_marker(config)
         or _has_substituted_block(config)
     )
 
@@ -621,7 +621,7 @@ def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded:
         name == own or is_secrets_file(name) for name in set(loaded)
     ):
         return True
-    if not _holds_marker(config, yaml_util.IncludeFile):
+    if not _holds_deferred_marker(config, yaml_util.IncludeFile):
         return True
     # The substitution pass resolves a templated path (``!include dev/${name}.yaml``)
     # to the one file esphome would load; a force-load would glob every candidate.
@@ -675,17 +675,16 @@ def _has_substituted_block(config: dict) -> bool:
     return False
 
 
-def _holds_marker(value: object, markers: type | tuple[type, ...]) -> bool:
-    """Whether an instance of *markers* survives anywhere in *value*."""
-    stack = [value]
-    while stack:
-        item = stack.pop()
-        if isinstance(item, markers):
-            return True
-        if isinstance(item, dict):
-            stack.extend(item.values())
-        elif isinstance(item, list):
-            stack.extend(item)
+def _holds_deferred_marker(
+    value: object, markers: type | tuple[type, ...] = _DEFERRED_MARKERS
+) -> bool:
+    """Whether an ``!include`` / ``!remove`` / ``!extend`` marker survives anywhere in *value*."""
+    if isinstance(value, markers):
+        return True
+    if isinstance(value, dict):
+        return any(_holds_deferred_marker(v, markers) for v in value.values())
+    if isinstance(value, list):
+        return any(_holds_deferred_marker(v, markers) for v in value)
     return False
 
 

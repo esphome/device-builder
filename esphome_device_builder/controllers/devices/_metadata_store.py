@@ -49,16 +49,11 @@ STORE_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def stored_str_tuple(value: object, *, strict: bool = False) -> tuple[str, ...] | None:
-    """
-    Return a persisted list's ``str`` items as a tuple; ``None`` if absent or not a list.
-
-    *strict* also returns ``None`` when any item is not a ``str``.
-    """
-    if not isinstance(value, list):
-        return None
-    items = tuple(item for item in value if isinstance(item, str))
-    return None if strict and len(items) != len(value) else items
+def stored_str_tuple(value: object) -> tuple[str, ...] | None:
+    """Return a persisted list of ``str`` as a tuple; ``None`` when absent or malformed."""
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return tuple(value)
+    return None
 
 
 def _own_fields(entry: dict[str, Any]) -> dict[str, Any]:

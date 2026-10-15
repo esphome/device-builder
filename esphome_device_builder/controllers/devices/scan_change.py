@@ -201,24 +201,23 @@ def _sync_content_fingerprint(
     controller: DevicesController, kind: ScanChange, device: Device
 ) -> None:
     """Seed the stored dependency list and digest; regen when an out-of-band edit moved it."""
-    configuration = device.configuration
     store = controller._metadata_store
     if device.dependencies is not None:
         dependencies = list(device.dependencies)
-        if store.get_field(configuration, "dependencies") != dependencies:
-            store.set_field(configuration, "dependencies", dependencies)
-    current = device.content_fingerprint
-    if not current:
-        # Empty means a source was unreadable, or the dependency list unknown, this
+        if store.get_field(device.configuration, "dependencies") != dependencies:
+            store.set_field(device.configuration, "dependencies", dependencies)
+    if not device.content_fingerprint:
+        # Empty means the YAML was unreadable (or the dependency list unknown) this
         # sweep: no information, so neither compare nor overwrite the stored digest.
         return
-    stored = store.get_field(configuration, "content_fingerprint")
-    if stored == current:
+    stored = store.get(device.configuration).get("content_fingerprint")
+    if stored == device.content_fingerprint:
         return
-    # An out-of-band edit (git pull, external editor; live as UPDATED, or across
-    # a restart as ADDED) regens so ``StorageJSON.address`` (#2486) and
-    # ``expected_config_hash`` track the YAML. RELOADED (our own write) and first
-    # sight only re-seed; a digest from an older algorithm regens once.
+    # An out-of-band edit (git pull, external editor — live as UPDATED,
+    # or across a restart as ADDED) regens so ``StorageJSON.address``
+    # (#2486) and ``expected_config_hash`` track the YAML. RELOADED (our
+    # own write) and first sight only re-seed; a digest from an older
+    # algorithm regens once.
     if stored is not None and kind is not ScanChange.RELOADED:
-        controller._schedule_storage_regenerate(configuration)
-    store.set_field(configuration, "content_fingerprint", current)
+        controller._schedule_storage_regenerate(device.configuration)
+    store.set_field(device.configuration, "content_fingerprint", device.content_fingerprint)

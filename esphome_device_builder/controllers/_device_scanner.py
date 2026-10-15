@@ -23,8 +23,6 @@ from esphome import util
 
 from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import (
-    DependencyStatKey,
-    DependencyStatKeys,
     LoadBatch,
     load_device_from_storage,
     safe_stat_key,
@@ -36,7 +34,9 @@ _LOGGER = logging.getLogger(__name__)
 
 # (inode, device, mtime, size, dependency stat keys) — combined cache key
 # for change detection.
-_CacheKey = tuple[int, int, float, int, DependencyStatKeys]
+_DependencyStatKey = tuple[int, int]
+_DependencyStatKeys = tuple[_DependencyStatKey, ...]
+_CacheKey = tuple[int, int, float, int, _DependencyStatKeys]
 
 # Never matches a real stat: assigning it forces the next scan to
 # re-read the file.
@@ -86,7 +86,7 @@ class _LoadedDevice(NamedTuple):
     """A materialised device with the stat keys of the dependencies it was read against."""
 
     device: Device
-    dependency_keys: DependencyStatKeys
+    dependency_keys: _DependencyStatKeys
 
 
 class ScanChange(StrEnum):
@@ -505,7 +505,7 @@ class DeviceScanner(WakeWorker[str]):
     ) -> dict[Path, _CacheKey]:
         """Build ``path → cache_key`` for every YAML file currently on disk."""
         result: dict[Path, _CacheKey] = {}
-        memo: dict[str, DependencyStatKey] = {}
+        memo: dict[str, _DependencyStatKey] = {}
         for file in util.list_yaml_files([self._config_dir]):
             try:
                 stat = file.stat()
@@ -522,8 +522,8 @@ class DeviceScanner(WakeWorker[str]):
         return result
 
     def _dependency_keys(
-        self, memo: dict[str, DependencyStatKey], dependencies: Iterable[str]
-    ) -> DependencyStatKeys:
+        self, memo: dict[str, _DependencyStatKey], dependencies: Iterable[str]
+    ) -> _DependencyStatKeys:
         """Stat *dependencies* through *memo*, so a package shared by the fleet is stat'ed once."""
         for dependency in dependencies:
             if dependency not in memo:
@@ -537,7 +537,7 @@ class DeviceScanner(WakeWorker[str]):
         """Materialise Device models for *paths*. Logs and skips on failure."""
         result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
-        memo: dict[str, DependencyStatKey] = {}
+        memo: dict[str, _DependencyStatKey] = {}
         batch = LoadBatch(self._config_dir)
         for path in paths:
             try:
@@ -580,7 +580,7 @@ class DeviceScanner(WakeWorker[str]):
         return result
 
 
-def _with_dependency_keys(key: _CacheKey, dependency_keys: DependencyStatKeys) -> _CacheKey:
+def _with_dependency_keys(key: _CacheKey, dependency_keys: _DependencyStatKeys) -> _CacheKey:
     """Return *key* with its dependency portion replaced by *dependency_keys*."""
     ino, dev, mtime, size, _ = key
     return (ino, dev, mtime, size, dependency_keys)

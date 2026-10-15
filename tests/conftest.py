@@ -20,7 +20,6 @@ import asyncio
 import itertools
 import json
 import logging
-import os
 import re
 import ssl
 import sys
@@ -1255,12 +1254,6 @@ def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
         "status": JobStatus.RUNNING,
     }
     return FirmwareJob(**(base | overrides))
-
-
-def bump_mtime(path: Path) -> None:
-    """Push *path*'s mtime into the future so freshness checks see an edit."""
-    future_ns = path.stat().st_mtime_ns + 5_000_000_000
-    os.utime(path, ns=(future_ns, future_ns))
 
 
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:

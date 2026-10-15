@@ -14,6 +14,7 @@ so the regression surfaces in CI rather than in a user's logs.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -26,7 +27,6 @@ from esphome_device_builder.controllers._device_scanner import (
     ScanChange,
 )
 from esphome_device_builder.models import Device
-from tests.conftest import bump_mtime
 
 
 def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
@@ -570,6 +570,11 @@ async def test_plain_scan_does_not_redeepen_shallow_rows(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
+def _bump_mtime(path: Path) -> None:
+    stat = path.stat()
+    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
+
+
 def _write_include_fleet(config_dir: Path) -> tuple[Path, Path]:
     """``kitchen.yaml`` pulling in ``packages/common.yaml``; ``porch.yaml`` standalone."""
     (config_dir / "packages").mkdir()
@@ -599,7 +604,7 @@ async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path)
     assert events == []
 
     package.write_text("esphome:\n  name: kitchen\nlogger:\n", encoding="utf-8")
-    bump_mtime(package)
+    _bump_mtime(package)
     await scanner.scan()
 
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
@@ -622,7 +627,7 @@ async def test_dependency_touch_fires_one_updated_with_the_digest_unchanged(
     await scanner.scan()
     events.clear()
 
-    bump_mtime(package)
+    _bump_mtime(package)
     await scanner.scan()
 
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]

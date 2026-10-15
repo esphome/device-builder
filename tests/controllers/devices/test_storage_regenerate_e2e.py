@@ -61,10 +61,12 @@ def _read_store(controller: DevicesController, filename: str) -> dict[str, Any]:
     return controller._metadata_store.get(filename)
 
 
-def _digest(controller: DevicesController, filename: str, *dependencies: str) -> str:
+async def _digest(controller: DevicesController, filename: str, *dependencies: str) -> str:
     """Index *filename* with *dependencies* and return the digest a regen of it reads."""
     controller._scanner.devices = [make_device(name=Path(filename).stem, dependencies=dependencies)]
-    return read_source_fingerprint(controller._db.settings.config_dir / filename, dependencies)
+    return await asyncio.to_thread(
+        read_source_fingerprint, controller._db.settings.config_dir / filename, dependencies
+    )
 
 
 def _capture_result(returncode: int = 0, output: bytes = b"") -> CapturedSubprocess:
@@ -78,14 +80,14 @@ def _armed_delay(controller: DevicesController, configuration: str = "kitchen.ya
     return handle.when() - asyncio.get_running_loop().time()
 
 
-def _seed_attempts(
+async def _seed_attempts(
     controller: DevicesController, configuration: str, attempts: int, *, age: float
 ) -> None:
     """Seed a failure stamp for the YAML's current digest, *age* seconds old."""
     _seed_store(
         controller,
         configuration,
-        regen_failed_content_fingerprint=_digest(controller, configuration),
+        regen_failed_content_fingerprint=await _digest(controller, configuration),
         regen_failed_at=time.time() - age,
         regen_failed_attempts=attempts,
     )
@@ -278,7 +280,7 @@ async def test_regenerate_skips_when_stamp_terminal(
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("not: valid: yaml\n", encoding="utf-8")
-    _seed_attempts(controller, "kitchen.yaml", storage_regen._MAX_REGEN_ATTEMPTS, age=300.0)
+    await _seed_attempts(controller, "kitchen.yaml", storage_regen._MAX_REGEN_ATTEMPTS, age=300.0)
     spawn_calls: list[tuple[str, ...]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -332,7 +334,7 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("not: valid: yaml\n", encoding="utf-8")
     # Attempt 3 recorded 200s ago: past its 120s backoff, one attempt left.
-    _seed_attempts(controller, "kitchen.yaml", 3, age=200.0)
+    await _seed_attempts(controller, "kitchen.yaml", 3, age=200.0)
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         return _capture_result(returncode=1, output=b"YAML parse error at line 3")
@@ -377,7 +379,7 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    _seed_attempts(controller, "kitchen.yaml", 3, age=200.0)
+    await _seed_attempts(controller, "kitchen.yaml", 3, age=200.0)
 
     async def _broken_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         raise OSError("esphome: command not found")
@@ -518,7 +520,7 @@ async def test_regenerate_persists_digest_and_wallclock_on_failure(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
-    expected = _digest(controller, "kitchen.yaml")
+    expected = await _digest(controller, "kitchen.yaml")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         return _capture_result(returncode=1, output=b"YAML parse error")
@@ -561,7 +563,7 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    expected = _digest(controller, "kitchen.yaml")
+    expected = await _digest(controller, "kitchen.yaml")
 
     async def _broken_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         raise OSError("esphome: command not found")
@@ -652,7 +654,7 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_content_fingerprint=_digest(controller, "kitchen.yaml"),
+        regen_failed_content_fingerprint=await _digest(controller, "kitchen.yaml"),
         regen_failed_at=1700000000.0,
     )
     # Advance the clock just past the TTL.
@@ -701,7 +703,7 @@ async def test_regenerate_runs_when_the_digest_moves_past_stamp(
     # YAML has since been edited so the live digest doesn't match.
     # The wall-clock stamp is fresh (within TTL) so only the digest
     # mismatch is what releases the guard.
-    _digest(controller, "kitchen.yaml")
+    await _digest(controller, "kitchen.yaml")
     _seed_store(
         controller,
         "kitchen.yaml",
@@ -782,7 +784,7 @@ async def test_regenerate_clamps_negative_stamp_age(
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_content_fingerprint=_digest(controller, "kitchen.yaml"),
+        regen_failed_content_fingerprint=await _digest(controller, "kitchen.yaml"),
         regen_failed_at=2_000_000_000.0,
         regen_failed_attempts=1,
     )
@@ -829,7 +831,7 @@ async def test_regenerate_runs_when_only_one_stamp_half_present(
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_content_fingerprint=_digest(controller, "kitchen.yaml"),
+        regen_failed_content_fingerprint=await _digest(controller, "kitchen.yaml"),
     )
 
     spawn_calls: list[tuple[str, ...]] = []
@@ -931,7 +933,7 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     # Pre-seed a leftover failure stamp from a notional prior backend
     # so the test can verify it's cleared in the same transaction
     # that writes the new hash.
-    _digest(controller, "kitchen.yaml")
+    await _digest(controller, "kitchen.yaml")
     _seed_store(
         controller,
         "kitchen.yaml",
@@ -975,8 +977,8 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     # same transaction — both halves of the closure.
     assert md.get("expected_config_hash") == "5a94a12d"
     assert md.get("regen_config_hash") == "5a94a12d"
-    assert md.get("regen_content_fingerprint") == read_source_fingerprint(
-        controller._db.settings.rel_path("kitchen.yaml"), ()
+    assert md.get("regen_content_fingerprint") == await asyncio.to_thread(
+        read_source_fingerprint, controller._db.settings.rel_path("kitchen.yaml"), ()
     )
     assert "regen_failed_content_fingerprint" not in md
     assert "regen_failed_at" not in md
@@ -1117,7 +1119,7 @@ async def test_ttl_expiry_grants_fresh_budget(
     """A terminal stamp past its TTL runs again, and the next failure counts from 1."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("not: valid: yaml\n", encoding="utf-8")
-    _seed_attempts(
+    await _seed_attempts(
         controller,
         "kitchen.yaml",
         storage_regen._MAX_REGEN_ATTEMPTS,
@@ -1148,7 +1150,7 @@ async def test_restart_inside_backoff_rearms_remainder(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     # Attempt 1 recorded 10s ago: 20s of its 30s backoff remain.
-    _seed_attempts(controller, "kitchen.yaml", 1, age=10.0)
+    await _seed_attempts(controller, "kitchen.yaml", 1, age=10.0)
     spawn_calls: list[tuple[str, ...]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -1175,7 +1177,7 @@ async def test_backoff_elapsed_runs_next_attempt(
     """A fresh non-terminal stamp past its backoff spawns the next attempt."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("not: valid: yaml\n", encoding="utf-8")
-    _seed_attempts(controller, "kitchen.yaml", 1, age=40.0)
+    await _seed_attempts(controller, "kitchen.yaml", 1, age=40.0)
     spawn_calls: list[tuple[str, ...]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -1289,7 +1291,7 @@ async def test_vanished_mid_run_stamps_prespawn_digest(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    prespawn = _digest(controller, "kitchen.yaml")
+    prespawn = await _digest(controller, "kitchen.yaml")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         # Off-loop: blockbuster flags blocking unlink on the loop (Linux CI).
@@ -1383,7 +1385,7 @@ async def test_edit_between_failures_resets_attempts(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    _digest(controller, "kitchen.yaml")
+    await _digest(controller, "kitchen.yaml")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         return _capture_result(returncode=2, output=b"fatal: could not clone")
@@ -1405,7 +1407,9 @@ async def test_edit_between_failures_resets_attempts(
 
     md = _read_store(controller, "kitchen.yaml")
     assert md["regen_failed_attempts"] == 1
-    assert md["regen_failed_content_fingerprint"] == read_source_fingerprint(yaml_path, ())
+    assert md["regen_failed_content_fingerprint"] == await asyncio.to_thread(
+        read_source_fingerprint, yaml_path, ()
+    )
 
 
 async def test_regenerate_first_failure_stamps_and_arms_retry(
@@ -1597,7 +1601,7 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_content_fingerprint=_digest(
+        regen_failed_content_fingerprint=await _digest(
             controller, "kitchen.yaml", "packages/common.yaml"
         ),
         regen_failed_at=time.time() - 5.0,
@@ -1676,8 +1680,8 @@ async def test_regenerate_failure_and_success_stamp_the_digest_with_dependencies
     yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
     (tmp_path / "packages").mkdir()
     (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
-    expected = _digest(controller, "kitchen.yaml", "packages/common.yaml")
-    assert expected != read_source_fingerprint(yaml_path, ())
+    expected = await _digest(controller, "kitchen.yaml", "packages/common.yaml")
+    assert expected != await asyncio.to_thread(read_source_fingerprint, yaml_path, ())
     outcomes = iter([2, 0])
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:

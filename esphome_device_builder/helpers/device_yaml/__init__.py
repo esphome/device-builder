@@ -47,8 +47,6 @@ from ._ota_old_key import yaml_declares_ota_old_key
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
     DEFAULT_API_PORT,
-    DependencyStatKey,
-    DependencyStatKeys,
     EsphomeMeta,
     _extract_resolved_substitutions,
     _parse_inline_value,
@@ -91,8 +89,6 @@ __all__ = [
     "NETWORK_PROVIDER_COMPONENT_IDS",
     "WIFI_RADIO_PROVIDER_COMPONENT_IDS",
     "_UNRESOLVED_SUBSTITUTION_RE",
-    "DependencyStatKey",
-    "DependencyStatKeys",
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",
     "LoadBatch",

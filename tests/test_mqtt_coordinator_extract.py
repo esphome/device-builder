@@ -18,7 +18,6 @@ from tests._mqtt_fixtures import (
     make_mqtt_coordinator,
     write_mqtt_device,
 )
-from tests.conftest import bump_mtime
 
 _BROKER_YAML = "mqtt:\n  broker: 192.168.1.10\n"
 
@@ -28,6 +27,12 @@ def _rewrite_keeping_mtime(path: Path, text: str) -> None:
     original_ns = path.stat().st_mtime_ns
     path.write_text(text, encoding="utf-8")
     os.utime(path, ns=(original_ns, original_ns))
+
+
+def _bump_mtime(path: Path) -> None:
+    """Push *path*'s mtime into the future so freshness checks see an edit."""
+    future_ns = path.stat().st_mtime_ns + 5_000_000_000
+    os.utime(path, ns=(future_ns, future_ns))
 
 
 def _seed_package_device(
@@ -89,7 +94,7 @@ async def test_stale_extract_falls_back_and_sees_the_edit(
     device = write_mqtt_device(tmp_path, "kitchen", _BROKER_YAML)
     path = tmp_path / "kitchen.yaml"
     path.write_text("esphome:\n  name: kitchen\n\nmqtt:\n  broker: 10.0.0.9\n")
-    bump_mtime(path)
+    _bump_mtime(path)
 
     coord = make_mqtt_coordinator(tmp_path, [device])
     await coord.reconcile()
@@ -216,7 +221,7 @@ def test_secrets_edit_during_parse_stamps_the_pre_edit_mtime(
 
     def _parse_and_race(_path: Path) -> dict:
         secrets.write_text("mqtt_host: 10.0.0.2\n")
-        bump_mtime(secrets)
+        _bump_mtime(secrets)
         return {"mqtt": {"broker": "10.0.0.1"}}
 
     monkeypatch.setattr(loading_module, "load_device_yaml", _parse_and_race)
@@ -258,7 +263,7 @@ async def test_yaml_vanishing_between_stat_and_read_is_skipped(
 ) -> None:
     """A file that disappears after the stat skips the device silently."""
     device = write_mqtt_device(tmp_path, "kitchen", _BROKER_YAML)
-    bump_mtime(tmp_path / "kitchen.yaml")  # stale extract → fallback read
+    _bump_mtime(tmp_path / "kitchen.yaml")  # stale extract → fallback read
 
     real_open = Path.open
 

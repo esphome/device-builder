@@ -970,11 +970,7 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
     return value
 
 
-DependencyStatKey = tuple[int, int]
-DependencyStatKeys = tuple[DependencyStatKey, ...]
-
-
-def safe_stat_key(path: Path) -> DependencyStatKey:
+def safe_stat_key(path: Path) -> tuple[int, int]:
     """Return *path*'s ``(mtime_ns, size)``, or ``(0, 0)`` when the file is missing."""
     try:
         st = path.stat()

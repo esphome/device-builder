@@ -120,7 +120,12 @@ class DeviceMetadataBase(DeviceBuilderBase):
         # Defensive coercion: a corrupt sidecar entry shouldn't
         # fail the whole scan.
         build_size_bytes = coerce_sidecar_int(store_md.get("build_size_bytes"))
-        labels = stored_str_tuple(shared_md.get("labels")) or ()
+        raw_labels = shared_md.get("labels")
+        labels: tuple[str, ...]
+        if isinstance(raw_labels, list):
+            labels = tuple(item for item in raw_labels if isinstance(item, str))
+        else:
+            labels = ()
         deployed_config_hash = str(store_md.get("deployed_config_hash", ""))
         deployed_version = str(store_md.get("deployed_version", ""))
         network = str(store_md.get("network", ""))
@@ -148,7 +153,7 @@ class DeviceMetadataBase(DeviceBuilderBase):
             api_encryption_active=api_encryption_active,
             deployed_name=deployed_name,
             offline_since=max(stamps, default=None),
-            dependencies=stored_str_tuple(store_md.get("dependencies"), strict=True),
+            dependencies=stored_str_tuple(store_md.get("dependencies")),
         )
 
     def _make_metadata_resolver(self) -> MetadataResolver:

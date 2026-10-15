@@ -496,7 +496,9 @@ async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_de
         ctrl, tmp_path, yaml_text, deployed_config_hash=deployed_hash, ota_encryption_required=True
     )
     if stamped_fingerprint == "current":
-        stamped_fingerprint = read_source_fingerprint(tmp_path / "kitchen.yaml", ())
+        stamped_fingerprint = await asyncio.to_thread(
+            read_source_fingerprint, tmp_path / "kitchen.yaml", ()
+        )
     if stamped_fingerprint:
         _stamp_regen(ctrl, "h1", stamped_fingerprint)
 
@@ -524,7 +526,9 @@ async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
     yaml_text = API_KEY_YAML + BARE_OTA_YAML + "      old_key: !secret previous_key\n"
     # The scanned flag is stale on purpose: the old_key in the file is proof enough.
     _configure(ctrl, tmp_path, yaml_text, deployed_config_hash="h1")
-    _stamp_regen(ctrl, "h1", read_source_fingerprint(tmp_path / "kitchen.yaml", ()))
+    _stamp_regen(
+        ctrl, "h1", await asyncio.to_thread(read_source_fingerprint, tmp_path / "kitchen.yaml", ())
+    )
 
     with caplog.at_level(logging.WARNING):
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
