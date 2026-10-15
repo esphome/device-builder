@@ -24,7 +24,7 @@ def test_mcu_is_always_on_the_wire() -> None:
 
 
 def test_bootloader_is_always_on_the_wire() -> None:
-    """``null`` when the platform has one bootloader or the YAML does not say."""
+    """``null`` off nRF52, or without a readable ``nrf52:`` block."""
     assert make_device("kitchen").to_dict()["bootloader"] is None
     device = make_device("dongle", bootloader="nrf")
     assert device.to_dict()["bootloader"] == "nrf"

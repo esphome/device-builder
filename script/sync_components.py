@@ -114,7 +114,6 @@ _USER_AGENT = "esphome-device-builder-backend (https://github.com/esphome/device
 # ``controllers/components.py`` for the rationale (issue #325).
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _board_bootloaders import nrf52_board_bootloaders  # noqa: E402
 from _board_mcus import board_mcus  # noqa: E402
 from _catalog_split import (  # noqa: E402
     emit_body_with_roundtrip,
@@ -4564,7 +4563,7 @@ def _emit_platform_capabilities_index() -> None:
         # The dashboard resolves a device's chip from its YAML ``board:``.
         "board_mcus": board_mcus(),
         # And an nRF52's bootloader, when its YAML names only the board.
-        "nrf52_board_bootloaders": nrf52_board_bootloaders(),
+        "nrf52_board_bootloaders": _nrf52_board_bootloaders(),
         "libretiny_families": list(_libretiny_families()),
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
@@ -4578,6 +4577,18 @@ def _emit_platform_capabilities_index() -> None:
         orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
     )
     next_path.replace(_PLATFORM_CAPABILITIES_INDEX_FILE)
+
+
+def _nrf52_board_bootloaders() -> dict[str, str]:
+    """``{pio_board: bootloader}``: the first of each nRF52 board's list, ESPHome's default."""
+    from esphome.components.nrf52.boards import BOARDS_ZEPHYR
+    from esphome.components.zephyr.const import KEY_BOOTLOADER
+
+    return {
+        board: info[KEY_BOOTLOADER][0]
+        for board, info in sorted(BOARDS_ZEPHYR.items())
+        if info.get(KEY_BOOTLOADER)
+    }
 
 
 def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:

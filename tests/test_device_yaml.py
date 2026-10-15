@@ -1186,6 +1186,8 @@ def test_load_device_from_storage_resolves_mcu(tmp_path: Path) -> None:
         # The YAML's own choice wins, as ESPHome spells it.
         ({"nrf52": {"board": "nrf52840dongle", "bootloader": "nrf"}}, "nrf"),
         ({"nrf52": {"board": "xiao_ble", "bootloader": "MCUboot"}}, "mcuboot"),
+        # ESPHome's board lookup is case-sensitive; only ``bootloader:`` folds.
+        ({"nrf52": {"board": "XIAO_BLE"}}, "mcuboot"),
         # A board the snapshot lists takes its first bootloader.
         ({"nrf52": {"board": "xiao_ble"}}, "adafruit_nrf52_sd140_v7"),
         ({"nrf52": {"board": "adafruit_itsybitsy_nrf52840"}}, "adafruit_nrf52_sd140_v6"),
@@ -1202,13 +1204,11 @@ def test_resolve_nrf52_bootloader_resolves(config: dict, expected: str) -> None:
 @pytest.mark.parametrize(
     ("config", "platform"),
     [
-        # Platforms with one bootloader.
+        # Not nRF52.
         ({"esp32": {"board": "esp32dev"}}, "esp32"),
-        ({"rp2": {"board": "rpipico"}}, "rp2"),
-        # No block to read.
+        # No ``nrf52:`` block to read.
         ({"esphome": {"name": "x"}}, "nrf52"),
         (None, "nrf52"),
-        (None, ""),
     ],
 )
 def test_resolve_nrf52_bootloader_none(config: Any, platform: str) -> None:

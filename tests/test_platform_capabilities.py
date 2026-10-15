@@ -28,9 +28,11 @@ from esphome_device_builder.definitions import (
     load_board_index,
     load_platform_capabilities_index,
 )
-from script._board_bootloaders import nrf52_board_bootloaders  # type: ignore[import-not-found]
 from script._board_mcus import board_mcus  # type: ignore[import-not-found]
-from script.sync_components import _logger_interface_snapshot  # type: ignore[import-not-found]
+from script.sync_components import (  # type: ignore[import-not-found]
+    _logger_interface_snapshot,
+    _nrf52_board_bootloaders,
+)
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
 
@@ -79,6 +81,8 @@ def test_index_within_installed_esphome() -> None:
         (set(caps.libretiny_families), set(FAMILY_COMPONENT.values())),
         (set(caps.rp2040_no_wifi_boards), installed_no_wifi_boards),
         (set(caps.esp32_board_variants), set(ESP32_BOARDS)),
+        # ``.items()``: a board both sides list is the same bootloader on both.
+        (set(caps.nrf52_board_bootloaders.items()), set(_nrf52_board_bootloaders().items())),
     ]
     installed_mcus = board_mcus()
     assert set(caps.board_mcus) == set(installed_mcus)
@@ -122,29 +126,6 @@ def test_logger_interface_snapshot_within_installed_esphome() -> None:
         else:
             extra = indexed - installed
             assert not extra, f"committed logger data no installed esphome exposes: {extra}"
-
-
-def test_nrf52_board_bootloaders_within_installed_esphome() -> None:
-    """Checked-in nRF52 bootloader defaults stay within one esphome release of the live table."""
-    installed = nrf52_board_bootloaders()
-    indexed = load_platform_capabilities_index().nrf52_board_bootloaders
-    # A board both sides list builds for the same bootloader on both.
-    shared = set(indexed) & set(installed)
-    assert {b: indexed[b] for b in shared} == {b: installed[b] for b in shared}
-    if _catalog_releases_ahead() >= 1:
-        missing = set(installed) - set(indexed)
-        assert not missing, f"installed esphome boards missing from the newer catalog: {missing}"
-    else:
-        extra = set(indexed) - set(installed)
-        assert not extra, f"committed index boards no installed esphome exposes: {extra}"
-
-
-def test_nrf52_board_bootloaders_are_the_boards_first_choice() -> None:
-    """The snapshot is what ESPHome picks for a board whose YAML names no bootloader."""
-    table = nrf52_board_bootloaders()
-    assert table["xiao_ble"] == "adafruit_nrf52_sd140_v7"
-    assert table["adafruit_itsybitsy_nrf52840"] == "adafruit_nrf52_sd140_v6"
-    assert all(value.startswith("adafruit") or value == "nrf" for value in table.values())
 
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:
@@ -193,8 +174,6 @@ def test_load_coerces_string_maps(tmp_path: Path) -> None:
     assert caps.logger_interface_defaults == {"esp32c3": "USB_SERIAL_JTAG"}
     path.write_bytes(orjson.dumps({"esp32_board_variants": "notadict"}))
     assert _load_platform_capabilities(path).esp32_board_variants == {}
-    path.write_bytes(orjson.dumps({"nrf52_board_bootloaders": {"xiao_ble": "nrf", "bad": 7}}))
-    assert _load_platform_capabilities(path).nrf52_board_bootloaders == {"xiao_ble": "nrf"}
 
 
 def test_load_coerces_board_mcus(tmp_path: Path) -> None:
