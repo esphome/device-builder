@@ -4142,13 +4142,13 @@ def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_a_package_me
 def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references(
     tmp_path: Path,
 ) -> None:
-    """``!secret "name"`` and ``{key: !secret name}`` capture the bare key."""
-    (tmp_path / "secrets.yaml").write_text("quoted: 1\nflow: 2\nunused: 3\n", encoding="utf-8")
+    """``!secret "name"``, ``{key: !secret name}`` and a quoted secrets key all match bare."""
+    (tmp_path / "secrets.yaml").write_text('"quoted": 1\nflow: 2\nunused: 3\n', encoding="utf-8")
     content = 'a: !secret "quoted"\nb: {x: !secret flow}\n'
 
     sources = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
 
-    assert dict(sources.lines)["secrets.yaml"] == ["quoted: 1", "flow: 2"]
+    assert dict(sources.lines)["secrets.yaml"] == ['"quoted": 1', "flow: 2"]
 
 
 def test_dependency_stamp_matches_distinguishes_unknown_from_pre_tracking() -> None:

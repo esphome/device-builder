@@ -35,6 +35,21 @@ _LOAD_LISTENERS: list[Callable[[Path], None]] = (
 DependencyStatKey = tuple[int, int]
 DependencyStatKeys = tuple[DependencyStatKey, ...]
 
+# One permanent listener dispatching to the loading thread's recorder: the hook
+# is process-global and other executor threads parse YAML concurrently (editor
+# validation, secrets reads), and esphome's ``track_yaml_loads`` has no thread
+# filter; a per-call listener would also race its own removal on older esphome.
+_RECORDER = threading.local()
+
+
+def _on_load(fname: Path) -> None:
+    loaded: list[str] | None = getattr(_RECORDER, "loaded", None)
+    if loaded is not None:
+        loaded.append(os.fspath(fname))
+
+
+_LOAD_LISTENERS.append(_on_load)
+
 # Prefix on every stored dependency digest; bump when the algorithm changes.
 DEPENDENCY_FINGERPRINT_VERSION = "1:"
 
@@ -79,22 +94,13 @@ class SourceFingerprints(NamedTuple):
 @contextmanager
 def track_loaded_files() -> Iterator[list[str]]:
     """Record every file esphome's YAML loader opens on this thread while active."""
-    owner = threading.get_ident()
     loaded: list[str] = []
-
-    def _on_load(fname: Path) -> None:
-        # The hook is process-global and other executor threads parse YAML
-        # concurrently (editor validation, secrets reads); only this thread's
-        # loads belong to the device being tracked.
-        if threading.get_ident() == owner:
-            loaded.append(os.fspath(fname))
-
-    # esphome's ``track_yaml_loads`` has no thread filter.
-    _LOAD_LISTENERS.append(_on_load)
+    outer: list[str] | None = getattr(_RECORDER, "loaded", None)
+    _RECORDER.loaded = loaded
     try:
         yield loaded
     finally:
-        _LOAD_LISTENERS.remove(_on_load)
+        _RECORDER.loaded = outer
 
 
 def normalize_dependencies(

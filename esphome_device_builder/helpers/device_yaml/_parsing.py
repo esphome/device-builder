@@ -746,7 +746,10 @@ def _match_top_level_key(line: str) -> str | None:
     stripped = line.strip()
     if stripped.startswith(("#", "- ")) or ":" not in stripped:
         return None
-    return stripped.split(":", 1)[0].strip()
+    key = stripped.split(":", 1)[0].strip()
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
+        key = key[1:-1]
+    return key
 
 
 def _significant_lines(yaml_content: str) -> list[str]:
