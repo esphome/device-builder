@@ -50,14 +50,14 @@ def secret_ref_name(match: re.Match[str]) -> str:
 
 
 def secret_ref_names(text: str) -> list[str]:
-    """Names of every ``!secret`` reference in *text*; quoted literals and comments do not count."""
+    """Names of every ``!secret`` reference in *text*, minus quoted literals and comment lines."""
     names: list[str] = []
     for match in SECRET_REF_RE.finditer(text):
         start = match.start()
         before = text[start - 1] if start else ""
         if before.isalnum() or (before and before in "_\"'"):
             continue
-        if text.find("#", text.rfind("\n", 0, start) + 1, start) != -1:
+        if text[text.rfind("\n", 0, start) + 1 : start].lstrip()[:1] == "#":
             continue
         names.append(secret_ref_name(match))
     return names

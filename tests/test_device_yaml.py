@@ -4170,6 +4170,18 @@ def test_load_batch_stat_key_uses_the_read_or_a_fresh_stat(tmp_path: Path) -> No
     assert batch.stat_key("b.yaml") == safe_stat_key(tmp_path / "b.yaml")
 
 
+def test_read_dependency_sources_treats_a_prestatted_absent_secrets_file_as_absent(
+    tmp_path: Path,
+) -> None:
+    """A scanner pre-stat of ``(0, 0)`` for a probed secrets file reads nothing and digests none."""
+    batch = LoadBatch(tmp_path, stat_keys={"packages/secrets.yaml": (0, 0)})
+
+    sources = read_dependency_sources(("packages/secrets.yaml",), "a: !secret x\n", batch)
+
+    assert sources.lines == [("packages/secrets.yaml", [])]
+    assert batch.sources["packages/secrets.yaml"] is None
+
+
 def test_source_fingerprint_is_empty_for_an_unknown_list(tmp_path: Path) -> None:
     """No dependency list means no digest, whatever the device text says."""
     assert source_fingerprint(tmp_path, None, "esphome:\n  name: x\n") == ""

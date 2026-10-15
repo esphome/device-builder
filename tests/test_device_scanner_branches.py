@@ -14,18 +14,21 @@ so the regression surfaces in CI rather than in a user's logs.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.controllers._device_scanner import (
     DeviceFileMetadata,
     DeviceScanner,
     ScanChange,
 )
+from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
 from esphome_device_builder.models import Device
 
 
@@ -614,6 +617,43 @@ async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path)
     events.clear()
     await scanner.scan()
     assert events == []
+
+
+async def test_secret_edit_updates_a_device_whose_package_probes_an_absent_secrets_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A package's ``!secret`` probes ``packages/secrets.yaml``; its absence blanks nothing."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    # esphome falls back to the secrets file beside ``CORE.config_path``, the dashboard sentinel.
+    monkeypatch.setattr(CORE, "config_path", cfg / "__dashboard__.yaml")
+    (cfg / "packages").mkdir()
+    (cfg / "packages" / "common.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n  encryption:\n    key: !secret api_key\n",
+        encoding="utf-8",
+    )
+    secrets = cfg / "secrets.yaml"
+    secrets.write_text("api_key: abc\n", encoding="utf-8")
+    kitchen = cfg / "kitchen.yaml"
+    kitchen.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
+    scanner, events = _make_scanner(cfg)
+
+    with caplog.at_level(logging.WARNING):
+        await scanner.scan()
+        first = scanner.by_path[kitchen].content_fingerprint
+        events.clear()
+        await scanner.scan()
+        assert events == []
+
+        secrets.write_text("api_key: xyz\n", encoding="utf-8")
+        _bump_mtime(secrets)
+        await scanner.scan()
+
+    assert "packages/secrets.yaml" in scanner.by_path[kitchen].dependencies
+    assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
+    assert first.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert events[0][1].content_fingerprint not in ("", first)
+    assert not [r for r in caplog.records if "Could not read" in r.getMessage()]
 
 
 async def test_dependency_touch_fires_one_updated_with_the_digest_unchanged(

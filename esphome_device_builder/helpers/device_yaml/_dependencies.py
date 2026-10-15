@@ -245,7 +245,10 @@ def _read_secrets(name: str, stat_key: tuple[int, int] | None) -> SourceText | N
     if cached is not None and cached.stat_key == stat_key:
         return cached
     path = Path(name)
-    stat, text = read_text_with_stat(path)
+    try:
+        stat, text = read_text_with_stat(path)
+    except FileNotFoundError:
+        return None
     key = (stat.st_mtime_ns, stat.st_size)
     source = SourceText(stat.st_mtime, key, "", [], _secret_lines(path, text))
     _SECRETS_CACHE[name] = source
