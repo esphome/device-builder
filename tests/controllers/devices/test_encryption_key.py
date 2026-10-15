@@ -1129,11 +1129,11 @@ async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("old_key_esphome")
-@pytest.mark.parametrize("dependencies_match", [True, False])
+@pytest.mark.parametrize("stamp", ["match", "stale"])
 async def test_set_encryption_key_old_key_vouch_covers_dependencies(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
-    dependencies_match: bool,
+    stamp: str,
 ) -> None:
     """The regen stamp vouches for the previous key only while its dependency digest holds."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
@@ -1156,12 +1156,12 @@ async def test_set_encryption_key_old_key_vouch_covers_dependencies(
     ).dependency
     ctrl._metadata_store.update(
         "kitchen.yaml",
-        regen_dependency_fingerprint=stamped if dependencies_match else "1:stale",
+        regen_dependency_fingerprint=stamped if stamp == "match" else "1:stale",
     )
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "updated"
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
-    expected_old_key = OTHER_KEY if dependencies_match else THIRD_KEY
+    expected_old_key = OTHER_KEY if stamp == "match" else THIRD_KEY
     assert new_yaml.endswith(f'    encryption:\n      old_key: "{expected_old_key}"\n')

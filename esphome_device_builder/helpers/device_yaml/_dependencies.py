@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 import os
 import threading
 from collections.abc import Iterable, Iterator
@@ -24,6 +25,8 @@ from ._parsing import (
     _significant_lines,
     extract_config_content_fingerprint,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 DependencyStatKey = tuple[int, int]
 DependencyStatKeys = tuple[DependencyStatKey, ...]
@@ -109,19 +112,24 @@ def read_dependency_sources(
     dependencies: Iterable[str],
     yaml_content: str,
     memo: SourceMemo | None = None,
-) -> DependencySources:
+) -> DependencySources | None:
     """
     Read *dependencies* (relative to *config_dir*, or absolute) into digest lines.
 
     A secrets file contributes only the keys *yaml_content* and the other
     dependencies reference; ``newest_mtime`` spans the non-secret files.
+    ``None`` when a file exists but cannot be read, so no digest is drawn from it.
     """
     if memo is None:
         memo = {}
     sources: list[tuple[str, bool, SourceText | None]] = []
     for dependency in dependencies:
         if dependency not in memo:
-            memo[dependency] = _read_source(config_dir / dependency)
+            try:
+                memo[dependency] = _read_source(config_dir / dependency)
+            except (OSError, UnicodeDecodeError):
+                _LOGGER.debug("Could not read dependency %s", dependency, exc_info=True)
+                return None
         sources.append((dependency, is_secrets_file(dependency), memo[dependency]))
     referenced = (
         _referenced_secrets(yaml_content, sources)
@@ -155,7 +163,7 @@ def dependency_fingerprint_is_current(stored: object) -> bool:
 
 
 def dependency_stamp_matches(stamped: object, current: str) -> bool:
-    """Whether a stamped dependency digest covers *current*; a pre-tracking stamp covers any."""
+    """Whether a stamped dependency digest covers *current*; an absent stamp covers any."""
     return stamped is None or stamped == current
 
 
@@ -165,9 +173,8 @@ def dependency_fingerprint(
     """Versioned digest of *dependencies* as on disk now; empty when they are unknown."""
     if dependencies is None:
         return ""
-    return extract_dependency_fingerprint(
-        read_dependency_sources(config_dir, dependencies, yaml_content).lines
-    )
+    sources = read_dependency_sources(config_dir, dependencies, yaml_content)
+    return extract_dependency_fingerprint(sources.lines) if sources is not None else ""
 
 
 def read_source_fingerprints(
@@ -177,6 +184,7 @@ def read_source_fingerprints(
     try:
         content = read_text_with_stat(config_path)[1]
     except (OSError, UnicodeDecodeError):
+        _LOGGER.debug("Could not read %s", config_path, exc_info=True)
         return SourceFingerprints("", "")
     return SourceFingerprints(
         extract_config_content_fingerprint(content),
@@ -196,9 +204,10 @@ def _referenced_secrets(
 
 
 def _read_source(path: Path) -> SourceText | None:
+    """*path* as read, or ``None`` when absent (esphome probes files that need not exist)."""
     try:
         stat, text = read_text_with_stat(path)
-    except (OSError, UnicodeDecodeError):
+    except FileNotFoundError:
         return None
     return SourceText(stat.st_mtime, text)
 

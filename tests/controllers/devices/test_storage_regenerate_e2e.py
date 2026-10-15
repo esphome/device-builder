@@ -1675,6 +1675,33 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     controller.state.regen.cancel_retry("kitchen.yaml")
 
 
+async def test_regenerate_success_keeps_the_prior_dependency_stamp_when_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A regen that ran without a dependency list leaves the stored dependency stamp alone."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    controller._scanner.devices = [make_device(name="kitchen")]
+    _seed_store(controller, "kitchen.yaml", regen_dependency_fingerprint="1:prior")
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        AsyncMock(return_value=_capture_result(returncode=0)),
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.read_build_info_hash",
+        lambda _path: "abcd1234",
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    md = _read_store(controller, "kitchen.yaml")
+    assert md["regen_config_hash"] == "abcd1234"
+    assert md["regen_dependency_fingerprint"] == "1:prior"
+
+
 async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

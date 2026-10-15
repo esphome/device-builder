@@ -4144,6 +4144,19 @@ def test_dependency_stamp_matches_distinguishes_unknown_from_pre_tracking() -> N
     assert not dependency_stamp_matches("1:abc", "1:def")
 
 
+def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path: Path) -> None:
+    """A dependency that exists but cannot be read yields no digest; a missing one is empty."""
+    yaml_file = _write_include_fleet(tmp_path)
+    content = yaml_file.read_text(encoding="utf-8")
+    (tmp_path / "packages" / "filters.yaml").unlink()
+    (tmp_path / "packages" / "filters.yaml").mkdir()
+
+    assert read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content) is None
+    device = load_device_from_storage(yaml_file, shallow=True, dependencies=_FLEET_DEPENDENCIES)
+    assert device.dependencies == _FLEET_DEPENDENCIES
+    assert device.dependency_fingerprint == ""
+
+
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
     """A batch memo serves a second device's read of the same file without touching disk."""
     content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")

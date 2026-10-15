@@ -228,7 +228,7 @@ async def _runs_yaml(controller: DevicesController, device: Device, content: str
     ):
         return False
     stamped = md.get("regen_dependency_fingerprint")
-    if not stamped:
+    if stamped is None:
         return True
     return bool(
         stamped
