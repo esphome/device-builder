@@ -1748,6 +1748,33 @@ async def test_regenerate_does_not_rerun_for_a_stored_digest_that_did_not_move(
     assert len(spawn_calls) == 1
 
 
+async def test_regenerate_keys_on_the_persisted_list_when_the_device_is_not_indexed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A regen that runs before the scan indexes the device digests its persisted list."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
+    _seed_store(controller, "kitchen.yaml", dependencies=["packages/common.yaml"])
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        AsyncMock(return_value=_capture_result(returncode=2, output=b"boom")),
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    expected = await asyncio.to_thread(
+        read_source_fingerprint, yaml_path, ("packages/common.yaml",)
+    )
+    assert _read_store(controller, "kitchen.yaml")["regen_failed_content_fingerprint"] == expected
+    controller.state.regen.cancel_retry("kitchen.yaml")
+
+
 async def test_regenerate_keys_on_the_device_file_while_its_list_is_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

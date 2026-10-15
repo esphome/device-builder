@@ -15,6 +15,7 @@ from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import UnreadableDependencyError, read_source_fingerprint
 from ...helpers.subprocess import run_subprocess_capture
+from ._metadata_store import stored_str_tuple
 
 if TYPE_CHECKING:
     from ._metadata_store import DeviceMetadataStore
@@ -255,9 +256,15 @@ async def _current_digest(
 ) -> str | None:
     """Return the digest a regen keys on; ``None`` once a bad source was handled."""
     regen = controller.state.regen
-    # A device not indexed yet regens on its file alone, so esphome reports the real error.
+    # A device not indexed yet keys on its persisted list, else on its file alone, so
+    # esphome still reports the real error.
     device = controller.get_by_configuration(configuration)
-    dependencies = (device.dependencies if device is not None else None) or ()
+    dependencies = device.dependencies if device is not None else None
+    if dependencies is None:
+        dependencies = (
+            stored_str_tuple(controller._metadata_store.get(configuration).get("dependencies"))
+            or ()
+        )
     try:
         current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
     except FileNotFoundError:

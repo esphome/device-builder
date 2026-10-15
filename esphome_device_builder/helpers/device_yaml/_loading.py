@@ -553,7 +553,11 @@ def load_device_yaml_tracked(
         )
         if config is not None and complete and _has_packages_block(config):
             # A surviving ``packages:`` block means the merge failed part way.
-            _LOGGER.warning("Could not merge the packages of %s; its digest waits", path.name)
+            _LOGGER.warning(
+                "Could not merge the packages of %s; edits will not refresh it until the merge "
+                "succeeds",
+                path.name,
+            )
             complete = False
     if not complete and known:
         loaded.extend(batch.path_of(dependency) for dependency in known)
