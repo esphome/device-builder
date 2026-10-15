@@ -4065,7 +4065,7 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 
 def _load_tracked(
     yaml_file: Path, known: tuple[str, ...] | None = None
-) -> tuple[dict | None, tuple[str, ...], bool]:
+) -> tuple[dict | None, tuple[str, ...] | None, bool]:
     return load_device_yaml_tracked(
         yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent), known
     )
@@ -4126,14 +4126,17 @@ def test_load_device_yaml_tracked_resolves_a_templated_include_to_one_file(
     assert complete
 
 
-def test_load_device_yaml_tracked_reports_the_files_opened_before_a_parse_failure(
-    tmp_path: Path,
+def test_load_device_yaml_tracked_reports_no_list_on_a_first_parse_failure(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A broken file reports what the loader opened before failing: nothing, for a bare file."""
+    """A broken file with no list known yet reports no list, and says so in the log."""
     yaml_file = tmp_path / "kitchen.yaml"
     yaml_file.write_text("esphome: [\n", encoding="utf-8")
 
-    assert _load_tracked(yaml_file) == (None, (), False)
+    with caplog.at_level(logging.WARNING):
+        assert _load_tracked(yaml_file) == (None, None, False)
+
+    assert any("Could not parse kitchen.yaml" in r.getMessage() for r in caplog.records)
 
 
 def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
