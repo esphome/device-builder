@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import json
 import logging
 import os
 import threading
@@ -11,16 +13,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
+import yaml
 from esphome import yaml_util
-from esphome.core import CORE
+from esphome.core import CORE, EsphomeError
 
-from ...constants import SECRET_REF_RE, is_secrets_file
+from ...constants import is_secrets_file, secret_ref_names
 from ..atomic_io import read_text_with_stat
+from ..yaml import FastestSafeLoader
 from ._parsing import (
     _has_version_prefix,
     _sha256_lines,
     _significant_lines,
-    _top_level_blocks,
     extract_config_content_fingerprint,
 )
 
@@ -62,17 +65,17 @@ class DependencySources(NamedTuple):
 
 
 class SourceText(NamedTuple):
-    """One dependency file as read: its mtime, significant lines, secret references and blocks."""
+    """One dependency file as read: a secrets file parsed, any other as significant lines."""
 
     mtime: float
     lines: list[str]
     secret_refs: list[str]
-    blocks: list[tuple[str, list[str]]]
+    secrets: dict[str, object] | None
 
 
 def data_dir_prefix() -> str:
-    """``CORE.data_dir`` as a normalised path prefix."""
-    return os.path.normcase(os.path.normpath(Path(CORE.data_dir))) + os.sep
+    """``CORE.data_dir`` as an absolute, normalised path prefix."""
+    return os.path.normcase(os.path.abspath(Path(CORE.data_dir))) + os.sep  # noqa: PTH100
 
 
 @dataclass(slots=True)
@@ -107,19 +110,19 @@ def normalize_dependencies(
     path: Path, loaded: Iterable[str], data_prefix: str | None = None
 ) -> tuple[str, ...]:
     """
-    Sorted, deduplicated *loaded* paths, relative to *path*'s directory when inside it.
+    Sorted, deduplicated *loaded* paths, relative to *path*'s directory or absolute.
 
     Drops *path* itself and anything under *data_prefix* (``CORE.data_dir``, the git
     package cache). Paths compare lexically: every file the loader reports descends
     from *path*.
     """
-    own = os.path.normcase(os.path.normpath(path))
-    config_prefix = (os.path.dirname(own) or os.curdir) + os.sep  # noqa: PTH120
+    own = os.path.normcase(os.path.abspath(path))  # noqa: PTH100
+    config_prefix = os.path.dirname(own) + os.sep  # noqa: PTH120
     if data_prefix is None:
         data_prefix = data_dir_prefix()
     dependencies: set[str] = set()
     for raw in set(loaded):
-        normalized = os.path.normcase(os.path.normpath(raw))
+        normalized = os.path.normcase(os.path.abspath(raw))  # noqa: PTH100
         if normalized == own or normalized.startswith(data_prefix):
             continue
         if normalized.startswith(config_prefix):
@@ -137,9 +140,10 @@ def read_dependency_sources(
     """
     Read *dependencies* (relative to *config_dir*, or absolute) into digest lines.
 
-    A secrets file contributes only the keys *yaml_content* and the other
-    dependencies reference; ``newest_mtime`` spans the non-secret files.
-    ``None`` when a file exists but cannot be read, so no digest is drawn from it.
+    A secrets file contributes only the resolved values of the keys *yaml_content*
+    and the other dependencies reference; ``newest_mtime`` spans the non-secret files.
+    ``None`` when a file exists but cannot be read or parsed, so no digest is drawn
+    from it.
     """
     if batch is None:
         batch = LoadBatch()
@@ -147,10 +151,11 @@ def read_dependency_sources(
     for dependency in dependencies:
         if dependency in batch.unreadable:
             return None
+        secret = is_secrets_file(dependency)
         if dependency not in batch.sources:
             try:
-                batch.sources[dependency] = _read_source(config_dir / dependency)
-            except (OSError, UnicodeDecodeError) as err:
+                batch.sources[dependency] = _read_source(config_dir / dependency, secrets=secret)
+            except (OSError, UnicodeDecodeError, yaml.YAMLError, EsphomeError) as err:
                 batch.unreadable.add(dependency)
                 _LOGGER.warning(
                     "Could not read %s; edits to it will not refresh the devices that use it: %s",
@@ -158,19 +163,18 @@ def read_dependency_sources(
                     err,
                 )
                 return None
-        sources.append((dependency, is_secrets_file(dependency), batch.sources[dependency]))
+        sources.append((dependency, secret, batch.sources[dependency]))
     referenced = (
         _referenced_secrets(yaml_content, sources)
         if any(secret for _, secret, _ in sources)
         else frozenset()
     )
     lines: list[tuple[str, list[str]]] = []
-    for dependency, secret, source in sources:
+    for dependency, _secret, source in sources:
         if source is None:
             lines.append((dependency, []))
-        elif secret:
-            captured = [line for key, block in source.blocks if key in referenced for line in block]
-            lines.append((dependency, captured))
+        elif source.secrets is not None:
+            lines.append((dependency, _secret_lines(source.secrets, referenced)))
         else:
             lines.append((dependency, source.lines))
     newest_mtime = max(
@@ -225,18 +229,37 @@ def _referenced_secrets(
     yaml_content: str, sources: Iterable[tuple[str, bool, SourceText | None]]
 ) -> frozenset[str]:
     """``!secret`` names *yaml_content* and the non-secret *sources* reference."""
-    names = SECRET_REF_RE.findall(yaml_content)
+    names = secret_ref_names(yaml_content)
     for _, secret, source in sources:
         if source is not None and not secret:
             names += source.secret_refs
     return frozenset(names)
 
 
-def _read_source(path: Path) -> SourceText | None:
+def _secret_lines(secrets: dict[str, object], referenced: frozenset[str]) -> list[str]:
+    """One ``name: value`` line per referenced key *secrets* defines, sorted by name."""
+    return [
+        f"{name}: {json.dumps(secrets[name], sort_keys=True, default=str)}"
+        for name in sorted(referenced)
+        if name in secrets
+    ]
+
+
+def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
     """*path* as read, or ``None`` when absent (esphome probes files that need not exist)."""
     try:
         stat, text = read_text_with_stat(path)
     except FileNotFoundError:
         return None
-    lines = _significant_lines(text)
-    return SourceText(stat.st_mtime, lines, SECRET_REF_RE.findall(text), _top_level_blocks(lines))
+    if secrets:
+        return SourceText(stat.st_mtime, [], [], _parse_secrets(path, text))
+    return SourceText(stat.st_mtime, _significant_lines(text), secret_ref_names(text), None)
+
+
+def _parse_secrets(path: Path, text: str) -> dict[str, object]:
+    """Parse a secrets file; esphome tags fall back to esphome's loader."""
+    try:
+        data = yaml.load(text, Loader=FastestSafeLoader)  # noqa: S506
+    except yaml.YAMLError:
+        data = yaml_util.parse_yaml(path, io.StringIO(text))
+    return data if isinstance(data, dict) else {}

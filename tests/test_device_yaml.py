@@ -4100,7 +4100,7 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     )
 
     lines = dict(sources.lines)
-    assert lines["secrets.yaml"] == ["api_key: abc"]
+    assert lines["secrets.yaml"] == ['api_key: "abc"']
     assert lines["packages/secrets.yaml"] == []
     assert lines["packages/filters.yaml"] == ["- multiply: 2"]
     assert sources.newest_mtime is not None
@@ -4142,13 +4142,61 @@ def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_a_package_me
 def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references(
     tmp_path: Path,
 ) -> None:
-    """``!secret "name"``, ``{key: !secret name}`` and a quoted secrets key all match bare."""
-    (tmp_path / "secrets.yaml").write_text('"quoted": 1\nflow: 2\nunused: 3\n', encoding="utf-8")
-    content = 'a: !secret "quoted"\nb: {x: !secret flow}\n'
+    """``!secret "name"``, ``{key: !secret name}`` and a quoted name with spaces all resolve."""
+    (tmp_path / "secrets.yaml").write_text(
+        '"quoted": 1\nflow: 2\nwifi password: 3\nunused: 4\n', encoding="utf-8"
+    )
+    content = "a: !secret \"quoted\"\nb: {x: !secret flow}\nc: !secret 'wifi password'\n"
 
     sources = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
 
-    assert dict(sources.lines)["secrets.yaml"] == ['"quoted": 1', "flow: 2"]
+    assert dict(sources.lines)["secrets.yaml"] == ["flow: 2", "quoted: 1", "wifi password: 3"]
+
+
+@pytest.mark.parametrize(
+    "secrets_text",
+    ["shared: &pw old\nwifi_password: *pw\n", "{wifi_password: old}\n"],
+    ids=["alias", "flow-mapping"],
+)
+def test_read_dependency_sources_digests_resolved_secret_values(
+    tmp_path: Path, secrets_text: str
+) -> None:
+    """An alias target or a flow-style secrets mapping digests the value esphome resolves."""
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text(secrets_text, encoding="utf-8")
+    content = "p: !secret wifi_password\n"
+
+    before = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
+    secrets.write_text(secrets_text.replace("old", "new"), encoding="utf-8")
+    after = read_dependency_sources(tmp_path, ("secrets.yaml",), content)
+
+    assert dict(before.lines)["secrets.yaml"] == ['wifi_password: "old"']
+    assert dict(after.lines)["secrets.yaml"] == ['wifi_password: "new"']
+
+
+def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a relative config dir, an include outside it is tracked by its absolute path."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "filters.yaml").write_text("- multiply: 2\n", encoding="utf-8")
+    (tmp_path / "configs").mkdir()
+    yaml_file = Path("configs") / "kitchen.yaml"
+    yaml_file.write_text(
+        "sensor:\n  - platform: template\n    name: x\n"
+        "    filters: !include ../shared/filters.yaml\n",
+        encoding="utf-8",
+    )
+
+    _config, dependencies = load_device_yaml_tracked(yaml_file)
+    sources = read_dependency_sources(
+        Path("configs"), dependencies, yaml_file.read_text(encoding="utf-8")
+    )
+
+    shared = os.path.normcase(os.path.abspath("shared/filters.yaml"))  # noqa: PTH100
+    assert dependencies == (shared,)
+    assert dict(sources.lines) == {shared: ["- multiply: 2"]}
 
 
 def test_dependency_stamp_matches_distinguishes_unknown_from_pre_tracking() -> None:

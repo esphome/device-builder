@@ -205,7 +205,9 @@ def stamp_failure(
         regen_failed_mtime=mtime,
         regen_failed_at=now,
         regen_failed_attempts=attempts,
-        regen_failed_dependency_fingerprint=dependency_fingerprint,
+    )
+    controller._metadata_store.set_field(
+        configuration, "regen_failed_dependency_fingerprint", dependency_fingerprint
     )
     return attempts
 
@@ -264,7 +266,7 @@ def _fresh_stamp(
 
     A missing or unparseable attempt count reads as terminal;
     future-dated stamps clamp to age 0. A stamp without a dependency
-    digest matches any.
+    digest matches any; an empty one only an unknown digest.
     """
     cached_mtime = md.get("regen_failed_mtime")
     cached_at = md.get("regen_failed_at")

@@ -37,9 +37,20 @@ DEFAULT_HOST = "0.0.0.0"
 SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 # Both spellings esphome accepts, for guards; pinned against esphome.const in tests.
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
-# A ``!secret <name>`` reference, quoted or in a flow collection; ``findall`` yields the
-# names, ``fullmatch`` checks one token.
-SECRET_REF_RE = re.compile(r"""!secret\s+["']?([^\s"',}\]#]+)["']?""")
+# A ``!secret <name>`` reference, the name bare or quoted, alone or in a flow collection.
+SECRET_REF_RE = re.compile(
+    r"""!secret\s+(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"',}\]#]+))"""
+)
+
+
+def secret_ref_name(match: re.Match[str]) -> str:
+    """Return the name a ``SECRET_REF_RE`` match references."""
+    return match[match.lastgroup or "bare"]
+
+
+def secret_ref_names(text: str) -> list[str]:
+    """Names of every ``!secret`` reference in *text*."""
+    return [secret_ref_name(match) for match in SECRET_REF_RE.finditer(text)]
 
 
 # No NTFS stream suffix (``::$DATA``); the extension rules out the 8.3 alias ``SECRET~1.YAM``.

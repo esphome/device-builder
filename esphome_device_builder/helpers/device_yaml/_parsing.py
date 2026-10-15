@@ -746,10 +746,7 @@ def _match_top_level_key(line: str) -> str | None:
     stripped = line.strip()
     if stripped.startswith(("#", "- ")) or ":" not in stripped:
         return None
-    key = stripped.split(":", 1)[0].strip()
-    if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
-        key = key[1:-1]
-    return key
+    return stripped.split(":", 1)[0].strip()
 
 
 def _significant_lines(yaml_content: str) -> list[str]:
@@ -766,22 +763,15 @@ def _significant_lines(yaml_content: str) -> list[str]:
 
 def _capture_top_level_lines(yaml_content: str, keys: frozenset[str]) -> list[str]:
     """Return the significant lines of the top-level *keys* blocks, in file order."""
-    blocks = _top_level_blocks(_significant_lines(yaml_content))
-    return [line for key, block in blocks if key in keys for line in block]
-
-
-def _top_level_blocks(lines: list[str]) -> list[tuple[str, list[str]]]:
-    """Group significant *lines* under the top-level key that opens each block, in file order."""
-    blocks: list[tuple[str, list[str]]] = []
-    block: list[str] | None = None
-    for line in lines:
+    captured: list[str] = []
+    in_block = False
+    for line in _significant_lines(yaml_content):
         key = _match_top_level_key(line)
         if key is not None:
-            block = []
-            blocks.append((key, block))
-        if block is not None:
-            block.append(line)
-    return blocks
+            in_block = key in keys
+        if in_block:
+            captured.append(line)
+    return captured
 
 
 def _digest_lines(lines: list[str]) -> str:

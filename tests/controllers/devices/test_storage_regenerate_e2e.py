@@ -1702,6 +1702,21 @@ async def test_regenerate_success_keeps_the_prior_dependency_stamp_when_unknown(
     assert md["regen_dependency_fingerprint"] == "1:prior"
 
 
+async def test_stamp_failure_records_an_unknown_dependency_digest_literally(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A stamp taken while the digest was unknown holds only until the digest is known."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+
+    storage_regen.stamp_failure(controller, "kitchen.yaml", 5.0, "")
+
+    md = _read_store(controller, "kitchen.yaml")
+    assert md["regen_failed_dependency_fingerprint"] == ""
+    now = md["regen_failed_at"] + 1.0
+    assert storage_regen._fresh_stamp(md, 5.0, now, dependency_fingerprint="") is not None
+    assert storage_regen._fresh_stamp(md, 5.0, now, dependency_fingerprint="1:abc") is None
+
+
 async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

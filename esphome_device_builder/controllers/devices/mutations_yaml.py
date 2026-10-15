@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from ...constants import SECRET_REF_RE
+from ...constants import SECRET_REF_RE, secret_ref_name
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
@@ -362,7 +362,7 @@ def _secret_key_at(range_: dict | None, lines: list[str]) -> str | None:
         return None
     token = lines[line][start:end]
     match = SECRET_REF_RE.fullmatch(token.strip())
-    return match.group(1) if match else None
+    return secret_ref_name(match) if match else None
 
 
 def _entry_confined_to_packages(

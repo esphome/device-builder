@@ -687,7 +687,7 @@ against legacy behaviour before assuming the simpler version suffices.
     filtered because the hook is process-global), persists the sorted
     list as `dependencies` in the metadata store, digests their
     content into the separately versioned `dependency_fingerprint`
-    (a secrets file contributes only the referenced keys), and folds
+    (a secrets file contributes only the referenced keys' values), and folds
     their stat keys into the scanner's change key, so a package edit
     surfaces as `UPDATED` on every dependent and regens only when
     that digest moved. The regen failure stamp and the `old_key`
