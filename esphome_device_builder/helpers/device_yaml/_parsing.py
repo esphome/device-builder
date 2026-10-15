@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -970,10 +971,10 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
     return value
 
 
-def safe_stat_key(path: Path) -> tuple[int, int]:
+def safe_stat_key(path: Path | str) -> tuple[int, int]:
     """Return *path*'s ``(mtime_ns, size)``, or ``(0, 0)`` when the file is missing."""
     try:
-        st = path.stat()
+        st = os.stat(path)  # noqa: PTH116
     except OSError:
         return (0, 0)
     return (st.st_mtime_ns, st.st_size)

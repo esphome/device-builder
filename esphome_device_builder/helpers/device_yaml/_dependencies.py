@@ -78,14 +78,24 @@ class LoadBatch:
     config_dir: Path
     sources: dict[str, SourceText | None] = field(default_factory=dict)
     unreadable: set[str] = field(default_factory=set)
+    # Stat keys the scanner took before the loads; a cache check needs no second stat.
+    stat_keys: dict[str, tuple[int, int]] = field(default_factory=dict)
     _data_dir_prefix: str | None = None
+    _dir: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._dir = os.fspath(self.config_dir)
+
+    def path_of(self, dependency: str) -> str:
+        """*dependency* joined under the config dir; an absolute one stays as is."""
+        return os.path.join(self._dir, dependency)  # noqa: PTH118
 
     def stat_key(self, dependency: str) -> tuple[int, int]:
         """*dependency*'s ``(mtime_ns, size)`` as read this batch, else from a fresh stat."""
         if dependency in self.sources:
             source = self.sources[dependency]
             return source.stat_key if source is not None else (0, 0)
-        return safe_stat_key(self.config_dir / dependency)
+        return safe_stat_key(self.path_of(dependency))
 
     def data_dir_prefix(self) -> str:
         """``CORE.data_dir`` as an absolute, normalised path prefix, resolved once per batch."""
@@ -140,14 +150,21 @@ def read_dependency_sources(
     non-secret files. ``None`` when a file exists but cannot be read or parsed, so no
     digest is drawn from it.
     """
-    sources: list[tuple[str, SourceText | None]] = []
+    lines: list[tuple[str, list[str]]] = []
+    secrets: list[tuple[int, dict[str, str]]] = []
+    refs: list[str] = []
+    newest_mtime: float | None = None
     for dependency in dependencies:
         if dependency in batch.unreadable:
             return None
-        if dependency not in batch.sources:
+        if dependency in batch.sources:
+            source = batch.sources[dependency]
+        else:
             try:
-                batch.sources[dependency] = _read_source(
-                    batch.config_dir / dependency, secrets=is_secrets_file(dependency)
+                source = batch.sources[dependency] = _read_source(
+                    batch.path_of(dependency),
+                    secrets=is_secrets_file(dependency),
+                    stat_key=batch.stat_keys.get(dependency),
                 )
             except (OSError, UnicodeDecodeError, yaml.YAMLError, EsphomeError) as err:
                 batch.unreadable.add(dependency)
@@ -157,27 +174,23 @@ def read_dependency_sources(
                     err,
                 )
                 return None
-        sources.append((dependency, batch.sources[dependency]))
-    read = [source for _, source in sources if source is not None]
-    referenced = (
-        _referenced_secrets(yaml_content, read)
-        if any(source.secret_lines is not None for source in read)
-        else frozenset()
-    )
-    lines: list[tuple[str, list[str]]] = []
-    for dependency, source in sources:
         if source is None:
             lines.append((dependency, []))
         elif source.secret_lines is not None:
-            secret_lines = source.secret_lines
-            lines.append(
-                (dependency, [secret_lines[n] for n in sorted(referenced) if n in secret_lines])
-            )
+            secrets.append((len(lines), source.secret_lines))
+            lines.append((dependency, []))
         else:
             lines.append((dependency, [source.digest]))
-    newest_mtime = max(
-        (source.mtime for source in read if source.secret_lines is None), default=None
-    )
+            refs += source.secret_refs
+            if newest_mtime is None or source.mtime > newest_mtime:
+                newest_mtime = source.mtime
+    if secrets:
+        referenced = sorted({*secret_ref_names(yaml_content), *refs})
+        for index, secret_lines in secrets:
+            lines[index] = (
+                lines[index][0],
+                [secret_lines[n] for n in referenced if n in secret_lines],
+            )
     return DependencySources(lines, newest_mtime)
 
 
@@ -201,20 +214,14 @@ def read_source_fingerprint(config_path: Path, dependencies: tuple[str, ...] | N
     return source_fingerprint(config_path.parent, dependencies, content)
 
 
-def _referenced_secrets(yaml_content: str, sources: Iterable[SourceText]) -> frozenset[str]:
-    """``!secret`` names *yaml_content* and *sources* reference."""
-    names = secret_ref_names(yaml_content)
-    for source in sources:
-        names += source.secret_refs
-    return frozenset(names)
-
-
-def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
-    """*path* as read, or ``None`` when absent (esphome probes files that need not exist)."""
+def _read_source(
+    name: str, *, secrets: bool, stat_key: tuple[int, int] | None = None
+) -> SourceText | None:
+    """Read the file *name*; ``None`` when absent (esphome probes files that need not exist)."""
     if secrets:
-        return _read_secrets(path)
+        return _read_secrets(name, stat_key)
     try:
-        stat, text = read_text_with_stat(path)
+        stat, text = read_text_with_stat(Path(name))
     except FileNotFoundError:
         return None
     key = (stat.st_mtime_ns, stat.st_size)
@@ -228,16 +235,18 @@ def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
 _SECRETS_CACHE: dict[str, SourceText] = {}
 
 
-def _read_secrets(path: Path) -> SourceText | None:
-    """*path* parsed into secret lines, served from the cache while its stat key holds."""
-    name = os.fspath(path)
-    try:
-        stat = path.stat()
-    except FileNotFoundError:
-        return None
+def _read_secrets(name: str, stat_key: tuple[int, int] | None) -> SourceText | None:
+    """Parse the secrets file *name* into lines, served from the cache while its stat key holds."""
+    if stat_key is None:
+        try:
+            stat = os.stat(name)  # noqa: PTH116
+        except FileNotFoundError:
+            return None
+        stat_key = (stat.st_mtime_ns, stat.st_size)
     cached = _SECRETS_CACHE.get(name)
-    if cached is not None and cached.stat_key == (stat.st_mtime_ns, stat.st_size):
+    if cached is not None and cached.stat_key == stat_key:
         return cached
+    path = Path(name)
     stat, text = read_text_with_stat(path)
     key = (stat.st_mtime_ns, stat.st_size)
     source = SourceText(stat.st_mtime, key, "", [], _secret_lines(path, text))

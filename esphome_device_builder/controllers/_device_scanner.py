@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from functools import partial
@@ -527,7 +528,7 @@ class DeviceScanner(WakeWorker[str]):
         """Stat *dependencies* through *memo*, so a package shared by the fleet is stat'ed once."""
         for dependency in dependencies:
             if dependency not in memo:
-                memo[dependency] = safe_stat_key(self._config_dir / dependency)
+                memo[dependency] = safe_stat_key(os.path.join(self._config_dir, dependency))  # noqa: PTH118
         keys = [memo[d] for d in dependencies]
         return tuple(keys)
 
@@ -538,7 +539,7 @@ class DeviceScanner(WakeWorker[str]):
         result: dict[Path, _LoadedDevice] = {}
         get_metadata = self._make_metadata_resolver()
         memo: dict[str, _DependencyStatKey] = {}
-        batch = LoadBatch(self._config_dir)
+        batch = LoadBatch(self._config_dir, stat_keys=memo)
         for path in paths:
             try:
                 metadata = get_metadata(self._config_dir, path.name)

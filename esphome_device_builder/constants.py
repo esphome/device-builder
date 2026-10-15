@@ -37,10 +37,10 @@ DEFAULT_HOST = "0.0.0.0"
 SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 # Both spellings esphome accepts, for guards; pinned against esphome.const in tests.
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
-# A ``!secret <name>`` reference, the name bare or quoted, alone or in a flow collection;
-# a tag inside a quoted literal is a plain string to esphome and does not count.
+# A ``!secret <name>`` reference, the name bare or quoted, alone or in a flow collection.
+# No leading assertion: a literal prefix keeps the scan on the regex engine's fast path.
 SECRET_REF_RE = re.compile(
-    r"""(?<!["'\w])!secret\s+(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"',}\]#]+))"""
+    r"""!secret\s+(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"',}\]#]+))"""
 )
 
 
@@ -50,14 +50,16 @@ def secret_ref_name(match: re.Match[str]) -> str:
 
 
 def secret_ref_names(text: str) -> list[str]:
-    """Names of every ``!secret`` reference in *text*, skipping commented-out lines."""
-    if "#" not in text:
-        return [secret_ref_name(match) for match in SECRET_REF_RE.finditer(text)]
+    """Names of every ``!secret`` reference in *text*; quoted literals and comments do not count."""
     names: list[str] = []
     for match in SECRET_REF_RE.finditer(text):
-        line_start = text.rfind("\n", 0, match.start()) + 1
-        if not text[line_start : match.start()].lstrip().startswith("#"):
-            names.append(secret_ref_name(match))
+        start = match.start()
+        before = text[start - 1] if start else ""
+        if before.isalnum() or (before and before in "_\"'"):
+            continue
+        if text.find("#", text.rfind("\n", 0, start) + 1, start) != -1:
+            continue
+        names.append(secret_ref_name(match))
     return names
 
 

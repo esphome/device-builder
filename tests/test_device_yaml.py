@@ -3994,6 +3994,12 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 # ---------------------------------------------------------------------------
 
 
+def _bump_mtime(path: Path) -> None:
+    """Push *path*'s mtime past any same-size rewrite the filesystem's clock would hide."""
+    stat = path.stat()
+    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
+
+
 def _load_tracked(yaml_file: Path) -> tuple[dict | None, tuple[str, ...] | None]:
     return load_device_yaml_tracked(
         yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent)
@@ -4194,6 +4200,7 @@ def test_read_dependency_sources_digests_resolved_secret_values(
 
     before = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
     secrets.write_text(secrets_text.replace("old", "new"), encoding="utf-8")
+    _bump_mtime(secrets)
     after = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
 
     assert dict(before.lines)["secrets.yaml"] == ['wifi_password: "old"']
@@ -4345,9 +4352,11 @@ def test_digest_moves_only_on_content_in_play(tmp_path: Path) -> None:
     assert load_device_from_storage(yaml_file).content_fingerprint == baseline
 
     secrets.write_text("api_key: abc\nunrelated: yyy\n", encoding="utf-8")
+    _bump_mtime(secrets)
     assert load_device_from_storage(yaml_file).content_fingerprint == baseline
 
     secrets.write_text("api_key: abz\nunrelated: yyy\n", encoding="utf-8")
+    _bump_mtime(secrets)
     rotated = load_device_from_storage(yaml_file).content_fingerprint
     assert rotated != baseline
 
