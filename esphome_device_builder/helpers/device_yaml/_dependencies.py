@@ -77,7 +77,6 @@ class LoadBatch:
 
     config_dir: Path
     sources: dict[str, SourceText | None] = field(default_factory=dict)
-    unreadable: set[str] = field(default_factory=set)
     # Stat keys the scanner took before the loads; a cache check needs no second stat.
     stat_keys: dict[str, tuple[int, int]] = field(default_factory=dict)
     _data_dir_prefix: str | None = None
@@ -141,39 +140,38 @@ def normalize_dependencies(path: Path, loaded: Iterable[str], data_prefix: str) 
 
 def read_dependency_sources(
     dependencies: Iterable[str], yaml_content: str, batch: LoadBatch
-) -> DependencySources | None:
+) -> DependencySources:
     """
     Read *dependencies* (relative to the batch's config dir, or absolute) into digest lines.
 
     A file contributes its digest; a secrets file only the resolved values of the keys
-    *yaml_content* and the other dependencies reference. ``newest_mtime`` spans the
-    non-secret files. ``None`` when a file exists but cannot be read or parsed, so no
-    digest is drawn from it.
+    *yaml_content* and the other dependencies reference; an absent file nothing and an
+    unreadable one an empty digest, with one warning per batch. ``newest_mtime`` spans
+    the non-secret files.
     """
     lines: list[tuple[str, list[str]]] = []
     secrets: list[tuple[int, dict[str, str]]] = []
     refs: list[str] = []
     newest_mtime: float | None = None
     for dependency in dependencies:
-        if dependency in batch.unreadable:
-            return None
         if dependency in batch.sources:
             source = batch.sources[dependency]
         else:
+            name = batch.path_of(dependency)
             try:
-                source = batch.sources[dependency] = _read_source(
-                    batch.path_of(dependency),
+                source = _read_source(
+                    name,
                     secrets=is_secrets_file(dependency),
                     stat_key=batch.stat_keys.get(dependency),
                 )
             except (OSError, UnicodeDecodeError, yaml.YAMLError, EsphomeError) as err:
-                batch.unreadable.add(dependency)
                 _LOGGER.warning(
                     "Could not read %s; edits to it will not refresh the devices that use it: %s",
                     dependency,
                     err,
                 )
-                return None
+                source = SourceText(0.0, safe_stat_key(name), "", [], None)
+            batch.sources[dependency] = source
         if source is None:
             lines.append((dependency, []))
         elif source.secret_lines is not None:
@@ -201,7 +199,7 @@ def source_fingerprint(
     if dependencies is None:
         return ""
     sources = read_dependency_sources(dependencies, yaml_content, LoadBatch(config_dir))
-    return extract_config_content_fingerprint(yaml_content, sources.lines) if sources else ""
+    return extract_config_content_fingerprint(yaml_content, sources.lines)
 
 
 def read_source_fingerprint(config_path: Path, dependencies: tuple[str, ...] | None) -> str:

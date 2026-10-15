@@ -4109,6 +4109,22 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     assert sources.newest_mtime < far_future
 
 
+def test_load_device_yaml_tracked_keeps_the_known_list_when_an_include_fails(
+    tmp_path: Path,
+) -> None:
+    """A templated include that cannot resolve keeps the last known list's files watched."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text(
+        "substitutions:\n  kind: dht\nsensor: !include sensors/${kind}.yaml\n", encoding="utf-8"
+    )
+
+    _, dependencies = load_device_yaml_tracked(
+        yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(tmp_path), ("sensors/dht.yaml",)
+    )
+
+    assert dependencies == ("sensors/dht.yaml",)
+
+
 def test_load_device_yaml_tracked_keeps_the_files_opened_when_an_include_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -4253,24 +4269,29 @@ def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
     assert dict(sources.lines) == {shared: [_digest_lines(["- multiply: 2"])]}
 
 
-def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path: Path) -> None:
-    """A dependency that exists but cannot be read yields no digest; a missing one is empty."""
+def test_unreadable_dependency_digests_as_empty_and_warns_once_per_batch(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unreadable dependency keeps its stat key and digests empty; the batch warns once."""
     yaml_file = _write_include_fleet(tmp_path)
     content = yaml_file.read_text(encoding="utf-8")
-    (tmp_path / "packages" / "filters.yaml").unlink()
-    (tmp_path / "packages" / "filters.yaml").mkdir()
+    filters = tmp_path / "packages" / "filters.yaml"
+    filters.unlink()
+    filters.mkdir()
     batch = LoadBatch(tmp_path)
 
-    assert read_dependency_sources(_FLEET_DEPENDENCIES, content, batch) is None
-    assert batch.unreadable == {"packages/filters.yaml"}
-    with mock.patch(
-        "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat"
-    ) as read:
-        assert read_dependency_sources(_FLEET_DEPENDENCIES, content, batch) is None
-    read.assert_not_called()
+    with caplog.at_level(logging.WARNING):
+        first = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
+        second = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
+
+    assert dict(first.lines)["packages/filters.yaml"] == [""]
+    assert second == first
+    assert (
+        sum("Could not read packages/filters.yaml" in r.getMessage() for r in caplog.records) == 1
+    )
+    assert batch.stat_key("packages/filters.yaml") == safe_stat_key(filters)
     device = load_device_from_storage(yaml_file, shallow=True, dependencies=_FLEET_DEPENDENCIES)
-    assert device.dependencies == _FLEET_DEPENDENCIES
-    assert device.content_fingerprint == ""
+    assert device.content_fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
 
 
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:

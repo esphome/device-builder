@@ -1684,12 +1684,10 @@ async def test_regenerate_strikes_instead_of_stamping_when_the_digest_is_unknown
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unreadable dependency re-arms the ladder with a RAM strike and spawns nothing."""
+    """An unreadable device file re-arms the ladder with a RAM strike and spawns nothing."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
-    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    (tmp_path / "packages").mkdir()
-    (tmp_path / "packages" / "common.yaml").mkdir()
-    await _digest(controller, "kitchen.yaml", "packages/common.yaml")
+    (tmp_path / "kitchen.yaml").mkdir()
+    _index(controller, "kitchen.yaml")
     spawn_calls: list[tuple[str, ...]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -1706,7 +1704,7 @@ async def test_regenerate_strikes_instead_of_stamping_when_the_digest_is_unknown
         await _drain(controller)
 
     assert spawn_calls == []
-    assert any("sources unreadable" in record.getMessage() for record in caplog.records)
+    assert any("config unreadable" in record.getMessage() for record in caplog.records)
     assert controller.state.regen.unreadable_strikes == {"kitchen.yaml": 1}
     assert "regen_failed_at" not in _read_store(controller, "kitchen.yaml")
     assert _armed_delay(controller) == pytest.approx(30.0, abs=1)

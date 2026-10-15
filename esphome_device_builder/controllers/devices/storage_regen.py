@@ -265,8 +265,8 @@ async def _current_digest(
         dependencies = ()
     current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
     if not current:
-        # A source unreadable: nothing to stamp a failure against.
-        _LOGGER.warning("Storage regenerate for %s: sources unreadable; retrying", configuration)
+        # The device file itself unreadable: nothing to stamp a failure against.
+        _LOGGER.warning("Storage regenerate for %s: config unreadable; retrying", configuration)
         _arm_strike(controller, configuration)
         return None
     regen.clear_strikes(configuration)

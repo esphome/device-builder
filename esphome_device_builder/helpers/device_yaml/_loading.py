@@ -516,14 +516,24 @@ def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: st
 
 
 def load_device_yaml_tracked(
-    path: Path, yaml_content: str, batch: LoadBatch
+    path: Path,
+    yaml_content: str,
+    batch: LoadBatch,
+    known: tuple[str, ...] | None = None,
 ) -> tuple[dict | None, tuple[str, ...] | None]:
-    """``load_device_yaml`` plus the files it pulled in; ``None`` files when the parse failed."""
+    """
+    ``load_device_yaml`` plus the files it pulled in; ``None`` files when the parse failed.
+
+    A failed deferred include pass keeps *known*, the last complete list, in the result
+    so the files it missed stay watched.
+    """
     with track_loaded_files() as loaded:
         config = load_device_yaml(path)
         if config is None:
             return None, None
-        _load_deferred_includes(path, config, yaml_content, loaded)
+        complete = _load_deferred_includes(path, config, yaml_content, loaded)
+    if not complete and known:
+        loaded.extend(batch.path_of(dependency) for dependency in known)
     return config, normalize_dependencies(path, loaded, batch.data_dir_prefix())
 
 
@@ -608,17 +618,17 @@ def resolution_incomplete(config: dict | None) -> bool:
     )
 
 
-def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded: list[str]) -> None:
-    """Load the ``!include`` nodes still pending after the package merge, logging a failure."""
+def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded: list[str]) -> bool:
+    """Load the ``!include`` nodes still pending after the package merge; False when that failed."""
     # A deferred node needs an ``!include`` tag in the device file or in a non-secrets file
     # it pulled in; checking the text first spares most devices the tree walk.
     own = os.fspath(path)
     if "!include" not in yaml_content and all(
         name == own or is_secrets_file(name) for name in set(loaded)
     ):
-        return
+        return True
     if not _holds_deferred_marker(config, yaml_util.IncludeFile):
-        return
+        return True
     # The substitution pass resolves a templated path (``!include dev/${name}.yaml``)
     # to the one file esphome would load; a force-load would glob every candidate.
     # The shallow copy keeps the pass's ``substitutions:`` pop off *config*.
@@ -626,6 +636,8 @@ def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded:
         do_substitution_pass(copy.copy(config))
     except Exception as err:  # noqa: BLE001 — esphome raises its own hierarchy plus yaml errors
         _LOGGER.warning("Could not resolve the deferred includes of %s: %s", path.name, err)
+        return False
+    return True
 
 
 def _load_resolved_sources(
@@ -639,7 +651,9 @@ def _load_resolved_sources(
     """Resolve the config (deep only) and read its dependency files; unknown stays ``None``."""
     resolved_config: dict | None = None
     if not shallow:
-        resolved_config, discovered = load_device_yaml_tracked(path, yaml_content, batch)
+        resolved_config, discovered = load_device_yaml_tracked(
+            path, yaml_content, batch, dependencies
+        )
         if discovered is not None:
             dependencies = discovered
     if dependencies is None:
