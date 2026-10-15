@@ -4052,26 +4052,23 @@ def test_load_device_yaml_tracked_returns_none_on_parse_failure(tmp_path: Path) 
 
 
 def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
-    """Drop the device file (via a symlink) and the package cache; relativise inside the dir."""
-    real = tmp_path / "real"
-    real.mkdir()
-    link = tmp_path / "link"
-    link.symlink_to(real, target_is_directory=True)
+    """Drop the device file and the package cache; relativise inside the dir, dedupe and sort."""
+    config_dir = tmp_path / "configs"
     outside = tmp_path / "outside.yaml"
 
     dependencies = normalize_dependencies(
-        link / "kitchen.yaml",
+        config_dir / "kitchen.yaml",
         [
-            real / "kitchen.yaml",
-            real / "b.yaml",
-            real / "packages" / "a.yaml",
+            config_dir / "kitchen.yaml",
+            config_dir / "b.yaml",
+            config_dir / "packages" / ".." / "packages" / "a.yaml",
             Path(CORE.data_dir) / "packages" / "abcd1234" / "remote.yaml",
-            outside,
-            real / "b.yaml",
+            config_dir / ".." / "outside.yaml",
+            config_dir / "b.yaml",
         ],
     )
 
-    assert dependencies == (str(outside.resolve()), "b.yaml", "packages/a.yaml")
+    assert dependencies == (str(outside), "b.yaml", "packages/a.yaml")
 
 
 def test_extract_dependency_fingerprint_shape() -> None:

@@ -72,19 +72,19 @@ def normalize_dependencies(path: Path, loaded: Iterable[Path]) -> tuple[str, ...
     Sorted, deduplicated *loaded* paths as strings, relative to *path*'s directory when inside it.
 
     Drops *path* itself and anything under ``CORE.data_dir`` (the git package cache).
+    Paths compare lexically: every file the loader reports descends from *path*.
     """
-    own = path.resolve()
-    config_dir = own.parent
-    data_dir = Path(CORE.data_dir).resolve()
+    own = os.path.normcase(os.path.normpath(path))
+    config_prefix = str(Path(own).parent) + os.sep
+    data_prefix = os.path.normcase(os.path.normpath(CORE.data_dir)) + os.sep
     dependencies: set[str] = set()
-    for raw in loaded:
-        resolved = Path(raw).resolve()
-        if os.path.normcase(resolved) == os.path.normcase(own) or resolved.is_relative_to(data_dir):
+    for raw in set(loaded):
+        normalized = os.path.normcase(os.path.normpath(raw))
+        if normalized == own or normalized.startswith(data_prefix):
             continue
-        try:
-            dependencies.add(resolved.relative_to(config_dir).as_posix())
-        except ValueError:
-            dependencies.add(str(resolved))
+        if normalized.startswith(config_prefix):
+            normalized = normalized.removeprefix(config_prefix).replace(os.sep, "/")
+        dependencies.add(normalized)
     return tuple(sorted(dependencies))
 
 

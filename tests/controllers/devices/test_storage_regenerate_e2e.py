@@ -1637,7 +1637,9 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
     (tmp_path / "packages").mkdir()
     (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
-    current = read_source_fingerprints(yaml_path, ("packages/common.yaml",)).dependency
+    current = (
+        await asyncio.to_thread(read_source_fingerprints, yaml_path, ("packages/common.yaml",))
+    ).dependency
     controller._scanner.devices = [
         make_device(name="kitchen", dependencies=("packages/common.yaml",))
     ]
@@ -1684,7 +1686,9 @@ async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
     controller._scanner.devices = [
         make_device(name="kitchen", dependencies=("packages/common.yaml",))
     ]
-    expected = read_source_fingerprints(yaml_path, ("packages/common.yaml",)).dependency
+    expected = (
+        await asyncio.to_thread(read_source_fingerprints, yaml_path, ("packages/common.yaml",))
+    ).dependency
     outcomes = iter([2, 0])
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
