@@ -1377,7 +1377,7 @@ rp2:
 
 
 def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Path) -> None:
-    """The scan path reuses the merged config: ``load_device_yaml`` runs once, not twice."""
+    """The scan path reuses the merged config: the YAML loads once, not twice."""
     (tmp_path / "board.yaml").write_text("esp32:\n  board: esp32dev\n", encoding="utf-8")
     yaml_file = tmp_path / "ble.yaml"
     yaml_file.write_text(
@@ -1385,8 +1385,8 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
         encoding="utf-8",
     )
     with mock.patch(
-        "esphome_device_builder.helpers.device_yaml._loading.load_device_yaml",
-        wraps=device_yaml.load_device_yaml,
+        "esphome_device_builder.helpers.device_yaml._loading._load_device_yaml",
+        wraps=device_yaml._loading._load_device_yaml,
     ) as spy:
         device = load_device_from_storage(yaml_file)
     assert device.target_platform == "esp32"
@@ -4115,6 +4115,22 @@ def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_an_include_f
     monkeypatch.setattr(
         "esphome_device_builder.helpers.device_yaml._loading.do_substitution_pass",
         mock.Mock(side_effect=EsphomeError("boom")),
+    )
+
+    config, dependencies = load_device_yaml_tracked(yaml_file)
+
+    assert config is not None
+    assert dependencies is None
+
+
+def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_a_package_merge_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed package merge yields the unmerged config and ``None`` dependencies."""
+    yaml_file = _write_include_fleet(tmp_path)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.device_yaml._loading.resolve_packages",
+        mock.Mock(side_effect=RuntimeError("boom")),
     )
 
     config, dependencies = load_device_yaml_tracked(yaml_file)

@@ -495,7 +495,8 @@ def test_corrupt_build_size_bytes_falls_back_to_zero(
 @pytest.mark.parametrize(
     ("stored", "expected"),
     [
-        pytest.param(["packages/a.yaml", 3], ("packages/a.yaml",), id="list"),
+        pytest.param(["packages/a.yaml"], ("packages/a.yaml",), id="list"),
+        pytest.param(["packages/a.yaml", 3], None, id="malformed-item"),
         pytest.param("packages/a.yaml", None, id="not-a-list"),
         pytest.param(None, None, id="absent"),
     ],

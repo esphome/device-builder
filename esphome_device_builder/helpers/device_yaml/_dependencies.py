@@ -6,7 +6,7 @@ import functools
 import logging
 import os
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +27,12 @@ from ._parsing import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Public from esphome/esphome#20805; earlier releases carry the same list as ``_load_listeners``.
+_PUBLIC_LISTENERS: list[Callable[[Path], None]] | None = getattr(yaml_util, "load_listeners", None)
+_LOAD_LISTENERS: list[Callable[[Path], None]] = (
+    _PUBLIC_LISTENERS if _PUBLIC_LISTENERS is not None else yaml_util._load_listeners  # noqa: SLF001
+)
 
 DependencyStatKey = tuple[int, int]
 DependencyStatKeys = tuple[DependencyStatKey, ...]
@@ -74,12 +80,12 @@ def track_loaded_files() -> Iterator[list[str]]:
         if threading.get_ident() == owner:
             loaded.append(os.fspath(fname))
 
-    # esphome's public ``track_yaml_loads`` has no thread filter.
-    yaml_util._load_listeners.append(_on_load)  # noqa: SLF001
+    # esphome's ``track_yaml_loads`` has no thread filter.
+    _LOAD_LISTENERS.append(_on_load)
     try:
         yield loaded
     finally:
-        yaml_util._load_listeners.remove(_on_load)  # noqa: SLF001
+        _LOAD_LISTENERS.remove(_on_load)
 
 
 def normalize_dependencies(path: Path, loaded: Iterable[str]) -> tuple[str, ...]:

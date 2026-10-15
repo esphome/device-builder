@@ -53,10 +53,10 @@ STORE_FIELDS: frozenset[str] = frozenset(
 
 
 def stored_str_tuple(value: object) -> tuple[str, ...] | None:
-    """Return a persisted list as a tuple of its ``str`` items; ``None`` if absent or malformed."""
-    if not isinstance(value, list):
+    """Return a persisted list of ``str`` as a tuple; ``None`` if absent or malformed."""
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         return None
-    return tuple(item for item in value if isinstance(item, str))
+    return tuple(value)
 
 
 def _own_fields(entry: dict[str, Any]) -> dict[str, Any]:

@@ -515,8 +515,8 @@ def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: st
 def load_device_yaml_tracked(path: Path) -> tuple[dict | None, tuple[str, ...] | None]:
     """``load_device_yaml`` plus the files it pulled in; both ``None`` when the parse fails."""
     with track_loaded_files() as loaded:
-        config = load_device_yaml(path)
-        if config is None or not _load_deferred_includes(path, config):
+        config, merged = _load_device_yaml(path)
+        if config is None or not merged or not _load_deferred_includes(path, config):
             return config, None
     return config, normalize_dependencies(path, loaded)
 
@@ -543,15 +543,21 @@ def load_device_yaml(path: Path) -> dict | None:
     used by the device-card flags — share one entry point with the
     same error handling and the same package-merge contract.
     """
+    return _load_device_yaml(path)[0]
+
+
+def _load_device_yaml(path: Path) -> tuple[dict | None, bool]:
+    """``load_device_yaml`` plus whether its package merge succeeded."""
     try:
         # ``yaml_util.load_yaml`` calls ``.open()`` on its argument, so
         # pass the ``Path`` directly — handing it a stringified path
         # raises ``AttributeError`` deep inside the loader.
         config = yaml_util.load_yaml(path)
     except EsphomeError:
-        return None
+        return None, False
     if not isinstance(config, dict):
-        return None
+        return None, False
+    merged = True
     # ``packages:`` is a separate pass in the ESPHome pipeline
     # (``do_packages_pass`` + ``merge_packages`` in
     # ``esphome.config.validate_config``, wrapped for external callers
@@ -578,6 +584,7 @@ def load_device_yaml(path: Path) -> dict | None:
             # blank the device's metadata. Keep the unmerged shape
             # so the raw-YAML fallback paths at the call sites
             # still work.
+            merged = False
             _LOGGER.debug(
                 "Package merge failed for %s; using unmerged config",
                 path,
@@ -589,7 +596,7 @@ def load_device_yaml(path: Path) -> dict | None:
     # ``isinstance(config, dict)`` narrowing earlier. Cast at the
     # return so the public ``dict | None`` signature is honest
     # without forcing every caller to re-narrow on receive.
-    return cast("dict[Any, Any] | None", config)
+    return cast("dict[Any, Any] | None", config), merged
 
 
 def resolution_incomplete(config: dict | None) -> bool:
