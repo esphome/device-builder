@@ -2594,7 +2594,7 @@ def test_snapshot_degrades_to_a_bare_stat_when_open_fails(
     monkeypatch.setattr(Path, "open", _denied)
     yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(path, LoadBatch(path.parent))
 
-    assert yaml_content == ""
+    assert yaml_content is None
     assert yaml_stat is not None
     assert yaml_stat.st_mtime_ns == expected_mtime_ns
 
@@ -3995,9 +3995,11 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 # ---------------------------------------------------------------------------
 
 
-def _load_tracked(yaml_file: Path) -> tuple[dict | None, tuple[str, ...] | None]:
+def _load_tracked(
+    yaml_file: Path, known: tuple[str, ...] | None = None
+) -> tuple[dict | None, tuple[str, ...]]:
     return load_device_yaml_tracked(
-        yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent)
+        yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent), known
     )
 
 
@@ -4104,6 +4106,15 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     assert sources.newest_mtime < far_future
 
 
+def test_load_device_from_storage_unreadable_file_has_no_digest(tmp_path: Path) -> None:
+    """A device file that exists but cannot be read yields no digest, not a digest of nothing."""
+    (tmp_path / "kitchen.yaml").mkdir()
+
+    device = load_device_from_storage(tmp_path / "kitchen.yaml", shallow=True, dependencies=())
+
+    assert device.content_fingerprint == ""
+
+
 def test_load_device_yaml_tracked_keeps_the_known_list_when_an_include_fails(
     tmp_path: Path,
 ) -> None:
@@ -4139,17 +4150,17 @@ def test_load_device_yaml_tracked_keeps_the_files_opened_when_an_include_fails(
 def test_load_device_yaml_tracked_keeps_the_files_opened_when_a_package_merge_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failed package merge yields the unmerged config and the files the loader opened."""
+    """A failed package merge yields the unmerged config, the opened files and the known list."""
     yaml_file = _write_include_fleet(tmp_path)
     monkeypatch.setattr(
         "esphome_device_builder.helpers.device_yaml._loading.resolve_packages",
         mock.Mock(side_effect=RuntimeError("boom")),
     )
 
-    config, dependencies = _load_tracked(yaml_file)
+    config, dependencies = _load_tracked(yaml_file, ("packages/nested.yaml",))
 
     assert config is not None
-    assert dependencies == _FLEET_DEPENDENCIES
+    assert dependencies == tuple(sorted((*_FLEET_DEPENDENCIES, "packages/nested.yaml")))
 
 
 def test_load_batch_stat_key_uses_the_read_or_a_fresh_stat(tmp_path: Path) -> None:

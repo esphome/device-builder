@@ -17,6 +17,7 @@ from ...helpers.device_yaml import read_source_fingerprint
 from ...helpers.subprocess import run_subprocess_capture
 
 if TYPE_CHECKING:
+    from ._metadata_store import DeviceMetadataStore
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,10 +63,12 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 
 
 async def _run(controller: DevicesController, configuration: str) -> None:
-    current: str | None = None
+    rerun = False
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
+        store = controller._metadata_store
+        stored = store.get(configuration).get("content_fingerprint")
         # One read under the lock keys the stamp and precedes the spawn, so an
         # edit landing mid-run is never stamped as the content generated from.
         async with controller._regenerate_lock:
@@ -96,14 +99,18 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                     return
             # Delegates so tests patching the class intercept.
             failure = await controller._spawn_only_generate(configuration)
+        # A scan that stored a moved digest while this run was pending had its
+        # own schedule dropped, so the run that just finished reruns for it.
         if failure is None:
             regen.cancel_retry(configuration)
             await controller._finalize_regen_success(configuration, current)
             await controller._scanner.reload(configuration)
+            rerun = _digest_moved(store, configuration, stored, current)
             return
         # Stamp against the pre-spawn digest: an edit landing mid-run must
         # not have the old content's failure charged to the new file.
         recorded = controller._stamp_regen_failure(configuration, current)
+        rerun = _digest_moved(store, configuration, stored, current)
         if recorded < _MAX_REGEN_ATTEMPTS:
             _arm_retry(controller, configuration, _delay_for(recorded))
             return
@@ -117,10 +124,8 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         _arm_ttl_recheck(controller, configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
-        # A schedule while this run was pending was dropped, and the scan or
-        # reload behind it stored its digest; run again until the two agree.
-        stored = controller._metadata_store.get(configuration).get("content_fingerprint")
-        if current and stored and stored != current:
+        if rerun:
+            controller.state.regen.cancel_retry(configuration)
             schedule(controller, configuration)
 
 
@@ -273,6 +278,14 @@ async def _current_digest(
         return None
     regen.clear_strikes(configuration)
     return current
+
+
+def _digest_moved(
+    store: DeviceMetadataStore, configuration: str, before: object, current: str
+) -> bool:
+    """Whether a scan stored a digest other than *current* since *before* was read."""
+    after = store.get(configuration).get("content_fingerprint")
+    return bool(after) and after not in (before, current)
 
 
 def _arm_strike(controller: DevicesController, configuration: str) -> None:

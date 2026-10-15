@@ -154,7 +154,8 @@ def load_device_from_storage(
 
     if batch is None:
         batch = LoadBatch(path.parent)
-    yaml_stat, yaml_content, secrets_key = _snapshot_source_files(path, batch)
+    yaml_stat, yaml_text, secrets_key = _snapshot_source_files(path, batch)
+    yaml_content = yaml_text or ""
     yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
@@ -386,9 +387,10 @@ def load_device_from_storage(
         # this on the next compile if the device picks a different
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
+        # Empty means no information: the file or a dependency could not be read.
         content_fingerprint=(
             extract_config_content_fingerprint(yaml_content, sources.lines)
-            if sources is not None
+            if yaml_text is not None and sources is not None
             else ""
         ),
         dependencies=dependencies,
@@ -449,17 +451,18 @@ def load_device_from_storage(
 
 def _snapshot_source_files(
     path: Path, batch: LoadBatch
-) -> tuple[os.stat_result | None, str, tuple[int, int]]:
+) -> tuple[os.stat_result | None, str | None, tuple[int, int]]:
     """
     Read the YAML off one handle and stamp the secrets mtime before the esphome parse.
 
-    An open failure degrades to a bare ``stat`` with empty content.
+    An open failure degrades to a bare ``stat`` with ``None`` content.
     """
     yaml_stat: os.stat_result | None
+    yaml_content: str | None
     try:
         yaml_stat, yaml_content = read_text_with_stat(path)
     except OSError:
-        yaml_content = ""
+        yaml_content = None
         try:
             yaml_stat = path.stat()
         except OSError:
@@ -536,8 +539,11 @@ def load_device_yaml_tracked(
     """
     with track_loaded_files() as loaded:
         config = load_device_yaml(path)
-        complete = config is not None and _load_deferred_includes(
-            path, config, yaml_content, loaded
+        # A surviving ``packages:`` block means the merge failed part way.
+        complete = (
+            config is not None
+            and _load_deferred_includes(path, config, yaml_content, loaded)
+            and not _has_packages_block(config)
         )
     if not complete and known:
         loaded.extend(batch.path_of(dependency) for dependency in known)

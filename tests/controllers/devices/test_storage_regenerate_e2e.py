@@ -1717,6 +1717,35 @@ async def test_regenerate_strikes_when_a_dependency_is_unreadable(
     assert controller.state.regen.unreadable_strikes == {"kitchen.yaml": 1}
 
 
+async def test_regenerate_does_not_rerun_for_a_stored_digest_that_did_not_move(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A stored digest that already differed before the run is no reason to run again."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    _index(controller, "kitchen.yaml")
+    _seed_store(controller, "kitchen.yaml", content_fingerprint="2:other")
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        return _capture_result(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+    await _drain(controller)
+
+    assert len(spawn_calls) == 1
+
+
 async def test_regenerate_keys_on_the_device_file_while_its_list_is_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
