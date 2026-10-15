@@ -19,7 +19,12 @@ from esphome.core import CORE, EsphomeError
 from ...constants import is_secrets_file, secret_ref_names
 from ..atomic_io import read_text_with_stat
 from ..yaml import parse_yaml_fast_then_esphome
-from ._parsing import _digest_lines, _significant_lines, extract_config_content_fingerprint
+from ._parsing import (
+    _digest_lines,
+    _significant_lines,
+    extract_config_content_fingerprint,
+    safe_stat_key,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +65,7 @@ class SourceText(NamedTuple):
     """One dependency file as read: a secrets file has ``secret_lines``, any other a ``digest``."""
 
     mtime: float
+    stat_key: tuple[int, int]
     digest: str
     secret_refs: list[str]
     secret_lines: dict[str, str] | None
@@ -73,6 +79,13 @@ class LoadBatch:
     sources: dict[str, SourceText | None] = field(default_factory=dict)
     unreadable: set[str] = field(default_factory=set)
     _data_dir_prefix: str | None = None
+
+    def stat_key(self, dependency: str) -> tuple[int, int]:
+        """*dependency*'s ``(mtime_ns, size)`` as read this batch, else from a fresh stat."""
+        if dependency in self.sources:
+            source = self.sources[dependency]
+            return source.stat_key if source is not None else (0, 0)
+        return safe_stat_key(self.config_dir / dependency)
 
     def data_dir_prefix(self) -> str:
         """``CORE.data_dir`` as an absolute, normalised path prefix, resolved once per batch."""
@@ -202,10 +215,11 @@ def _read_source(path: Path, *, secrets: bool) -> SourceText | None:
         stat, text = read_text_with_stat(path)
     except FileNotFoundError:
         return None
+    key = (stat.st_mtime_ns, stat.st_size)
     if secrets:
-        return SourceText(stat.st_mtime, "", [], _secret_lines(path, text))
+        return SourceText(stat.st_mtime, key, "", [], _secret_lines(path, text))
     digest = _digest_lines(_significant_lines(text))
-    return SourceText(stat.st_mtime, digest, secret_ref_names(text), None)
+    return SourceText(stat.st_mtime, key, digest, secret_ref_names(text), None)
 
 
 def _secret_lines(path: Path, text: str) -> dict[str, str]:

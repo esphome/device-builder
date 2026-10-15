@@ -49,6 +49,7 @@ from esphome_device_builder.helpers.device_yaml import (
 from esphome_device_builder.helpers.device_yaml._dependencies import (
     normalize_dependencies,
     read_dependency_sources,
+    source_fingerprint,
 )
 from esphome_device_builder.helpers.device_yaml._loading import (
     _snapshot_source_files,
@@ -66,6 +67,7 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     extract_logger_interface,
     extract_ota_partition_access,
     resolve_esp32_variant,
+    safe_stat_key,
     yaml_has_name_add_mac_suffix,
 )
 from esphome_device_builder.helpers.yaml import generate_api_encryption_key
@@ -4101,10 +4103,10 @@ def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_pat
     assert sources.newest_mtime < far_future
 
 
-def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_an_include_fails(
+def test_load_device_yaml_tracked_keeps_the_files_opened_when_an_include_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failed deferred include pass yields the parsed config and ``None`` dependencies."""
+    """A failed deferred include pass yields the config and every file opened before it."""
     yaml_file = _write_include_fleet(tmp_path)
     monkeypatch.setattr(
         "esphome_device_builder.helpers.device_yaml._loading.do_substitution_pass",
@@ -4114,13 +4116,13 @@ def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_an_include_f
     config, dependencies = _load_tracked(yaml_file)
 
     assert config is not None
-    assert dependencies is None
+    assert dependencies == tuple(d for d in _FLEET_DEPENDENCIES if d != "packages/filters.yaml")
 
 
-def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_a_package_merge_fails(
+def test_load_device_yaml_tracked_keeps_the_files_opened_when_a_package_merge_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failed package merge yields the unmerged config and ``None`` dependencies."""
+    """A failed package merge yields the unmerged config and the files the loader opened."""
     yaml_file = _write_include_fleet(tmp_path)
     monkeypatch.setattr(
         "esphome_device_builder.helpers.device_yaml._loading.resolve_packages",
@@ -4130,7 +4132,37 @@ def test_load_device_yaml_tracked_keeps_the_config_but_no_list_when_a_package_me
     config, dependencies = _load_tracked(yaml_file)
 
     assert config is not None
-    assert dependencies is None
+    assert dependencies == _FLEET_DEPENDENCIES
+
+
+def test_load_batch_stat_key_uses_the_read_or_a_fresh_stat(tmp_path: Path) -> None:
+    """A file read this batch keys on its read; an absent one on ``(0, 0)``; an unread on a stat."""
+    (tmp_path / "a.yaml").write_text("x: 1\n", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("y: 2\n", encoding="utf-8")
+    batch = LoadBatch(tmp_path)
+
+    read_dependency_sources(("a.yaml", "missing.yaml"), "", batch)
+
+    assert batch.stat_key("a.yaml") == safe_stat_key(tmp_path / "a.yaml")
+    assert batch.stat_key("missing.yaml") == (0, 0)
+    assert batch.stat_key("b.yaml") == safe_stat_key(tmp_path / "b.yaml")
+
+
+def test_source_fingerprint_is_empty_for_an_unknown_list(tmp_path: Path) -> None:
+    """No dependency list means no digest, whatever the device text says."""
+    assert source_fingerprint(tmp_path, None, "esphome:\n  name: x\n") == ""
+
+
+def test_read_dependency_sources_ignores_commented_and_quoted_secret_references(
+    tmp_path: Path,
+) -> None:
+    """A ``!secret`` in a comment or inside a quoted literal is not a live reference."""
+    (tmp_path / "secrets.yaml").write_text("live: a\nunused: b\nquoted: c\n", encoding="utf-8")
+    content = 'ssid: !secret live\n# password: !secret unused\nliteral: "!secret quoted"\n'
+
+    sources = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
+
+    assert dict(sources.lines)["secrets.yaml"] == ['live: "a"']
 
 
 def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references(

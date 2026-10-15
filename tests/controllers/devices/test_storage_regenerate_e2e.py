@@ -61,9 +61,14 @@ def _read_store(controller: DevicesController, filename: str) -> dict[str, Any]:
     return controller._metadata_store.get(filename)
 
 
+def _index(controller: DevicesController, filename: str, *dependencies: str) -> None:
+    """Index *filename* with a known *dependencies* list, as a scanned device would be."""
+    controller._scanner.devices = [make_device(name=Path(filename).stem, dependencies=dependencies)]
+
+
 async def _digest(controller: DevicesController, filename: str, *dependencies: str) -> str:
     """Index *filename* with *dependencies* and return the digest a regen of it reads."""
-    controller._scanner.devices = [make_device(name=Path(filename).stem, dependencies=dependencies)]
+    _index(controller, filename, *dependencies)
     return await asyncio.to_thread(
         read_source_fingerprint, controller._db.settings.config_dir / filename, dependencies
     )
@@ -128,6 +133,7 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     waiting for a real compile.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     captured_cmd: list[list[str]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -179,6 +185,7 @@ async def test_out_of_band_edit_spawns_only_generate(
         with_regenerate_state=True,
         esphome_cmd=["esphome"],
     )
+    _index(controller, "kitchen.yaml")
     captured_cmd: list[list[str]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -465,6 +472,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
     guard fires and no second task lands.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     in_flight = asyncio.Event()
     release = asyncio.Event()
@@ -605,6 +613,7 @@ async def test_regenerate_clears_failure_stamp_on_success(
     failure-persistence test above to pin the full set/clear cycle.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     # Simulate the leftover stamp from an earlier failed attempt.
@@ -870,6 +879,7 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
     write would lock the device out of regen forever.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     # Hand-edit shape — the value is a string, not a number.
@@ -1000,6 +1010,7 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
     case.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
@@ -1207,6 +1218,7 @@ async def test_cancelled_run_records_nothing(
     (``test_run_subprocess_capture_cancel_kills_child``).
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     started = asyncio.Event()
 
@@ -1239,6 +1251,7 @@ async def test_timed_out_run_counts_the_attempt(
 ) -> None:
     """A run the capture helper timed out warns with the output tail and feeds the ladder."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async def _timed_out_capture(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -1266,6 +1279,7 @@ async def test_capture_error_counts_the_attempt(
 ) -> None:
     """A capture helper error feeds the ladder."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async def _broken_capture(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -1326,6 +1340,7 @@ async def test_regenerate_warns_when_yaml_unreadable(
 ) -> None:
     """A non-vanish stat error re-arms the ladder loudly, escalating per strike."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
     spawn_calls: list[tuple[str, ...]] = []
@@ -1419,6 +1434,7 @@ async def test_regenerate_first_failure_stamps_and_arms_retry(
 ) -> None:
     """A first failure records attempt 1 and arms a backoff retry."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -1443,6 +1459,7 @@ async def test_regenerate_retry_fires_and_succeeds(
 ) -> None:
     """The armed retry re-runs the regen; a success clears the retry state."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen._RETRY_BACKOFF_BASE_SECONDS",
@@ -1483,6 +1500,7 @@ async def test_regenerate_retry_budget_exhausts_to_stamp(
 ) -> None:
     """Persistent failure spends the budget, then stamps and marks failed."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "kitchen.yaml")
     (tmp_path / "kitchen.yaml").write_text("not: valid: yaml\n", encoding="utf-8")
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen._RETRY_BACKOFF_BASE_SECONDS",
@@ -1628,45 +1646,38 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     controller.state.regen.cancel_retry("kitchen.yaml")
 
 
-async def test_regenerate_success_with_an_unknown_list_stamps_no_digest(
+async def test_regenerate_strikes_instead_of_stamping_when_the_digest_is_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A regen that ran without a dependency list clears the prior digest stamp."""
+    """An unreadable dependency re-arms the ladder with a RAM strike and spawns nothing."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    _seed_store(controller, "kitchen.yaml", regen_content_fingerprint="2:prior")
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").mkdir()
+    await _digest(controller, "kitchen.yaml", "packages/common.yaml")
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        return _capture_result(returncode=0)
+
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
-        AsyncMock(return_value=_capture_result(returncode=0)),
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.storage_regen.read_build_info_hash",
-        lambda _path: "abcd1234",
+        _fake_spawn,
     )
 
-    controller._schedule_storage_regenerate("kitchen.yaml")
-    await _drain(controller)
+    with caplog.at_level(logging.WARNING):
+        controller._schedule_storage_regenerate("kitchen.yaml")
+        await _drain(controller)
 
-    md = _read_store(controller, "kitchen.yaml")
-    assert md["regen_config_hash"] == "abcd1234"
-    assert "regen_content_fingerprint" not in md
-
-
-async def test_stamp_failure_records_an_unknown_digest_literally(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """A stamp taken while the digest was unknown holds only until the digest is known."""
-    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
-
-    storage_regen.stamp_failure(controller, "kitchen.yaml", "")
-
-    md = _read_store(controller, "kitchen.yaml")
-    assert md["regen_failed_content_fingerprint"] == ""
-    now = md["regen_failed_at"] + 1.0
-    assert storage_regen._fresh_stamp(md, "", now) is not None
-    assert storage_regen._fresh_stamp(md, "2:abc", now) is None
+    assert spawn_calls == []
+    assert any("sources unreadable" in record.getMessage() for record in caplog.records)
+    assert controller.state.regen.unreadable_strikes == {"kitchen.yaml": 1}
+    assert "regen_failed_at" not in _read_store(controller, "kitchen.yaml")
+    assert _armed_delay(controller) == pytest.approx(30.0, abs=1)
 
 
 async def test_regenerate_failure_and_success_stamp_the_digest_with_dependencies(

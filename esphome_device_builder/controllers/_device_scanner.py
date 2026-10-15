@@ -573,7 +573,9 @@ class DeviceScanner(WakeWorker[str]):
                     batch=batch,
                 )
                 if device.dependencies != known:
-                    dependency_keys = self._dependency_keys(memo, device.dependencies or ())
+                    # The read's own fstat keys a newly discovered file, so an edit
+                    # landing after the read still flips the next scan.
+                    dependency_keys = tuple(batch.stat_key(d) for d in device.dependencies or ())
                 result[path] = _LoadedDevice(device, dependency_keys)
             except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep
                 _LOGGER.warning("Failed to load device from %s", path.name)

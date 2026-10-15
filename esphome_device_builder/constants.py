@@ -37,9 +37,10 @@ DEFAULT_HOST = "0.0.0.0"
 SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 # Both spellings esphome accepts, for guards; pinned against esphome.const in tests.
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
-# A ``!secret <name>`` reference, the name bare or quoted, alone or in a flow collection.
+# A ``!secret <name>`` reference, the name bare or quoted, alone or in a flow collection;
+# a tag inside a quoted literal is a plain string to esphome and does not count.
 SECRET_REF_RE = re.compile(
-    r"""!secret\s+(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"',}\]#]+))"""
+    r"""(?<!["'\w])!secret\s+(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"',}\]#]+))"""
 )
 
 
@@ -49,8 +50,13 @@ def secret_ref_name(match: re.Match[str]) -> str:
 
 
 def secret_ref_names(text: str) -> list[str]:
-    """Names of every ``!secret`` reference in *text*."""
-    return [secret_ref_name(match) for match in SECRET_REF_RE.finditer(text)]
+    """Names of every ``!secret`` reference in *text*, skipping commented-out lines."""
+    names: list[str] = []
+    for match in SECRET_REF_RE.finditer(text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        if not text[line_start : match.start()].lstrip().startswith("#"):
+            names.append(secret_ref_name(match))
+    return names
 
 
 # No NTFS stream suffix (``::$DATA``); the extension rules out the 8.3 alias ``SECRET~1.YAM``.

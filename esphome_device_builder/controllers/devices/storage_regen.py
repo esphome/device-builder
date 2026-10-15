@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
@@ -64,31 +65,10 @@ async def _run(controller: DevicesController, configuration: str) -> None:
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
-        try:
-            await run_in_executor(config_path.stat)
-        except FileNotFoundError:
-            _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
-            regen.clear_strikes(configuration)
+        read = await _current_digest(controller, configuration, config_path)
+        if read is None:
             return
-        except OSError:
-            # A transient errno (EACCES, EIO on a network mount) must not
-            # strand the ladder: the firing timer already popped itself.
-            # The digest read below would treat it as unknown rather than
-            # fail, so a RAM strike escalates the re-arm up to the TTL.
-            strikes = regen.record_strike(configuration)
-            _LOGGER.warning(
-                "Storage regenerate for %s: config unreadable; retrying",
-                configuration,
-                exc_info=True,
-            )
-            _arm_retry(
-                controller, configuration, min(_delay_for(strikes), _REGEN_FAILURE_TTL_SECONDS)
-            )
-            return
-        regen.clear_strikes(configuration)
-        device = controller.get_by_configuration(configuration)
-        dependencies = device.dependencies if device is not None else None
-        current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
+        current, dependencies = read
         stamp = _fresh_stamp(controller._metadata_store.get(configuration), current, time.time())
         if stamp is not None:
             attempts, age = stamp
@@ -187,10 +167,10 @@ def stamp_failure(controller: DevicesController, configuration: str, fingerprint
     prior = _fresh_stamp(controller._metadata_store.get(configuration), fingerprint, now)
     attempts = (prior[0] if prior is not None else 0) + 1
     controller._metadata_store.update(
-        configuration, regen_failed_at=now, regen_failed_attempts=attempts
-    )
-    controller._metadata_store.set_field(
-        configuration, "regen_failed_content_fingerprint", fingerprint
+        configuration,
+        regen_failed_content_fingerprint=fingerprint,
+        regen_failed_at=now,
+        regen_failed_attempts=attempts,
     )
     return attempts
 
@@ -257,6 +237,45 @@ def _fresh_stamp(md: Mapping[str, Any], current: str, now: float) -> tuple[int, 
 def _delay_for(attempts: int) -> float:
     """Backoff delay after failed attempt number *attempts* (1-based)."""
     return _RETRY_BACKOFF_BASE_SECONDS * 2.0 ** (attempts - 1)
+
+
+async def _current_digest(
+    controller: DevicesController, configuration: str, config_path: Path
+) -> tuple[str, tuple[str, ...] | None] | None:
+    """Return the digest and dependency list a regen keys on; ``None`` after arming a retry."""
+    regen = controller.state.regen
+    try:
+        await run_in_executor(config_path.stat)
+    except FileNotFoundError:
+        _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
+        regen.clear_strikes(configuration)
+        return None
+    except OSError:
+        _LOGGER.warning(
+            "Storage regenerate for %s: config unreadable; retrying", configuration, exc_info=True
+        )
+        _arm_strike(controller, configuration)
+        return None
+    device = controller.get_by_configuration(configuration)
+    dependencies = device.dependencies if device is not None else None
+    current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
+    if not current:
+        # A source unreadable or the dependency list unknown: nothing to stamp
+        # a failure against.
+        _LOGGER.warning("Storage regenerate for %s: sources unreadable; retrying", configuration)
+        _arm_strike(controller, configuration)
+        return None
+    regen.clear_strikes(configuration)
+    return current, dependencies
+
+
+def _arm_strike(controller: DevicesController, configuration: str) -> None:
+    """Re-arm after an unreadable source; a RAM strike escalates the delay up to the TTL."""
+    # A transient errno (EACCES, EIO on a network mount) must not strand the
+    # ladder: the firing timer already popped itself, and without a digest the
+    # stamp cannot key the failure.
+    strikes = controller.state.regen.record_strike(configuration)
+    _arm_retry(controller, configuration, min(_delay_for(strikes), _REGEN_FAILURE_TTL_SECONDS))
 
 
 def _arm_ttl_recheck(controller: DevicesController, configuration: str, age: float = 0.0) -> None:
