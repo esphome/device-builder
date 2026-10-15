@@ -66,6 +66,7 @@ class LoadBatch:
 
     data_dir_prefix: str = field(default_factory=data_dir_prefix)
     sources: dict[str, SourceText | None] = field(default_factory=dict)
+    unreadable: set[str] = field(default_factory=set)
 
 
 class SourceFingerprints(NamedTuple):
@@ -125,7 +126,7 @@ def read_dependency_sources(
     config_dir: Path,
     dependencies: Iterable[str],
     yaml_content: str,
-    memo: dict[str, SourceText | None] | None = None,
+    batch: LoadBatch | None = None,
 ) -> DependencySources | None:
     """
     Read *dependencies* (relative to *config_dir*, or absolute) into digest lines.
@@ -134,17 +135,24 @@ def read_dependency_sources(
     dependencies reference; ``newest_mtime`` spans the non-secret files.
     ``None`` when a file exists but cannot be read, so no digest is drawn from it.
     """
-    if memo is None:
-        memo = {}
+    if batch is None:
+        batch = LoadBatch()
     sources: list[tuple[str, bool, SourceText | None]] = []
     for dependency in dependencies:
-        if dependency not in memo:
+        if dependency in batch.unreadable:
+            return None
+        if dependency not in batch.sources:
             try:
-                memo[dependency] = _read_source(config_dir / dependency)
-            except (OSError, UnicodeDecodeError):
-                _LOGGER.debug("Could not read dependency %s", dependency, exc_info=True)
+                batch.sources[dependency] = _read_source(config_dir / dependency)
+            except (OSError, UnicodeDecodeError) as err:
+                batch.unreadable.add(dependency)
+                _LOGGER.warning(
+                    "Could not read %s; edits to it will not refresh the devices that use it: %s",
+                    dependency,
+                    err,
+                )
                 return None
-        sources.append((dependency, is_secrets_file(dependency), memo[dependency]))
+        sources.append((dependency, is_secrets_file(dependency), batch.sources[dependency]))
     referenced = (
         _referenced_secrets(yaml_content, sources)
         if any(secret for _, secret, _ in sources)

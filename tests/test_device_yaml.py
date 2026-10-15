@@ -4166,8 +4166,15 @@ def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path:
     content = yaml_file.read_text(encoding="utf-8")
     (tmp_path / "packages" / "filters.yaml").unlink()
     (tmp_path / "packages" / "filters.yaml").mkdir()
+    batch = LoadBatch()
 
-    assert read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content) is None
+    assert read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch) is None
+    assert batch.unreadable == {"packages/filters.yaml"}
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat"
+    ) as read:
+        assert read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch) is None
+    read.assert_not_called()
     device = load_device_from_storage(yaml_file, shallow=True, dependencies=_FLEET_DEPENDENCIES)
     assert device.dependencies == _FLEET_DEPENDENCIES
     assert device.dependency_fingerprint == ""
@@ -4176,14 +4183,14 @@ def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path:
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
     """A batch memo serves a second device's read of the same file without touching disk."""
     content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")
-    memo = LoadBatch().sources
+    batch = LoadBatch()
 
     with mock.patch(
         "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat",
         wraps=read_text_with_stat,
     ) as read:
-        first = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, memo)
-        second = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, memo)
+        first = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch)
+        second = read_dependency_sources(tmp_path, _FLEET_DEPENDENCIES, content, batch)
 
     assert read.call_count == len(_FLEET_DEPENDENCIES)
     assert second == first

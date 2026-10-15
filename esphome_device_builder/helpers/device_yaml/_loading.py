@@ -647,7 +647,7 @@ def _load_resolved_sources(
     return (
         resolved_config,
         dependencies,
-        read_dependency_sources(path.parent, dependencies, yaml_content, batch.sources),
+        read_dependency_sources(path.parent, dependencies, yaml_content, batch),
     )
 
 
