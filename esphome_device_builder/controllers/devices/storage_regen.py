@@ -65,35 +65,35 @@ async def _run(controller: DevicesController, configuration: str) -> None:
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
-        read = await _current_digest(controller, configuration, config_path)
-        if read is None:
-            return
-        current, dependencies = read
-        stamp = _fresh_stamp(controller._metadata_store.get(configuration), current, time.time())
-        if stamp is not None:
-            attempts, age = stamp
-            if attempts >= _MAX_REGEN_ATTEMPTS:
-                # The give-up warning fired in the session that spent the
-                # budget; without this one a restarted dashboard shows a
-                # hashless device with nothing in the log to explain it.
-                _LOGGER.warning(
-                    "Storage regenerate for %s failed %d times previously; "
-                    "retrying after the YAML changes or the failure stamp expires",
-                    configuration,
-                    attempts,
-                )
-                _arm_ttl_recheck(controller, configuration, age)
-                return
-            remaining = _delay_for(attempts) - age
-            if remaining > 0:
-                # A restart mid-window resumes the remainder, not an early spawn.
-                _arm_retry(controller, configuration, remaining)
-                return
-        # Delegates so tests patching the class intercept.
+        # One read under the lock keys the stamp and precedes the spawn, so an
+        # edit landing mid-run is never stamped as the content generated from.
         async with controller._regenerate_lock:
-            # Read right before the spawn: an edit landing mid-run must not
-            # be stamped as the content the hash was generated from.
-            current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
+            current = await _current_digest(controller, configuration, config_path)
+            if current is None:
+                return
+            stamp = _fresh_stamp(
+                controller._metadata_store.get(configuration), current, time.time()
+            )
+            if stamp is not None:
+                attempts, age = stamp
+                if attempts >= _MAX_REGEN_ATTEMPTS:
+                    # The give-up warning fired in the session that spent the
+                    # budget; without this one a restarted dashboard shows a
+                    # hashless device with nothing in the log to explain it.
+                    _LOGGER.warning(
+                        "Storage regenerate for %s failed %d times previously; "
+                        "retrying after the YAML changes or the failure stamp expires",
+                        configuration,
+                        attempts,
+                    )
+                    _arm_ttl_recheck(controller, configuration, age)
+                    return
+                remaining = _delay_for(attempts) - age
+                if remaining > 0:
+                    # A restart mid-window resumes the remainder, not an early spawn.
+                    _arm_retry(controller, configuration, remaining)
+                    return
+            # Delegates so tests patching the class intercept.
             failure = await controller._spawn_only_generate(configuration)
         if failure is None:
             regen.cancel_retry(configuration)
@@ -241,8 +241,8 @@ def _delay_for(attempts: int) -> float:
 
 async def _current_digest(
     controller: DevicesController, configuration: str, config_path: Path
-) -> tuple[str, tuple[str, ...] | None] | None:
-    """Return the digest and dependency list a regen keys on; ``None`` after arming a retry."""
+) -> str | None:
+    """Return the digest a regen keys on; ``None`` after arming a retry for an unreadable source."""
     regen = controller.state.regen
     try:
         await run_in_executor(config_path.stat)
@@ -270,7 +270,7 @@ async def _current_digest(
         _arm_strike(controller, configuration)
         return None
     regen.clear_strikes(configuration)
-    return current, dependencies
+    return current
 
 
 def _arm_strike(controller: DevicesController, configuration: str) -> None:

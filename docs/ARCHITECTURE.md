@@ -447,10 +447,12 @@ Two rules the refine established that every later caller inherits:
   the cold-start refine's RELOADED burst, and the failure stamp is repaired
   by the fields a successful compile fills).
 - **The refine emits `RELOADED`, never `UPDATED`.** `DEVICE_YAML_UPDATED`
-  (version-history commits) keys on `UPDATED`, and the content-fingerprint
-  regen deliberately skips `RELOADED` (it fires on `ADDED`/`UPDATED` to catch
-  out-of-band edits), so a restart's refine burst can neither commit to git
-  nor spawn `--only-generate` per device.
+  (version-history commits) keys on `UPDATED`, so a restart's refine burst
+  never commits to git. The content-fingerprint regen fires on any change
+  kind whose digest moved: the refine digests what the shallow seed already
+  digested, so it spawns nothing, while a reload landing after an
+  out-of-band package edit regens instead of hiding it (a schedule while one
+  is pending is dropped, so an API write's own regen is not doubled).
 - **Regen failures ladder through the metadata store** (#2532, #2534). A
   failed `--only-generate` earns a bounded escalating retry (4 attempts,
   30/60/120s between them) — a transient environment failure (interrupted

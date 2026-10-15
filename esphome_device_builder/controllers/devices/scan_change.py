@@ -215,9 +215,11 @@ def _sync_content_fingerprint(
         return
     # An out-of-band edit (git pull, external editor — live as UPDATED,
     # or across a restart as ADDED) regens so ``StorageJSON.address``
-    # (#2486) and ``expected_config_hash`` track the YAML. RELOADED (our
-    # own write) and first sight only re-seed; a digest from an older
-    # algorithm regens once.
-    if stored is not None and kind is not ScanChange.RELOADED:
+    # (#2486) and ``expected_config_hash`` track the YAML. A RELOADED
+    # whose digest moved (an edit landing before a metadata-only reload)
+    # regens too; a schedule while one is pending is dropped, so an API
+    # write's own regen is not doubled. First sight only re-seeds, and a
+    # digest from an older algorithm regens once.
+    if stored is not None:
         controller._schedule_storage_regenerate(device.configuration)
     store.set_field(device.configuration, "content_fingerprint", device.content_fingerprint)

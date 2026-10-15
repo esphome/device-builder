@@ -676,8 +676,9 @@ against legacy behaviour before assuming the simpler version suffices.
     editor) that change the config text schedule a StorageJSON
     regen via the `content_fingerprint` digest, compared against the
     metadata store, so edits made while the dashboard was down are
-    caught on the cold-start ADDED (API-path writes already regen on
-    every save; RELOADED only re-seeds the stored value). The digest
+    caught on the cold-start ADDED (a reload whose digest moved regens
+    too; a schedule while one is pending is dropped, so an API write's
+    own regen is not doubled). The digest
     covers the device file and every file it pulls in (`!include`,
     `packages:`, the `!secret` lookup chain): the deep load records
     them through esphome's YAML load-listener hook

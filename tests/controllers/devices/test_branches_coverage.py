@@ -1506,19 +1506,19 @@ async def test_on_scan_change_stale_digest_version_regens_once(
     assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
 
 
-async def test_on_scan_change_reloaded_content_change_reseeds_without_regen(
+async def test_on_scan_change_reloaded_content_change_schedules_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Our own requested reload re-seeds the stored value but never schedules."""
+    """A reload whose digest moved regens like any other change, so no edit hides behind one."""
     controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("old"))
 
     controller._on_scan_change(
         ScanChange.RELOADED, make_device(name="kitchen", content_fingerprint=_fp("new"))
     )
 
-    assert regenerated == []
+    assert regenerated == ["kitchen.yaml"]
     assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
 
 
