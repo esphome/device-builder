@@ -246,6 +246,7 @@ def _secret_lines(path: Path, text: str) -> dict[str, str]:
     """One ``name: value`` digest line per key of the secrets file; a non-mapping has none."""
     data = parse_yaml_fast_then_esphome(path, text)
     if not isinstance(data, dict):
+        _LOGGER.warning("Secrets file %s is not a mapping; its keys cannot be digested", path)
         return {}
     return {
         str(name): f"{name}: {json.dumps(value, sort_keys=True, default=str)}"

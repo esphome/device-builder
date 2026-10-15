@@ -3997,7 +3997,7 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 
 def _load_tracked(
     yaml_file: Path, known: tuple[str, ...] | None = None
-) -> tuple[dict | None, tuple[str, ...] | None]:
+) -> tuple[dict | None, tuple[str, ...]]:
     return load_device_yaml_tracked(
         yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent), known
     )
@@ -4057,12 +4057,14 @@ def test_load_device_yaml_tracked_resolves_a_templated_include_to_one_file(
     assert dependencies == ("sensors/dht.yaml",)
 
 
-def test_load_device_yaml_tracked_returns_none_on_parse_failure(tmp_path: Path) -> None:
-    """A broken file reports no list rather than a truncated one."""
+def test_load_device_yaml_tracked_reports_the_files_opened_before_a_parse_failure(
+    tmp_path: Path,
+) -> None:
+    """A broken file reports what the loader opened before failing: nothing, for a bare file."""
     yaml_file = tmp_path / "kitchen.yaml"
     yaml_file.write_text("esphome: [\n", encoding="utf-8")
 
-    assert _load_tracked(yaml_file) == (None, None)
+    assert _load_tracked(yaml_file) == (None, ())
 
 
 def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
@@ -4247,16 +4249,18 @@ def test_read_dependency_sources_digests_resolved_secret_values(
     ],
 )
 def test_read_dependency_sources_secrets_parse_edge_cases(
-    tmp_path: Path, secrets_text: str, digests: bool
+    tmp_path: Path, secrets_text: str, digests: bool, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A non-mapping secrets file has no keys; an esphome tag falls back to esphome's loader."""
+    """A non-mapping secrets file warns and has no keys; an esphome tag uses esphome's loader."""
     (tmp_path / "secrets.yaml").write_text(secrets_text, encoding="utf-8")
 
-    sources = read_dependency_sources(
-        ("secrets.yaml",), "p: !secret wifi_password\n", LoadBatch(tmp_path)
-    )
+    with caplog.at_level(logging.WARNING):
+        sources = read_dependency_sources(
+            ("secrets.yaml",), "p: !secret wifi_password\n", LoadBatch(tmp_path)
+        )
 
     assert bool(dict(sources.lines)["secrets.yaml"]) is digests
+    assert any("is not a mapping" in r.getMessage() for r in caplog.records) is not digests
 
 
 def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(

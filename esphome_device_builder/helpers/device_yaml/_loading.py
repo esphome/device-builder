@@ -529,12 +529,12 @@ def load_device_yaml_tracked(
     yaml_content: str,
     batch: LoadBatch,
     known: tuple[str, ...] | None = None,
-) -> tuple[dict | None, tuple[str, ...] | None]:
+) -> tuple[dict | None, tuple[str, ...]]:
     """
     ``load_device_yaml`` plus the files it pulled in.
 
     A parse that failed part way keeps *known*, the last complete list, in the result
-    so the files it missed stay watched; with no list known yet it reports ``None``.
+    so the files it missed stay watched; the cold-start refine rediscovers the rest.
     """
     with track_loaded_files() as loaded:
         config = load_device_yaml(path)
@@ -544,9 +544,7 @@ def load_device_yaml_tracked(
             and _load_deferred_includes(path, config, yaml_content, loaded)
             and not _has_packages_block(config)
         )
-    if not complete:
-        if known is None:
-            return config, None
+    if not complete and known:
         loaded.extend(batch.path_of(dependency) for dependency in known)
     return config, normalize_dependencies(path, loaded, batch.data_dir_prefix())
 
