@@ -3997,7 +3997,7 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
 
 def _load_tracked(
     yaml_file: Path, known: tuple[str, ...] | None = None
-) -> tuple[dict | None, tuple[str, ...]]:
+) -> tuple[dict | None, tuple[str, ...] | None]:
     return load_device_yaml_tracked(
         yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent), known
     )
@@ -4062,7 +4062,7 @@ def test_load_device_yaml_tracked_returns_none_on_parse_failure(tmp_path: Path) 
     yaml_file = tmp_path / "kitchen.yaml"
     yaml_file.write_text("esphome: [\n", encoding="utf-8")
 
-    assert _load_tracked(yaml_file) == (None, ())
+    assert _load_tracked(yaml_file) == (None, None)
 
 
 def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
@@ -4134,14 +4134,14 @@ def test_load_device_yaml_tracked_keeps_the_known_list_when_an_include_fails(
 def test_load_device_yaml_tracked_keeps_the_files_opened_when_an_include_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failed deferred include pass yields the config and every file opened before it."""
+    """With a list known, a failed deferred include pass keeps every file opened before it."""
     yaml_file = _write_include_fleet(tmp_path)
     monkeypatch.setattr(
         "esphome_device_builder.helpers.device_yaml._loading.do_substitution_pass",
         mock.Mock(side_effect=EsphomeError("boom")),
     )
 
-    config, dependencies = _load_tracked(yaml_file)
+    config, dependencies = _load_tracked(yaml_file, ())
 
     assert config is not None
     assert dependencies == tuple(d for d in _FLEET_DEPENDENCIES if d != "packages/filters.yaml")

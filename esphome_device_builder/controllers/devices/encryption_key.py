@@ -220,10 +220,10 @@ async def _runs_yaml(controller: DevicesController, device: Device, content: str
     """Whether the device reports the hash a storage regen produced for this very YAML *content*."""
     md = controller._metadata_store.get(device.configuration)
     deployed = device.runtime_state.deployed_config_hash
-    if not (deployed and md.get("regen_config_hash") == deployed):
+    if not (deployed and md.get("regen_config_hash") == deployed) or device.dependencies is None:
         return False
     current = await run_in_executor(
-        source_fingerprint, controller._db.settings.config_dir, device.dependencies or (), content
+        source_fingerprint, controller._db.settings.config_dir, device.dependencies, content
     )
     return bool(current) and md.get("regen_content_fingerprint") == current
 
