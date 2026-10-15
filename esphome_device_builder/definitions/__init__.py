@@ -682,9 +682,14 @@ class PlatformCapabilities(NamedTuple):
     # device's chip from its YAML ``board:``. A platform that is absent needs
     # no split.
     board_mcus: dict[str, dict[str, str]]
+    # ``{pio_board: bootloader}``: the bootloader an nRF52 board builds for
+    # when its YAML names none (the first of ESPHome's list for the board),
+    # for resolving a device's bootloader from its YAML ``board:``. A board
+    # that is absent takes ESPHome's fallback, mcuboot.
+    nrf52_board_bootloaders: dict[str, str]
 
 
-EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [], {})
+EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [], {}, {})
 
 
 @cache
@@ -759,6 +764,7 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
         logger_interface_defaults=_str_map("logger_interface_defaults"),
         logger_interface_values=_str_list("logger_interface_values"),
         board_mcus=_str_map_of_maps("board_mcus"),
+        nrf52_board_bootloaders=_str_map("nrf52_board_bootloaders"),
     )
 
 

@@ -379,6 +379,13 @@ class Device(DashboardModel):
     # only for a chip it can write. ``None`` ⇒ the platform needs no split
     # (esp32, esp8266, nrf52) or the YAML does not name the chip.
     mcu: str | None = None
+    # The bootloader the firmware is built for, on a platform whose boards
+    # ship more than one: ESPHome's ``nrf52: bootloader:`` value, or the
+    # board's default when the YAML leaves it out (``adafruit_nrf52_sd140_v6``,
+    # ``nrf``, ``mcuboot``, ...). The frontend offers the browser flasher that
+    # speaks to it. ``None`` ⇒ the platform has one bootloader or the YAML
+    # does not say.
+    bootloader: str | None = None
     # esp32 whose ``ota: platform: esphome`` sets ``allow_partition_access``
     # — gates the install dialog's OTA bootloader-update action. Whether the
     # *running* firmware has it compiled in is the frontend's half of the

@@ -42,6 +42,7 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_platform_from_yaml,
     pending_changes_via_hash,
     resolve_chip_mcu,
+    resolve_nrf52_bootloader,
 )
 from esphome_device_builder.helpers.device_yaml._loading import _snapshot_source_files
 from esphome_device_builder.helpers.device_yaml._parsing import (
@@ -1177,6 +1178,72 @@ def test_load_device_from_storage_resolves_mcu(tmp_path: Path) -> None:
     bw15.write_text("esphome:\n  name: bw15\nrtl87xx:\n  board: bw15\n", encoding="utf-8")
     assert load_device_from_storage(bw15).mcu == "rtl8720c"
     assert load_device_from_storage(bw15, shallow=True).mcu == "rtl8720c"
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        # The YAML's own choice wins, as ESPHome spells it.
+        ({"nrf52": {"board": "nrf52840dongle", "bootloader": "nrf"}}, "nrf"),
+        ({"nrf52": {"board": "xiao_ble", "bootloader": "MCUboot"}}, "mcuboot"),
+        # A board the snapshot lists takes its first bootloader.
+        ({"nrf52": {"board": "xiao_ble"}}, "adafruit_nrf52_sd140_v7"),
+        ({"nrf52": {"board": "adafruit_itsybitsy_nrf52840"}}, "adafruit_nrf52_sd140_v6"),
+        # One it does not takes ESPHome's fallback.
+        ({"nrf52": {"board": "custom"}}, "mcuboot"),
+        ({"nrf52": {}}, "mcuboot"),
+        ({"nrf52": {"board": 7}}, "mcuboot"),
+    ],
+)
+def test_resolve_nrf52_bootloader_resolves(config: dict, expected: str) -> None:
+    assert resolve_nrf52_bootloader(config, "", "nrf52") == expected
+
+
+@pytest.mark.parametrize(
+    ("config", "platform"),
+    [
+        # Platforms with one bootloader.
+        ({"esp32": {"board": "esp32dev"}}, "esp32"),
+        ({"rp2": {"board": "rpipico"}}, "rp2"),
+        # No block to read.
+        ({"esphome": {"name": "x"}}, "nrf52"),
+        (None, "nrf52"),
+        (None, ""),
+    ],
+)
+def test_resolve_nrf52_bootloader_none(config: Any, platform: str) -> None:
+    assert resolve_nrf52_bootloader(config, "", platform) is None
+
+
+def test_resolve_nrf52_bootloader_resolves_substitutions() -> None:
+    subs = {"the_board": "xiao_ble", "bl": "nrf"}
+    config = {"nrf52": {"board": "${the_board}"}}
+    assert resolve_nrf52_bootloader(config, "", "nrf52", subs) == "adafruit_nrf52_sd140_v7"
+    config = {"nrf52": {"board": "custom", "bootloader": "$bl"}}
+    assert resolve_nrf52_bootloader(config, "", "nrf52", subs) == "nrf"
+
+
+def test_resolve_nrf52_bootloader_reads_the_raw_text_without_a_resolved_config() -> None:
+    """A shallow scan has no resolved config; the raw text carries the same fields."""
+    raw = "nrf52:\n  board: nrf52840dongle\n  bootloader: nrf  # factory\n"
+    assert resolve_nrf52_bootloader(None, raw, "nrf52") == "nrf"
+    raw = "nrf52:\n  board: xiao_ble\n"
+    assert resolve_nrf52_bootloader(None, raw, "nrf52") == "adafruit_nrf52_sd140_v7"
+    # The text names another platform than the device's: nothing to read.
+    assert resolve_nrf52_bootloader(None, "esp32:\n  board: esp32dev\n", "nrf52") is None
+
+
+def test_load_device_from_storage_resolves_bootloader(tmp_path: Path) -> None:
+    dongle = tmp_path / "dongle.yaml"
+    dongle.write_text(
+        "esphome:\n  name: dongle\nnrf52:\n  board: nrf52840dongle\n  bootloader: nrf\n",
+        encoding="utf-8",
+    )
+    assert load_device_from_storage(dongle).bootloader == "nrf"
+    assert load_device_from_storage(dongle, shallow=True).bootloader == "nrf"
+    plug = tmp_path / "bw15.yaml"
+    plug.write_text("esphome:\n  name: bw15\nrtl87xx:\n  board: bw15\n", encoding="utf-8")
+    assert load_device_from_storage(plug).bootloader is None
 
 
 def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> None:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from esphome.storage_json import StorageJSON
 
+from ._bootloader import resolve_nrf52_bootloader
 from ._chip import resolve_chip_mcu
 from ._generation import (
     CAPTIVE_PORTAL_PLATFORMS,
@@ -131,6 +132,7 @@ __all__ = [
     "pending_changes_via_hash",
     "resolution_incomplete",
     "resolve_chip_mcu",
+    "resolve_nrf52_bootloader",
     "resolved_device_name",
     "retarget_fallback_ap_ssid",
     "run_esphome_config",
