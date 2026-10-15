@@ -256,6 +256,12 @@ async def test_start_refines_shallow_seed_then_reconciles(
     (tmp_path / "kitchen.yaml").write_text(
         "esphome:\n  name: kitchen\nlogger:\n  baud_rate: 9600\n", encoding="utf-8"
     )
+    # A persisted dependency list keeps the seed shallow; a device without one
+    # loads deep on the cold start instead.
+    (tmp_path / ".esphome").mkdir()
+    (tmp_path / ".esphome" / ".device-builder-devices.json").write_text(
+        '{"kitchen.yaml": {"dependencies": []}}', encoding="utf-8"
+    )
     db = make_db(tmp_path)
     controller = DevicesController(db)
 

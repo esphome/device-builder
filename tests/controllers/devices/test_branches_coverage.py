@@ -39,7 +39,6 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
-from esphome_device_builder.helpers.device_yaml._dependencies import DEPENDENCY_FINGERPRINT_VERSION
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
 )
@@ -1307,11 +1306,6 @@ def _fp(token: str) -> str:
     return f"{CONTENT_FINGERPRINT_VERSION}{token}"
 
 
-def _dfp(token: str) -> str:
-    """Return *token* carrying the current dependency-digest version prefix."""
-    return f"{DEPENDENCY_FINGERPRINT_VERSION}{token}"
-
-
 def _fingerprint_rig(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -1490,12 +1484,12 @@ async def test_on_scan_change_first_sight_seeds_without_regen(
     assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("first")
 
 
-async def test_on_scan_change_stale_digest_version_reseeds_without_regen(
+async def test_on_scan_change_stale_digest_version_regens_once(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A stored digest from an older algorithm re-seeds silently, no regen (#2612)."""
+    """A stored digest from an older algorithm regens once and re-seeds."""
     controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "d" * 64)
 
     controller._on_scan_change(
@@ -1508,7 +1502,7 @@ async def test_on_scan_change_stale_digest_version_reseeds_without_regen(
         ),
     )
 
-    assert regenerated == []
+    assert regenerated == ["kitchen.yaml"]
     assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
 
 
@@ -1859,53 +1853,6 @@ def test_on_scan_change_reloaded_without_mqtt_delta_skips_nudge(
     )
 
     assert controller.mqtt_nudges == 0
-
-
-async def test_on_scan_change_dependency_change_schedules_regen(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A moved dependency digest regens even when the device file is unchanged."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("same"))
-    controller._metadata_store._state["kitchen.yaml"]["dependency_fingerprint"] = _dfp("old")
-
-    controller._on_scan_change(
-        ScanChange.UPDATED,
-        make_device(
-            name="kitchen",
-            content_fingerprint=_fp("same"),
-            dependency_fingerprint=_dfp("new"),
-            loaded_integrations=["wifi"],
-            expected_config_hash="abcd1234",
-        ),
-    )
-
-    assert regenerated == ["kitchen.yaml"]
-    assert controller._metadata_store.get("kitchen.yaml")["dependency_fingerprint"] == _dfp("new")
-
-
-async def test_on_scan_change_missing_dependency_digest_seeds_without_regen(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A store predating dependency tracking seeds the digest silently (the upgrade is quiet)."""
-    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("same"))
-
-    controller._on_scan_change(
-        ScanChange.ADDED,
-        make_device(
-            name="kitchen",
-            content_fingerprint=_fp("same"),
-            dependency_fingerprint=_dfp("first"),
-            loaded_integrations=["wifi"],
-            expected_config_hash="abcd1234",
-        ),
-    )
-
-    assert regenerated == []
-    assert controller._metadata_store.get("kitchen.yaml")["dependency_fingerprint"] == _dfp("first")
 
 
 async def test_on_scan_change_persists_discovered_dependencies(

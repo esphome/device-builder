@@ -33,14 +33,20 @@ def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
     return DeviceFileMetadata(board_id="", ip="", expected_config_hash="")
 
 
+def _stub_metadata_with_list(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
+    """Metadata of a device whose dependency list was persisted, so a shallow scan stays shallow."""
+    return DeviceFileMetadata(board_id="", ip="", expected_config_hash="", dependencies=())
+
+
 def _make_scanner(
-    config_dir: Path,
+    config_dir: Path, *, persisted_dependencies: bool = False
 ) -> tuple[DeviceScanner, list[tuple[ScanChange, Device, Device | None]]]:
     """Build a scanner with a recording on_change callback."""
     events: list[tuple[ScanChange, Device, Device | None]] = []
+    resolver = _stub_metadata_with_list if persisted_dependencies else _stub_metadata
     scanner = DeviceScanner(
         config_dir=config_dir,
-        make_metadata_resolver=lambda: _stub_metadata,
+        make_metadata_resolver=lambda: resolver,
         on_change=lambda kind, device, previous: events.append((kind, device, previous)),
     )
     return scanner, events
@@ -486,8 +492,9 @@ def _shallow_capturing_loader(seen: list[bool]) -> Any:
     return _capture
 
 
-async def test_scan_shallow_threads_to_loader(tmp_path: Path) -> None:
-    """``scan(shallow=True)`` passes the flag through to ``load_device_from_storage``."""
+@pytest.mark.parametrize("persisted", [True, False])
+async def test_scan_shallow_threads_to_loader(tmp_path: Path, persisted: bool) -> None:
+    """``scan(shallow=True)`` stays shallow only for a device whose dependency list is persisted."""
     cfg = tmp_path / "configs"
     cfg.mkdir()
     _write_yaml(cfg, "kitchen")
@@ -497,10 +504,10 @@ async def test_scan_shallow_threads_to_loader(tmp_path: Path) -> None:
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
         side_effect=_shallow_capturing_loader(seen),
     ):
-        scanner, _ = _make_scanner(cfg)
+        scanner, _ = _make_scanner(cfg, persisted_dependencies=persisted)
         await scanner.scan(shallow=True)
 
-    assert seen == [True]
+    assert seen == [persisted]
 
 
 async def test_scan_default_is_deep(tmp_path: Path) -> None:
@@ -531,7 +538,7 @@ async def test_reload_after_shallow_scan_is_deep(tmp_path: Path) -> None:
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
         side_effect=_shallow_capturing_loader(seen),
     ):
-        scanner, _ = _make_scanner(cfg)
+        scanner, _ = _make_scanner(cfg, persisted_dependencies=True)
         await scanner.scan(shallow=True)
         assert await scanner.reload("kitchen.yaml") is True
 
@@ -549,7 +556,7 @@ async def test_plain_scan_does_not_redeepen_shallow_rows(tmp_path: Path) -> None
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
         side_effect=_shallow_capturing_loader(seen),
     ):
-        scanner, _ = _make_scanner(cfg)
+        scanner, _ = _make_scanner(cfg, persisted_dependencies=True)
         await scanner.scan(shallow=True)
         await scanner.scan()
 
@@ -598,7 +605,7 @@ async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path)
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
     _, device, previous = events[0]
     assert previous is not None
-    assert device.dependency_fingerprint != previous.dependency_fingerprint
+    assert device.content_fingerprint != previous.content_fingerprint
     events.clear()
     await scanner.scan()
     assert events == []
@@ -621,7 +628,7 @@ async def test_dependency_touch_fires_one_updated_with_the_digest_unchanged(
     assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
     _, device, previous = events[0]
     assert previous is not None
-    assert device.dependency_fingerprint == previous.dependency_fingerprint
+    assert device.content_fingerprint == previous.content_fingerprint
     events.clear()
     await scanner.scan()
     assert events == []

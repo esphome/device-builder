@@ -193,23 +193,20 @@ def device_uses_mqtt(yaml_content: str) -> bool:
     return yaml_has_top_level_block(yaml_content, "mqtt")
 
 
-# Prefix on every stored digest; bump when the algorithm changes.
-CONTENT_FINGERPRINT_VERSION = "1:"
+# Prefix on every stored digest; a bump regens every device once on its next scan.
+CONTENT_FINGERPRINT_VERSION = "2:"
 
 
-def extract_config_content_fingerprint(yaml_content: str) -> str:
-    """Versioned digest of the YAML's significant lines; empty when there are none."""
-    digest = _digest_lines(_significant_lines(yaml_content))
+def extract_config_content_fingerprint(
+    yaml_content: str, dependencies: Iterable[tuple[str, Iterable[str]]]
+) -> str:
+    """Versioned digest of the YAML's significant lines plus each dependency's path and lines."""
+    lines = _significant_lines(yaml_content)
+    for dependency, body in dependencies:
+        lines.append(dependency)
+        lines.extend(body)
+    digest = _digest_lines(lines)
     return f"{CONTENT_FINGERPRINT_VERSION}{digest}" if digest else ""
-
-
-def content_fingerprint_is_current(stored: object) -> bool:
-    """Return True when *stored* is a digest the current algorithm produced."""
-    return _has_version_prefix(stored, CONTENT_FINGERPRINT_VERSION)
-
-
-def _has_version_prefix(stored: object, version: str) -> bool:
-    return isinstance(stored, str) and stored.startswith(version)
 
 
 # The blocks that decide *which* component modules esphome loads:

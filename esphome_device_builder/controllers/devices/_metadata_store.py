@@ -37,17 +37,14 @@ STORE_FIELDS: frozenset[str] = frozenset(
         "expected_config_hash",
         "regen_config_hash",
         "regen_content_fingerprint",
-        "regen_dependency_fingerprint",
         "content_fingerprint",
-        "dependency_fingerprint",
         "dependencies",
         "build_size_bytes",
         "build_size_dir_mtime",
         "build_size_info_mtime",
-        "regen_failed_mtime",
+        "regen_failed_content_fingerprint",
         "regen_failed_at",
         "regen_failed_attempts",
-        "regen_failed_dependency_fingerprint",
     }
 )
 

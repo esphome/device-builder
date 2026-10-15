@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -31,11 +30,7 @@ import pytest
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController, storage_regen
 from esphome_device_builder.controllers.devices._state import RegenState
-from esphome_device_builder.helpers.device_yaml import (
-    extract_config_content_fingerprint,
-    read_source_fingerprints,
-)
-from esphome_device_builder.helpers.device_yaml._dependencies import DEPENDENCY_FINGERPRINT_VERSION
+from esphome_device_builder.helpers.device_yaml import read_source_fingerprint
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
 )
@@ -66,6 +61,12 @@ def _read_store(controller: DevicesController, filename: str) -> dict[str, Any]:
     return controller._metadata_store.get(filename)
 
 
+def _digest(controller: DevicesController, filename: str, *dependencies: str) -> str:
+    """Persist *dependencies* for *filename* and return the digest a regen of it reads."""
+    _seed_store(controller, filename, dependencies=list(dependencies))
+    return read_source_fingerprint(controller._db.settings.config_dir / filename, dependencies)
+
+
 def _capture_result(returncode: int = 0, output: bytes = b"") -> CapturedSubprocess:
     """Build the ``run_subprocess_capture`` result the fakes return."""
     return CapturedSubprocess(returncode=returncode, stdout=output, timed_out=False)
@@ -80,12 +81,11 @@ def _armed_delay(controller: DevicesController, configuration: str = "kitchen.ya
 def _seed_attempts(
     controller: DevicesController, configuration: str, attempts: int, *, age: float
 ) -> None:
-    """Seed a failure stamp for the YAML's current mtime, *age* seconds old."""
-    mtime = (controller._db.settings.config_dir / configuration).stat().st_mtime
+    """Seed a failure stamp for the YAML's current digest, *age* seconds old."""
     _seed_store(
         controller,
         configuration,
-        regen_failed_mtime=mtime,
+        regen_failed_content_fingerprint=_digest(controller, configuration),
         regen_failed_at=time.time() - age,
         regen_failed_attempts=attempts,
     )
@@ -138,9 +138,7 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     )
     persist_calls: list[str] = []
 
-    async def _fake_finalize(
-        _self: Any, configuration: str, fingerprint: str = "", dependency_fingerprint: str = ""
-    ) -> None:
+    async def _fake_finalize(_self: Any, configuration: str, fingerprint: str = "") -> None:
         persist_calls.append(configuration)
 
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", _fake_finalize)
@@ -167,21 +165,12 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     assert controller.state.regen.pending == set()
 
 
-@pytest.mark.parametrize(
-    ("field", "version"),
-    [
-        ("content_fingerprint", CONTENT_FINGERPRINT_VERSION),
-        ("dependency_fingerprint", DEPENDENCY_FINGERPRINT_VERSION),
-    ],
-)
 async def test_out_of_band_edit_spawns_only_generate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
-    field: str,
-    version: str,
 ) -> None:
-    """A scanner UPDATED whose content or dependency digest moved regenerates StorageJSON."""
+    """A scanner UPDATED whose digest moved regenerates StorageJSON (#2486)."""
     controller = make_controller(
         tmp_path,
         with_state_monitor=True,
@@ -200,12 +189,11 @@ async def test_out_of_band_edit_spawns_only_generate(
     )
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    same = f"{CONTENT_FINGERPRINT_VERSION}same"
-    _seed_store(controller, "kitchen.yaml", **{"content_fingerprint": same, field: f"{version}pre"})
+    _seed_store(controller, "kitchen.yaml", content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}pre")
 
     controller._on_scan_change(
         ScanChange.UPDATED,
-        make_device(name="kitchen", **{"content_fingerprint": same, field: f"{version}post"}),
+        make_device(name="kitchen", content_fingerprint=f"{CONTENT_FINGERPRINT_VERSION}post"),
     )
     await _drain(controller)
 
@@ -284,7 +272,7 @@ async def test_regenerate_skips_when_stamp_terminal(
 ) -> None:
     """A fresh stamp with the budget spent → no spawn.
 
-    The stamp releases when the YAML's mtime moves (the user
+    The stamp releases when the YAML's digest moves (the user
     edited it) or its TTL expires; until then a respin would just
     burn another subprocess on the same bad input.
     """
@@ -513,16 +501,16 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
 # ---------------------------------------------------------------------------
 
 
-async def test_regenerate_persists_mtime_and_wallclock_on_failure(
+async def test_regenerate_persists_digest_and_wallclock_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Budget-spent failure → YAML mtime + wall-clock stamped into the sidecar.
+    """Budget-spent failure → YAML digest + wall-clock stamped into the sidecar.
 
     The whole point of the cross-restart guard: a backend reboot
     that re-encounters the same broken YAML reads these stamps,
-    sees the mtime hasn't moved AND the failure is fresh, and
+    sees the digest hasn't moved AND the failure is fresh, and
     skips replaying the regen. The wall-clock side feeds the
     TTL — without it, a persistent external problem would never
     get re-checked.
@@ -530,7 +518,7 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
-    expected_mtime = yaml_path.stat().st_mtime
+    expected = _digest(controller, "kitchen.yaml")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         return _capture_result(returncode=1, output=b"YAML parse error")
@@ -554,7 +542,7 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     await _drain(controller)
 
     md = _read_store(controller, "kitchen.yaml")
-    assert md.get("regen_failed_mtime") == expected_mtime
+    assert md.get("regen_failed_content_fingerprint") == expected
     assert md.get("regen_failed_at") == 1700000000.0
     assert md.get("regen_failed_attempts") == 1
 
@@ -573,7 +561,7 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    expected_mtime = yaml_path.stat().st_mtime
+    expected = _digest(controller, "kitchen.yaml")
 
     async def _broken_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         raise OSError("esphome: command not found")
@@ -596,7 +584,7 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
     await _drain(controller)
 
     md = _read_store(controller, "kitchen.yaml")
-    assert md.get("regen_failed_mtime") == expected_mtime
+    assert md.get("regen_failed_content_fingerprint") == expected
     assert md.get("regen_failed_at") == 1700000050.0
     assert md.get("regen_failed_attempts") == 1
 
@@ -608,9 +596,9 @@ async def test_regenerate_clears_failure_stamp_on_success(
 ) -> None:
     """A subsequent successful regen wipes both halves of the failure stamp.
 
-    User edits the broken YAML → mtime moves → the next schedule
+    User edits the broken YAML → digest moves → the next schedule
     bypasses the cross-restart guard, the spawn succeeds, and the
-    stale ``regen_failed_mtime`` *and* ``regen_failed_at`` get
+    stale ``regen_failed_content_fingerprint`` *and* ``regen_failed_at`` get
     cleared so a future restart doesn't see them. Pairs with the
     failure-persistence test above to pin the full set/clear cycle.
     """
@@ -621,7 +609,7 @@ async def test_regenerate_clears_failure_stamp_on_success(
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=1.0,
+        regen_failed_content_fingerprint="2:stale",
         regen_failed_at=1700000000.0,
     )
 
@@ -651,7 +639,7 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """TTL elapsed: even with mtime untouched, the next restart retries.
+    """TTL elapsed: even with the digest unchanged, the next restart retries.
 
     Covers the user's "external package problem" case — a flaky
     git server or ESPHome update that resolves on its own. The
@@ -661,11 +649,10 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    current_mtime = yaml_path.stat().st_mtime
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=current_mtime,
+        regen_failed_content_fingerprint=_digest(controller, "kitchen.yaml"),
         regen_failed_at=1700000000.0,
     )
     # Advance the clock just past the TTL.
@@ -696,12 +683,12 @@ async def test_regenerate_retries_when_stamp_older_than_ttl(
     assert len(spawn_calls) == 1
 
 
-async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
+async def test_regenerate_runs_when_the_digest_moves_past_stamp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """User edits the broken YAML → mtime moves → cross-restart guard releases.
+    """User edits the broken YAML → digest moves → cross-restart guard releases.
 
     The natural retry signal. Without this the user's only escape
     from a bad regen would be deleting the metadata sidecar by
@@ -710,14 +697,15 @@ async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    # Stamp from a prior failed attempt at an *older* mtime — the
-    # YAML has since been edited so the live stat doesn't match.
-    # The wall-clock stamp is fresh (within TTL) so only the mtime
+    # Stamp from a prior failed attempt at an *older* digest: the
+    # YAML has since been edited so the live digest doesn't match.
+    # The wall-clock stamp is fresh (within TTL) so only the digest
     # mismatch is what releases the guard.
+    _digest(controller, "kitchen.yaml")
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=1.0,
+        regen_failed_content_fingerprint="2:stale",
         regen_failed_at=1700000000.0,
     )
     monkeypatch.setattr(
@@ -790,12 +778,11 @@ async def test_regenerate_clamps_negative_stamp_age(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
-    current_mtime = yaml_path.stat().st_mtime
     # Stamp claims attempt 1 failed *in the future* (roughly year 2033).
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=current_mtime,
+        regen_failed_content_fingerprint=_digest(controller, "kitchen.yaml"),
         regen_failed_at=2_000_000_000.0,
         regen_failed_attempts=1,
     )
@@ -828,7 +815,7 @@ async def test_regenerate_runs_when_only_one_stamp_half_present(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Half-written sidecar (only mtime, only wall-clock) → guard treats as absent.
+    """Half-written sidecar (only the digest, only wall-clock) → guard treats as absent.
 
     The two stamp halves are written together; any state where
     only one is present came from a partial write or a hand-edit
@@ -838,12 +825,11 @@ async def test_regenerate_runs_when_only_one_stamp_half_present(
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    current_mtime = yaml_path.stat().st_mtime
-    # Only the mtime half — sidecar carries no wall-clock pair.
+    # Only the digest half; the sidecar carries no wall-clock pair.
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=current_mtime,
+        regen_failed_content_fingerprint=_digest(controller, "kitchen.yaml"),
     )
 
     spawn_calls: list[tuple[str, ...]] = []
@@ -887,7 +873,8 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
     # Hand-edit shape — the value is a string, not a number.
     raw_path = tmp_path / ".device-builder.json"
     raw_path.write_text(
-        '{"kitchen.yaml": {"regen_failed_mtime": "garbage", "regen_failed_at": "garbage"}}',
+        '{"kitchen.yaml": {"regen_failed_content_fingerprint": "garbage", '
+        '"regen_failed_at": "garbage"}}',
         encoding="utf-8",
     )
 
@@ -913,8 +900,8 @@ async def test_regenerate_runs_when_stamp_has_corrupt_value(
     assert len(spawn_calls) == 1
 
 
-def test_source_fingerprints_are_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
-    assert read_source_fingerprints(tmp_path / "missing.yaml", ()) == ("", "")
+def test_source_fingerprint_is_empty_when_the_yaml_cannot_be_read(tmp_path: Path) -> None:
+    assert read_source_fingerprint(tmp_path / "missing.yaml", ()) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -947,7 +934,8 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=1.0,
+        dependencies=[],
+        regen_failed_content_fingerprint="2:stale",
         regen_failed_at=2.0,
     )
 
@@ -987,10 +975,10 @@ async def test_regenerate_persists_hash_and_clears_stamp_in_one_transaction(
     # same transaction — both halves of the closure.
     assert md.get("expected_config_hash") == "5a94a12d"
     assert md.get("regen_config_hash") == "5a94a12d"
-    assert md.get("regen_content_fingerprint") == extract_config_content_fingerprint(
-        (controller._db.settings.rel_path("kitchen.yaml")).read_text(encoding="utf-8")
+    assert md.get("regen_content_fingerprint") == read_source_fingerprint(
+        controller._db.settings.rel_path("kitchen.yaml"), ()
     )
-    assert "regen_failed_mtime" not in md
+    assert "regen_failed_content_fingerprint" not in md
     assert "regen_failed_at" not in md
 
 
@@ -1016,7 +1004,7 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=1.0,
+        regen_failed_content_fingerprint="2:stale",
         regen_failed_at=2.0,
     )
 
@@ -1043,7 +1031,7 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
     # YAML now generates cleanly, the missing build_info.json is
     # a separate concern surfaced by the warning log.
     assert "expected_config_hash" not in md
-    assert "regen_failed_mtime" not in md
+    assert "regen_failed_content_fingerprint" not in md
     assert "regen_failed_at" not in md
     assert any(
         "Could not read config_hash from build_info.json" in record.getMessage()
@@ -1070,47 +1058,55 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
 )
 def test_fresh_stamp_attempts_read(attempts_value: Any, expected_attempts: int) -> None:
     """A missing, unparseable, or non-positive attempt count reads as terminal."""
-    md: dict[str, Any] = {"regen_failed_mtime": 5.0, "regen_failed_at": 1000.0}
+    md: dict[str, Any] = {"regen_failed_content_fingerprint": "2:x", "regen_failed_at": 1000.0}
     if attempts_value is not None:
         md["regen_failed_attempts"] = attempts_value
-    assert storage_regen._fresh_stamp(md, 5.0, 1060.0, dependency_fingerprint="") == (
-        expected_attempts,
-        60.0,
-    )
+    assert storage_regen._fresh_stamp(md, "2:x", 1060.0) == (expected_attempts, 60.0)
 
 
 @pytest.mark.parametrize(
-    ("md", "current_mtime", "now"),
+    ("md", "current", "now"),
     [
-        pytest.param({}, 5.0, 1060.0, id="no-stamp"),
+        pytest.param({}, "2:x", 1060.0, id="no-stamp"),
         pytest.param(
-            {"regen_failed_mtime": 1.0, "regen_failed_at": 1000.0}, 5.0, 1060.0, id="mtime-moved"
+            {"regen_failed_content_fingerprint": "2:y", "regen_failed_at": 1000.0},
+            "2:x",
+            1060.0,
+            id="digest-moved",
         ),
         pytest.param(
-            {"regen_failed_mtime": 5.0, "regen_failed_at": 1000.0},
-            5.0,
+            {"regen_failed_content_fingerprint": "", "regen_failed_at": 1000.0},
+            "2:x",
+            1060.0,
+            id="digest-now-known",
+        ),
+        pytest.param(
+            {"regen_failed_content_fingerprint": "2:x", "regen_failed_at": 1000.0},
+            "2:x",
             1000.0 + storage_regen._REGEN_FAILURE_TTL_SECONDS + 1,
             id="expired",
         ),
         pytest.param(
-            {"regen_failed_mtime": "garbage", "regen_failed_at": "garbage"},
-            5.0,
+            {"regen_failed_content_fingerprint": "2:x", "regen_failed_at": "garbage"},
+            "2:x",
             1060.0,
-            id="corrupt-halves",
+            id="corrupt-wallclock",
         ),
     ],
 )
-def test_fresh_stamp_ignores_invalid_stamps(
-    md: dict[str, Any], current_mtime: float, now: float
-) -> None:
+def test_fresh_stamp_ignores_invalid_stamps(md: dict[str, Any], current: str, now: float) -> None:
     """A missing, stale, expired, or unparseable stamp reads as no stamp."""
-    assert storage_regen._fresh_stamp(md, current_mtime, now, dependency_fingerprint="") is None
+    assert storage_regen._fresh_stamp(md, current, now) is None
 
 
 def test_fresh_stamp_clamps_future_dated_stamp() -> None:
     """Clock skew can't lock the regen out: a future stamp clamps to age 0."""
-    md = {"regen_failed_mtime": 5.0, "regen_failed_at": 2000.0, "regen_failed_attempts": 1}
-    assert storage_regen._fresh_stamp(md, 5.0, 1000.0, dependency_fingerprint="") == (1, 0.0)
+    md = {
+        "regen_failed_content_fingerprint": "2:x",
+        "regen_failed_at": 2000.0,
+        "regen_failed_attempts": 1,
+    }
+    assert storage_regen._fresh_stamp(md, "2:x", 1000.0) == (1, 0.0)
 
 
 async def test_ttl_expiry_grants_fresh_budget(
@@ -1284,16 +1280,16 @@ async def test_capture_error_counts_the_attempt(
     assert _read_store(controller, "kitchen.yaml")["regen_failed_attempts"] == 1
 
 
-async def test_vanished_mid_run_stamps_prespawn_mtime(
+async def test_vanished_mid_run_stamps_prespawn_digest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A YAML deleted during the run stamps the pre-spawn mtime; the retry skips."""
+    """A YAML deleted during the run stamps the pre-spawn digest; the retry skips."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    prespawn_mtime = yaml_path.stat().st_mtime
+    prespawn = _digest(controller, "kitchen.yaml")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         # Off-loop: blockbuster flags blocking unlink on the loop (Linux CI).
@@ -1310,7 +1306,7 @@ async def test_vanished_mid_run_stamps_prespawn_mtime(
 
     md = _read_store(controller, "kitchen.yaml")
     assert md["regen_failed_attempts"] == 1
-    assert md["regen_failed_mtime"] == prespawn_mtime
+    assert md["regen_failed_content_fingerprint"] == prespawn
 
     # The armed retry finds the file gone and skips without counting.
     storage_regen._fire_retry(controller, "kitchen.yaml")
@@ -1383,10 +1379,11 @@ async def test_edit_between_failures_resets_attempts(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """An mtime move between failures restarts the ladder at attempt 1."""
+    """A content edit between failures restarts the ladder at attempt 1."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    _digest(controller, "kitchen.yaml")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
         return _capture_result(returncode=2, output=b"fatal: could not clone")
@@ -1400,16 +1397,15 @@ async def test_edit_between_failures_resets_attempts(
     await _drain(controller)
     assert _read_store(controller, "kitchen.yaml")["regen_failed_attempts"] == 1
 
-    # The edit moves the mtime; the manually fired retry finds a stale
-    # stamp and the next failure counts from 1 with the new mtime.
-    old_mtime = yaml_path.stat().st_mtime
-    os.utime(yaml_path, (old_mtime + 10, old_mtime + 10))
+    # The edit moves the digest; the manually fired retry finds a stale
+    # stamp and the next failure counts from 1 with the new digest.
+    yaml_path.write_text("esphome:\n  name: kitchen2\n", encoding="utf-8")
     storage_regen._fire_retry(controller, "kitchen.yaml")
     await _drain(controller)
 
     md = _read_store(controller, "kitchen.yaml")
     assert md["regen_failed_attempts"] == 1
-    assert md["regen_failed_mtime"] == old_mtime + 10
+    assert md["regen_failed_content_fingerprint"] == read_source_fingerprint(yaml_path, ())
 
 
 async def test_regenerate_first_failure_stamps_and_arms_retry(
@@ -1588,7 +1584,7 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     make_controller: MakeControllerFactory,
     package_changed: bool,
 ) -> None:
-    """A spent stamp holds only while the device's dependency digest still matches it."""
+    """A spent stamp holds only while the digest, dependencies included, still matches it."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text(
@@ -1598,18 +1594,14 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     package = tmp_path / "packages" / "common.yaml"
     package.parent.mkdir()
     package.write_text("logger:\n  level: INFO\n", encoding="utf-8")
-    dependencies = ("packages/common.yaml",)
-    stamped = (
-        await asyncio.to_thread(read_source_fingerprints, yaml_path, dependencies)
-    ).dependency
-    controller._scanner.devices = [make_device(name="kitchen", dependencies=dependencies)]
     _seed_store(
         controller,
         "kitchen.yaml",
-        regen_failed_mtime=yaml_path.stat().st_mtime,
+        regen_failed_content_fingerprint=_digest(
+            controller, "kitchen.yaml", "packages/common.yaml"
+        ),
         regen_failed_at=time.time() - 5.0,
         regen_failed_attempts=storage_regen._MAX_REGEN_ATTEMPTS,
-        regen_failed_dependency_fingerprint=stamped,
     )
     if package_changed:
         package.write_text("logger:\n  level: DEBUG\n", encoding="utf-8")
@@ -1632,16 +1624,15 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     controller.state.regen.cancel_retry("kitchen.yaml")
 
 
-async def test_regenerate_success_stamps_an_unknown_dependency_digest_literally(
+async def test_regenerate_success_with_an_unknown_list_stamps_no_digest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A regen that ran without a dependency list stamps the empty digest over the prior one."""
+    """A regen that ran without a dependency list clears the prior digest stamp."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    controller._scanner.devices = [make_device(name="kitchen")]
-    _seed_store(controller, "kitchen.yaml", regen_dependency_fingerprint="1:prior")
+    _seed_store(controller, "kitchen.yaml", regen_content_fingerprint="2:prior")
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
         AsyncMock(return_value=_capture_result(returncode=0)),
@@ -1656,45 +1647,37 @@ async def test_regenerate_success_stamps_an_unknown_dependency_digest_literally(
 
     md = _read_store(controller, "kitchen.yaml")
     assert md["regen_config_hash"] == "abcd1234"
-    assert md["regen_dependency_fingerprint"] == ""
+    assert "regen_content_fingerprint" not in md
 
 
-async def test_stamp_failure_records_an_unknown_dependency_digest_literally(
+async def test_stamp_failure_records_an_unknown_digest_literally(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A stamp taken while the digest was unknown holds only until the digest is known."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
 
-    storage_regen.stamp_failure(controller, "kitchen.yaml", 5.0, "")
+    storage_regen.stamp_failure(controller, "kitchen.yaml", "")
 
     md = _read_store(controller, "kitchen.yaml")
-    assert md["regen_failed_dependency_fingerprint"] == ""
+    assert md["regen_failed_content_fingerprint"] == ""
     now = md["regen_failed_at"] + 1.0
-    assert storage_regen._fresh_stamp(md, 5.0, now, dependency_fingerprint="") is not None
-    assert storage_regen._fresh_stamp(md, 5.0, now, dependency_fingerprint="1:abc") is None
+    assert storage_regen._fresh_stamp(md, "", now) is not None
+    assert storage_regen._fresh_stamp(md, "2:abc", now) is None
 
 
-async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
+async def test_regenerate_failure_and_success_stamp_the_digest_with_dependencies(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Both stamps carry the dependency digest the spawn read."""
+    """Both stamps carry the digest the spawn read, dependencies included."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
     (tmp_path / "packages").mkdir()
     (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
-    expected = (
-        await asyncio.to_thread(read_source_fingerprints, yaml_path, ("packages/common.yaml",))
-    ).dependency
-    controller._scanner.devices = [
-        make_device(
-            name="kitchen",
-            dependencies=("packages/common.yaml",),
-            dependency_fingerprint=expected,
-        )
-    ]
+    expected = _digest(controller, "kitchen.yaml", "packages/common.yaml")
+    assert expected != read_source_fingerprint(yaml_path, ())
     outcomes = iter([2, 0])
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
@@ -1717,9 +1700,7 @@ async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
 
     controller._schedule_storage_regenerate("kitchen.yaml")
     await _drain(controller)
-    assert (
-        _read_store(controller, "kitchen.yaml")["regen_failed_dependency_fingerprint"] == expected
-    )
+    assert _read_store(controller, "kitchen.yaml")["regen_failed_content_fingerprint"] == expected
 
     # Past the first backoff window, the retry spawns and succeeds.
     clock["offset"] = storage_regen._delay_for(1) + 1.0
@@ -1727,29 +1708,5 @@ async def test_regenerate_failure_and_success_stamp_the_dependency_fingerprint(
     storage_regen._fire_retry(controller, "kitchen.yaml")
     await _drain(controller)
     md = _read_store(controller, "kitchen.yaml")
-    assert md["regen_dependency_fingerprint"] == expected
-    assert "regen_failed_dependency_fingerprint" not in md
-
-
-@pytest.mark.parametrize(
-    ("stored", "current", "fresh"),
-    [
-        pytest.param(None, "1:x", True, id="legacy-stamp"),
-        pytest.param("1:x", "1:x", True, id="match"),
-        pytest.param("1:x", "1:y", False, id="moved"),
-    ],
-)
-def test_fresh_stamp_compares_the_dependency_fingerprint(
-    stored: str | None, current: str, fresh: bool
-) -> None:
-    md: dict[str, Any] = {
-        "regen_failed_mtime": 5.0,
-        "regen_failed_at": 1000.0,
-        "regen_failed_attempts": 1,
-    }
-    if stored is not None:
-        md["regen_failed_dependency_fingerprint"] = stored
-
-    stamp = storage_regen._fresh_stamp(md, 5.0, 1060.0, dependency_fingerprint=current)
-
-    assert (stamp is not None) is fresh
+    assert md["regen_content_fingerprint"] == expected
+    assert "regen_failed_content_fingerprint" not in md

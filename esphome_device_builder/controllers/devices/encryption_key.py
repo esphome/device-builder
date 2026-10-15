@@ -15,9 +15,7 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config_async
 from ...helpers.device_yaml import (
     config_has_top_level_block,
-    dependency_fingerprint,
-    dependency_stamp_matches,
-    extract_config_content_fingerprint,
+    source_fingerprint,
     yaml_has_top_level_block,
 )
 from ...helpers.mac_addresses import normalize_mac
@@ -222,19 +220,15 @@ async def _runs_yaml(controller: DevicesController, device: Device, content: str
     """Whether the device reports the hash a storage regen produced for this very YAML *content*."""
     md = controller._metadata_store.get(device.configuration)
     deployed = device.runtime_state.deployed_config_hash
-    if not (
-        deployed
-        and md.get("regen_config_hash") == deployed
-        and md.get("regen_content_fingerprint") == extract_config_content_fingerprint(content)
-    ):
+    if not (deployed and md.get("regen_config_hash") == deployed):
         return False
     current = await run_in_executor(
-        dependency_fingerprint,
+        source_fingerprint,
         controller._db.settings.rel_path(device.configuration).parent,
         device.dependencies,
         content,
     )
-    return dependency_stamp_matches(md.get("regen_dependency_fingerprint"), current)
+    return bool(current) and md.get("regen_content_fingerprint") == current
 
 
 def _unrecorded_reason(

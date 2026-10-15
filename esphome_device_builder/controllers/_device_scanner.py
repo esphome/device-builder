@@ -564,7 +564,9 @@ class DeviceScanner(WakeWorker[str]):
                     deployed_name=metadata.deployed_name,
                     offline_since=metadata.offline_since,
                     previous=previous,
-                    shallow=shallow,
+                    # A shallow row is never deepened on its own, and the digest
+                    # needs the list, so a list never discovered loads deep once.
+                    shallow=shallow and known is not None,
                     dependencies=known,
                     batch=batch,
                 )

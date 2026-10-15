@@ -30,7 +30,6 @@ from ._chip import resolve_chip_mcu
 from ._dependencies import (
     DependencySources,
     LoadBatch,
-    extract_dependency_fingerprint,
     normalize_dependencies,
     read_dependency_sources,
     track_loaded_files,
@@ -382,11 +381,12 @@ def load_device_from_storage(
         # this on the next compile if the device picks a different
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
-        content_fingerprint=extract_config_content_fingerprint(yaml_content),
-        dependencies=dependencies,
-        dependency_fingerprint=(
-            extract_dependency_fingerprint(sources.lines) if sources is not None else ""
+        content_fingerprint=(
+            extract_config_content_fingerprint(yaml_content, sources.lines)
+            if sources is not None
+            else ""
         ),
+        dependencies=dependencies,
         ip=ip,
         deployed_name=deployed_name,
         web_port=storage.web_port if storage else None,

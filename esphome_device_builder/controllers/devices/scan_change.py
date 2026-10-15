@@ -5,10 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ...helpers.device_yaml import (
-    content_fingerprint_is_current,
-    dependency_fingerprint_is_current,
-)
 from ...models import Device, DeviceEventData, EventType
 from .._device_scanner import ScanChange
 
@@ -202,33 +198,25 @@ def _nudge_mqtt(
 
 
 def _sync_fingerprints(controller: DevicesController, kind: ScanChange, device: Device) -> None:
-    """Seed the stored dependency list and digests; regen when an out-of-band edit moved one."""
+    """Seed the stored dependency list and digest; regen when an out-of-band edit moved it."""
     configuration = device.configuration
     store = controller._metadata_store
     if device.dependencies is not None:
         dependencies = list(device.dependencies)
         if store.get_field(configuration, "dependencies") != dependencies:
             store.set_field(configuration, "dependencies", dependencies)
-    for key, current, is_current in (
-        ("content_fingerprint", device.content_fingerprint, content_fingerprint_is_current),
-        (
-            "dependency_fingerprint",
-            device.dependency_fingerprint,
-            dependency_fingerprint_is_current,
-        ),
-    ):
-        if not current:
-            # Empty means the source was unreadable (or unknown) this sweep: no
-            # information, so neither compare nor overwrite the stored digest.
-            continue
-        stored = store.get_field(configuration, key)
-        if stored == current:
-            continue
-        # An out-of-band edit (git pull, external editor — live as UPDATED,
-        # or across a restart as ADDED) regens so ``StorageJSON.address``
-        # (#2486) and ``expected_config_hash`` track the YAML. RELOADED (our
-        # own write), first sight, and a stale-algorithm digest only re-seed
-        # (#2612).
-        if is_current(stored) and kind is not ScanChange.RELOADED:
-            controller._schedule_storage_regenerate(configuration)
-        store.set_field(configuration, key, current)
+    current = device.content_fingerprint
+    if not current:
+        # Empty means a source was unreadable, or the dependency list unknown, this
+        # sweep: no information, so neither compare nor overwrite the stored digest.
+        return
+    stored = store.get_field(configuration, "content_fingerprint")
+    if stored == current:
+        return
+    # An out-of-band edit (git pull, external editor; live as UPDATED, or across
+    # a restart as ADDED) regens so ``StorageJSON.address`` (#2486) and
+    # ``expected_config_hash`` track the YAML. RELOADED (our own write) and first
+    # sight only re-seed; a digest from an older algorithm regens once.
+    if stored is not None and kind is not ScanChange.RELOADED:
+        controller._schedule_storage_regenerate(configuration)
+    store.set_field(configuration, "content_fingerprint", current)

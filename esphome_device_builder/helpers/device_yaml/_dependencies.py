@@ -19,12 +19,7 @@ from esphome.core import CORE, EsphomeError
 from ...constants import is_secrets_file, secret_ref_names
 from ..atomic_io import read_text_with_stat
 from ..yaml import parse_yaml_fast_then_esphome
-from ._parsing import (
-    _has_version_prefix,
-    _sha256_lines,
-    _significant_lines,
-    extract_config_content_fingerprint,
-)
+from ._parsing import _significant_lines, extract_config_content_fingerprint
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,9 +47,6 @@ def _on_load(fname: Path) -> None:
 
 
 _LOAD_LISTENERS.append(_on_load)
-
-# Prefix on every stored dependency digest; bump when the algorithm changes.
-DEPENDENCY_FINGERPRINT_VERSION = "1:"
 
 
 class DependencySources(NamedTuple):
@@ -85,13 +77,6 @@ class LoadBatch:
     data_dir_prefix: str = field(default_factory=data_dir_prefix)
     sources: dict[str, SourceText | None] = field(default_factory=dict)
     unreadable: set[str] = field(default_factory=set)
-
-
-class SourceFingerprints(NamedTuple):
-    """The content and dependency digests of one device YAML."""
-
-    content: str
-    dependency: str
 
 
 @contextmanager
@@ -179,45 +164,24 @@ def read_dependency_sources(
     return DependencySources(lines, newest_mtime)
 
 
-def extract_dependency_fingerprint(sources: Iterable[tuple[str, Iterable[str]]]) -> str:
-    """Versioned digest of each dependency's path and significant lines."""
-    lines = [line for dependency, body in sources for line in (dependency, *body)]
-    return f"{DEPENDENCY_FINGERPRINT_VERSION}{_sha256_lines(lines)}"
-
-
-def dependency_fingerprint_is_current(stored: object) -> bool:
-    """Return True when *stored* is a dependency digest the current algorithm produced."""
-    return _has_version_prefix(stored, DEPENDENCY_FINGERPRINT_VERSION)
-
-
-def dependency_stamp_matches(stamped: object, current: str) -> bool:
-    """Whether a stamped dependency digest covers *current*; an absent stamp covers any."""
-    return stamped is None or stamped == current
-
-
-def dependency_fingerprint(
+def source_fingerprint(
     config_dir: Path, dependencies: tuple[str, ...] | None, yaml_content: str
 ) -> str:
-    """Versioned digest of *dependencies* as on disk now; empty when they are unknown."""
+    """Digest of *yaml_content* and *dependencies* as on disk now; empty when either is unknown."""
     if dependencies is None:
         return ""
     sources = read_dependency_sources(config_dir, dependencies, yaml_content)
-    return extract_dependency_fingerprint(sources.lines) if sources is not None else ""
+    return extract_config_content_fingerprint(yaml_content, sources.lines) if sources else ""
 
 
-def read_source_fingerprints(
-    config_path: Path, dependencies: tuple[str, ...] | None
-) -> SourceFingerprints:
-    """Digests of *config_path* as on disk now; empty when unreadable, or unknown dependencies."""
+def read_source_fingerprint(config_path: Path, dependencies: tuple[str, ...] | None) -> str:
+    """``source_fingerprint`` of *config_path*'s text; empty when the file cannot be read."""
     try:
         content = read_text_with_stat(config_path)[1]
     except (OSError, UnicodeDecodeError):
         _LOGGER.debug("Could not read %s", config_path, exc_info=True)
-        return SourceFingerprints("", "")
-    return SourceFingerprints(
-        extract_config_content_fingerprint(content),
-        dependency_fingerprint(config_path.parent, dependencies, content),
-    )
+        return ""
+    return source_fingerprint(config_path.parent, dependencies, content)
 
 
 def _referenced_secrets(yaml_content: str, sources: Iterable[SourceText]) -> frozenset[str]:

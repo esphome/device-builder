@@ -47,10 +47,6 @@ from esphome_device_builder.helpers.device_yaml import (
     resolve_chip_mcu,
 )
 from esphome_device_builder.helpers.device_yaml._dependencies import (
-    DEPENDENCY_FINGERPRINT_VERSION,
-    dependency_fingerprint_is_current,
-    dependency_stamp_matches,
-    extract_dependency_fingerprint,
     normalize_dependencies,
     read_dependency_sources,
 )
@@ -62,7 +58,6 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
-    content_fingerprint_is_current,
     device_ap_label,
     extract_component_source_fingerprint,
     extract_config_content_fingerprint,
@@ -871,13 +866,13 @@ def test_extract_meta_from_config_no_esphome_block(config: Any) -> None:
 def test_extract_config_content_fingerprint_tracks_any_content_edit() -> None:
     """Every non-cosmetic edit moves the digest, address-relevant or not."""
     base = "esphome:\n  name: dev\nwifi:\n  ssid: s\n  use_address: 10.0.0.9\napi:\n"
-    fingerprint = extract_config_content_fingerprint(base)
+    fingerprint = extract_config_content_fingerprint(base, ())
     assert fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
     assert fingerprint != extract_config_content_fingerprint(
-        base.replace("  use_address: 10.0.0.9\n", "")
+        base.replace("  use_address: 10.0.0.9\n", ""), ()
     )
     assert fingerprint != extract_config_content_fingerprint(
-        base.replace("api:\n", "api:\n  encryption:\n    key: k\n")
+        base.replace("api:\n", "api:\n  encryption:\n    key: k\n"), ()
     )
 
 
@@ -885,20 +880,24 @@ def test_extract_config_content_fingerprint_ignores_comments_blanks_and_trailing
     """Blank lines, full-line comments, and trailing whitespace don't move the digest."""
     plain = "wifi:\n  ssid: s\nota:\n"
     cosmetic = "# header\nwifi:\n# a comment\n\n  ssid: s  \nota:\n"
-    assert extract_config_content_fingerprint(plain) == extract_config_content_fingerprint(cosmetic)
+    assert extract_config_content_fingerprint(plain, ()) == extract_config_content_fingerprint(
+        cosmetic, ()
+    )
 
 
 def test_extract_config_content_fingerprint_without_content() -> None:
     """Empty or comments-only YAML yields the empty fingerprint."""
-    assert extract_config_content_fingerprint("") == ""
-    assert extract_config_content_fingerprint("# only a comment\n\n") == ""
+    assert extract_config_content_fingerprint("", ()) == ""
+    assert extract_config_content_fingerprint("# only a comment\n\n", ()) == ""
 
 
-def test_content_fingerprint_is_current() -> None:
-    """Only a digest carrying the current version prefix is current."""
-    assert content_fingerprint_is_current(extract_config_content_fingerprint("wifi:\n"))
-    assert not content_fingerprint_is_current("d" * 64)
-    assert not content_fingerprint_is_current(None)
+def test_extract_config_content_fingerprint_covers_dependency_paths_and_lines() -> None:
+    """A dependency's path and its lines both move the digest."""
+    base = extract_config_content_fingerprint("wifi:\n", ())
+    with_a = extract_config_content_fingerprint("wifi:\n", [("a.yaml", ["x: 1"])])
+    assert with_a != base
+    assert with_a != extract_config_content_fingerprint("wifi:\n", [("b.yaml", ["x: 1"])])
+    assert with_a != extract_config_content_fingerprint("wifi:\n", [("a.yaml", ["x: 2"])])
 
 
 _EXTERNAL_COMPONENTS_YAML = (
@@ -1429,8 +1428,8 @@ def test_load_device_from_storage_shallow_matches_deep_for_inline_meta(tmp_path:
         "  use_address: 192.168.1.50\n",
         encoding="utf-8",
     )
-    shallow = load_device_from_storage(yaml_file, shallow=True)
     deep = load_device_from_storage(yaml_file)
+    shallow = load_device_from_storage(yaml_file, shallow=True, dependencies=deep.dependencies)
     assert shallow.name == deep.name == "kitchen"
     assert shallow.friendly_name == deep.friendly_name == "Kitchen Sensor"
     assert shallow.comment == deep.comment == "window sill"
@@ -4081,19 +4080,6 @@ def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path
     )
 
 
-def test_extract_dependency_fingerprint_shape() -> None:
-    """A known empty list digests to a constant, and the path is part of the digest."""
-    empty = extract_dependency_fingerprint([])
-    assert empty.startswith(DEPENDENCY_FINGERPRINT_VERSION)
-    assert empty == extract_dependency_fingerprint(())
-    assert extract_dependency_fingerprint([("a.yaml", ["x: 1"])]) != extract_dependency_fingerprint(
-        [("b.yaml", ["x: 1"])]
-    )
-    assert dependency_fingerprint_is_current(empty)
-    assert not dependency_fingerprint_is_current("d" * 64)
-    assert not dependency_fingerprint_is_current(None)
-
-
 def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_path: Path) -> None:
     """Only the ``!secret`` names in play digest; secrets never move ``newest_mtime``."""
     yaml_file = _write_include_fleet(tmp_path)
@@ -4204,15 +4190,6 @@ def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
     assert dict(sources.lines) == {shared: ["- multiply: 2"]}
 
 
-def test_dependency_stamp_matches_distinguishes_unknown_from_pre_tracking() -> None:
-    """Only an absent stamp covers any digest; an empty one covers only unknown dependencies."""
-    assert dependency_stamp_matches(None, "1:abc")
-    assert dependency_stamp_matches("", "")
-    assert not dependency_stamp_matches("", "1:abc")
-    assert dependency_stamp_matches("1:abc", "1:abc")
-    assert not dependency_stamp_matches("1:abc", "1:def")
-
-
 def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path: Path) -> None:
     """A dependency that exists but cannot be read yields no digest; a missing one is empty."""
     yaml_file = _write_include_fleet(tmp_path)
@@ -4230,7 +4207,7 @@ def test_unreadable_dependency_withholds_the_digest_but_keeps_the_list(tmp_path:
     read.assert_not_called()
     device = load_device_from_storage(yaml_file, shallow=True, dependencies=_FLEET_DEPENDENCIES)
     assert device.dependencies == _FLEET_DEPENDENCIES
-    assert device.dependency_fingerprint == ""
+    assert device.content_fingerprint == ""
 
 
 def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
@@ -4249,7 +4226,7 @@ def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> No
     assert second == first
 
 
-def test_load_device_from_storage_dependency_digest_agrees_between_shallow_and_deep(
+def test_load_device_from_storage_digest_agrees_between_shallow_and_deep(
     tmp_path: Path,
 ) -> None:
     """A shallow load fed the persisted list digests exactly what the deep load discovers."""
@@ -4260,10 +4237,10 @@ def test_load_device_from_storage_dependency_digest_agrees_between_shallow_and_d
     unknown = load_device_from_storage(yaml_file, shallow=True)
 
     assert deep.dependencies == _FLEET_DEPENDENCIES
-    assert deep.dependency_fingerprint.startswith(DEPENDENCY_FINGERPRINT_VERSION)
-    assert shallow.dependency_fingerprint == deep.dependency_fingerprint
+    assert deep.content_fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert shallow.content_fingerprint == deep.content_fingerprint
     assert unknown.dependencies is None
-    assert unknown.dependency_fingerprint == ""
+    assert unknown.content_fingerprint == ""
 
 
 def test_load_device_from_storage_keeps_known_dependencies_when_parse_fails(
@@ -4277,28 +4254,28 @@ def test_load_device_from_storage_keeps_known_dependencies_when_parse_fails(
     device = load_device_from_storage(yaml_file, dependencies=("packages/common.yaml",))
 
     assert device.dependencies == ("packages/common.yaml",)
-    assert device.dependency_fingerprint.startswith(DEPENDENCY_FINGERPRINT_VERSION)
+    assert device.content_fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
 
 
-def test_dependency_digest_moves_only_on_content_in_play(tmp_path: Path) -> None:
+def test_digest_moves_only_on_content_in_play(tmp_path: Path) -> None:
     """Comments and unrelated secrets leave it alone; package and used-secret edits move it."""
     yaml_file = _write_include_fleet(tmp_path)
     filters = tmp_path / "packages" / "filters.yaml"
     secrets = tmp_path / "secrets.yaml"
-    baseline = load_device_from_storage(yaml_file).dependency_fingerprint
+    baseline = load_device_from_storage(yaml_file).content_fingerprint
 
     filters.write_text("# a note\n- multiply: 2\n", encoding="utf-8")
-    assert load_device_from_storage(yaml_file).dependency_fingerprint == baseline
+    assert load_device_from_storage(yaml_file).content_fingerprint == baseline
 
     secrets.write_text("api_key: abc\nunrelated: yyy\n", encoding="utf-8")
-    assert load_device_from_storage(yaml_file).dependency_fingerprint == baseline
+    assert load_device_from_storage(yaml_file).content_fingerprint == baseline
 
     secrets.write_text("api_key: abz\nunrelated: yyy\n", encoding="utf-8")
-    rotated = load_device_from_storage(yaml_file).dependency_fingerprint
+    rotated = load_device_from_storage(yaml_file).content_fingerprint
     assert rotated != baseline
 
     filters.write_text("- multiply: 3\n", encoding="utf-8")
-    assert load_device_from_storage(yaml_file).dependency_fingerprint not in (baseline, rotated)
+    assert load_device_from_storage(yaml_file).content_fingerprint not in (baseline, rotated)
 
 
 def test_load_device_from_storage_pending_changes_sees_a_newer_package(tmp_path: Path) -> None:

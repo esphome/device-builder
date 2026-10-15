@@ -19,8 +19,7 @@ from esphome_device_builder.controllers.devices.encryption_key import _locate_an
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.device_yaml import (
     EsphomeConfigUnavailableError,
-    extract_config_content_fingerprint,
-    read_source_fingerprints,
+    read_source_fingerprint,
 )
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.helpers.yaml import OldKeyOutcome
@@ -75,6 +74,7 @@ def _configure(
 ):
     """Seed one configured device with *yaml_text* on disk."""
     (tmp_path / f"{name}.yaml").write_text(yaml_text, encoding="utf-8")
+    device_overrides.setdefault("dependencies", ())
     device = make_device(name, **device_overrides)
     ctrl._scanner._devices_by_name[name] = [device]
     ctrl._scanner.devices = [device]
@@ -496,7 +496,7 @@ async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_de
         ctrl, tmp_path, yaml_text, deployed_config_hash=deployed_hash, ota_encryption_required=True
     )
     if stamped_fingerprint == "current":
-        stamped_fingerprint = extract_config_content_fingerprint(yaml_text)
+        stamped_fingerprint = read_source_fingerprint(tmp_path / "kitchen.yaml", ())
     if stamped_fingerprint:
         _stamp_regen(ctrl, "h1", stamped_fingerprint)
 
@@ -524,7 +524,7 @@ async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
     yaml_text = API_KEY_YAML + BARE_OTA_YAML + "      old_key: !secret previous_key\n"
     # The scanned flag is stale on purpose: the old_key in the file is proof enough.
     _configure(ctrl, tmp_path, yaml_text, deployed_config_hash="h1")
-    _stamp_regen(ctrl, "h1", extract_config_content_fingerprint(yaml_text))
+    _stamp_regen(ctrl, "h1", read_source_fingerprint(tmp_path / "kitchen.yaml", ()))
 
     with caplog.at_level(logging.WARNING):
         result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
@@ -1135,7 +1135,7 @@ async def test_set_encryption_key_old_key_vouch_covers_dependencies(
     make_controller: MakeControllerFactory,
     stamp: str,
 ) -> None:
-    """The regen stamp vouches for the previous key only while its dependency digest holds."""
+    """The regen stamp vouches for the previous key only while the dependency content holds."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "packages").mkdir()
     (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
@@ -1148,16 +1148,10 @@ async def test_set_encryption_key_old_key_vouch_covers_dependencies(
         ota_encryption_required=True,
         dependencies=("packages/common.yaml",),
     )
-    _stamp_regen(ctrl, "h1", extract_config_content_fingerprint(yaml_text))
-    stamped = (
-        await asyncio.to_thread(
-            read_source_fingerprints, tmp_path / "kitchen.yaml", ("packages/common.yaml",)
-        )
-    ).dependency
-    ctrl._metadata_store.update(
-        "kitchen.yaml",
-        regen_dependency_fingerprint=stamped if stamp == "match" else "1:stale",
+    stamped = await asyncio.to_thread(
+        read_source_fingerprint, tmp_path / "kitchen.yaml", ("packages/common.yaml",)
     )
+    _stamp_regen(ctrl, "h1", stamped if stamp == "match" else "2:stale")
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
