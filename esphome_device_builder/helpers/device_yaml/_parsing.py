@@ -206,8 +206,7 @@ def extract_config_content_fingerprint(
     for dependency, body in dependencies:
         lines.append(dependency)
         lines.extend(body)
-    digest = _digest_lines(lines)
-    return f"{CONTENT_FINGERPRINT_VERSION}{digest}" if digest else ""
+    return f"{CONTENT_FINGERPRINT_VERSION}{hashlib.sha256('\n'.join(lines).encode()).hexdigest()}"
 
 
 # The blocks that decide *which* component modules esphome loads:

@@ -206,8 +206,8 @@ def read_source_fingerprint(config_path: Path, dependencies: tuple[str, ...] | N
     """``source_fingerprint`` of *config_path*'s text; empty when the file cannot be read."""
     try:
         content = read_text_with_stat(config_path)[1]
-    except (OSError, UnicodeDecodeError):
-        _LOGGER.debug("Could not read %s", config_path, exc_info=True)
+    except (OSError, UnicodeDecodeError) as err:
+        _LOGGER.warning("Could not read %s: %s", config_path, err)
         return ""
     return source_fingerprint(config_path.parent, dependencies, content)
 

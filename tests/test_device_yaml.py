@@ -889,9 +889,10 @@ def test_extract_config_content_fingerprint_ignores_comments_blanks_and_trailing
 
 
 def test_extract_config_content_fingerprint_without_content() -> None:
-    """Empty or comments-only YAML yields the empty fingerprint."""
-    assert extract_config_content_fingerprint("", ()) == ""
-    assert extract_config_content_fingerprint("# only a comment\n\n", ()) == ""
+    """Empty or comments-only YAML digests to one versioned value, never the empty string."""
+    empty = extract_config_content_fingerprint("", ())
+    assert empty.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert extract_config_content_fingerprint("# only a comment\n\n", ()) == empty
 
 
 def test_extract_config_content_fingerprint_covers_dependency_paths_and_lines() -> None:

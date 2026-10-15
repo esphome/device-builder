@@ -693,8 +693,10 @@ against legacy behaviour before assuming the simpler version suffices.
     the list is unknown, so a shallow load digests the persisted list
     and the cold start loads a device without one deep. It is
     version-prefixed; a version bump regens every device once on its
-    next scan. Adding a file to an `!include_dir_*` directory stays
-    uncovered: the loader reports files, not directories.
+    next scan. Two edits stay uncovered: adding a file to an
+    `!include_dir_*` directory (the loader reports files, not
+    directories) and rotating a `!secret` referenced only from inside
+    a git package (files under the data dir are not tracked).
   - **`_http._tcp` identity fallback** (`MdnsSource._on_http_service_state_change`,
     for a configured device without `api:`). Such a device never publishes
     `_esphomelib._tcp` (behind `USE_API`); its broadcast is the `_http._tcp`

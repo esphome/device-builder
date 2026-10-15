@@ -1646,6 +1646,41 @@ async def test_spent_ladder_releases_when_a_dependency_changes(
     controller.state.regen.cancel_retry("kitchen.yaml")
 
 
+async def test_edit_landing_mid_run_regens_again(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An edit that lands while esphome runs gets its own regen once the run completes."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    _index(controller, "kitchen.yaml")
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        if len(spawn_calls) == 1:
+            await asyncio.to_thread(
+                yaml_path.write_text, "esphome:\n  name: kitchen2\n", encoding="utf-8"
+            )
+        return _capture_result(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+    # The rerun is scheduled from the first run's ``finally``, after the drain's gather.
+    await wait_until(lambda: len(spawn_calls) == 2, 2.0, "the mid-run edit's own regen")
+    await _drain(controller)
+
+    assert len(spawn_calls) == 2
+
+
 async def test_regenerate_keys_on_the_device_file_while_its_list_is_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

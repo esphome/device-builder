@@ -62,6 +62,7 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 
 
 async def _run(controller: DevicesController, configuration: str) -> None:
+    rerun = False
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
@@ -99,6 +100,12 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             regen.cancel_retry(configuration)
             await controller._finalize_regen_success(configuration, current)
             await controller._scanner.reload(configuration)
+            # An edit landing mid-run had its schedule dropped as a duplicate and
+            # its digest re-seeded by the reload, so it only shows up here.
+            latest = await run_in_executor(
+                read_source_fingerprint, config_path, _dependencies_of(controller, configuration)
+            )
+            rerun = bool(latest) and latest != current
             return
         # Stamp against the pre-spawn digest: an edit landing mid-run must
         # not have the old content's failure charged to the new file.
@@ -116,6 +123,8 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         _arm_ttl_recheck(controller, configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
+        if rerun:
+            schedule(controller, configuration)
 
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> str | None:
@@ -256,14 +265,9 @@ async def _current_digest(
         )
         _arm_strike(controller, configuration)
         return None
-    device = controller.get_by_configuration(configuration)
-    # A device whose list is unknown (its parse fails, or it is not indexed yet)
-    # still regens so esphome reports the real error; the stamp keys on the
-    # file alone until the list is known.
-    dependencies = device.dependencies if device is not None else None
-    if dependencies is None:
-        dependencies = ()
-    current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
+    current = await run_in_executor(
+        read_source_fingerprint, config_path, _dependencies_of(controller, configuration)
+    )
     if not current:
         # The device file itself unreadable: nothing to stamp a failure against.
         _LOGGER.warning("Storage regenerate for %s: config unreadable; retrying", configuration)
@@ -271,6 +275,16 @@ async def _current_digest(
         return None
     regen.clear_strikes(configuration)
     return current
+
+
+def _dependencies_of(controller: DevicesController, configuration: str) -> tuple[str, ...]:
+    """Return the indexed device's dependency list, empty while unknown so the regen still runs."""
+    # A device whose list is unknown (its parse fails, or it is not indexed yet)
+    # still regens so esphome reports the real error; the stamp keys on the
+    # file alone until the list is known.
+    device = controller.get_by_configuration(configuration)
+    dependencies = device.dependencies if device is not None else None
+    return dependencies if dependencies is not None else ()
 
 
 def _arm_strike(controller: DevicesController, configuration: str) -> None:
