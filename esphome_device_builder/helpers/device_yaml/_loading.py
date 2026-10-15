@@ -152,8 +152,7 @@ def load_device_from_storage(
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
 
-    if batch is None:
-        batch = LoadBatch(path.parent)
+    batch = batch or LoadBatch(path.parent)
     yaml_stat, yaml_text, secrets_key = _snapshot_source_files(path, batch)
     yaml_content = yaml_text or ""
     yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
