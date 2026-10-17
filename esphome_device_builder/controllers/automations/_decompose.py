@@ -139,13 +139,12 @@ def _decompose_action_list(body: Any) -> list[ActionNode]:
     items = body if isinstance(body, list) else [body]
     out: list[ActionNode] = []
     for raw_item in items:
-        if isinstance(raw_item, TaggedScalar):
-            msg = "Action list item uses a YAML tag the editor cannot represent"
-            raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
         # ``- script.stop``: a bare string is that action with an empty body.
         item = {raw_item: None} if isinstance(raw_item, str) else raw_item
-        if not isinstance(item, dict) or not item:
-            continue
+        if not isinstance(item, dict) or not item or isinstance(item, TaggedScalar):
+            # Anything else (a tag, a number, an empty entry) would vanish on save.
+            msg = f"Action list item the editor cannot represent: {_describe_item(raw_item)}"
+            raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
         # A registry-shape action is a single-key ``{id: params}`` mapping. A
         # multi-key item is a misrouted / malformed body (a typo'd trigger
         # entry that fell through to the action-list path), so an uncatalogued
@@ -154,6 +153,15 @@ def _decompose_action_list(body: Any) -> list[ActionNode]:
         for action_id, params in item.items():
             out.append(_decompose_action(str(action_id), params, multi_key=multi_key))
     return out
+
+
+def _describe_item(raw: Any) -> str:
+    """Name an action-list item's shape for an error message."""
+    if isinstance(raw, TaggedScalar):
+        return f"{raw.tag.value} tagged value"
+    if raw is None or raw == {}:
+        return "empty entry"
+    return type(raw).__name__
 
 
 def _uncatalogued_action(action_id: str, raw_params: Any, *, multi_key: bool) -> ActionNode:

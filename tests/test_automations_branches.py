@@ -11,6 +11,7 @@ patch hits 100% coverage.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -333,11 +334,19 @@ def test_decompose_action_list_returns_empty_for_none() -> None:
     assert _decompose_action_list(None) == []
 
 
-def test_decompose_action_list_skips_empty_and_non_dict_items() -> None:
-    """Empty / non-mapping list items are skipped without raising."""
-    assert _decompose_action_list([{}, 42, None, {"delay": "1s"}]) == [
-        ActionNode(action_id="delay", params={"id": "1s"}),
-    ]
+@pytest.mark.parametrize(
+    ("item", "shape"),
+    [
+        pytest.param({}, "empty entry", id="empty-mapping"),
+        pytest.param(None, "empty entry", id="null"),
+        pytest.param(42, "int", id="number"),
+        pytest.param([{"delay": "1s"}], "list", id="nested-list"),
+    ],
+)
+def test_decompose_action_list_refuses_an_item_it_cannot_represent(item: Any, shape: str) -> None:
+    """An entry the tree has no node for makes the automation read-only, not silently dropped."""
+    with pytest.raises(UnsupportedActionError, match=shape):
+        _decompose_action_list([{"delay": "1s"}, item])
 
 
 def test_decompose_action_list_reads_a_bare_string_as_that_action() -> None:
@@ -348,7 +357,7 @@ def test_decompose_action_list_reads_a_bare_string_as_that_action() -> None:
 def test_decompose_action_list_tagged_item_is_unsupported() -> None:
     """``- !include x.yaml`` makes the automation read-only instead of vanishing on save."""
     tagged = TaggedScalar(value="x.yaml", tag=Tag(suffix="!include"))
-    with pytest.raises(UnsupportedActionError):
+    with pytest.raises(UnsupportedActionError, match="!include tagged value"):
         _decompose_action_list([tagged])
 
 
