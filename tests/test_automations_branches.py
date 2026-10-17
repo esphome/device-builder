@@ -345,6 +345,13 @@ def test_decompose_action_list_reads_a_bare_string_as_that_action() -> None:
     assert _decompose_action_list(["script.stop"]) == [ActionNode(action_id="script.stop")]
 
 
+def test_decompose_action_list_tagged_item_is_unsupported() -> None:
+    """``- !include x.yaml`` makes the automation read-only instead of vanishing on save."""
+    tagged = TaggedScalar(value="x.yaml", tag=Tag(suffix="!include"))
+    with pytest.raises(UnsupportedActionError):
+        _decompose_action_list([tagged])
+
+
 def test_decompose_action_list_bare_unknown_string_is_a_passthrough() -> None:
     """An uncatalogued bare string item passes through like an uncatalogued mapping."""
     assert _decompose_action_list(["my_ext.go"]) == [
@@ -1619,7 +1626,6 @@ _CHOOSE_BODY = [
     {
         "if": ["wifi.connected", {"binary_sensor.is_on": "door"}],
         "then": [{"logger.log": "wifi"}],
-        "choice_id": "generated",
     },
     {"else": [{"logger.log": "neither"}]},
 ]
@@ -1658,6 +1664,7 @@ def test_decompose_choose_single_mapping_is_one_branch() -> None:
         pytest.param([{"else": [], "then": []}], id="else-with-then"),
         pytest.param([{"if": "api.connected"}], id="missing-then"),
         pytest.param([{"then": []}], id="missing-if"),
+        pytest.param([{"if": "api.connected", "then": [], "choice_id": "x"}], id="extra-key"),
         pytest.param(["api.connected"], id="scalar-entry"),
     ],
 )

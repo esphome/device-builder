@@ -1535,6 +1535,36 @@ def test_build_automations_list_body_without_a_choice_shape_has_no_branches(
     assert many["accepts_action_list"] == ["then"]
 
 
+def test_build_automations_fails_on_an_undetected_choice_shape(tmp_path: Path) -> None:
+    """A list action pairing ``if`` with ``then`` that is not a branch list stops the sync."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {
+                    "odd": {
+                        "is_list": True,
+                        "schema": {
+                            "config_vars": {
+                                "if": {"docs": "A condition."},
+                                "then": _THEN_VAR,
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "odd docs.",
+                    },
+                },
+                "condition": {},
+            },
+        },
+    )
+    with pytest.raises(RuntimeError, match="not a branch list"):
+        sync_components.build_automations(
+            restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+        )
+
+
 def test_build_automations_extracts_script_on_stop_trigger(tmp_path: Path) -> None:
     """``script.on_stop`` is a component trigger scoped to ``script`` items."""
     schema_dir = _write_schema(

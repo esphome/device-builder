@@ -139,6 +139,9 @@ def _decompose_action_list(body: Any) -> list[ActionNode]:
     items = body if isinstance(body, list) else [body]
     out: list[ActionNode] = []
     for raw_item in items:
+        if isinstance(raw_item, TaggedScalar):
+            msg = "Action list item uses a YAML tag the editor cannot represent"
+            raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
         # ``- script.stop``: a bare string is that action with an empty body.
         item = {raw_item: None} if isinstance(raw_item, str) else raw_item
         if not isinstance(item, dict) or not item:
@@ -293,9 +296,9 @@ def _decompose_branches(
                 raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
             else_actions = _decompose_action_list(item[BRANCH_ELSE_KEY])
             continue
-        if BRANCH_CONDITION_KEY not in item or BRANCH_ACTIONS_KEY not in item:
+        if set(item) != {BRANCH_CONDITION_KEY, BRANCH_ACTIONS_KEY}:
             needed = f"{BRANCH_CONDITION_KEY!r} and {BRANCH_ACTIONS_KEY!r}"
-            msg = f"{action_id!r} entry {idx} needs {needed}"
+            msg = f"{action_id!r} entry {idx} takes exactly {needed}"
             raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
         branches.append(
             ChooseBranch(

@@ -10700,6 +10700,9 @@ def _convert_automation_action(
         schema, schema_dir
     )
     has_branches = bool(body.get("is_list")) and _is_branch_item_schema(schema, schema_dir)
+    if body.get("is_list") and not has_branches and _has_choice_keys(schema, schema_dir):
+        msg = f"{top_key}.{name}: list item pairs 'if' with 'then' but is not a branch list"
+        raise RuntimeError(msg)
     if has_branches:
         # The item keys are the branch shape, not fields; only ``else`` is an action list.
         config_entries = []
@@ -10755,6 +10758,14 @@ def _is_branch_item_schema(schema: dict | None, schema_dir: Path) -> bool:
     if not isinstance(cond, dict) or not isinstance(then, dict):
         return False
     return cond.get("registry") == "condition" and _is_action_list_var(then)
+
+
+def _has_choice_keys(schema: dict | None, schema_dir: Path) -> bool:
+    """Whether a list item schema carries both ``if`` and ``then`` keys, whatever their types."""
+    if not schema:
+        return False
+    merged = _merge_extends_config_vars(schema, schema_dir)[0]
+    return _BRANCH_CONDITION_KEY in merged and _BRANCH_ACTIONS_KEY in merged
 
 
 def _is_action_list_var(raw: dict) -> bool:
