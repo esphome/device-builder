@@ -4261,7 +4261,7 @@ _IF_ANY = (
 @pytest.mark.usefixtures("if_action_with_gate_keys")
 @pytest.mark.parametrize("gate", ["any", "all"])
 def test_if_combinator_gate_round_trips_byte_stable(gate: str) -> None:
-    """``any:`` stays ``any:`` on save (it used to come back as an AND ``condition:`` list)."""
+    """``any:`` stays ``any:`` on save."""
     text = _IF_ANY.replace("any:", f"{gate}:")
     parsed = parse_device_yaml(text)[0]
     new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
@@ -4362,6 +4362,21 @@ def test_upsert_script_drops_a_stale_on_stop_echoed_in_trigger_params() -> None:
     assert new_text.count("on_stop:") == 1
     assert "stale" not in new_text
     assert "switch.turn_off: relay" in new_text
+
+
+def test_upsert_mapping_form_script_keeps_its_on_stop_handler() -> None:
+    """A mapping-form ``script:`` block keeps ``on_stop`` through the listifying write."""
+    text = (
+        "esphome:\n  name: x\nscript:\n  id: alarm\n  on_stop:\n"
+        "    - switch.turn_off: relay\n  then:\n    - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    assert parsed.location == ScriptLocation(id="alarm")
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == (
+        "esphome:\n  name: x\nscript:\n  - id: alarm\n    on_stop:\n"
+        "      - switch.turn_off: relay\n    then:\n      - delay: 1s\n"
+    )
 
 
 @pytest.mark.usefixtures("synthetic_script_on_stop_trigger")

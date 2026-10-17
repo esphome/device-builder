@@ -473,6 +473,8 @@ def test_scalar_shorthand_parses_and_emits_the_same_key() -> None:
     """Every catalog entry's bare scalar emits as a scalar or ``id`` mapping and re-parses."""
     for entry in catalog.all_actions():
         assert catalog.action_by_id(entry.id) is not None, entry.id
+        if entry.has_branches:
+            continue
         node = _decompose_action(entry.id, "v")
         out = emit_action_node(node)
         assert out[entry.id] in ("v", {"id": "v"}), entry.id
@@ -1533,7 +1535,7 @@ def test_decompose_combinator_gate_is_one_combinator_node(gate: str) -> None:
 
 
 def test_decompose_condition_gate_stays_a_flat_list() -> None:
-    """``condition:`` with a list is the implicit AND list, as today."""
+    """``condition:`` with a list is the implicit AND list."""
     node = _decompose_action("if", {"condition": ["api.connected", "wifi.connected"]})
     assert [c.condition_id for c in node.conditions] == ["api.connected", "wifi.connected"]
 

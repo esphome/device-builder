@@ -53,9 +53,7 @@ from . import catalog
 from .parsing import make_yaml
 
 
-def render_script_item(
-    tree: AutomationTree, script_id: str, *, handlers: dict[str, Any] | None = None
-) -> str:
+def render_script_item(tree: AutomationTree, script_id: str, handlers: dict[str, Any]) -> str:
     """Render a single ``- id: ...`` script list item; *handlers* are its ``on_*`` blocks."""
     item = CommentedMap()
     item["id"] = script_id
@@ -63,8 +61,7 @@ def render_script_item(
         if key == "id" or is_trigger_key(str(key)):
             continue
         item[key] = encode_value(value)
-    for key, value in (handlers or {}).items():
-        item[key] = value
+    item.update(handlers)
     item["then"] = emit_action_seq(tree.actions)
     return dump([item])
 
@@ -196,14 +193,14 @@ def _emit_passthrough(node: ActionNode) -> CommentedMap | None:
 def _emit_gate(entry: AutomationAction | None, conditions: list[ConditionNode]) -> tuple[str, Any]:
     """Return a gate's ``(key, body)``; a lone ``all`` / ``any`` keeps its key where allowed."""
     gate_keys = entry.condition_gate_keys if entry is not None else []
-    if len(conditions) == 1:
-        head = conditions[0]
-        if (
-            head.condition_id in COMBINATOR_GATE_KEYS
-            and head.children
-            and head.condition_id in gate_keys
-        ):
-            return head.condition_id, emit_condition_seq(head.children)
+    head = conditions[0]
+    if (
+        len(conditions) == 1
+        and head.children
+        and head.condition_id in COMBINATOR_GATE_KEYS
+        and head.condition_id in gate_keys
+    ):
+        return head.condition_id, emit_condition_seq(head.children)
     return "condition", emit_condition_seq(conditions)
 
 

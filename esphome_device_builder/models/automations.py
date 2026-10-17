@@ -468,10 +468,10 @@ class ActionNode(DashboardModel):
     action (an ``all`` / ``any`` gate is one combinator node). ``branches``
     holds a ``has_branches`` action's choices; its ``else`` list rides in
     ``children``. ``unknown`` marks an uncatalogued action (an external
-    component's, or a typo):
-    ``raw_body`` holds its body so the emitter re-emits it (YAML tags
-    preserved; comments and exact formatting are not) while its siblings
-    stay editable, and the frontend renders it read-only in place.
+    component's, or a typo): ``raw_body`` holds its body so the emitter
+    re-emits it (YAML tags preserved; comments and exact formatting are
+    not) while its siblings stay editable, and the frontend renders it
+    read-only in place.
     """
 
     action_id: str

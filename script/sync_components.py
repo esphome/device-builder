@@ -10702,11 +10702,7 @@ def _convert_automation_action(
     has_branches = bool(body.get("is_list")) and _is_branch_item_schema(schema, schema_dir)
     if has_branches:
         # The item keys are the branch shape, not fields; only ``else`` is an action list.
-        config_entries = [
-            e
-            for e in config_entries
-            if e.get("key") != _BRANCH_CONDITION_KEY and not e.get("advanced")
-        ]
+        config_entries = []
         accepts_action_list = [k for k in accepts_action_list if k != _BRANCH_ACTIONS_KEY]
     # Stabilise the ordering — ``then`` always precedes ``else`` so
     # the wire shape doesn't churn across syncs.
@@ -10758,9 +10754,13 @@ def _is_branch_item_schema(schema: dict | None, schema_dir: Path) -> bool:
     then = merged.get(_BRANCH_ACTIONS_KEY)
     if not isinstance(cond, dict) or not isinstance(then, dict):
         return False
-    return cond.get("registry") == "condition" and (
-        then.get("type") == "trigger" or then.get("registry") == "action"
-    )
+    return cond.get("registry") == "condition" and _is_action_list_var(then)
+
+
+def _is_action_list_var(raw: dict) -> bool:
+    """Whether a config var takes an action list (a trigger or the action registry)."""
+    rtype = raw.get("type")
+    return rtype == "trigger" or (rtype == "registry" and raw.get("registry") == "action")
 
 
 def _convert_automation_condition(
@@ -11433,8 +11433,7 @@ def _extract_automation_param_schema(
             continue
         if _drop_opaque_key("", key, raw):
             continue
-        rtype = raw.get("type")
-        if rtype == "trigger" or (rtype == "registry" and raw.get("registry") == "action"):
+        if _is_action_list_var(raw):
             accepts_action_list.append(key)
             stripped.add(key)
         elif key in _CONDITION_GATE_KEYS:

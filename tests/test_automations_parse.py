@@ -25,7 +25,11 @@ from esphome_device_builder.controllers.automations.parsing import (
     resolve_component_target,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models.automations import ComponentOnLocation, ScriptLocation
+from esphome_device_builder.models.automations import (
+    ComponentOnLocation,
+    ParsedAutomation,
+    ScriptLocation,
+)
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
@@ -1203,8 +1207,7 @@ def test_parse_mapping_form_interval_and_script_as_one_entry_each() -> None:
 
 def test_parse_script_on_stop_is_not_a_trigger_param() -> None:
     """A script's ``on_stop`` is its own automation, so it leaves the script's params."""
-    rows = parse_device_yaml(_load("choose_on_stop.yaml"))
-    scripts = {p.location.id: p for p in rows if isinstance(p.location, ScriptLocation)}
+    scripts = _choose_on_stop_scripts()
     assert set(scripts) == {"self_stop", "script_1"}
     assert scripts["self_stop"].automation.trigger_params == {"id": "self_stop"}
     assert scripts["script_1"].automation.trigger_params == {}
@@ -1213,8 +1216,7 @@ def test_parse_script_on_stop_is_not_a_trigger_param() -> None:
 
 def test_parse_bare_script_stop_is_an_action() -> None:
     """``- script.stop`` and ``- script.stop:`` both parse to the id-less action."""
-    rows = parse_device_yaml(_load("choose_on_stop.yaml"))
-    scripts = {p.location.id: p for p in rows if isinstance(p.location, ScriptLocation)}
+    scripts = _choose_on_stop_scripts()
     if_node = scripts["self_stop"].automation.actions[1]
     assert [c.condition_id for c in if_node.conditions] == ["lambda"]
     assert [a.action_id for a in if_node.children["then"]] == ["script.stop"]
@@ -1252,9 +1254,7 @@ def test_parse_lists_script_on_stop_as_a_component_on_automation() -> None:
 @pytest.mark.usefixtures("synthetic_choose_action")
 def test_parse_choose_yields_branches() -> None:
     """A catalogued ``choose`` decomposes into branches with the ``else`` list on children."""
-    rows = parse_device_yaml(_load("choose_on_stop.yaml"))
-    script = next(p for p in rows if p.location == ScriptLocation(id="self_stop"))
-    choose = script.automation.actions[2]
+    choose = _choose_on_stop_scripts()["self_stop"].automation.actions[2]
     assert choose.action_id == "choose"
     assert choose.unknown is False
     assert [[c.condition_id for c in b.conditions] for b in choose.branches] == [
@@ -1266,3 +1266,9 @@ def test_parse_choose_yields_branches() -> None:
         "binary_sensor.is_on",
     ]
     assert [a.params for a in choose.children["else"]] == [{"format": "large"}]
+
+
+def _choose_on_stop_scripts() -> dict[str, ParsedAutomation]:
+    """Parse ``choose_on_stop.yaml`` and key its script rows by id."""
+    rows = parse_device_yaml(_load("choose_on_stop.yaml"))
+    return {p.location.id: p for p in rows if isinstance(p.location, ScriptLocation)}

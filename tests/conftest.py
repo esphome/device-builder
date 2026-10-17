@@ -1430,8 +1430,8 @@ def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def synthetic_choose_action(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Catalogue a branch-list ``choose`` action the way the 2026.11 sync will emit it."""
+def synthetic_choose_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Catalogue a branch-list ``choose`` action."""
     from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
     from esphome_device_builder.models.automations import AutomationAction  # noqa: PLC0415
 
@@ -1447,29 +1447,23 @@ def synthetic_choose_action(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         accepts_action_list=["else"],
     )
     monkeypatch.setattr(catalog, "_ALL_ACTION_IDS", catalog._ALL_ACTION_IDS | {"choose"})
-    catalog._ACTION_STORE.cache_put("choose", entry)
-    try:
-        yield
-    finally:
-        catalog._ACTION_STORE._cache.pop("choose", None)
+    monkeypatch.setitem(catalog._ACTION_STORE._cache, "choose", entry)
 
 
 @pytest.fixture
-def if_action_with_gate_keys() -> Iterator[None]:
-    """Give the shipped ``if`` body the ``condition_gate_keys`` the next catalog sync adds."""
+def if_action_with_gate_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the ``if`` body ``condition_gate_keys`` of ``condition`` / ``all`` / ``any``."""
     from dataclasses import replace  # noqa: PLC0415
 
     from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
 
     body = catalog.action_by_id("if")
     assert body is not None
-    catalog._ACTION_STORE.cache_put(
-        "if", replace(body, condition_gate_keys=["condition", "all", "any"])
+    monkeypatch.setitem(
+        catalog._ACTION_STORE._cache,
+        "if",
+        replace(body, condition_gate_keys=["condition", "all", "any"]),
     )
-    try:
-        yield
-    finally:
-        catalog._ACTION_STORE._cache.pop("if", None)
 
 
 @pytest.fixture

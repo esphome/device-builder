@@ -25,7 +25,7 @@ def test_gated_body_matches_its_index_row() -> None:
 
 
 def test_a_shipped_branch_list_action_binds_only_its_else_list() -> None:
-    """A ``has_branches`` action (``choose``, once synced) is ungated and lists only ``else``."""
+    """A ``has_branches`` action (``choose``) is ungated and lists only ``else``."""
     for action in catalog.all_actions():
         if not action.has_branches:
             continue
