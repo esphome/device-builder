@@ -4364,6 +4364,17 @@ def test_upsert_script_drops_a_stale_on_stop_echoed_in_trigger_params() -> None:
     assert "switch.turn_off: relay" in new_text
 
 
+def test_upsert_script_keeps_an_on_stop_written_after_then_in_place() -> None:
+    """An ``on_stop`` block below ``then`` stays below it, so the save diff stays small."""
+    text = (
+        "esphome:\n  name: x\nscript:\n  - id: alarm\n    then:\n      - delay: 1s\n"
+        "    on_stop:\n      - switch.turn_off: relay\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == text
+
+
 def test_upsert_mapping_form_script_keeps_its_on_stop_handler() -> None:
     """A mapping-form ``script:`` block keeps ``on_stop`` through the listifying write."""
     text = (

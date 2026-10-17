@@ -53,8 +53,10 @@ from . import catalog
 from .parsing import make_yaml
 
 
-def render_script_item(tree: AutomationTree, script_id: str, handlers: dict[str, Any]) -> str:
-    """Render a single ``- id: ...`` script list item; *handlers* are its ``on_*`` blocks."""
+def render_script_item(
+    tree: AutomationTree, script_id: str, handlers: dict[str, Any], trailing: dict[str, Any]
+) -> str:
+    """Render a ``- id: ...`` script item with its ``on_*`` blocks before and after ``then``."""
     item = CommentedMap()
     item["id"] = script_id
     for key, value in tree.trigger_params.items():
@@ -63,6 +65,7 @@ def render_script_item(tree: AutomationTree, script_id: str, handlers: dict[str,
         item[key] = encode_value(value)
     item.update(handlers)
     item["then"] = emit_action_seq(tree.actions)
+    item.update(trailing)
     return dump([item])
 
 
