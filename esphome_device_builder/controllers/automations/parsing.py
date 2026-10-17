@@ -234,9 +234,15 @@ def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
     return _parse_automation_list(
         scripts,
         describe=_describe,
-        params_of=partial(_collect_block_params, action_list_keys={"then"}),
+        params_of=_script_item_params,
         range_of=range_of,
     )
+
+
+def _script_item_params(item: dict[str, Any]) -> dict[str, Any]:
+    """Return a script item's params: everything but ``then`` and its ``on_*`` automations."""
+    params = _collect_block_params(item, action_list_keys={"then"})
+    return {k: v for k, v in params.items() if not is_trigger_key(str(k))}
 
 
 def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:

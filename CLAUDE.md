@@ -247,6 +247,21 @@ against legacy behaviour before assuming the simpler version suffices.
 - **WS-first API.** Real-time updates are the default — clients
   `subscribe_events` once and get pushes. REST is only kept for HA
   backward compat in `api/legacy.py`.
+- **Automation condition gates and `choose` branches are catalog-driven.**
+  The parser (`controllers/automations/_decompose.py`) reads every gate
+  spelling: `condition:` is the AND list, `all:` / `any:` become one
+  combinator `ConditionNode`, and a single catalogued condition id written
+  directly under a `has_condition_gate` action is the gate. The emitter
+  writes `condition:` unless the lone combinator's key is in the entry's
+  `condition_gate_keys` (bundle-derived; only `if` takes `all` / `any`).
+  A `has_branches` action (`choose`) carries `ActionNode.branches`
+  (`{conditions, actions}` per choice) with its `else` list in
+  `children`; the sync derives the flag from a list-bodied action whose
+  item schema pairs an `if` condition with a `then` action list, never
+  from the id. A bare string action item (`- script.stop`) is that action
+  with an empty body. A script item's `on_*` keys (`on_stop`) are not its
+  `trigger_params`: they are `component_on` automations of the script
+  instance, and `_upsert_script` carries the existing ones over verbatim.
 - **Stateful lists ship through subscribe_events, not a `list_*` WS
   command.** Any per-session list whose contents mutate over a connected
   client's lifetime (devices, importable devices, offloader pairings,

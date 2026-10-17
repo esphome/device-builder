@@ -14,6 +14,14 @@ TRIGGER_KEY_PREFIXES: tuple[str, ...] = ("on_",)
 # Action-body keys that introduce a condition gate rather than plain params.
 CONDITION_GATE_KEYS: frozenset[str] = frozenset({"condition", "all", "any"})
 
+# Gate keys that are a combinator over their list (``any:`` is OR); ``condition:`` is AND.
+COMBINATOR_GATE_KEYS: frozenset[str] = frozenset({"all", "any"})
+
+# Keys of one ``{if, then}`` choice in a branch-list action (``choose``).
+BRANCH_CONDITION_KEY = "if"
+BRANCH_ACTIONS_KEY = "then"
+BRANCH_ELSE_KEY = "else"
+
 # Fallback collapse key for an entry with no usable scalar shorthand.
 DEFAULT_SHORTHAND_KEY = "id"
 

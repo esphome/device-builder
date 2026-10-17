@@ -17,8 +17,10 @@ value re-emits its tag (see :func:`emitter.encode_value`).
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from ...helpers.api import CommandError
+from ...helpers.automation_keys import is_trigger_key
 from ...helpers.yaml import (
     SubEntityRef,
     YamlUpsertNotSupportedError,
@@ -156,9 +158,21 @@ def _upsert_script(
     tree: AutomationTree,
     location: ScriptLocation,
 ) -> tuple[str, YamlDiff]:
-    """Splice or replace a top-level ``script:`` list item."""
-    rendered = render_script_item(tree, location.id)
+    """Splice or replace a top-level ``script:`` list item, keeping its ``on_*`` handlers."""
+    rendered = render_script_item(
+        tree, location.id, handlers=_script_item_handlers(yaml_text, location.id)
+    )
     return _upsert_top_level_list(yaml_text, "script", rendered, location.id)
+
+
+def _script_item_handlers(yaml_text: str, script_id: str) -> dict[str, Any]:
+    """Return the ``on_*`` entries of the script item listed as *script_id*, in document order."""
+    idx = _top_level_item_index(yaml_text, "script", script_id)
+    if idx is None:
+        return {}
+    data = make_yaml().load(yaml_text) or {}
+    item = data["script"][idx]
+    return {str(k): v for k, v in item.items() if is_trigger_key(str(k))}
 
 
 def _upsert_interval(

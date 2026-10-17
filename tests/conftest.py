@@ -1429,6 +1429,77 @@ def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
 
 
+@pytest.fixture
+def synthetic_choose_action(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Catalogue a branch-list ``choose`` action the way the 2026.11 sync will emit it."""
+    from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
+    from esphome_device_builder.models.automations import AutomationAction  # noqa: PLC0415
+
+    entry = AutomationAction(
+        id="choose",
+        name="Choose",
+        description="",
+        docs_url="",
+        domain="core",
+        is_control_flow=True,
+        has_else_branch=True,
+        has_branches=True,
+        accepts_action_list=["else"],
+    )
+    monkeypatch.setattr(catalog, "_ALL_ACTION_IDS", catalog._ALL_ACTION_IDS | {"choose"})
+    catalog._ACTION_STORE.cache_put("choose", entry)
+    try:
+        yield
+    finally:
+        catalog._ACTION_STORE._cache.pop("choose", None)
+
+
+@pytest.fixture
+def if_action_with_gate_keys() -> Iterator[None]:
+    """Give the shipped ``if`` body the ``condition_gate_keys`` the next catalog sync adds."""
+    from dataclasses import replace  # noqa: PLC0415
+
+    from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
+
+    body = catalog.action_by_id("if")
+    assert body is not None
+    catalog._ACTION_STORE.cache_put(
+        "if", replace(body, condition_gate_keys=["condition", "all", "any"])
+    )
+    try:
+        yield
+    finally:
+        catalog._ACTION_STORE._cache.pop("if", None)
+
+
+@pytest.fixture
+def synthetic_script_on_stop_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Catalogue a ``script.on_stop`` trigger scoped to ``script`` items."""
+    from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
+    from esphome_device_builder.models.automations import AutomationTrigger  # noqa: PLC0415
+
+    trigger = AutomationTrigger(
+        id="script.on_stop",
+        name="Script → On Stop",
+        description="",
+        docs_url="",
+        applies_to=["script"],
+    )
+    real_hosts = catalog.hosts_component_triggers
+    real_resolve = catalog.resolve_component_trigger
+
+    def hosts(domain: str, catalog_id: str | None) -> bool:
+        return domain == "script" or real_hosts(domain, catalog_id)
+
+    def resolve(catalog_id: str | None, domain: str, key: str) -> AutomationTrigger | None:
+        if domain == "script" and key == "on_stop":
+            return trigger
+        return real_resolve(catalog_id, domain, key)
+
+    monkeypatch.setattr(catalog, "hosts_component_triggers", hosts)
+    monkeypatch.setattr(catalog, "resolve_component_trigger", resolve)
+
+
 def apply_yaml_diff_like_frontend(text: str, from_line: int, to_line: int, replacement: str) -> str:
     """Apply a YamlDiff splice exactly as the frontend ``applyYamlDiff`` does."""
     lines = text.split("\n")

@@ -153,7 +153,15 @@ _ACTION = closed_object(
             "Control flow branches: a branch name such as 'then' or 'else' mapped to a list "
             "of actions shaped like this item."
         ),
-        "conditions": prop("array", "The boolean gate of an if or wait_until.", items=_CONDITION),
+        "conditions": prop(
+            "array", "The boolean gate of an if, while or wait_until.", items=_CONDITION
+        ),
+        "branches": prop(
+            "array",
+            "A choose action's ordered choices, each {conditions: [...], actions: [...]}; its "
+            "default list is children.else.",
+            items=open_object("A choose branch."),
+        ),
         "unknown": prop(
             "boolean",
             "True for an uncatalogued action, such as an external component's: raw_body is "

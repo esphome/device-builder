@@ -128,6 +128,12 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 )
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    BRANCH_ACTIONS_KEY as _BRANCH_ACTIONS_KEY,
+)
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    BRANCH_CONDITION_KEY as _BRANCH_CONDITION_KEY,
+)
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
     CONDITION_GATE_KEYS as _CONDITION_GATE_KEYS,
 )
 from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
@@ -10690,16 +10696,30 @@ def _convert_automation_action(
         return None
     docs = clean_docs(body.get("docs"))
     schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
-    config_entries, accepts_action_list, has_condition_gate = _extract_automation_param_schema(
+    config_entries, accepts_action_list, condition_gate_keys = _extract_automation_param_schema(
         schema, schema_dir
     )
+    has_branches = bool(body.get("is_list")) and _is_branch_item_schema(schema, schema_dir)
+    if has_branches:
+        # The item keys are the branch shape, not fields; only ``else`` is an action list.
+        config_entries = [
+            e
+            for e in config_entries
+            if e.get("key") != _BRANCH_CONDITION_KEY and not e.get("advanced")
+        ]
+        accepts_action_list = [k for k in accepts_action_list if k != _BRANCH_ACTIONS_KEY]
     # Stabilise the ordering — ``then`` always precedes ``else`` so
     # the wire shape doesn't churn across syncs.
     accepts_action_list = sorted(
         accepts_action_list,
         key=lambda k: (k != "then", k),
     )
-    is_control_flow = any(k in _ACTION_LIST_KEYS for k in accepts_action_list) or has_condition_gate
+    has_condition_gate = bool(condition_gate_keys)
+    is_control_flow = (
+        any(k in _ACTION_LIST_KEYS for k in accepts_action_list)
+        or has_condition_gate
+        or has_branches
+    )
     has_else_branch = "else" in (accepts_action_list or [])
     qualified = f"{wire_prefix}.{name}" if top_key != "core" else name
     config_entries, scalar_shorthand_key = _resolve_automation_lambda(
@@ -10721,10 +10741,26 @@ def _convert_automation_action(
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
         "has_condition_gate": has_condition_gate,
+        "condition_gate_keys": condition_gate_keys,
+        "has_branches": has_branches,
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
         **_scalar_body_fields(schema, body),
     }
+
+
+def _is_branch_item_schema(schema: dict | None, schema_dir: Path) -> bool:
+    """Whether a list item schema is a ``{if: <condition>, then: <actions>}`` choice."""
+    if not schema:
+        return False
+    merged = _merge_extends_config_vars(schema, schema_dir)[0]
+    cond = merged.get(_BRANCH_CONDITION_KEY)
+    then = merged.get(_BRANCH_ACTIONS_KEY)
+    if not isinstance(cond, dict) or not isinstance(then, dict):
+        return False
+    return cond.get("registry") == "condition" and (
+        then.get("type") == "trigger" or then.get("registry") == "action"
+    )
 
 
 def _convert_automation_condition(
@@ -11372,19 +11408,20 @@ def _extract_triggers_from_section(
 def _extract_automation_param_schema(
     schema: dict | None,
     schema_dir: Path,
-) -> tuple[list[dict], list[str], bool]:
+) -> tuple[list[dict], list[str], list[str]]:
     """
-    Convert a parameter ``schema`` to ``(config_entries, accepts_action_list, has_condition_gate)``.
+    Convert a parameter ``schema`` to ``(config_entries, accepts_action_list, condition_gate_keys)``.
 
-    ``accepts_action_list`` and ``has_condition_gate`` are stripped
-    from ``config_entries`` so the editor renders them as recursive
-    sub-trees instead of plain form fields.
+    Action-list keys and condition-gate keys are stripped from
+    ``config_entries`` so the editor renders them as recursive sub-trees
+    instead of plain form fields; the gate keys come back ordered
+    ``condition`` first.
     """
     if not schema:
-        return [], [], False
+        return [], [], []
     raw_entries = _convert_config_vars(schema, schema_dir)
     accepts_action_list: list[str] = []
-    has_condition_gate = False
+    condition_gate_keys: list[str] = []
     # ``_convert_config_vars`` skips ``on_*`` triggers and keeps ``then`` /
     # ``else`` as plain fields; walk the merged config_vars (``extends``
     # resolved, so ``http_request.get`` sees its inherited triggers) to
@@ -11404,10 +11441,11 @@ def _extract_automation_param_schema(
             # ``condition`` / ``all`` / ``any`` are boolean gates, never
             # user-typed values; strip by name since the schema tags them
             # inconsistently (``registry: condition`` or just a ``docs`` string).
-            has_condition_gate = True
+            condition_gate_keys.append(key)
             stripped.add(key)
     config_entries = [e for e in raw_entries if e.get("key") not in stripped]
-    return config_entries, accepts_action_list, has_condition_gate
+    condition_gate_keys.sort(key=lambda k: (k != "condition", k))
+    return config_entries, accepts_action_list, condition_gate_keys
 
 
 def _automation_label(domain: str, name: str, docs_name: str | None) -> str:

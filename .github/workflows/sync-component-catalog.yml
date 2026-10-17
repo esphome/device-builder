@@ -177,13 +177,15 @@ jobs:
           if git diff --quiet -- \
               esphome_device_builder/definitions/components.index.json \
               esphome_device_builder/definitions/components/ \
+              esphome_device_builder/definitions/automations.index.json \
+              esphome_device_builder/definitions/automations/ \
               esphome_device_builder/definitions/boards.index.json \
               esphome_device_builder/definitions/board_bodies/ \
               esphome_device_builder/definitions/featured_components.index.json \
               esphome_device_builder/definitions/migration_rules.index.json \
               esphome-constraints.txt \
               pyproject.toml \
-            && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/ esphome_device_builder/definitions/board_bodies/)" ]; then
+            && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/ esphome_device_builder/definitions/automations/ esphome_device_builder/definitions/board_bodies/)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
