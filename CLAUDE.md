@@ -421,8 +421,10 @@ against legacy behaviour before assuming the simpler version suffices.
   pair reachable along two placements stays inexpressible, and so does
   one whose legacy key a sibling `typed_schema` variant still declares
   anywhere the engine rewrites (the list items or the list's singleton
-  mapping form), accepts through `ALLOW_EXTRA`, an unreadable variant
-  or an unreadable value at or above that placement, or renames to a
+  mapping form), may accept it because the walk could not enumerate
+  its keys there (`ALLOW_EXTRA`, a validator-keyed mapping, a variant
+  or list item without a readable mapping, an unreadable value, or the
+  depth cap, each at or above that placement), or renames to a
   different target at the same placement (no rule carries the `type:`
   discriminator, so it would respell a valid config). A legacy key declared on the mapping the rename sits on
   (api's `cv.Exclusive(services)`) is fine. Data-driven pairs get the migration leg *only*:

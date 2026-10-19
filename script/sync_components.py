@@ -10020,6 +10020,9 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
             continue
         if depth > 10:
             capped = True
+            # Unseen content may accept any key at this placement.
+            if path is not None:
+                declared.setdefault((path, lineage), set()).add(_ANY_KEY)
             continue
         hit = _rename_key_pair(node)
         if hit is not None:
@@ -10070,9 +10073,10 @@ def _declare_keys(
     """
     Record the keys *node* declares at its placement, for the sibling-variant guard.
 
-    A mapping allowing extra keys, a ``typed_schema`` variant the walk
-    can't read, or a key whose value it can't read owns every key
-    beneath it (``_ANY_KEY``).
+    A mapping allowing extra keys or keyed by a validator, a
+    ``typed_schema`` variant without a mapping the walk can read, or a
+    key or list item whose value it can't read owns every key beneath
+    it (``_ANY_KEY``).
     """
     keys = declared.setdefault((path, lineage), set())
     keys.update(
@@ -10080,17 +10084,33 @@ def _declare_keys(
         for _child, segment, _variant in children
         if segment and segment != _LIST_ITEM_SEGMENT
     )
-    if isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA:
+    if (isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA) or any(
+        segment is None for _child, segment, _variant in children
+    ):
         keys.add(_ANY_KEY)
     for child, segment, variant in children:
-        if _is_rename_walk_schema(child):
-            continue
         if variant:
-            declared.setdefault((path, (*lineage, variant)), set()).add(_ANY_KEY)
-        elif segment and segment != _LIST_ITEM_SEGMENT:
-            child_path = _extend_rename_path(path, segment)
-            if child_path is not None:
-                declared.setdefault((child_path, lineage), set()).add(_ANY_KEY)
+            if not _declares_mapping(child):
+                declared.setdefault((path, (*lineage, variant)), set()).add(_ANY_KEY)
+            continue
+        if not segment:
+            continue
+        readable = _declares_mapping if segment == _LIST_ITEM_SEGMENT else _is_rename_walk_schema
+        if readable(child):
+            continue
+        child_path = _extend_rename_path(path, segment)
+        if child_path is not None:
+            declared.setdefault((child_path, lineage), set()).add(_ANY_KEY)
+
+
+def _declares_mapping(node: Any, depth: int = 0) -> bool:
+    """Report whether *node* is a mapping or carries one on its validator chain."""
+    if isinstance(node, dict) or isinstance(getattr(node, "schema", None), dict):
+        return True
+    validators = getattr(node, "validators", None)
+    if depth >= 10 or not isinstance(validators, (list, tuple)):
+        return False
+    return any(_declares_mapping(child, depth + 1) for child in validators)
 
 
 def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None) -> str | None:
