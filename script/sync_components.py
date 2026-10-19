@@ -10338,8 +10338,12 @@ def _closure_removed_in(node: Any, *, required: bool = False) -> str | None:
     return None
 
 
+#: ``__qualname__`` prefixes of the migration validators the walks hunt.
+_MIGRATION_VALIDATOR_PREFIXES = ("rename_key.", "migrate_channel_colors.")
+
+
 def _closure_schemas(node: Any) -> Iterator[tuple[Any, None]]:
-    """Yield the schema-shaped values a wrapper closure holds."""
+    """Yield the schema-shaped values and bare migration validators a wrapper closure holds."""
     try:
         nonlocals = _closure_nonlocals(node)
     except ValueError:
@@ -10349,6 +10353,10 @@ def _closure_schemas(node: Any) -> Iterator[tuple[Any, None]]:
             isinstance(value, _RENAME_SCHEMA_TYPES)
             or isinstance(getattr(value, "validators", None), (list, tuple))
             or _is_rename_wrapper(value)
+            or (
+                isinstance(value, FunctionType)
+                and value.__qualname__.startswith(_MIGRATION_VALIDATOR_PREFIXES)
+            )
         ):
             yield value, None
 

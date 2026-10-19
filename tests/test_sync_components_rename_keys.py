@@ -617,6 +617,23 @@ def test_wrapper_with_a_renamed_freevar_still_reaches_the_canary(cv: ModuleType)
         }, qualname
 
 
+def test_wrapper_with_a_renamed_freevar_holding_a_bare_rename_reaches_the_canary(
+    cv: ModuleType,
+) -> None:
+    """The generic closure scan must not drop a validator held outside any schema."""
+    wrapper = _wrapper_holding(
+        "ensure_list.<locals>.validator", cv.rename_key("old_name", "new_name")
+    )
+    schema = cv.Schema({cv.Optional("items"): wrapper})
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_wrapper_with_a_renamed_freevar_holding_a_bare_fold_is_nested(cv: ModuleType) -> None:
+    wrapper = _wrapper_holding("ensure_list.<locals>.validator", _fold_validator())
+    schema = cv.Schema({cv.Optional("strips"): wrapper})
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
+
+
 def test_variant_without_a_mapping_makes_its_siblings_renames_inexpressible(
     cv: ModuleType,
 ) -> None:
