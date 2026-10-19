@@ -430,7 +430,9 @@ against legacy behaviour before assuming the simpler version suffices.
   through a pair that is itself inexpressible (no rule carries the
   `type:` discriminator, so it would respell a valid config). A legacy
   key declared on the mapping the rename sits on (api's
-  `cv.Exclusive(services)`) is fine. Data-driven pairs get the migration leg *only*:
+  `cv.Exclusive(services)`) is fine, and so is one a variant or
+  alternative beneath the rename's own chain declares, since the
+  rename applies to all of them. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
   respell (those remain bespoke-only). The block rule handles both the
@@ -472,7 +474,9 @@ against legacy behaviour before assuming the simpler version suffices.
   or inside one `typed_schema` variant (the fold has no sibling-variant
   guard), fails the sync. A rename wrapper whose named closure variable
   moved upstream degrades to a generic closure scan, so the pairs under
-  it reach the canary as inexpressible instead of vanishing. **Every rule is version-gated.** One catalog serves
+  it reach the canary as inexpressible instead of vanishing, and one
+  whose closure can't be read at all fails the sync through a sentinel
+  pair, like an unreadable `rename_key`. **Every rule is version-gated.** One catalog serves
   every installed esphome, so a rule carries `since` (the first esphome
   the sync saw it against — stamped on first sight and carried over
   from the committed artifact on every re-sync, never re-derived) and

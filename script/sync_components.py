@@ -10024,7 +10024,7 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
             if path is not None:
                 declared.setdefault((path, lineage), set()).add(_ANY_KEY)
             continue
-        hit = _rename_key_pair(node)
+        hit = _rename_key_pair(node) or _unreadable_wrapper_pair(node)
         if hit is not None:
             old_key, new_key, removed_in = hit
             pair = (old_key, new_key)
@@ -10043,13 +10043,8 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
         if path is not None:
             _declare_keys(declared, node, path, lineage, children)
         stack.extend(
-            (
-                child,
-                depth + 1,
-                _extend_rename_path(path, segment),
-                (*lineage, variant) if variant else lineage,
-            )
-            for child, segment, variant in children
+            (child, depth + 1, child_path, child_lineage)
+            for child, child_path, child_lineage in _child_placements(path, lineage, children)
         )
     if capped:
         _LOGGER.warning("rename_key walk hit the depth cap; coverage may be incomplete")
@@ -10061,6 +10056,20 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
     _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
+
+
+def _child_placements(
+    path: RenamePath, lineage: Lineage, children: list[tuple[Any, str | None, str | None]]
+) -> Iterator[tuple[Any, RenamePath, Lineage]]:
+    """Yield each child with its placement and lineage; the lineage is dropped with the placement."""
+    for child, segment, variant in children:
+        child_path = _extend_rename_path(path, segment)
+        if child_path is None:
+            yield child, None, ()
+        elif variant:
+            yield child, child_path, (*lineage, variant)
+        else:
+            yield child, child_path, lineage
 
 
 def _declare_keys(
@@ -10166,7 +10175,8 @@ def _sole_placement(
     occurrence), and so is a placement where a sibling ``typed_schema``
     variant still declares *old_key* anywhere the engine rewrites (the
     list items or the list's singleton mapping form), or accepts any
-    key at or above it (a rule would respell a valid config).
+    key at or above it (a rule would respell a valid config). A
+    declaration beneath the rename's own lineage is covered by it.
     """
     paths = {path for path, _lineage in placements}
     if len(paths) != 1:
@@ -10178,7 +10188,7 @@ def _sole_placement(
     rewritten = _rewrite_scope(path)
     prefixes = {path[:depth] for depth in range(len(path) + 1)}
     for (declared_path, lineage), keys in declared.items():
-        if lineage in lineages:
+        if any(lineage[: len(own)] == own for own in lineages):
             continue
         if (declared_path in rewritten and old_key in keys) or (
             declared_path in prefixes and _ANY_KEY in keys
@@ -10306,6 +10316,17 @@ def _rename_key_pair(node: Any) -> tuple[str, str, str | None] | None:
     if isinstance(old_key, str) and isinstance(new_key, str):
         return old_key, new_key, _closure_removed_in(node)
     return "<unreadable rename_key>", "<unreadable rename_key>", None
+
+
+def _unreadable_wrapper_pair(node: Any) -> tuple[str, str, None] | None:
+    """Sentinel pair for a rename wrapper whose closure can't be read, so its subtree fails loud."""
+    if not _is_rename_wrapper(node):
+        return None
+    try:
+        _closure_nonlocals(node)
+    except ValueError:
+        return "<unreadable wrapper closure>", "<unreadable wrapper closure>", None
+    return None
 
 
 def _closure_removed_in(node: Any, *, required: bool = False) -> str | None:

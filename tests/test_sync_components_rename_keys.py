@@ -363,6 +363,22 @@ def test_variants_renaming_one_legacy_key_to_different_targets_are_inexpressible
     }
 
 
+def test_variants_under_an_unconditional_rename_stay_direct(cv: ModuleType) -> None:
+    """A rename on the chain above the variants applies to every one of them."""
+    schema = cv.All(
+        cv.rename_key("old_name", "new_name"),
+        cv.typed_schema(
+            {
+                "both": cv.Schema(
+                    {cv.Optional("old_name"): cv.string, cv.Optional("new_name"): cv.string}
+                ),
+                "open": cv.Schema({}, extra=cv.ALLOW_EXTRA),
+            }
+        ),
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
 def test_variants_sharing_one_rename_stay_direct(cv: ModuleType) -> None:
     schema = cv.typed_schema({"a": _renamed_item(cv), "b": _renamed_item(cv)})
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
@@ -577,6 +593,16 @@ def test_unreadable_wrapper_closures_yield_no_children(cv: ModuleType) -> None:
         sync_components._typed_schema_variants(_unbound_closure("typed_schema.<locals>.validator"))
         is None
     )
+
+
+def test_unreadable_wrapper_closure_reaches_the_canary(cv: ModuleType) -> None:
+    """The pairs beneath an unreadable wrapper can't be seen, so the sync must not pass clean."""
+    sentinel = "<unreadable wrapper closure>"
+    for qualname in ("ensure_list.<locals>.validator", "typed_schema.<locals>.validator"):
+        schema = cv.Schema({cv.Optional("items"): _unbound_closure(qualname)})
+        assert _collect_rename_keys(_manifest(schema)) == {
+            (sentinel, sentinel): SchemaHit(("items",))
+        }, qualname
 
 
 def test_closure_less_ensure_list_wrapper_yields_no_children() -> None:
