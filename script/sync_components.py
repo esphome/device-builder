@@ -10095,7 +10095,7 @@ def _declare_keys(
         for _child, segment, _variant in children
         if segment and segment != _LIST_ITEM_SEGMENT
     )
-    if (isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA) or any(
+    if (isinstance(node, vol.Schema) and node.extra != vol.PREVENT_EXTRA) or any(
         segment is None for _child, segment, _variant in children
     ):
         keys.add(_ANY_KEY)
@@ -10269,6 +10269,10 @@ def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
                 break
             found = SchemaHit((), removed_in)
             continue
+        # A fold beneath a wrapper the walk can't read would vanish.
+        if _unreadable_wrapper_pair(node) is not None:
+            found = SchemaHit(None)
+            break
         # Keyed on placement too, so a node reachable both directly and
         # nested votes on both paths instead of by pop order.
         if (id(node), direct) in visited:

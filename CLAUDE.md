@@ -422,8 +422,9 @@ against legacy behaviour before assuming the simpler version suffices.
   one whose legacy key a sibling `typed_schema` variant or `cv.Any`
   alternative still declares anywhere the engine rewrites (the list
   items or the list's singleton mapping form), or may accept because
-  a placement at or above that scope owns every key: a mapping with
-  `ALLOW_EXTRA` or a validator key, or one the walk reached without
+  a placement at or above that scope owns every key: a mapping that
+  keeps or drops undeclared keys (`ALLOW_EXTRA`, `REMOVE_EXTRA`) or
+  has a validator key, or one the walk reached without
   ever enumerating its keys (an opaque value, an empty wrapper, the
   depth cap); so does a legacy key renamed to a different target
   anywhere in that rewrite scope, even by a pair that is itself
@@ -474,8 +475,8 @@ against legacy behaviour before assuming the simpler version suffices.
   guard), fails the sync. A rename wrapper whose named closure variable
   moved upstream degrades to a generic closure scan, so the pairs under
   it reach the canary as inexpressible instead of vanishing, and one
-  whose closure can't be read at all fails the sync through a sentinel
-  pair, like an unreadable `rename_key`. **Every rule is version-gated.** One catalog serves
+  whose closure can't be read at all fails the sync in both walks: a
+  sentinel pair like an unreadable `rename_key`, and a nested fold. **Every rule is version-gated.** One catalog serves
   every installed esphome, so a rule carries `since` (the first esphome
   the sync saw it against — stamped on first sight and carried over
   from the committed artifact on every re-sync, never re-derived) and

@@ -10,6 +10,7 @@ from typing import Any
 
 import orjson
 import pytest
+import voluptuous as vol
 
 from esphome_device_builder import definitions
 from script import sync_components
@@ -457,18 +458,9 @@ def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: Modu
 
 def test_live_combination_sources_pair_ships_data_driven(cv: ModuleType) -> None:
     """The combination ``coeffecient`` rename emits a list-item rule, not a canary hit."""
-    from script.sync_components import (  # noqa: PLC0415
-        _enumerate_platform_manifests_by_domain,
-        _get_esphome_loader,
-    )
+    from esphome.components.combination import sensor as combination_sensor  # noqa: PLC0415
 
-    loader = _get_esphome_loader()
-    pairs = {
-        pair
-        for _domain, manifest in _enumerate_platform_manifests_by_domain(loader, "combination")
-        for pair in _collect_rename_keys(manifest)
-    }
-    if ("coeffecient", "coefficient") not in pairs:
+    if '"coeffecient"' not in inspect.getsource(combination_sensor):
         pytest.skip("installed esphome predates the combination coeffecient rename")
     introspect_component("combination")
     assert set() == _UNHANDLED_RENAME_KEYS
@@ -618,10 +610,10 @@ def test_variant_without_a_mapping_makes_its_siblings_renames_inexpressible(
         }
 
 
-def test_open_sibling_variant_makes_the_rename_inexpressible(cv: ModuleType) -> None:
-    schema = cv.typed_schema(
-        {"renamed": _renamed_item(cv), "open": cv.Schema({}, extra=cv.ALLOW_EXTRA)}
-    )
+@pytest.mark.parametrize("extra", [vol.ALLOW_EXTRA, vol.REMOVE_EXTRA])
+def test_open_sibling_variant_makes_the_rename_inexpressible(cv: ModuleType, extra: int) -> None:
+    """A mapping that keeps or drops undeclared keys accepts the legacy one without error."""
+    schema = cv.typed_schema({"renamed": _renamed_item(cv), "open": cv.Schema({}, extra=extra)})
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
 
 
@@ -936,6 +928,12 @@ def test_channel_colors_fold_under_a_typed_variant_is_nested(cv: ModuleType) -> 
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
     schema = cv.typed_schema({"strip": item})
     assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
+
+
+def test_unreadable_wrapper_closure_makes_the_fold_nested(cv: ModuleType) -> None:
+    """A fold beneath a wrapper the walk can't read must reach the canary, not vanish."""
+    schema = cv.Schema({cv.Optional("items"): _unbound_closure("ensure_list.<locals>.validator")})
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None)
 
 
 def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
