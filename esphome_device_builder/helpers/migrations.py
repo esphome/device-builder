@@ -421,6 +421,8 @@ def _respell_mapping_or_items(
                 fired.append(rule)
         return
     for item_start in top_list_item_starts(lines, key_idx, end):
+        if in_scalar[item_start]:
+            continue
         keys = _item_child_keys(lines, item_start, end, in_scalar)
         for rule in rules:
             if _respell_item_key(lines, keys, rule.old, rule.new):

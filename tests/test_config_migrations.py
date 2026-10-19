@@ -737,6 +737,10 @@ def test_list_item_rename_singleton_mapping_on_the_dash_line(generated_rules: Ru
             id="block_scalar",
         ),
         pytest.param("sensor:\n  - platform: combination\n    coeffecient: 1\n", id="list_absent"),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources: |-\n      - coeffecient: 2\n",
+            id="unfinished_block_scalar",
+        ),
     ],
 )
 def test_list_item_rename_leaves_non_matching_shapes_alone(
