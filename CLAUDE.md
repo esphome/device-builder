@@ -461,8 +461,11 @@ against legacy behaviour before assuming the simpler version suffices.
   validators on platform schemas and emits `platform_channel_colors`
   rules, so the fold stays dormant until the catalog syncs against a
   `channel_colors`-aware esphome and new adopting platforms join
-  without a code change; a fold validator outside a platform schema
-  fails the sync. **Every rule is version-gated.** One catalog serves
+  without a code change; a fold validator outside a platform schema,
+  or inside one `typed_schema` variant (the fold has no sibling-variant
+  guard), fails the sync. A rename wrapper whose named closure variable
+  moved upstream degrades to a generic closure scan, so the pairs under
+  it reach the canary as inexpressible instead of vanishing. **Every rule is version-gated.** One catalog serves
   every installed esphome, so a rule carries `since` (the first esphome
   the sync saw it against — stamped on first sight and carried over
   from the committed artifact on every re-sync, never re-derived) and

@@ -10206,9 +10206,11 @@ def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
         if (id(node), path) in visited:
             continue
         visited.add((id(node), path))
+        # The fold has no sibling-variant guard, so a variant-scoped
+        # fold stays nested rather than folding every variant's items.
         stack.extend(
-            (child, _extend_rename_path(path, segment))
-            for child, segment, _variant in _rename_walk_children(node)
+            (child, None if variant else _extend_rename_path(path, segment))
+            for child, segment, variant in _rename_walk_children(node)
         )
     _CHANNEL_COLORS_MEMO[id(schema)] = (schema, found)
     return found
@@ -10321,13 +10323,25 @@ def _rename_walk_children(node: Any) -> Iterator[tuple[Any, str | None, str | No
         for marker, value in schema.items():
             key = getattr(marker, "schema", marker)
             yield value, key if isinstance(key, str) and key else None, None
-    if not _is_rename_wrapper(node):
-        return
+    if _is_rename_wrapper(node):
+        yield from _rename_wrapper_children(node)
+
+
+def _rename_wrapper_children(node: Any) -> Iterator[tuple[Any, str | None, str | None]]:
+    """Yield a wrapper's children; an empty named read falls back to the generic closure scan."""
     segment, children = next(
         spec for prefix, spec in _RENAME_WRAPPERS.items() if node.__qualname__.startswith(prefix)
     )
+    found = False
     for child, variant in children(node):
+        found = True
         yield child, segment, variant
+    if found or children is _closure_schemas:
+        return
+    # The named freevar moved upstream: scan the closure generically so
+    # the pairs beneath still reach the canary as inexpressible.
+    for child, variant in _closure_schemas(node):
+        yield child, None, variant
 
 
 def _is_rename_walk_schema(value: Any) -> bool:

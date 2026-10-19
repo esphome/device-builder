@@ -424,6 +424,26 @@ def test_closure_less_ensure_list_wrapper_yields_no_children() -> None:
     assert list(_rename_walk_children(validator)) == []
 
 
+def _wrapper_holding(qualname: str, held: Any) -> Callable[[Any], Any]:
+    """Return a closure named as a *qualname* wrapper whose only freevar is misnamed ``held``."""
+
+    def validator(value: Any) -> Any:
+        return held
+
+    validator.__qualname__ = qualname
+    return validator
+
+
+def test_wrapper_with_a_renamed_freevar_still_reaches_the_canary(cv: ModuleType) -> None:
+    """A misnamed closure variable degrades to inexpressible instead of vanishing."""
+    for qualname in ("ensure_list.<locals>.validator", "typed_schema.<locals>.validator"):
+        wrapper = _wrapper_holding(qualname, _renamed_item(cv))
+        schema = cv.Schema({cv.Optional("items"): wrapper})
+        assert _collect_rename_keys(_manifest(schema)) == {
+            ("old_name", "new_name"): SchemaHit(None)
+        }, qualname
+
+
 def test_non_schema_typed_variant_is_skipped(cv: ModuleType) -> None:
     schema = cv.typed_schema({"renamed": _renamed_item(cv), "plain": cv.string})
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
@@ -724,6 +744,13 @@ def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType
 def test_channel_colors_fold_under_a_wrapper_is_nested(cv: ModuleType) -> None:
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
     schema = cv.Schema({cv.Optional("strips"): cv.ensure_list(item)})
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
+
+
+def test_channel_colors_fold_under_a_typed_variant_is_nested(cv: ModuleType) -> None:
+    """The fold has no sibling-variant guard, so a variant-scoped fold stays on the canary."""
+    item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
+    schema = cv.typed_schema({"strip": item})
     assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
 
 
