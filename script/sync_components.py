@@ -9628,9 +9628,11 @@ _TRANSPARENT_SEGMENT = ""
 _LIST_ITEM_SEGMENT = "[]"
 #: Declared-key marker for a placement that may accept any key.
 _ANY_KEY = "<any key>"
-#: Nesting depth the rename walk stops at; a placement it cut off there
-#: is never enumerated, so it owns every key.
-_RENAME_WALK_DEPTH = 10
+#: Nesting depth the rename walk stops at; a schema reaching it fails
+#: the sync through a sentinel pair, like an unreadable validator. Live
+#: schemas walk at most 24 deep.
+_RENAME_WALK_DEPTH = 32
+_DEPTH_CAPPED = "<schema past the depth cap>"
 
 #: The ``typed_schema`` variants and ``cv.Any`` alternatives a placement
 #: was reached through, as ``"<node id>:<type or index>"`` tags; a
@@ -10015,25 +10017,25 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
     declared: dict[tuple[RenamePath, Lineage], set[str]] = {}
     enumerated: set[tuple[RenamePath, Lineage]] = set()
     visited: set[tuple[int, RenamePath, Lineage]] = set()
-    capped = False
     stack: list[tuple[Any, int, RenamePath, Lineage]] = [(schema, 0, (), ())]
     while stack:
         node, depth, path, lineage = stack.pop()
         if node is None:
             continue
         if depth > _RENAME_WALK_DEPTH:
-            capped = True
-            if path is not None:
-                declared.setdefault((path, lineage), set())
-            continue
-        hit = _rename_key_pair(node) or _unreadable_wrapper_pair(node)
+            hit: tuple[str, str, str | None] | None = (_DEPTH_CAPPED, _DEPTH_CAPPED, None)
+        else:
+            hit = _rename_key_pair(node) or _unreadable_wrapper_pair(node)
         if hit is not None:
             old_key, new_key, removed_in = hit
             pair = (old_key, new_key)
             # Rename validators bypass the visited gate so a shared
-            # closure lets every path vote.
+            # closure lets every path vote; the placement still counts
+            # as reached, so a bare rename alone leaves it open.
             found.setdefault(pair, set()).add((path, lineage))
             removed[pair] = _merge_removed_in(pair, removed.get(pair), removed_in)
+            if path is not None:
+                declared.setdefault((path, lineage), set())
             continue
         # Keyed on placement too, so a node reachable along two paths
         # votes on both instead of by pop order.
@@ -10047,8 +10049,6 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
             (child, depth + 1, child_path, child_lineage)
             for child, child_path, child_lineage in _child_placements(path, lineage, children)
         )
-    if capped:
-        _LOGGER.warning("rename_key walk hit the depth cap; coverage may be incomplete")
     _open_unenumerated(declared, enumerated)
     paths = _sole_placements(found, declared)
     out = {pair: SchemaHit(paths[pair], removed[pair]) for pair in found}
@@ -10370,15 +10370,15 @@ def _ensure_list_items(node: Any) -> Iterator[tuple[Any, None]]:
 #: walking for migration validators, keyed on ``__qualname__`` prefix:
 #: the path segment the step adds (``None`` for a placement the
 #: migration engine can't address) and the reader yielding the
-#: children with their ``typed_schema`` variant tag. Descent is limited to these because a generic
-#: function-closure walk reaches the global automation registry and
-#: from there every loaded component's schema graph; every probe is
-#: also type-strict, because a codegen ``MockObj`` answers any getattr
-#: with a fresh truthy object (msa3xx's ``typed_schema`` enum hung an
-#: unrestricted walk).
-_RENAME_WRAPPERS: dict[
-    str, tuple[str | None, Callable[[Any], Iterator[tuple[Any, str | None]]]]
-] = {
+#: children with their ``typed_schema`` variant tag. Descent is limited
+#: to these because a generic function-closure walk reaches the global
+#: automation registry and from there every loaded component's schema
+#: graph; every probe is also type-strict, because a codegen ``MockObj``
+#: answers any getattr with a fresh truthy object (msa3xx's
+#: ``typed_schema`` enum hung an unrestricted walk).
+_RenameWrapperSpec = tuple[str | None, Callable[[Any], Iterator[tuple[Any, str | None]]]]
+
+_RENAME_WRAPPERS: dict[str, _RenameWrapperSpec] = {
     "validate_automation.": (None, _closure_schemas),
     "ensure_list.": (_LIST_ITEM_SEGMENT, _ensure_list_items),
     "typed_schema.": (_TRANSPARENT_SEGMENT, _typed_variant_schemas),
@@ -10387,8 +10387,6 @@ _RENAME_WRAPPERS: dict[
 
 
 _RENAME_WRAPPER_PREFIXES = tuple(_RENAME_WRAPPERS)
-
-_RenameWrapperSpec = tuple[str | None, Callable[[Any], Iterator[tuple[Any, str | None]]]]
 
 
 def _rename_wrapper_spec(node: Any) -> _RenameWrapperSpec | None:

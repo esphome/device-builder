@@ -298,21 +298,30 @@ def test_sibling_variant_with_unreadable_list_items_is_inexpressible(cv: ModuleT
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
 
 
-def test_depth_capped_sibling_variant_owns_every_key(cv: ModuleType) -> None:
-    """A variant the walk gave up on may still accept the legacy key, so no rule ships."""
+_DEPTH_CAPPED = "<schema past the depth cap>"
+
+
+def test_depth_capped_sibling_variant_owns_every_key_and_fails_the_sync(cv: ModuleType) -> None:
+    """A variant the walk gave up on may hide the legacy key, so the sentinel reaches the canary."""
     deep: Any = cv.Schema({cv.Optional("old_name"): cv.string})
-    for _level in range(12):
+    for _level in range(40):
         deep = cv.All(deep)
     schema = cv.typed_schema({"renamed": _renamed_item(cv), "deep": deep})
-    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        (_DEPTH_CAPPED, _DEPTH_CAPPED): SchemaHit(()),
+    }
 
 
 def test_depth_capped_content_beyond_the_rewrite_scope_keeps_the_rule(cv: ModuleType) -> None:
     deep: Any = cv.Schema({cv.Optional("old_name"): cv.string})
-    for level in range(12):
+    for level in range(40):
         deep = cv.Schema({cv.Optional(f"level{level}"): deep})
     schema = cv.typed_schema({"renamed": _renamed_item(cv), "deep": deep})
-    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(()),
+        (_DEPTH_CAPPED, _DEPTH_CAPPED): SchemaHit(None),
+    }
 
 
 def test_sibling_variant_using_the_legacy_key_elsewhere_stays_expressible(
@@ -342,6 +351,15 @@ def test_variants_renaming_one_legacy_key_to_different_targets_are_inexpressible
     assert _collect_rename_keys(_manifest(schema)) == {
         ("old_name", "new_name"): SchemaHit(None),
         ("old_name", "other_name"): SchemaHit(None),
+    }
+
+
+def test_bare_rename_sibling_variant_owns_every_key(cv: ModuleType) -> None:
+    """A variant that is only a rename validator passes every other key through."""
+    schema = cv.typed_schema({"renamed": _renamed_item(cv), "bare": cv.rename_key("x", "y")})
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("x", "y"): SchemaHit(()),
     }
 
 
@@ -460,7 +478,7 @@ def test_live_combination_sources_pair_ships_data_driven(cv: ModuleType) -> None
     """The combination ``coeffecient`` rename emits a list-item rule, not a canary hit."""
     from esphome.components.combination import sensor as combination_sensor  # noqa: PLC0415
 
-    if '"coeffecient"' not in inspect.getsource(combination_sensor):
+    if "rename_key" not in inspect.getsource(combination_sensor):
         pytest.skip("installed esphome predates the combination coeffecient rename")
     introspect_component("combination")
     assert set() == _UNHANDLED_RENAME_KEYS

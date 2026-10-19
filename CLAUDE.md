@@ -425,8 +425,8 @@ against legacy behaviour before assuming the simpler version suffices.
   a placement at or above that scope owns every key: a mapping that
   keeps or drops undeclared keys (`ALLOW_EXTRA`, `REMOVE_EXTRA`) or
   has a validator key, or one the walk reached without
-  ever enumerating its keys (an opaque value, an empty wrapper, the
-  depth cap); so does a legacy key renamed to a different target
+  ever enumerating its keys (an opaque value, an empty wrapper); so
+  does a legacy key renamed to a different target
   anywhere in that rewrite scope, even by a pair that is itself
   inexpressible (no rule carries the `type:` discriminator, so it
   would respell a valid config). A legacy key declared on the mapping
@@ -476,7 +476,8 @@ against legacy behaviour before assuming the simpler version suffices.
   moved upstream degrades to a generic closure scan, so the pairs under
   it reach the canary as inexpressible instead of vanishing, and one
   whose closure can't be read at all fails the sync in both walks: a
-  sentinel pair like an unreadable `rename_key`, and a nested fold. **Every rule is version-gated.** One catalog serves
+  sentinel pair like an unreadable `rename_key`, and a nested fold; a
+  schema nested past the rename walk's depth cap fails it the same way. **Every rule is version-gated.** One catalog serves
   every installed esphome, so a rule carries `since` (the first esphome
   the sync saw it against — stamped on first sight and carried over
   from the committed artifact on every re-sync, never re-derived) and
