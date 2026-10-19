@@ -416,8 +416,12 @@ against legacy behaviour before assuming the simpler version suffices.
   esphome/esphome#20159) ships the same way as a
   `platform_item_list_field` rule carrying the `list_key`; the walk
   reduces each validator's placements to `()`, `(key, "[]")` or
-  inexpressible, and a pair reachable along two placements stays
-  inexpressible. Data-driven pairs get the migration leg *only*:
+  inexpressible; a pair reachable along two placements stays
+  inexpressible, and so does one whose legacy key a sibling
+  `typed_schema` variant still declares as its own field (no rule
+  carries the `type:` discriminator, so it would respell a valid
+  config). A legacy key declared on the mapping the rename sits on
+  (api's `cv.Exclusive(services)`) is fine. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
   respell (those remain bespoke-only). The block rule handles both the
