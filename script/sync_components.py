@@ -9626,6 +9626,8 @@ RenamePath = tuple[str, ...] | None
 #: entry or a ``typed_schema`` variant), and of an ``ensure_list`` item.
 _TRANSPARENT_SEGMENT = ""
 _LIST_ITEM_SEGMENT = "[]"
+#: Declared-key marker for a mapping whose keys the walk can't enumerate.
+_ANY_KEY = "<any key>"
 
 #: The ``typed_schema`` variants a placement was reached through, as
 #: ``"<wrapper id>:<type>"`` tags; a sibling variant's mapping shares
@@ -10036,11 +10038,7 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
         visited.add((id(node), path, lineage))
         children = list(_rename_walk_children(node))
         if path is not None:
-            declared.setdefault((path, lineage), set()).update(
-                segment
-                for _child, segment, _variant in children
-                if segment and segment != _LIST_ITEM_SEGMENT
-            )
+            _declare_keys(declared, node, path, lineage, children)
         stack.extend(
             (
                 child,
@@ -10060,6 +10058,32 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
     _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
+
+
+def _declare_keys(
+    declared: dict[tuple[RenamePath, Lineage], set[str]],
+    node: Any,
+    path: RenamePath,
+    lineage: Lineage,
+    children: list[tuple[Any, str | None, str | None]],
+) -> None:
+    """
+    Record the keys *node* declares at its placement, for the sibling-variant guard.
+
+    A mapping allowing extra keys, or a ``typed_schema`` variant the walk
+    can't read, owns every key (``_ANY_KEY``).
+    """
+    keys = declared.setdefault((path, lineage), set())
+    keys.update(
+        segment
+        for _child, segment, _variant in children
+        if segment and segment != _LIST_ITEM_SEGMENT
+    )
+    if isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA:
+        keys.add(_ANY_KEY)
+    for child, _segment, variant in children:
+        if variant and not _is_rename_walk_schema(child):
+            declared.setdefault((path, (*lineage, variant)), set()).add(_ANY_KEY)
 
 
 def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None) -> str | None:
@@ -10107,8 +10131,8 @@ def _sole_placement(
 
     Mixed placement is inexpressible (a rule would cover only one
     occurrence), and so is a placement where a sibling ``typed_schema``
-    variant still declares *old_key* as its own field (a rule would
-    respell a valid config).
+    variant still declares *old_key* as its own field, or accepts any
+    key (a rule would respell a valid config).
     """
     paths = {path for path, _lineage in placements}
     if len(paths) != 1:
@@ -10116,7 +10140,7 @@ def _sole_placement(
     (path,) = paths
     lineages = {lineage for _path, lineage in placements}
     for (declared_path, lineage), keys in declared.items():
-        if declared_path == path and lineage not in lineages and old_key in keys:
+        if declared_path == path and lineage not in lineages and keys & {old_key, _ANY_KEY}:
             return None
     return path
 
@@ -10269,8 +10293,7 @@ def _closure_schemas(node: Any) -> Iterator[tuple[Any, None]]:
 def _typed_variant_schemas(node: Any) -> Iterator[tuple[Any, str]]:
     """Yield a ``typed_schema`` closure's variant schemas, each with its lineage tag."""
     for name, value in (_typed_schema_variants(node) or {}).items():
-        if _is_rename_walk_schema(value):
-            yield value, f"{id(node)}:{name}"
+        yield value, f"{id(node)}:{name}"
 
 
 def _ensure_list_items(node: Any) -> Iterator[tuple[Any, None]]:

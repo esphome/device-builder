@@ -444,8 +444,24 @@ def test_wrapper_with_a_renamed_freevar_still_reaches_the_canary(cv: ModuleType)
         }, qualname
 
 
-def test_non_schema_typed_variant_is_skipped(cv: ModuleType) -> None:
+def test_opaque_typed_variant_makes_its_siblings_renames_inexpressible(cv: ModuleType) -> None:
+    """A variant the walk can't read may accept the legacy key, so no rule may respell it."""
     schema = cv.typed_schema({"renamed": _renamed_item(cv), "plain": cv.string})
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_open_sibling_variant_makes_the_rename_inexpressible(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {"renamed": _renamed_item(cv), "open": cv.Schema({}, extra=cv.ALLOW_EXTRA)}
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_open_mapping_carrying_its_own_rename_stays_direct(cv: ModuleType) -> None:
+    schema = cv.All(
+        cv.Schema({cv.Optional("new_name"): cv.string}, extra=cv.ALLOW_EXTRA),
+        cv.rename_key("old_name", "new_name"),
+    )
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
 
 
