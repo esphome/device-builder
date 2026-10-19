@@ -9629,9 +9629,9 @@ _LIST_ITEM_SEGMENT = "[]"
 #: Declared-key marker for a mapping whose keys the walk can't enumerate.
 _ANY_KEY = "<any key>"
 
-#: The ``typed_schema`` variants a placement was reached through, as
-#: ``"<wrapper id>:<type>"`` tags; a sibling variant's mapping shares
-#: the path but not the lineage.
+#: The ``typed_schema`` variants and ``cv.Any`` alternatives a placement
+#: was reached through, as ``"<node id>:<type or index>"`` tags; a
+#: sibling's mapping shares the path but not the lineage.
 Lineage = tuple[str, ...]
 
 
@@ -10073,10 +10073,10 @@ def _declare_keys(
     """
     Record the keys *node* declares at its placement, for the sibling-variant guard.
 
-    A mapping allowing extra keys or keyed by a validator, a
-    ``typed_schema`` variant without a mapping the walk can read, or a
-    key or list item whose value it can't read owns every key beneath
-    it (``_ANY_KEY``).
+    A mapping allowing extra keys or keyed by a validator, a wrapper
+    yielding nothing, a variant or alternative, key or list item whose
+    value carries nothing the walk can read owns every key beneath it
+    (``_ANY_KEY``).
     """
     keys = declared.setdefault((path, lineage), set())
     keys.update(
@@ -10084,33 +10084,35 @@ def _declare_keys(
         for _child, segment, _variant in children
         if segment and segment != _LIST_ITEM_SEGMENT
     )
-    if (isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA) or any(
-        segment is None for _child, segment, _variant in children
+    if (
+        (isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA)
+        or (_is_rename_wrapper(node) and not children)
+        or any(segment is None for _child, segment, _variant in children)
     ):
         keys.add(_ANY_KEY)
     for child, segment, variant in children:
+        if _declares_keys(child):
+            continue
         if variant:
-            if not _declares_mapping(child):
-                declared.setdefault((path, (*lineage, variant)), set()).add(_ANY_KEY)
+            declared.setdefault((path, (*lineage, variant)), set()).add(_ANY_KEY)
             continue
-        if not segment:
-            continue
-        readable = _declares_mapping if segment == _LIST_ITEM_SEGMENT else _is_rename_walk_schema
-        if readable(child):
-            continue
-        child_path = _extend_rename_path(path, segment)
+        child_path = _extend_rename_path(path, segment) if segment else None
         if child_path is not None:
             declared.setdefault((child_path, lineage), set()).add(_ANY_KEY)
 
 
-def _declares_mapping(node: Any, depth: int = 0) -> bool:
-    """Report whether *node* is a mapping or carries one on its validator chain."""
-    if isinstance(node, dict) or isinstance(getattr(node, "schema", None), dict):
+def _declares_keys(node: Any, depth: int = 0) -> bool:
+    """Report whether *node* is a mapping or wrapper the walk reads keys off, or chains to one."""
+    if (
+        isinstance(node, dict)
+        or isinstance(getattr(node, "schema", None), dict)
+        or _is_rename_wrapper(node)
+    ):
         return True
     validators = getattr(node, "validators", None)
     if depth >= 10 or not isinstance(validators, (list, tuple)):
         return False
-    return any(_declares_mapping(child, depth + 1) for child in validators)
+    return any(_declares_keys(child, depth + 1) for child in validators)
 
 
 def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None) -> str | None:
@@ -10129,21 +10131,25 @@ def _sole_placements(
     """
     Return each pair's one placement, or ``None`` when no rule may respell it.
 
-    Two pairs renaming one legacy key to different targets at the same
-    placement (sibling ``typed_schema`` variants) both become ``None``: no
-    rule carries the discriminator, so the first would respell the other
-    variant's items to the wrong field.
+    Two pairs renaming one legacy key to different targets anywhere in
+    one rewrite scope (sibling ``typed_schema`` variants) both become
+    ``None``, whatever either pair's own placement resolves to: no rule
+    carries the discriminator, so the first would respell the other
+    variant's config to the wrong field.
     """
+    targets: dict[tuple[str, tuple[str, ...]], set[str]] = {}
+    for (old_key, new_key), (placements, _removed_in) in found.items():
+        for path, _lineage in placements:
+            for scope in _rewrite_scope(path):
+                targets.setdefault((old_key, scope), set()).add(new_key)
     paths = {
         pair: _sole_placement(pair[0], placements, declared)
         for pair, (placements, _removed_in) in found.items()
     }
-    targets: dict[tuple[str, RenamePath], set[str]] = {}
-    for (old_key, new_key), path in paths.items():
-        if path is not None:
-            targets.setdefault((old_key, path), set()).add(new_key)
     return {
-        pair: None if len(targets.get((pair[0], path), ())) > 1 else path
+        pair: None
+        if any(len(targets[(pair[0], scope)]) > 1 for scope in _rewrite_scope(path))
+        else path
         for pair, path in paths.items()
     }
 
@@ -10169,7 +10175,7 @@ def _sole_placement(
     if path is None:
         return None
     lineages = {lineage for _path, lineage in placements}
-    rewritten = {path[:1], path} if len(path) == 2 else {path}
+    rewritten = _rewrite_scope(path)
     prefixes = {path[:depth] for depth in range(len(path) + 1)}
     for (declared_path, lineage), keys in declared.items():
         if lineage in lineages:
@@ -10179,6 +10185,13 @@ def _sole_placement(
         ):
             return None
     return path
+
+
+def _rewrite_scope(path: RenamePath) -> set[tuple[str, ...]]:
+    """Every placement the engine respells for a rule at *path*; empty when inexpressible."""
+    if path is None:
+        return set()
+    return {path[:1], path} if len(path) == 2 else {path}
 
 
 def _extend_rename_path(path: RenamePath, segment: str | None) -> RenamePath:
@@ -10371,12 +10384,14 @@ def _rename_walk_children(node: Any) -> Iterator[tuple[Any, str | None, str | No
     *segment* is the path segment the step adds: a mapping key, the
     list-item marker, the empty transparent segment, or ``None`` for a
     placement the migration engine can't address. *variant* tags a
-    ``typed_schema`` variant's lineage, ``None`` elsewhere.
+    ``typed_schema`` variant's or ``cv.Any`` alternative's lineage,
+    ``None`` elsewhere.
     """
     validators = getattr(node, "validators", None)
     if isinstance(validators, (list, tuple)):
-        for child in validators:
-            yield child, _TRANSPARENT_SEGMENT, None
+        alternatives = isinstance(node, (vol.Any, vol.Union))
+        for index, child in enumerate(validators):
+            yield child, _TRANSPARENT_SEGMENT, f"{id(node)}:{index}" if alternatives else None
     schema = node if isinstance(node, dict) else getattr(node, "schema", None)
     if isinstance(schema, dict):
         for marker, value in schema.items():

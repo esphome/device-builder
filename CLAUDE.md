@@ -419,15 +419,18 @@ against legacy behaviour before assuming the simpler version suffices.
   inexpressible, and the engine respells the list's items and its
   singleton-mapping form alike (`ensure_list` takes one mapping); a
   pair reachable along two placements stays inexpressible, and so does
-  one whose legacy key a sibling `typed_schema` variant still declares
-  anywhere the engine rewrites (the list items or the list's singleton
-  mapping form), may accept it because the walk could not enumerate
-  its keys there (`ALLOW_EXTRA`, a validator-keyed mapping, a variant
-  or list item without a readable mapping, an unreadable value, or the
-  depth cap, each at or above that placement), or renames to a
-  different target at the same placement (no rule carries the `type:`
-  discriminator, so it would respell a valid config). A legacy key declared on the mapping the rename sits on
-  (api's `cv.Exclusive(services)`) is fine. Data-driven pairs get the migration leg *only*:
+  one whose legacy key a sibling `typed_schema` variant or `cv.Any`
+  alternative still declares anywhere the engine rewrites (the list
+  items or the list's singleton mapping form), may accept it because
+  the walk could not enumerate its keys there (`ALLOW_EXTRA`, a
+  validator-keyed mapping, a variant, alternative, key or list item
+  whose value chains to no mapping or wrapper, a wrapper yielding
+  nothing, or the depth cap, each at or above that placement), or
+  renames to a different target anywhere in that rewrite scope, even
+  through a pair that is itself inexpressible (no rule carries the
+  `type:` discriminator, so it would respell a valid config). A legacy
+  key declared on the mapping the rename sits on (api's
+  `cv.Exclusive(services)`) is fine. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
   respell (those remain bespoke-only). The block rule handles both the

@@ -204,6 +204,92 @@ def test_sibling_variant_with_an_unreadable_list_key_value_is_inexpressible(
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
 
 
+def test_sibling_variant_with_an_opaque_chain_list_key_value_is_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """A chain of plain validators under the list key may accept any mapping."""
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema({cv.Optional("items"): cv.All(lambda value: value)}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_wrapper_yielding_nothing_owns_every_key(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema(
+                {cv.Optional("items"): _wrapper_holding("ensure_list.<locals>.validator", 42)}
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_conflicting_target_in_the_singleton_mapping_form_voids_both(cv: ModuleType) -> None:
+    """The list rule also respells the singleton form, so a rename there conflicts."""
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "other": cv.Schema(
+                {
+                    cv.Optional("items"): cv.All(
+                        cv.Schema({cv.Optional("other_name"): cv.string}),
+                        cv.rename_key("old_name", "other_name"),
+                    )
+                }
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("old_name", "other_name"): SchemaHit(None),
+    }
+
+
+def test_conflicting_target_on_a_demoted_pair_still_voids(cv: ModuleType) -> None:
+    """A pair already inexpressible for mixed placement keeps blocking its rival."""
+    other = cv.All(
+        cv.Schema({cv.Optional("other_name"): cv.string}),
+        cv.rename_key("old_name", "other_name"),
+    )
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "other": cv.Schema(
+                {
+                    cv.Optional("items"): cv.ensure_list(other),
+                    cv.Optional("deeper"): cv.Schema({cv.Optional("items"): cv.ensure_list(other)}),
+                }
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("old_name", "other_name"): SchemaHit(None),
+    }
+
+
+def test_any_alternative_declaring_the_legacy_key_is_inexpressible(cv: ModuleType) -> None:
+    """A ``cv.Any`` alternative is a sibling the rule can't tell apart either."""
+    schema = cv.Any(_renamed_item(cv), cv.Schema({cv.Optional("old_name"): cv.string}))
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_scalar_any_alternative_is_inexpressible(cv: ModuleType) -> None:
+    schema = cv.Any(_renamed_item(cv), cv.string)
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_any_alternatives_sharing_one_rename_stay_direct(cv: ModuleType) -> None:
+    item = _renamed_item(cv)
+    schema = cv.Any(item, cv.All(item))
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
 def test_validator_keyed_sibling_variant_is_inexpressible(cv: ModuleType) -> None:
     schema = cv.typed_schema(
         {"renamed": _renamed_item(cv), "open": cv.Schema({cv.string: cv.string})}
