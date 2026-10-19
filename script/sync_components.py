@@ -9626,8 +9626,11 @@ RenamePath = tuple[str, ...] | None
 #: entry or a ``typed_schema`` variant), and of an ``ensure_list`` item.
 _TRANSPARENT_SEGMENT = ""
 _LIST_ITEM_SEGMENT = "[]"
-#: Declared-key marker for a mapping whose keys the walk can't enumerate.
+#: Declared-key marker for a placement that may accept any key.
 _ANY_KEY = "<any key>"
+#: Nesting depth the rename walk stops at; a placement it cut off there
+#: is never enumerated, so it owns every key.
+_RENAME_WALK_DEPTH = 10
 
 #: The ``typed_schema`` variants and ``cv.Any`` alternatives a placement
 #: was reached through, as ``"<node id>:<type or index>"`` tags; a
@@ -9718,15 +9721,13 @@ def _rename_rule_row(
     """Return the artifact row expressing *hit*'s placement, or ``None`` when no rule kind can."""
     if old == new:
         return None
-    if domain is None:
-        if hit.direct:
-            return MigrationRuleRow("component_block_field", old, new, component=component_id)
-        return None
     if hit.direct:
+        if domain is None:
+            return MigrationRuleRow("component_block_field", old, new, component=component_id)
         return MigrationRuleRow(
             "platform_item_field", old, new, domain=domain, platform=component_id
         )
-    if hit.list_key:
+    if domain is not None and hit.list_key:
         return MigrationRuleRow(
             "platform_item_list_field",
             old,
@@ -10009,8 +10010,10 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
     memoised = _RENAME_KEYS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    found: dict[tuple[str, str], tuple[set[tuple[RenamePath, Lineage]], str | None]] = {}
+    found: dict[tuple[str, str], set[tuple[RenamePath, Lineage]]] = {}
+    removed: dict[tuple[str, str], str | None] = {}
     declared: dict[tuple[RenamePath, Lineage], set[str]] = {}
+    enumerated: set[tuple[RenamePath, Lineage]] = set()
     visited: set[tuple[int, RenamePath, Lineage]] = set()
     capped = False
     stack: list[tuple[Any, int, RenamePath, Lineage]] = [(schema, 0, (), ())]
@@ -10018,21 +10021,19 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
         node, depth, path, lineage = stack.pop()
         if node is None:
             continue
-        if depth > 10:
+        if depth > _RENAME_WALK_DEPTH:
             capped = True
-            # Unseen content may accept any key at this placement.
             if path is not None:
-                declared.setdefault((path, lineage), set()).add(_ANY_KEY)
+                declared.setdefault((path, lineage), set())
             continue
         hit = _rename_key_pair(node) or _unreadable_wrapper_pair(node)
         if hit is not None:
             old_key, new_key, removed_in = hit
             pair = (old_key, new_key)
-            placements, prior = found.get(pair, (set(), None))
             # Rename validators bypass the visited gate so a shared
             # closure lets every path vote.
-            placements.add((path, lineage))
-            found[pair] = (placements, _merge_removed_in(pair, prior, removed_in))
+            found.setdefault(pair, set()).add((path, lineage))
+            removed[pair] = _merge_removed_in(pair, removed.get(pair), removed_in)
             continue
         # Keyed on placement too, so a node reachable along two paths
         # votes on both instead of by pop order.
@@ -10041,21 +10042,28 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
         visited.add((id(node), path, lineage))
         children = list(_rename_walk_children(node))
         if path is not None:
-            _declare_keys(declared, node, path, lineage, children)
+            _declare_keys(declared, enumerated, node, path, lineage, children)
         stack.extend(
             (child, depth + 1, child_path, child_lineage)
             for child, child_path, child_lineage in _child_placements(path, lineage, children)
         )
     if capped:
         _LOGGER.warning("rename_key walk hit the depth cap; coverage may be incomplete")
+    _open_unenumerated(declared, enumerated)
     paths = _sole_placements(found, declared)
-    out = {
-        pair: SchemaHit(paths[pair], removed_in)
-        for pair, (_placements, removed_in) in found.items()
-    }
+    out = {pair: SchemaHit(paths[pair], removed[pair]) for pair in found}
     _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
+
+
+def _open_unenumerated(
+    declared: dict[tuple[RenamePath, Lineage], set[str]],
+    enumerated: set[tuple[RenamePath, Lineage]],
+) -> None:
+    """Mark every placement the walk reached without enumerating its keys as accepting any."""
+    for placement in declared.keys() - enumerated:
+        declared[placement].add(_ANY_KEY)
 
 
 def _child_placements(
@@ -10074,54 +10082,32 @@ def _child_placements(
 
 def _declare_keys(
     declared: dict[tuple[RenamePath, Lineage], set[str]],
+    enumerated: set[tuple[RenamePath, Lineage]],
     node: Any,
     path: RenamePath,
     lineage: Lineage,
     children: list[tuple[Any, str | None, str | None]],
 ) -> None:
-    """
-    Record the keys *node* declares at its placement, for the sibling-variant guard.
-
-    A mapping allowing extra keys or keyed by a validator, a wrapper
-    yielding nothing, a variant or alternative, key or list item whose
-    value carries nothing the walk can read owns every key beneath it
-    (``_ANY_KEY``).
-    """
+    """Record the keys *node* declares at its placement, and whether it enumerated them there."""
     keys = declared.setdefault((path, lineage), set())
     keys.update(
         segment
         for _child, segment, _variant in children
         if segment and segment != _LIST_ITEM_SEGMENT
     )
-    if (
-        (isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA)
-        or (_is_rename_wrapper(node) and not children)
-        or any(segment is None for _child, segment, _variant in children)
+    if (isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA) or any(
+        segment is None for _child, segment, _variant in children
     ):
         keys.add(_ANY_KEY)
-    for child, segment, variant in children:
-        if _declares_keys(child):
-            continue
-        if variant:
-            declared.setdefault((path, (*lineage, variant)), set()).add(_ANY_KEY)
-            continue
-        child_path = _extend_rename_path(path, segment) if segment else None
-        if child_path is not None:
-            declared.setdefault((child_path, lineage), set()).add(_ANY_KEY)
-
-
-def _declares_keys(node: Any, depth: int = 0) -> bool:
-    """Report whether *node* is a mapping or wrapper the walk reads keys off, or chains to one."""
+    # A mapping enumerates its placement, and so does a node dispatching
+    # to children placed elsewhere (a wrapper, variants, alternatives); a
+    # chain step leaves that to the children sharing its placement.
     if (
         isinstance(node, dict)
         or isinstance(getattr(node, "schema", None), dict)
-        or _is_rename_wrapper(node)
+        or any(segment != _TRANSPARENT_SEGMENT or variant for _c, segment, variant in children)
     ):
-        return True
-    validators = getattr(node, "validators", None)
-    if depth >= 10 or not isinstance(validators, (list, tuple)):
-        return False
-    return any(_declares_keys(child, depth + 1) for child in validators)
+        enumerated.add((path, lineage))
 
 
 def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None) -> str | None:
@@ -10134,7 +10120,7 @@ def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None
 
 
 def _sole_placements(
-    found: dict[tuple[str, str], tuple[set[tuple[RenamePath, Lineage]], str | None]],
+    found: dict[tuple[str, str], set[tuple[RenamePath, Lineage]]],
     declared: dict[tuple[RenamePath, Lineage], set[str]],
 ) -> dict[tuple[str, str], RenamePath]:
     """
@@ -10147,13 +10133,12 @@ def _sole_placements(
     variant's config to the wrong field.
     """
     targets: dict[tuple[str, tuple[str, ...]], set[str]] = {}
-    for (old_key, new_key), (placements, _removed_in) in found.items():
+    for (old_key, new_key), placements in found.items():
         for path, _lineage in placements:
             for scope in _rewrite_scope(path):
                 targets.setdefault((old_key, scope), set()).add(new_key)
     paths = {
-        pair: _sole_placement(pair[0], placements, declared)
-        for pair, (placements, _removed_in) in found.items()
+        pair: _sole_placement(pair[0], placements, declared) for pair, placements in found.items()
     }
     return {
         pair: None
@@ -10267,10 +10252,10 @@ def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
     if memoised is not None:
         return memoised[1]
     found: SchemaHit | None = None
-    visited: set[tuple[int, RenamePath]] = set()
-    stack: list[tuple[Any, RenamePath]] = [(schema, ())]
+    visited: set[tuple[int, bool]] = set()
+    stack: list[tuple[Any, bool]] = [(schema, True)]
     while stack:
-        node, path = stack.pop()
+        node, direct = stack.pop()
         if node is None:
             continue
         # Fold closures bypass the visited gate so a shared closure
@@ -10279,20 +10264,20 @@ def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
             "migrate_channel_colors."
         ):
             removed_in = _closure_removed_in(node, required=True)
-            if path != ():
+            if not direct:
                 found = SchemaHit(None, removed_in)
                 break
             found = SchemaHit((), removed_in)
             continue
         # Keyed on placement too, so a node reachable both directly and
         # nested votes on both paths instead of by pop order.
-        if (id(node), path) in visited:
+        if (id(node), direct) in visited:
             continue
-        visited.add((id(node), path))
+        visited.add((id(node), direct))
         # The fold has no sibling-variant guard, so a variant-scoped
         # fold stays nested rather than folding every variant's items.
         stack.extend(
-            (child, None if variant else _extend_rename_path(path, segment))
+            (child, direct and segment == _TRANSPARENT_SEGMENT and not variant)
             for child, segment, variant in _rename_walk_children(node)
         )
     _CHANNEL_COLORS_MEMO[id(schema)] = (schema, found)
@@ -10356,7 +10341,11 @@ def _closure_schemas(node: Any) -> Iterator[tuple[Any, None]]:
     except ValueError:
         return
     for value in nonlocals.values():
-        if _is_rename_walk_schema(value):
+        if (
+            isinstance(value, _RENAME_SCHEMA_TYPES)
+            or isinstance(getattr(value, "validators", None), (list, tuple))
+            or _is_rename_wrapper(value)
+        ):
             yield value, None
 
 
@@ -10393,9 +10382,24 @@ _RENAME_WRAPPERS: dict[
 }
 
 
+_RENAME_WRAPPER_PREFIXES = tuple(_RENAME_WRAPPERS)
+
+_RenameWrapperSpec = tuple[str | None, Callable[[Any], Iterator[tuple[Any, str | None]]]]
+
+
+def _rename_wrapper_spec(node: Any) -> _RenameWrapperSpec | None:
+    """Return the ``_RENAME_WRAPPERS`` entry *node* is an instance of, else ``None``."""
+    if not isinstance(node, FunctionType):
+        return None
+    qualname = node.__qualname__
+    if not qualname.startswith(_RENAME_WRAPPER_PREFIXES):
+        return None
+    return next(spec for prefix, spec in _RENAME_WRAPPERS.items() if qualname.startswith(prefix))
+
+
 def _is_rename_wrapper(node: Any) -> bool:
     """Report whether *node* is a schema-factory wrapper worth descending into."""
-    return isinstance(node, FunctionType) and node.__qualname__.startswith(tuple(_RENAME_WRAPPERS))
+    return _rename_wrapper_spec(node) is not None
 
 
 def _rename_walk_children(node: Any) -> Iterator[tuple[Any, str | None, str | None]]:
@@ -10418,34 +10422,25 @@ def _rename_walk_children(node: Any) -> Iterator[tuple[Any, str | None, str | No
         for marker, value in schema.items():
             key = getattr(marker, "schema", marker)
             yield value, key if isinstance(key, str) and key else None, None
-    if _is_rename_wrapper(node):
-        yield from _rename_wrapper_children(node)
+    spec = _rename_wrapper_spec(node)
+    if spec is not None:
+        yield from _rename_wrapper_children(node, spec)
 
 
-def _rename_wrapper_children(node: Any) -> Iterator[tuple[Any, str | None, str | None]]:
+def _rename_wrapper_children(
+    node: Any, spec: _RenameWrapperSpec
+) -> Iterator[tuple[Any, str | None, str | None]]:
     """Yield a wrapper's children; an empty named read falls back to the generic closure scan."""
-    segment, children = next(
-        spec for prefix, spec in _RENAME_WRAPPERS.items() if node.__qualname__.startswith(prefix)
-    )
-    found = False
-    for child, variant in children(node):
-        found = True
-        yield child, segment, variant
-    if found or children is _closure_schemas:
+    segment, children = spec
+    named = list(children(node))
+    if named:
+        for child, variant in named:
+            yield child, segment, variant
         return
     # The named freevar moved upstream: scan the closure generically so
     # the pairs beneath still reach the canary as inexpressible.
     for child, variant in _closure_schemas(node):
         yield child, None, variant
-
-
-def _is_rename_walk_schema(value: Any) -> bool:
-    """Report whether a wrapper closure value is a schema worth walking."""
-    return (
-        isinstance(value, _RENAME_SCHEMA_TYPES)
-        or isinstance(getattr(value, "validators", None), (list, tuple))
-        or _is_rename_wrapper(value)
-    )
 
 
 def _collect_registry_members(manifest: Any) -> dict[str, bool]:

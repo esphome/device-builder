@@ -421,18 +421,17 @@ against legacy behaviour before assuming the simpler version suffices.
   pair reachable along two placements stays inexpressible, and so does
   one whose legacy key a sibling `typed_schema` variant or `cv.Any`
   alternative still declares anywhere the engine rewrites (the list
-  items or the list's singleton mapping form), may accept it because
-  the walk could not enumerate its keys there (`ALLOW_EXTRA`, a
-  validator-keyed mapping, a variant, alternative, key or list item
-  whose value chains to no mapping or wrapper, a wrapper yielding
-  nothing, or the depth cap, each at or above that placement), or
-  renames to a different target anywhere in that rewrite scope, even
-  through a pair that is itself inexpressible (no rule carries the
-  `type:` discriminator, so it would respell a valid config). A legacy
-  key declared on the mapping the rename sits on (api's
-  `cv.Exclusive(services)`) is fine, and so is one a variant or
-  alternative beneath the rename's own chain declares, since the
-  rename applies to all of them. Data-driven pairs get the migration leg *only*:
+  items or the list's singleton mapping form), or may accept because
+  a placement at or above that scope owns every key: a mapping with
+  `ALLOW_EXTRA` or a validator key, or one the walk reached without
+  ever enumerating its keys (an opaque value, an empty wrapper, the
+  depth cap); so does a legacy key renamed to a different target
+  anywhere in that rewrite scope, even by a pair that is itself
+  inexpressible (no rule carries the `type:` discriminator, so it
+  would respell a valid config). A legacy key declared on the mapping
+  the rename sits on (api's `cv.Exclusive(services)`) is fine, and so
+  is one a variant or alternative beneath the rename's own chain
+  declares, since the rename applies to all of them. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
   respell (those remain bespoke-only). The block rule handles both the

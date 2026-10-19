@@ -62,11 +62,11 @@ def _manifest(schema) -> SimpleNamespace:
     return SimpleNamespace(config_schema=schema)
 
 
-def _renamed_item(cv: ModuleType) -> Any:
-    """Return a mapping schema carrying ``old_name`` -> ``new_name`` on its own validator chain."""
+def _renamed_item(cv: ModuleType, new: str = "new_name") -> Any:
+    """Return a mapping schema carrying ``old_name`` -> *new* on its own validator chain."""
     return cv.All(
-        cv.Schema({cv.Optional("new_name"): cv.string}),
-        cv.rename_key("old_name", "new_name"),
+        cv.Schema({cv.Optional(new): cv.string}),
+        cv.rename_key("old_name", new),
     )
 
 
@@ -234,14 +234,7 @@ def test_conflicting_target_in_the_singleton_mapping_form_voids_both(cv: ModuleT
     schema = cv.typed_schema(
         {
             "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
-            "other": cv.Schema(
-                {
-                    cv.Optional("items"): cv.All(
-                        cv.Schema({cv.Optional("other_name"): cv.string}),
-                        cv.rename_key("old_name", "other_name"),
-                    )
-                }
-            ),
+            "other": cv.Schema({cv.Optional("items"): _renamed_item(cv, "other_name")}),
         }
     )
     assert _collect_rename_keys(_manifest(schema)) == {
@@ -252,10 +245,7 @@ def test_conflicting_target_in_the_singleton_mapping_form_voids_both(cv: ModuleT
 
 def test_conflicting_target_on_a_demoted_pair_still_voids(cv: ModuleType) -> None:
     """A pair already inexpressible for mixed placement keeps blocking its rival."""
-    other = cv.All(
-        cv.Schema({cv.Optional("other_name"): cv.string}),
-        cv.rename_key("old_name", "other_name"),
-    )
+    other = _renamed_item(cv, "other_name")
     schema = cv.typed_schema(
         {
             "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
@@ -294,12 +284,6 @@ def test_validator_keyed_sibling_variant_is_inexpressible(cv: ModuleType) -> Non
     schema = cv.typed_schema(
         {"renamed": _renamed_item(cv), "open": cv.Schema({cv.string: cv.string})}
     )
-    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
-
-
-def test_sibling_variant_without_a_mapping_is_inexpressible(cv: ModuleType) -> None:
-    """A walkable variant with no mapping to enumerate may still accept the legacy key."""
-    schema = cv.typed_schema({"renamed": _renamed_item(cv), "fn": cv.All(cv.string)})
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
 
 
@@ -351,10 +335,7 @@ def test_variants_renaming_one_legacy_key_to_different_targets_are_inexpressible
     schema = cv.typed_schema(
         {
             "renamed": _renamed_item(cv),
-            "other": cv.All(
-                cv.Schema({cv.Optional("other_name"): cv.string}),
-                cv.rename_key("old_name", "other_name"),
-            ),
+            "other": _renamed_item(cv, "other_name"),
         }
     )
     assert _collect_rename_keys(_manifest(schema)) == {
@@ -389,14 +370,7 @@ def test_different_targets_at_different_placements_keep_their_own(cv: ModuleType
         {
             "renamed": _renamed_item(cv),
             "other": cv.Schema(
-                {
-                    cv.Optional("items"): cv.ensure_list(
-                        cv.All(
-                            cv.Schema({cv.Optional("other_name"): cv.string}),
-                            cv.rename_key("old_name", "other_name"),
-                        )
-                    )
-                }
+                {cv.Optional("items"): cv.ensure_list(_renamed_item(cv, "other_name"))}
             ),
         }
     )
@@ -633,10 +607,15 @@ def test_wrapper_with_a_renamed_freevar_still_reaches_the_canary(cv: ModuleType)
         }, qualname
 
 
-def test_opaque_typed_variant_makes_its_siblings_renames_inexpressible(cv: ModuleType) -> None:
-    """A variant the walk can't read may accept the legacy key, so no rule may respell it."""
-    schema = cv.typed_schema({"renamed": _renamed_item(cv), "plain": cv.string})
-    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+def test_variant_without_a_mapping_makes_its_siblings_renames_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """A variant whose keys the walk never enumerates may accept the legacy key."""
+    for plain in (cv.string, cv.All(cv.string)):
+        schema = cv.typed_schema({"renamed": _renamed_item(cv), "plain": plain})
+        assert _collect_rename_keys(_manifest(schema)) == {
+            ("old_name", "new_name"): SchemaHit(None)
+        }
 
 
 def test_open_sibling_variant_makes_the_rename_inexpressible(cv: ModuleType) -> None:

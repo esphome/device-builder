@@ -712,46 +712,37 @@ def test_list_item_rename_singleton_mapping_on_the_dash_line(generated_rules: Ru
     assert "      coefficient: 3\n      source: d\n    platform: combination\n" in new_text
 
 
-def test_list_item_rename_singleton_mapping_collision_is_a_noop(
-    generated_rules: RuleSetter,
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources:\n"
+            "      coefficient: 1\n      coeffecient: 2\n",
+            id="singleton_mapping_collision",
+        ),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources:\n"
+            "      - source: a\n        filters:\n          - coeffecient: nested\n"
+            "    coeffecient: item_level\n",
+            id="deeper_decoys",
+        ),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources: [{source: a, coeffecient: 1}]\n",
+            id="flow_style_list",
+        ),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources:\n"
+            "      - source: a\n        coefficient: !lambda |-\n"
+            "          // coeffecient: 1\n          return 1.0;\n",
+            id="block_scalar",
+        ),
+        pytest.param("sensor:\n  - platform: combination\n    coeffecient: 1\n", id="list_absent"),
+    ],
+)
+def test_list_item_rename_leaves_non_matching_shapes_alone(
+    generated_rules: RuleSetter, text: str
 ) -> None:
     generated_rules(_COEFFICIENT_RULE)
-    text = (
-        "sensor:\n  - platform: combination\n    sources:\n"
-        "      coefficient: 1\n      coeffecient: 2\n"
-    )
-    assert render_migrations(text) is None
-
-
-def test_list_item_rename_ignores_deeper_decoys(generated_rules: RuleSetter) -> None:
-    generated_rules(_COEFFICIENT_RULE)
-    text = (
-        "sensor:\n  - platform: combination\n    sources:\n"
-        "      - source: a\n        filters:\n          - coeffecient: nested\n"
-        "    coeffecient: item_level\n"
-    )
-    assert render_migrations(text) is None
-
-
-def test_list_item_rename_flow_style_list_untouched(generated_rules: RuleSetter) -> None:
-    generated_rules(_COEFFICIENT_RULE)
-    text = "sensor:\n  - platform: combination\n    sources: [{source: a, coeffecient: 1}]\n"
-    assert render_migrations(text) is None
-
-
-def test_list_item_rename_skips_block_scalars(generated_rules: RuleSetter) -> None:
-    generated_rules(_COEFFICIENT_RULE)
-    text = (
-        "sensor:\n  - platform: combination\n    sources:\n"
-        "      - source: a\n        coefficient: !lambda |-\n"
-        "          // coeffecient: 1\n          return 1.0;\n"
-    )
-    assert render_migrations(text) is None
-
-
-def test_list_item_rename_without_the_list_is_a_noop(generated_rules: RuleSetter) -> None:
-    generated_rules(_COEFFICIENT_RULE)
-    text = "sensor:\n  - platform: combination\n    coeffecient: 1\n"
     assert render_migrations(text) is None
 
 
