@@ -406,17 +406,25 @@ against legacy behaviour before assuming the simpler version suffices.
 - **esphome key renames are data-driven where expressible, bespoke
   otherwise — guarded by the sync either way.** The sync classifies
   every discovered `cv.rename_key`: a *direct* pair (the validator sits
-  on a component or platform schema's own mapping) is emitted to the
+  on a component or platform schema's own mapping; a `typed_schema`
+  variant counts as the mapping itself) is emitted to the
   generated `definitions/migration_rules.index.json`, which
   `editor/migrate_config` (`helpers/migrations.py`) folds as
   data-driven rules — a plain upstream rename ships with zero
-  hand-written code. Data-driven pairs get the migration leg *only*:
+  hand-written code. A pair on the items of a platform item's depth-1
+  list (`combination`'s `sources[].coeffecient`→`coefficient`,
+  esphome/esphome#20159) ships the same way as a
+  `platform_item_list_field` rule carrying the `list_key`; the walk
+  reduces each validator's placements to `()`, `(key, "[]")` or
+  inexpressible, and a pair reachable along two placements stays
+  inexpressible. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
   respell (those remain bespoke-only). The block rule handles both the
   mapping and the list form of a component block, so `multi_conf`
   pairs ship data-driven too; platform-domain blocks (`- platform:`
-  lists) stay canary-guarded. Anything else (wrapper-nested pairs like api's
+  lists) and a component block's own list-item fields stay
+  canary-guarded. Anything else (wrapper-nested pairs like api's
   item discriminator, registry-node renames needing the id alias) needs
   bespoke handling: hard-coded read support, a canonical respell on any
   write touching the legacy-spelled block (per the pass-through

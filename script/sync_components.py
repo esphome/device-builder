@@ -9610,11 +9610,20 @@ class MigrationRuleRow(NamedTuple):
     component: str = ""
     domain: str = ""
     platform: str = ""
+    list_key: str = ""
 
     @property
     def artifact_order(self) -> tuple[str, ...]:
         """Sort key of the emitted artifact: kind, then placement, then the pair."""
-        return (self.kind, self.component, self.domain, self.platform, self.old, self.new)
+        return (
+            self.kind,
+            self.component,
+            self.domain,
+            self.platform,
+            self.list_key,
+            self.old,
+            self.new,
+        )
 
 
 #: Rows bound for the migration-rules artifact, each mapped to upstream's
@@ -9626,11 +9635,27 @@ class SchemaHit(NamedTuple):
     """A discovered migration validator's placement and upstream removal version.
 
     *direct* means it sits on the schema's own validator chain (only
-    ``cv.All`` / ``.extend`` between it and the root).
+    ``cv.All`` / ``.extend`` between it and the root); *list_key* names
+    the depth-1 list whose items carry it when every occurrence sits
+    there instead.
     """
 
     direct: bool
     removed_in: str | None = None
+    list_key: str | None = None
+
+
+#: Placement steps the schema walks take from a node to a child.
+_STEP_CHAIN = "chain"  # a ``cv.All`` / ``.extend`` validator-chain entry
+_STEP_KEY = "key"  # a mapping value, paired with its key
+_STEP_LIST = "list"  # an ``ensure_list`` item schema
+_STEP_VARIANT = "variant"  # a ``typed_schema`` variant: the item mapping itself
+_STEP_OPAQUE = "opaque"  # a placement the migration engine can't address
+
+#: A rename validator's placement under the schema root: ``()`` on the
+#: root's own chain, ``(key,)`` under a mapping key, ``(key, "[]")`` on
+#: the items of that key's list, ``None`` anywhere else.
+RenamePath = tuple[str, ...] | None
 
 
 #: Manifests the rename sweep actually walked; zero at check time means
@@ -9676,21 +9701,35 @@ def _classify_rename_pairs(
 
     A *direct* pair (the validator sits on the schema's own mapping, no
     wrapper descent) is a plain child-key rename the generic migration
-    engine applies; anything else needs bespoke handling. *platform_domain*
-    marks a platform-domain block, whose ``- platform:`` items
+    engine applies; a pair on the items of a platform item's depth-1
+    list (``SchemaHit.list_key``) is a list-item field rename; anything
+    else needs bespoke handling. *platform_domain* marks a
+    platform-domain block, whose ``- platform:`` items
     ``component_block_field`` can't address, so its pairs fall to the
     canary.
     """
     for (old, new), hit in pairs.items():
         if (component_id, old, new) in _HANDLED_RENAME_KEYS:
             continue
-        if hit.direct and not platform_domain and old != new:
-            if domain is None:
-                row = MigrationRuleRow("component_block_field", old, new, component=component_id)
-            else:
-                row = MigrationRuleRow(
-                    "platform_item_field", old, new, domain=domain, platform=component_id
-                )
+        if platform_domain or old == new:
+            _UNHANDLED_RENAME_KEYS.add((component_id, old, new))
+        elif hit.direct and domain is None:
+            row = MigrationRuleRow("component_block_field", old, new, component=component_id)
+            _MIGRATION_RULES[row] = hit.removed_in
+        elif hit.direct:
+            row = MigrationRuleRow(
+                "platform_item_field", old, new, domain=domain, platform=component_id
+            )
+            _MIGRATION_RULES[row] = hit.removed_in
+        elif hit.list_key and domain is not None:
+            row = MigrationRuleRow(
+                "platform_item_list_field",
+                old,
+                new,
+                domain=domain,
+                platform=component_id,
+                list_key=hit.list_key,
+            )
             _MIGRATION_RULES[row] = hit.removed_in
         else:
             _UNHANDLED_RENAME_KEYS.add((component_id, old, new))
@@ -9967,12 +10006,13 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
     memoised = _RENAME_KEYS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    out: dict[tuple[str, str], SchemaHit] = {}
-    visited: set[tuple[int, bool]] = set()
+    placements: dict[tuple[str, str], set[RenamePath]] = {}
+    removals: dict[tuple[str, str], str | None] = {}
+    visited: set[tuple[int, RenamePath]] = set()
     capped = False
-    stack: list[tuple[Any, int, bool]] = [(schema, 0, True)]
+    stack: list[tuple[Any, int, RenamePath]] = [(schema, 0, ())]
     while stack:
-        node, depth, direct = stack.pop()
+        node, depth, path = stack.pop()
         if node is None:
             continue
         if depth > 10:
@@ -9982,32 +10022,59 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
         if found is not None:
             old_key, new_key, removed_in = found
             pair = (old_key, new_key)
-            # ``and`` so a pair also reachable nested stays inexpressible
-            # (fail-loud): the generic rule would cover only the direct
-            # occurrence. Rename validators bypass the visited gate so a
-            # shared closure lets every path vote.
-            prior = out.get(pair, SchemaHit(direct=True))
-            if None not in (prior.removed_in, removed_in) and prior.removed_in != removed_in:
+            prior = removals.get(pair)
+            if None not in (prior, removed_in) and prior != removed_in:
                 raise SystemExit(
                     f"rename_key {pair}: conflicting removed_in "
-                    f"{prior.removed_in!r} vs {removed_in!r} across paths"
+                    f"{prior!r} vs {removed_in!r} across paths"
                 )
-            out[pair] = SchemaHit(prior.direct and direct, prior.removed_in or removed_in)
+            removals[pair] = prior or removed_in
+            # Every placement votes, so a pair also reachable elsewhere
+            # stays inexpressible (fail-loud): a rule would cover only one
+            # occurrence. Rename validators bypass the visited gate so a
+            # shared closure lets every path vote.
+            placements.setdefault(pair, set()).add(path)
             continue
-        # Keyed on placement too, so a node reachable both directly and
-        # nested votes on both paths instead of by pop order.
-        if (id(node), direct) in visited:
+        # Keyed on placement too, so a node reachable along two paths
+        # votes on both instead of by pop order.
+        if (id(node), path) in visited:
             continue
-        visited.add((id(node), direct))
+        visited.add((id(node), path))
         stack.extend(
-            (child, depth + 1, direct and stays_direct)
-            for child, stays_direct in _rename_walk_children(node)
+            (child, depth + 1, _extend_rename_path(path, step, key))
+            for child, step, key in _rename_walk_children(node)
         )
     if capped:
         _LOGGER.warning("rename_key walk hit the depth cap; coverage may be incomplete")
+    out = {pair: _placement_hit(paths, removals[pair]) for pair, paths in placements.items()}
     _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
+
+
+def _extend_rename_path(path: RenamePath, step: str, key: str | None) -> RenamePath:
+    """Return the placement one *step* below *path*; ``None`` once it leaves the expressible shapes."""
+    if path is None or step == _STEP_OPAQUE:
+        return None
+    if step in (_STEP_CHAIN, _STEP_VARIANT):
+        return path
+    if step == _STEP_KEY and path == () and key is not None:
+        return (key,)
+    if step == _STEP_LIST and len(path) == 1:
+        return (*path, "[]")
+    return None
+
+
+def _placement_hit(paths: set[RenamePath], removed_in: str | None) -> SchemaHit:
+    """Reduce a validator's placements to one hit; mixed or deeper placement is inexpressible."""
+    if len(paths) != 1:
+        return SchemaHit(direct=False, removed_in=removed_in)
+    (path,) = paths
+    if path == ():
+        return SchemaHit(direct=True, removed_in=removed_in)
+    if path is not None and len(path) == 2:
+        return SchemaHit(direct=False, removed_in=removed_in, list_key=path[0])
+    return SchemaHit(direct=False, removed_in=removed_in)
 
 
 def _classify_channel_colors_folds(
@@ -10085,7 +10152,8 @@ def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
             continue
         visited.add((id(node), direct))
         stack.extend(
-            (child, direct and stays_direct) for child, stays_direct in _rename_walk_children(node)
+            (child, direct and step == _STEP_CHAIN)
+            for child, step, _key in _rename_walk_children(node)
         )
     _CHANNEL_COLORS_MEMO[id(schema)] = (schema, found)
     return found
@@ -10135,33 +10203,60 @@ def _is_rename_wrapper(node: Any) -> bool:
     return isinstance(node, FunctionType) and node.__qualname__.startswith(_RENAME_WRAPPER_PREFIXES)
 
 
-def _rename_walk_children(node: Any) -> Iterator[tuple[Any, bool]]:
-    """Yield ``(child, stays_direct)`` pairs worth visiting when hunting rename validators.
+def _rename_walk_children(node: Any) -> Iterator[tuple[Any, str, str | None]]:
+    """Yield ``(child, step, key)`` triples worth visiting when hunting migration validators.
 
-    Only a validator-chain step (``cv.All`` / ``.extend``) keeps a child
-    direct; mapping values and wrapper closures are nested schemas.
+    *step* is the placement between *node* and *child* (one of the
+    ``_STEP_*`` constants); *key* is the mapping key of a ``key`` step,
+    ``None`` otherwise.
     """
     validators = getattr(node, "validators", None)
     if isinstance(validators, (list, tuple)):
         for child in validators:
-            yield child, True
+            yield child, _STEP_CHAIN, None
     schema = node if isinstance(node, dict) else getattr(node, "schema", None)
     if isinstance(schema, dict):
-        for value in schema.values():
-            yield value, False
-    if not _is_rename_wrapper(node):
-        return
+        for marker, value in schema.items():
+            key = getattr(marker, "schema", marker)
+            if isinstance(key, str):
+                yield value, _STEP_KEY, key
+            else:
+                yield value, _STEP_OPAQUE, None
+    if _is_rename_wrapper(node):
+        yield from _rename_wrapper_children(node)
+
+
+def _rename_wrapper_children(node: Any) -> Iterator[tuple[Any, str, None]]:
+    """
+    Yield the schemas a wrapper closure holds, with their placement step.
+
+    A ``typed_schema`` yields its variant schemas directly, so variant
+    names never read as mapping keys.
+    """
     try:
         nonlocals = _closure_nonlocals(node)
     except ValueError:
         return
+    if node.__qualname__.startswith("typed_schema."):
+        variants = nonlocals.get("schemas")
+        if isinstance(variants, dict):
+            for value in variants.values():
+                if _is_rename_walk_schema(value):
+                    yield value, _STEP_VARIANT, None
+        return
+    step = _STEP_LIST if node.__qualname__.startswith("ensure_list.") else _STEP_OPAQUE
     for value in nonlocals.values():
-        if (
-            isinstance(value, _RENAME_SCHEMA_TYPES)
-            or isinstance(getattr(value, "validators", None), (list, tuple))
-            or _is_rename_wrapper(value)
-        ):
-            yield value, False
+        if _is_rename_walk_schema(value):
+            yield value, step, None
+
+
+def _is_rename_walk_schema(value: Any) -> bool:
+    """Report whether a wrapper closure value is a schema worth walking."""
+    return (
+        isinstance(value, _RENAME_SCHEMA_TYPES)
+        or isinstance(getattr(value, "validators", None), (list, tuple))
+        or _is_rename_wrapper(value)
+    )
 
 
 def _collect_registry_members(manifest: Any) -> dict[str, bool]:

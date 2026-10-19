@@ -200,6 +200,7 @@ _GENERATED_CHANGE_KINDS = {
     "component_key": "key",
     "component_block_field": "field",
     "platform_item_field": "field",
+    "platform_item_list_field": "field",
     "platform_channel_colors": "fold",
 }
 
@@ -291,7 +292,7 @@ def _apply_generated_renames(
     fired: list[MigrationRule],
 ) -> list[str]:
     """Apply the artifact *rules*, appending each one that changed a line to *fired*."""
-    key_rules, block_groups, item_groups, fold_groups = _group_generated_rules(rules)
+    key_rules, block_groups, item_groups, list_groups, fold_groups = _group_generated_rules(rules)
     out = list(lines)
     headers = top_level_key_index(out)
     # Key respells first, so a same-release field rename inside the
@@ -311,9 +312,13 @@ def _apply_generated_renames(
     for component, block_rules in block_groups.items():
         if (header := headers.get(component)) is not None:
             _apply_component_block_fields(out, header, block_rules, mask(), fired)
-    for domain, by_platform in item_groups.items():
-        if (header := headers.get(domain)) is not None:
-            _apply_platform_item_fields(out, header, by_platform, mask(), fired)
+    for groups, apply in (
+        (item_groups, _apply_platform_item_fields),
+        (list_groups, _apply_platform_item_list_fields),
+    ):
+        for domain, by_platform in groups.items():
+            if (header := headers.get(domain)) is not None:
+                apply(out, header, by_platform, mask(), fired)
     # Folds last — they delete lines, so each re-anchors on fresh indexes.
     for domain, platforms in fold_groups.items():
         if (header := top_level_key_index(out).get(domain)) is not None:
@@ -327,12 +332,14 @@ def _group_generated_rules(
     list[MigrationRule],
     dict[str, list[MigrationRule]],
     dict[str, dict[str, list[MigrationRule]]],
+    dict[str, dict[str, list[MigrationRule]]],
     dict[str, dict[str, MigrationRule]],
 ]:
-    """Split *rules* into key respells, block groups, item groups, and per-platform fold rules."""
+    """Split *rules* into key respells, block / item / list-item groups, and fold rules."""
     key_rules: list[MigrationRule] = []
     block_groups: dict[str, list[MigrationRule]] = {}
     item_groups: dict[str, dict[str, list[MigrationRule]]] = {}
+    list_groups: dict[str, dict[str, list[MigrationRule]]] = {}
     fold_groups: dict[str, dict[str, MigrationRule]] = {}
     for rule in rules:
         # No fallthrough: a kind this build doesn't know is dropped here,
@@ -343,9 +350,11 @@ def _group_generated_rules(
             block_groups.setdefault(rule.component, []).append(rule)
         elif rule.kind == "platform_item_field":
             item_groups.setdefault(rule.domain, {}).setdefault(rule.platform, []).append(rule)
+        elif rule.kind == "platform_item_list_field":
+            list_groups.setdefault(rule.domain, {}).setdefault(rule.platform, []).append(rule)
         elif rule.kind == "platform_channel_colors":
             fold_groups.setdefault(rule.domain, {})[rule.platform] = rule
-    return key_rules, block_groups, item_groups, fold_groups
+    return key_rules, block_groups, item_groups, list_groups, fold_groups
 
 
 def _apply_component_block_fields(
@@ -404,6 +413,33 @@ def _apply_platform_item_fields(
         for rule in rules_by_platform.get(platform, ()):
             if _respell_item_key(lines, keys, rule.old, rule.new):
                 fired.append(rule)  # noqa: PERF401 — the respell is the point, not the append
+
+
+def _apply_platform_item_list_fields(
+    lines: list[str],
+    header: int,
+    rules_by_platform: dict[str, list[MigrationRule]],
+    in_scalar: list[bool],
+    fired: list[MigrationRule],
+) -> None:
+    """Rename keys of the items in a ``- platform:`` item's depth-1 list, in place."""
+    end = block_end_index(lines, header)
+    for item_start in top_list_item_starts(lines, header, end):
+        keys = _item_child_keys(lines, item_start, end, in_scalar)
+        entries = {key: (idx, col) for idx, col, key in keys}
+        platform = entries.get("platform")
+        if platform is None:
+            continue
+        rules = rules_by_platform.get(_entry_value(lines[platform[0]], platform[1]), ())
+        for rule in rules:
+            listed = entries.get(rule.list_key)
+            if listed is None:
+                continue
+            list_end = child_block_end(lines, listed[0], end, " " * listed[1])
+            for inner_start in top_list_item_starts(lines, listed[0], list_end):
+                inner_keys = _item_child_keys(lines, inner_start, list_end, in_scalar)
+                if _respell_item_key(lines, inner_keys, rule.old, rule.new):
+                    fired.append(rule)
 
 
 def _respell_item_key(

@@ -573,6 +573,8 @@ class MigrationRule(NamedTuple):
     component: str = ""
     domain: str = ""
     platform: str = ""
+    #: The depth-1 list whose items carry the field (``platform_item_list_field``).
+    list_key: str = ""
     removed_in: str | None = None
 
 

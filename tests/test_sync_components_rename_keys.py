@@ -71,23 +71,79 @@ def test_top_level_rename_is_discovered_direct(cv: ModuleType) -> None:
     }
 
 
-def test_nested_list_item_rename_is_discovered_non_direct(cv: ModuleType) -> None:
+def test_nested_list_item_rename_carries_its_list_key(cv: ModuleType) -> None:
     item = cv.All(
         cv.Schema({cv.Optional("action"): cv.string}),
         cv.rename_key("service", "action"),
     )
     schema = cv.Schema({cv.Optional("actions"): cv.ensure_list(item)})
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("service", "action"): SchemaHit(direct=False)
+        ("service", "action"): SchemaHit(direct=False, list_key="actions")
     }
 
 
-def test_typed_schema_branch_rename_is_discovered_non_direct(cv: ModuleType) -> None:
+def test_typed_schema_variant_rename_is_direct(cv: ModuleType) -> None:
     branch = cv.All(
         cv.Schema({cv.Optional("new_name"): cv.string}),
         cv.rename_key("old_name", "new_name"),
     )
     schema = cv.typed_schema({"MODELA": branch})
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(direct=True)
+    }
+
+
+def test_typed_schema_variant_list_item_rename_carries_its_list_key(cv: ModuleType) -> None:
+    """The combination shape: a rename on the items of one variant's depth-1 list."""
+    item = cv.All(
+        cv.rename_key("coeffecient", "coefficient", removed_in="2026.12.0"),
+        cv.Schema({cv.Required("coefficient"): cv.float_}),
+    )
+    schema = cv.typed_schema(
+        {
+            "linear": cv.Schema({cv.Required("sources"): cv.ensure_list(item)}),
+            "kalman": cv.Schema({cv.Required("sources"): cv.ensure_list(cv.Schema({}))}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("coeffecient", "coefficient"): SchemaHit(
+            direct=False, removed_in="2026.12.0", list_key="sources"
+        )
+    }
+
+
+def test_nested_mapping_rename_stays_inexpressible(cv: ModuleType) -> None:
+    item = cv.All(
+        cv.Schema({cv.Optional("new_name"): cv.string}),
+        cv.rename_key("old_name", "new_name"),
+    )
+    schema = cv.Schema({cv.Optional("inner"): item})
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(direct=False)
+    }
+
+
+def test_deeper_list_item_rename_stays_inexpressible(cv: ModuleType) -> None:
+    item = cv.All(
+        cv.Schema({cv.Optional("new_name"): cv.string}),
+        cv.rename_key("old_name", "new_name"),
+    )
+    schema = cv.Schema(
+        {cv.Optional("outer"): cv.Schema({cv.Optional("inner"): cv.ensure_list(item)})}
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(direct=False)
+    }
+
+
+def test_list_item_rename_under_two_keys_stays_inexpressible(cv: ModuleType) -> None:
+    item = cv.All(
+        cv.Schema({cv.Optional("new_name"): cv.string}),
+        cv.rename_key("old_name", "new_name"),
+    )
+    schema = cv.Schema(
+        {cv.Optional("first"): cv.ensure_list(item), cv.Optional("second"): cv.ensure_list(item)}
+    )
     assert _collect_rename_keys(_manifest(schema)) == {
         ("old_name", "new_name"): SchemaHit(direct=False)
     }
@@ -150,6 +206,35 @@ def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: Modu
     assert set(pairs["homeassistant.action"]) == {("service", "action")}
     _sweep_registry_rename_keys()
     assert set() == _UNHANDLED_RENAME_KEYS
+
+
+def test_live_combination_sources_pair_ships_data_driven(cv: ModuleType) -> None:
+    """The combination ``coeffecient`` rename emits a list-item rule, not a canary hit."""
+    from script.sync_components import (  # noqa: PLC0415
+        _enumerate_platform_manifests_by_domain,
+        _get_esphome_loader,
+    )
+
+    loader = _get_esphome_loader()
+    pairs = {
+        pair
+        for _domain, manifest in _enumerate_platform_manifests_by_domain(loader, "combination")
+        for pair in _collect_rename_keys(manifest)
+    }
+    if ("coeffecient", "coefficient") not in pairs:
+        pytest.skip("installed esphome predates the combination coeffecient rename")
+    introspect_component("combination")
+    assert set() == _UNHANDLED_RENAME_KEYS
+    assert {
+        MigrationRuleRow(
+            "platform_item_list_field",
+            "coeffecient",
+            "coefficient",
+            domain="sensor",
+            platform="combination",
+            list_key="sources",
+        ): "2026.12.0"
+    } == _MIGRATION_RULES
 
 
 def test_handled_list_matches_the_writer_constants() -> None:
@@ -215,6 +300,42 @@ def test_shared_closure_reachable_both_ways_classifies_nested(cv: ModuleType) ->
     }
 
 
+def test_list_item_platform_pair_routes_to_the_artifact() -> None:
+    _classify_rename_pairs(
+        "combination",
+        {("coeffecient", "coefficient"): SchemaHit(direct=False, list_key="sources")},
+        domain="sensor",
+    )
+    assert {
+        MigrationRuleRow(
+            "platform_item_list_field",
+            "coeffecient",
+            "coefficient",
+            domain="sensor",
+            platform="combination",
+            list_key="sources",
+        )
+    } == _MIGRATION_RULES.keys()
+    assert set() == _UNHANDLED_RENAME_KEYS
+
+
+def test_list_item_component_pair_routes_to_the_canary() -> None:
+    """The block rule has no list-item leg, so a component block's list pair stays bespoke."""
+    _classify_rename_pairs("mycomp", {("old", "new"): SchemaHit(direct=False, list_key="items")})
+    assert _MIGRATION_RULES == {}
+    assert {("mycomp", "old", "new")} == _UNHANDLED_RENAME_KEYS
+
+
+def test_list_item_platform_domain_pair_routes_to_the_canary() -> None:
+    _classify_rename_pairs(
+        "sensor",
+        {("old", "new"): SchemaHit(direct=False, list_key="items")},
+        platform_domain=True,
+    )
+    assert _MIGRATION_RULES == {}
+    assert {("sensor", "old", "new")} == _UNHANDLED_RENAME_KEYS
+
+
 def test_platform_domain_pair_routes_to_the_canary() -> None:
     """A platform-domain block's ``- platform:`` items the block rule can't address."""
     _classify_rename_pairs("sensor", {("old", "new"): SchemaHit(direct=True)}, platform_domain=True)
@@ -275,6 +396,16 @@ def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         MigrationRuleRow("component_block_field", "old", "new", component="ethernet")
     ] = None
     _MIGRATION_RULES[MigrationRuleRow("component_key", "rp2040", "rp2")] = "2027.7.0"
+    _MIGRATION_RULES[
+        MigrationRuleRow(
+            "platform_item_list_field",
+            "coeffecient",
+            "coefficient",
+            domain="sensor",
+            platform="combination",
+            list_key="sources",
+        )
+    ] = "2026.12.0"
     _emit_migration_rules_index("2026.8.0b5")
     payload = orjson.loads(out_path.read_bytes())
     assert payload == {
@@ -301,6 +432,16 @@ def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPa
                 "old": "voc",
                 "platform": "sgp4x",
                 "removed_in": "2027.2.0",
+                "since": "2026.8.0b5",
+            },
+            {
+                "domain": "sensor",
+                "kind": "platform_item_list_field",
+                "list_key": "sources",
+                "new": "coefficient",
+                "old": "coeffecient",
+                "platform": "combination",
+                "removed_in": "2026.12.0",
                 "since": "2026.8.0b5",
             },
         ]
