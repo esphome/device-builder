@@ -1,4 +1,4 @@
-"""Sweep pinning every live delegate-wrapper peel to its intended schema."""
+"""Sweep pinning the schema each live delegate wrapper unwraps to."""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _unwrap_schema_to_dict,
 )
 
-# Every wrapper the delegate probe fires on across the installed tree
-# (components, platforms, and automation registries), mapped to the
-# module-level schema it must peel to.
+# Wrappers across the installed tree (components, platforms, and automation
+# registries) that peel to exactly one module-level schema; wrappers whose
+# probe answer extends their base schema are in _EXTENDING_WRAPPERS.
 _DELEGATE_WRAPPERS = [
     ("esphome.components.api", "_encryption_schema", "ENCRYPTION_SCHEMA"),
     ("esphome.components.climate", "visual_temperature_step", "VISUAL_TEMPERATURE_STEP_SCHEMA"),
