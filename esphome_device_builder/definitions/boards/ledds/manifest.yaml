@@ -282,5 +282,5 @@ source:
   type: esphome-devices
   remote_id: LEDDs
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDDs/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: f596f4db92842e67c67c2594c229a672d4cd331f6c4e1ac588406ab90497146e

@@ -92,5 +92,5 @@ source:
   type: esphome-devices
   remote_id: Gelidus-Research-Garage-Door-Opener-1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: 7199ac125594dabd7c7e857b6afc8cae58bcbd2a17bb5bfd2e4982f96d58513b

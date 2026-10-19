@@ -89,5 +89,5 @@ source:
   type: esphome-devices
   remote_id: Athom-E27-7W-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-E27-7W-Bulb/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: a43188c751351c34038ce517855c400ffb16d09d95e8f54718b43fb4a857846f

@@ -101,5 +101,5 @@ source:
   type: esphome-devices
   remote_id: DETA-Grid-Connect-Two-Gang-Two-Way-6952HA
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: 5b14b6c374066ba4352cd33e95d88974d1c5fe6e4c5836f17fc36bac82780c8b

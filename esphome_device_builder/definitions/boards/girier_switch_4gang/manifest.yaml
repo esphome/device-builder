@@ -119,5 +119,5 @@ source:
   type: esphome-devices
   remote_id: GIRIER-Switch-4gang
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/GIRIER-Switch-4gang/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: f2598252982cc1c65343ecd2889be08ef9f598b13520f1cd1716f55506316110

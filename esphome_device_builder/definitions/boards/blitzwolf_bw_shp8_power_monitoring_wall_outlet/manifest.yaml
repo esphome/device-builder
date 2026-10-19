@@ -99,5 +99,5 @@ source:
   type: esphome-devices
   remote_id: BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: 73f36aed57c85c8df97441af397c9089df8d287e05d20e8c79766de8c4aa44bc

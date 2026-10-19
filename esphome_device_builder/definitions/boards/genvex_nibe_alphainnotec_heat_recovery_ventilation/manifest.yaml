@@ -742,5 +742,5 @@ source:
   type: esphome-devices
   remote_id: Genvex-Nibe-AlphaInnotec-heat-recovery-ventilation
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Genvex-Nibe-AlphaInnotec-heat-recovery-ventilation/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: 182316d4b3fa783217495e74f5d22020ce3625b89090fe2b8205f403857d99a0

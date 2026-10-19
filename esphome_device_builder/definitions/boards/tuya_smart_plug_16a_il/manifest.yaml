@@ -97,5 +97,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-16A-IL
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Smart-Plug-16A-IL/index.md
-  upstream_revision: 751dffa5cfa5155862306e5209e94f4e0dea7f83
+  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
   content_hash: 0ad34e5066c95424e789a32e7745b3110ecfb742ed38606aa280386a11199457
