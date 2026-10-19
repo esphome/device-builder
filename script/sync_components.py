@@ -10070,8 +10070,9 @@ def _declare_keys(
     """
     Record the keys *node* declares at its placement, for the sibling-variant guard.
 
-    A mapping allowing extra keys, or a ``typed_schema`` variant the walk
-    can't read, owns every key (``_ANY_KEY``).
+    A mapping allowing extra keys, a ``typed_schema`` variant the walk
+    can't read, or a key whose value it can't read owns every key
+    beneath it (``_ANY_KEY``).
     """
     keys = declared.setdefault((path, lineage), set())
     keys.update(
@@ -10081,9 +10082,15 @@ def _declare_keys(
     )
     if isinstance(node, vol.Schema) and node.extra == vol.ALLOW_EXTRA:
         keys.add(_ANY_KEY)
-    for child, _segment, variant in children:
-        if variant and not _is_rename_walk_schema(child):
+    for child, segment, variant in children:
+        if _is_rename_walk_schema(child):
+            continue
+        if variant:
             declared.setdefault((path, (*lineage, variant)), set()).add(_ANY_KEY)
+        elif segment and segment != _LIST_ITEM_SEGMENT:
+            child_path = _extend_rename_path(path, segment)
+            if child_path is not None:
+                declared.setdefault((child_path, lineage), set()).add(_ANY_KEY)
 
 
 def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None) -> str | None:
@@ -10131,16 +10138,25 @@ def _sole_placement(
 
     Mixed placement is inexpressible (a rule would cover only one
     occurrence), and so is a placement where a sibling ``typed_schema``
-    variant still declares *old_key* as its own field, or accepts any
-    key (a rule would respell a valid config).
+    variant still declares *old_key* anywhere the engine rewrites (the
+    list items or the list's singleton mapping form), or accepts any
+    key at or above it (a rule would respell a valid config).
     """
     paths = {path for path, _lineage in placements}
     if len(paths) != 1:
         return None
     (path,) = paths
+    if path is None:
+        return None
     lineages = {lineage for _path, lineage in placements}
+    rewritten = {path[:1], path} if len(path) == 2 else {path}
+    prefixes = {path[:depth] for depth in range(len(path) + 1)}
     for (declared_path, lineage), keys in declared.items():
-        if declared_path == path and lineage not in lineages and keys & {old_key, _ANY_KEY}:
+        if lineage in lineages:
+            continue
+        if (declared_path in rewritten and old_key in keys) or (
+            declared_path in prefixes and _ANY_KEY in keys
+        ):
             return None
     return path
 

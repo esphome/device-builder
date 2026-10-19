@@ -167,6 +167,43 @@ def test_sibling_variant_owning_the_legacy_list_item_key_is_inexpressible(
     assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
 
 
+def test_sibling_variant_owning_the_legacy_key_as_a_singleton_mapping_is_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """The engine also respells the list's singleton mapping form, so that sibling counts."""
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema(
+                {cv.Optional("items"): cv.Schema({cv.Optional("old_name"): cv.string})}
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_open_sibling_variant_covers_a_list_item_rename(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "open": cv.Schema({}, extra=cv.ALLOW_EXTRA),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_with_an_unreadable_list_key_value_is_inexpressible(
+    cv: ModuleType,
+) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema({cv.Optional("items"): cv.string}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
 def test_sibling_variant_using_the_legacy_key_elsewhere_stays_expressible(
     cv: ModuleType,
 ) -> None:

@@ -420,10 +420,11 @@ against legacy behaviour before assuming the simpler version suffices.
   singleton-mapping form alike (`ensure_list` takes one mapping); a
   pair reachable along two placements stays inexpressible, and so does
   one whose legacy key a sibling `typed_schema` variant still declares
-  as its own field, accepts through `ALLOW_EXTRA` or an unreadable
-  variant, or renames to a different target at the same placement (no
-  rule carries the `type:` discriminator, so it would respell a valid
-  config). A legacy key declared on the mapping the rename sits on
+  anywhere the engine rewrites (the list items or the list's singleton
+  mapping form), accepts through `ALLOW_EXTRA`, an unreadable variant
+  or an unreadable value at or above that placement, or renames to a
+  different target at the same placement (no rule carries the `type:`
+  discriminator, so it would respell a valid config). A legacy key declared on the mapping the rename sits on
   (api's `cv.Exclusive(services)`) is fine. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
