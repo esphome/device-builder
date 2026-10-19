@@ -358,20 +358,7 @@ def _apply_component_block_fields(
 ) -> None:
     """Rename child keys of the top-level block at *header* in place, mapping or list form."""
     end = block_end_index(lines, header)
-    # The block's first content line decides its form; a deeper dash
-    # inside a mapping body is a nested list, not a multi_conf item.
-    list_form = False
-    for idx in range(header + 1, min(end, len(lines))):
-        # A scalar open before the column-0 header ends at it, so a masked
-        # line can't precede the block's first content line.
-        if in_scalar[idx]:  # pragma: no cover
-            continue
-        stripped = lines[idx].strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        list_form = is_list_item_line(stripped)
-        break
-    if not list_form:
+    if not _opens_list_form(lines, header, end, in_scalar):
         for rule in rules:
             hit = _respell_body_field(lines, header, 0, rule.old, rule.new, in_scalar)
             if hit is not None:
@@ -396,7 +383,7 @@ def _apply_platform_item_fields(
     Rename keys of the ``- platform:`` items in the domain block at *header* in place.
 
     A rule with a ``list_key`` renames on the items of that depth-1 list
-    instead of on the item itself.
+    (or on its singleton mapping form) instead of on the item itself.
     """
     end = block_end_index(lines, header)
     for item_start in top_list_item_starts(lines, header, end):
@@ -405,18 +392,51 @@ def _apply_platform_item_fields(
         if platform is None:
             continue
         for rule in rules_by_platform.get(platform, ()):
-            if not rule.list_key:
-                if _respell_item_key(lines, keys, rule.old, rule.new):
-                    fired.append(rule)
-                continue
-            listed = next(((idx, col) for idx, col, key in keys if key == rule.list_key), None)
-            if listed is None:
-                continue
-            list_end = child_block_end(lines, listed[0], end, " " * listed[1])
-            for inner_start in top_list_item_starts(lines, listed[0], list_end):
-                inner_keys = _item_child_keys(lines, inner_start, list_end, in_scalar)
-                if _respell_item_key(lines, inner_keys, rule.old, rule.new):
-                    fired.append(rule)
+            if rule.list_key:
+                _respell_list_key_fields(lines, keys, end, rule, in_scalar, fired)
+            elif _respell_item_key(lines, keys, rule.old, rule.new):
+                fired.append(rule)
+
+
+def _respell_list_key_fields(
+    lines: list[str],
+    keys: list[tuple[int, int, str]],
+    end: int,
+    rule: MigrationRule,
+    in_scalar: list[bool],
+    fired: list[MigrationRule],
+) -> None:
+    """Rename *rule*'s field on the items, or the singleton mapping, under its ``list_key``."""
+    listed = next(((idx, col) for idx, col, key in keys if key == rule.list_key), None)
+    if listed is None:
+        return
+    list_end = child_block_end(lines, listed[0], end, " " * listed[1])
+    if not _opens_list_form(lines, listed[0], list_end, in_scalar):
+        hit = _respell_body_field(lines, *listed, rule.old, rule.new, in_scalar)
+        if hit is not None:
+            lines[hit[0]] = hit[1]
+            fired.append(rule)
+        return
+    for inner_start in top_list_item_starts(lines, listed[0], list_end):
+        inner_keys = _item_child_keys(lines, inner_start, list_end, in_scalar)
+        if _respell_item_key(lines, inner_keys, rule.old, rule.new):
+            fired.append(rule)
+
+
+def _opens_list_form(lines: list[str], start: int, end: int, in_scalar: list[bool]) -> bool:
+    """Report whether the body after the key line at *start* opens with a list item."""
+    # The body's first content line decides its form; a deeper dash
+    # inside a mapping body is a nested list, not an item.
+    for idx in range(start + 1, min(end, len(lines))):
+        # A scalar open before the key line ends at it, so a masked
+        # line can't precede the body's first content line.
+        if in_scalar[idx]:  # pragma: no cover
+            continue
+        stripped = lines[idx].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return is_list_item_line(stripped)
+    return False
 
 
 def _item_platform(lines: list[str], keys: list[tuple[int, int, str]]) -> str | None:

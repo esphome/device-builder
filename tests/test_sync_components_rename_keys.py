@@ -181,6 +181,52 @@ def test_sibling_variant_using_the_legacy_key_elsewhere_stays_expressible(
     }
 
 
+def test_variants_renaming_one_legacy_key_to_different_targets_are_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """No rule carries the variant, so the first rule would respell the other's items wrongly."""
+    schema = cv.typed_schema(
+        {
+            "renamed": _renamed_item(cv),
+            "other": cv.All(
+                cv.Schema({cv.Optional("other_name"): cv.string}),
+                cv.rename_key("old_name", "other_name"),
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("old_name", "other_name"): SchemaHit(None),
+    }
+
+
+def test_variants_sharing_one_rename_stay_direct(cv: ModuleType) -> None:
+    schema = cv.typed_schema({"a": _renamed_item(cv), "b": _renamed_item(cv)})
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
+def test_different_targets_at_different_placements_keep_their_own(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": _renamed_item(cv),
+            "other": cv.Schema(
+                {
+                    cv.Optional("items"): cv.ensure_list(
+                        cv.All(
+                            cv.Schema({cv.Optional("other_name"): cv.string}),
+                            cv.rename_key("old_name", "other_name"),
+                        )
+                    )
+                }
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(()),
+        ("old_name", "other_name"): SchemaHit(("items", "[]")),
+    }
+
+
 def test_deeper_list_item_rename_stays_inexpressible(cv: ModuleType) -> None:
     item = _renamed_item(cv)
     schema = cv.Schema(

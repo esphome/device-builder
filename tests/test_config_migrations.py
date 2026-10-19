@@ -688,6 +688,41 @@ def test_list_item_rename_with_the_list_on_the_dash_line(generated_rules: RuleSe
     assert "      - coefficient: 3\n" in _respell(text)
 
 
+def test_list_item_rename_singleton_mapping_form(generated_rules: RuleSetter) -> None:
+    """``ensure_list`` also takes one mapping, so the field under a bare ``sources:`` respells."""
+    generated_rules(_COEFFICIENT_RULE)
+    text = (
+        "sensor:\n  - platform: combination\n    sources:\n"
+        "      source: a\n      coeffecient: 0.5  # half\n"
+        "      filters:\n        - coeffecient: nested\n"
+        "    coeffecient: item_level\n"
+    )
+    new_text = _respell(text)
+    assert "      coefficient: 0.5  # half\n" in new_text
+    assert "        - coeffecient: nested\n" in new_text
+    assert "    coeffecient: item_level\n" in new_text
+
+
+def test_list_item_rename_singleton_mapping_on_the_dash_line(generated_rules: RuleSetter) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    text = (
+        "sensor:\n  - sources:\n      coeffecient: 3\n      source: d\n    platform: combination\n"
+    )
+    new_text = _respell(text)
+    assert "      coefficient: 3\n      source: d\n    platform: combination\n" in new_text
+
+
+def test_list_item_rename_singleton_mapping_collision_is_a_noop(
+    generated_rules: RuleSetter,
+) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    text = (
+        "sensor:\n  - platform: combination\n    sources:\n"
+        "      coefficient: 1\n      coeffecient: 2\n"
+    )
+    assert render_migrations(text) is None
+
+
 def test_list_item_rename_ignores_deeper_decoys(generated_rules: RuleSetter) -> None:
     generated_rules(_COEFFICIENT_RULE)
     text = (

@@ -10052,9 +10052,10 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
         )
     if capped:
         _LOGGER.warning("rename_key walk hit the depth cap; coverage may be incomplete")
+    paths = _sole_placements(found, declared)
     out = {
-        pair: SchemaHit(_sole_placement(pair[0], placements, declared), removed_in)
-        for pair, (placements, removed_in) in found.items()
+        pair: SchemaHit(paths[pair], removed_in)
+        for pair, (_placements, removed_in) in found.items()
     }
     _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
@@ -10068,6 +10069,32 @@ def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None
             f"rename_key {pair}: conflicting removed_in {prior!r} vs {seen!r} across paths"
         )
     return prior or seen
+
+
+def _sole_placements(
+    found: dict[tuple[str, str], tuple[set[tuple[RenamePath, Lineage]], str | None]],
+    declared: dict[tuple[RenamePath, Lineage], set[str]],
+) -> dict[tuple[str, str], RenamePath]:
+    """
+    Return each pair's one placement, or ``None`` when no rule may respell it.
+
+    Two pairs renaming one legacy key to different targets at the same
+    placement (sibling ``typed_schema`` variants) both become ``None``: no
+    rule carries the discriminator, so the first would respell the other
+    variant's items to the wrong field.
+    """
+    paths = {
+        pair: _sole_placement(pair[0], placements, declared)
+        for pair, (placements, _removed_in) in found.items()
+    }
+    targets: dict[tuple[str, RenamePath], set[str]] = {}
+    for (old_key, new_key), path in paths.items():
+        if path is not None:
+            targets.setdefault((old_key, path), set()).add(new_key)
+    return {
+        pair: None if len(targets.get((pair[0], path), ())) > 1 else path
+        for pair, path in paths.items()
+    }
 
 
 def _sole_placement(
