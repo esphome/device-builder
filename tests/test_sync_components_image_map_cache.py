@@ -94,3 +94,13 @@ def test_clean_caches_removes_schemas_and_docs_caches(cache_root: Path) -> None:
 def test_clean_caches_tolerates_a_missing_cache_root(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(sync_components, "_CACHE_ROOT", tmp_path / "absent")
     sync_components._clean_caches()
+
+
+def test_badge_rows_map_to_no_image(cache_root: Path) -> None:
+    """A ``badge:`` docs-index image is a text tile the site draws itself, not a file."""
+    _write_index(cache_root, b'["ESP32", "/components/esp32/", "badge:ESP32"],\n' + _INDEX_ROW)
+
+    image_map = sync_components.load_image_map()
+
+    assert "esp32" not in image_map
+    assert image_map["sensor.dht"].endswith("dht.svg")

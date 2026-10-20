@@ -103,6 +103,8 @@ _DOCS_INDEX_CACHE_NAME = "esphome.io-index.mdx"
 # the version-keyed schema bundles which cache immutably.
 _DOCS_INDEX_MAX_AGE = 24 * 3600.0
 _IMAGE_BASE_URL = "https://esphome.io/images/"
+# A docs-index image the site renders as a text tile, not a file.
+_DOCS_BADGE_IMAGE_PREFIX = "badge:"
 
 # CDN at schema.esphome.io rejects requests without a recognisable
 # User-Agent. Use the project name + repo URL so any traffic is easy
@@ -3123,6 +3125,8 @@ def load_image_map() -> dict[str, str]:
     )
     out: dict[str, str] = {}
     for _name, path, image in pattern.findall(text):
+        if image.startswith(_DOCS_BADGE_IMAGE_PREFIX):
+            continue
         # Path examples:
         #   /components/wifi/         -> "wifi"
         #   /components/sensor/dht/   -> "sensor.dht"
@@ -4048,15 +4052,17 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
                 duration_min_unit = _duration_min_unit_for_extends_ref(ref)
                 break
 
+    # Default-value hints — bare time strings like ``"60s"``, ``"5min"``.
+    # The default comes off the validator; it outranks a hand-written
+    # docs marker that calls the same field an int.
+    if entry_type is None and _looks_like_time_period_default(raw.get("default")):
+        entry_type = "time_period"
+
     # Docs-prefix hints — fields without explicit type lead with
     # ``**type**:`` markers we can parse out.
     if entry_type is None:
         prefix = _docs_type_marker(docs_text)
         entry_type = _DOC_PREFIX_TYPES.get(prefix)
-
-    # Default-value hints — bare time strings like ``"60s"``, ``"5min"``.
-    if entry_type is None and _looks_like_time_period_default(raw.get("default")):
-        entry_type = "time_period"
 
     # Key-name fallback — ``icon`` / ``mac_address`` are usually
     # untyped strings in the schema.
