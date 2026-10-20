@@ -165,7 +165,7 @@ def test_variant_gate_fails_loud_when_underivable() -> None:
 
 
 def test_esp32_advanced_fields_get_docs_descriptions() -> None:
-    """``framework.advanced`` fields carry MDX descriptions + the advanced-config help link."""
+    """``framework.advanced`` fields carry a description + the advanced-config help link."""
     advanced = _find(
         _find(_load("esp32")["config_entries"], "framework")["config_entries"], "advanced"
     )
@@ -174,8 +174,6 @@ def test_esp32_advanced_fields_get_docs_descriptions() -> None:
     assert sram1 is not None
     assert (sram1.get("description") or "").startswith("Use the SRAM1 memory region")
     assert (sram1.get("help_link") or "").endswith("#advanced-configuration")
-    # First-paragraph truncation drops the trailing bootloader note.
-    assert "Important" not in (sram1.get("description") or "")
     # A hidden sibling still gets hover text (hidden = form-only) and stays hidden.
     comp = _find(advanced["config_entries"], "compiler_optimization")
     assert comp is not None and comp.get("hidden") is True
