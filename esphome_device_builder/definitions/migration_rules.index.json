@@ -439,6 +439,16 @@
       "platform": "ble_scanner",
       "removed_in": "2027.2.0",
       "since": "2026.8.0b1"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_list_field",
+      "list_key": "sources",
+      "new": "coefficient",
+      "old": "coeffecient",
+      "platform": "combination",
+      "removed_in": "2026.12.0",
+      "since": "2026.10.0b5"
     }
   ]
 }
