@@ -3128,6 +3128,7 @@ def load_image_map() -> dict[str, str]:
         r'\["([^"]+)",\s*"(/components/[^"]+)",\s*"([^"]+)"',
     )
     out: dict[str, str] = {}
+    badge_keys: set[str] = set()
     for _name, path, image in pattern.findall(text):
         # Path examples:
         #   /components/wifi/         -> "wifi"
@@ -3137,12 +3138,12 @@ def load_image_map() -> dict[str, str]:
         if not parts:
             continue
         component_id = f"{parts[0]}.{parts[1]}" if len(parts) >= 2 else parts[0]
-        url = _docs_image_url(image)
-        _record_docs_image(out, component_id, url)
+        url, is_badge = _docs_image_url(image)
+        _record_docs_image(out, badge_keys, component_id, url, is_badge)
         # Also store under the bare stem when only one platform exists,
         # so lookups by either id work.
         if len(parts) >= 2:
-            _record_docs_image(out, parts[1], url)
+            _record_docs_image(out, badge_keys, parts[1], url, is_badge)
     _LOGGER.info("Image map built: %d components", len(out))
     return out
 
@@ -3154,23 +3155,25 @@ def load_image_map() -> dict[str, str]:
 _IMAGE_MAP_SENTINELS = ("wifi", "i2c", "sensor.dht")
 
 
-def _docs_image_url(image: str) -> str:
-    """Public URL of a docs-index image value, badge or file."""
+def _docs_image_url(image: str) -> tuple[str, bool]:
+    """Public URL of a docs-index image value, and whether it is a badge."""
     if image.startswith(_DOCS_BADGE_IMAGE_PREFIX):
         name = image.removeprefix(_DOCS_BADGE_IMAGE_PREFIX).lower()
-        return f"{_IMAGE_BASE_URL}{_DOCS_BADGE_IMAGE_DIR}{name}.svg"
-    return _IMAGE_BASE_URL + image
+        return f"{_IMAGE_BASE_URL}{_DOCS_BADGE_IMAGE_DIR}{name}.svg", True
+    return _IMAGE_BASE_URL + image, False
 
 
-def _is_badge_image_url(url: str) -> bool:
-    return url.startswith(_IMAGE_BASE_URL + _DOCS_BADGE_IMAGE_DIR)
-
-
-def _record_docs_image(out: dict[str, str], key: str, url: str) -> None:
+def _record_docs_image(
+    out: dict[str, str], badge_keys: set[str], key: str, url: str, is_badge: bool
+) -> None:
     """Keep the first image for *key*; a badge yields to a later image file."""
-    current = out.get(key)
-    if current is None or (_is_badge_image_url(current) and not _is_badge_image_url(url)):
-        out[key] = url
+    if key in out and (is_badge or key not in badge_keys):
+        return
+    out[key] = url
+    if is_badge:
+        badge_keys.add(key)
+    else:
+        badge_keys.discard(key)
 
 
 def _require_image_map(image_map: dict[str, str]) -> None:
