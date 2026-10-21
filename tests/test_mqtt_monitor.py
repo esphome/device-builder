@@ -2717,8 +2717,8 @@ async def test_run_warns_once_for_a_persistently_denied_subscription(
         on_state_change=lambda *_: None,
         on_ip_change=lambda *_: None,
     )
-    attempts = 0
-    third_attempt = asyncio.Event()
+    sessions = 0
+    fourth_session_parked = asyncio.Event()
     loop = asyncio.get_running_loop()
 
     class _DeniedClient(_FakePahoClient):
@@ -2728,20 +2728,21 @@ async def test_run_warns_once_for_a_persistently_denied_subscription(
         def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
             # The first broadcast proves the session passed the CONNACK
             # verdict; deny the subscription from there, as paho's
-            # network thread would.
-            nonlocal attempts
-            attempts += 1
-            if attempts >= 3:
-                loop.call_soon_threadsafe(third_attempt.set)
-            self.on_subscribe(self, None, 1, [0x80])
+            # network thread would. The fourth session is left parked
+            # so teardown never races a failing TaskGroup.
+            nonlocal sessions
+            sessions += 1
+            if sessions <= 3:
+                self.on_subscribe(self, None, 1, [0x80])
+            else:
+                loop.call_soon_threadsafe(fourth_session_parked.set)
             return _PublishInfo()
 
     monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _DeniedClient}))
     caplog.set_level("DEBUG", logger=monitor_module.__name__)
 
     async with running_task(monitor._run()):
-        await asyncio.wait_for(third_attempt.wait(), timeout=2.0)
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(fourth_session_parked.wait(), timeout=2.0)
 
     connected = [r for r in caplog.records if r.message.startswith("MQTT connected to")]
     assert len(connected) >= 3, "every iteration must pass the CONNACK verdict first"
