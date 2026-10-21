@@ -572,8 +572,8 @@ class DeviceMqttMonitor:
             return
         client.tls_set_context(_build_tls_context(self._broker))
         if self._broker.skip_cert_cn_check:
-            # Never flip ``check_hostname`` directly: paho 1.x then
-            # calls ``ssl.match_hostname``, removed in Python 3.12.
+            # Never flip ``check_hostname`` directly: both paho majors
+            # then call ``ssl.match_hostname``, removed in Python 3.12.
             # ``tls_insecure_set`` is the supported switch and keeps
             # chain verification on.
             client.tls_insecure_set(True)  # noqa: FBT003 — paho's positional signature
