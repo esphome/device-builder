@@ -1956,10 +1956,6 @@ class _FakeReasonCode:
         self.value = value
         self._name = name
 
-    @property
-    def is_failure(self) -> bool:
-        return self.value >= 0x80
-
     def __str__(self) -> str:
         return self._name
 
