@@ -2723,12 +2723,18 @@ async def test_run_warns_once_for_a_persistently_denied_subscription(
 
     class _DeniedClient(_FakePahoClient):
         def subscribe(self, topic: str) -> tuple[int, int]:
+            return (0, 1)  # accepted; the SUBACK arrives later, from the live session
+
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            # The first broadcast proves the session passed the CONNACK
+            # verdict; deny the subscription from there, as paho's
+            # network thread would.
             nonlocal attempts
             attempts += 1
             if attempts >= 3:
                 loop.call_soon_threadsafe(third_attempt.set)
             self.on_subscribe(self, None, 1, [0x80])
-            return (0, 1)
+            return _PublishInfo()
 
     monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _DeniedClient}))
     caplog.set_level("DEBUG", logger=monitor_module.__name__)
@@ -2737,6 +2743,8 @@ async def test_run_warns_once_for_a_persistently_denied_subscription(
         await asyncio.wait_for(third_attempt.wait(), timeout=2.0)
         await asyncio.sleep(0.05)
 
+    connected = [r for r in caplog.records if r.message.startswith("MQTT connected to")]
+    assert len(connected) >= 3, "every iteration must pass the CONNACK verdict first"
     denials = [
         r
         for r in caplog.records
@@ -2752,18 +2760,7 @@ async def test_run_resets_log_gate_after_granted_suback(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A granted SUBACK re-arms the loud-warning gate.
-
-    Without the reset, a broker that goes down → up → down again
-    would only WARN once (on the very first failure) and silently
-    DEBUG every subsequent outage forever, defeating the point of
-    surfacing it in the operator's log. The reset trigger is
-    ``self._subscribed_this_session = True`` (set inside
-    ``_connect_and_listen`` once the discovery SUBACK is granted),
-    not a clean return — production almost never sees a clean
-    return because the inner TaskGroup parks until cancelled or
-    raises.
-    """
+    """A granted SUBACK re-arms the loud-warning gate, so down → up → down warns twice."""
     monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
 
     monitor = DeviceMqttMonitor(

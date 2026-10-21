@@ -200,9 +200,8 @@ class DeviceMqttMonitor:
         # Set by ``_connect_and_listen`` once the broker grants the
         # discovery subscription. Read+cleared in
         # ``_log_reconnect_failure`` so the loud-log gates below re-arm
-        # only when this session reached working discovery — a CONNACK
-        # alone is not enough (a denied SUBACK would re-warn on every
-        # reconnect), and neither is a clean ``_connect_and_listen``
+        # only when this session reached working discovery — not on a
+        # bare CONNACK, and not on a clean ``_connect_and_listen``
         # return (production rarely sees one, since the inner TaskGroup
         # parks until cancelled or raises). Bug #324.
         self._subscribed_this_session = False
@@ -443,12 +442,8 @@ class DeviceMqttMonitor:
                     except TimeoutError:
                         msg = "no SUBACK for the discovery subscription"
                         raise ConnectionError(msg) from None
-                    # Re-arms ``_run``'s loud-log gates. Only a granted
-                    # SUBACK proves this iteration reached working
-                    # discovery (a CONNACK followed by a denied SUBACK
-                    # would re-warn on every reconnect), and a clean
-                    # return can't carry the signal because the
-                    # TaskGroup below parks until cancelled or raises.
+                    # Re-arms ``_run``'s loud-log gates: only a granted
+                    # SUBACK proves the session reached working discovery.
                     self._subscribed_this_session = True
 
             try:
