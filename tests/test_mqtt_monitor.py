@@ -2683,20 +2683,86 @@ async def test_run_collapses_repeat_unreachable_errors_to_debug(
         assert record.exc_info is None
 
 
-async def test_run_resets_log_gate_after_successful_connect(
+async def test_granted_suback_arms_the_log_gate_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A healthy session flags the granted SUBACK for ``_run``'s log-gate reset."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    session_running = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    class _FakeClient(_FakePahoClient):
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            loop.call_soon_threadsafe(session_running.set)
+            return _PublishInfo()
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    async with running_task(monitor._connect_and_listen("test-id")):
+        await asyncio.wait_for(session_running.wait(), timeout=2.0)
+        assert monitor._subscribed_this_session is True
+
+
+async def test_run_warns_once_for_a_persistently_denied_subscription(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A successful CONNACK re-arms the loud-warning gate.
+    """A SUBACK denial repeating across reconnects WARNs once, then collapses to DEBUG."""
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    attempts = 0
+    third_attempt = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    class _DeniedClient(_FakePahoClient):
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            nonlocal attempts
+            attempts += 1
+            if attempts >= 3:
+                loop.call_soon_threadsafe(third_attempt.set)
+            self.on_subscribe(self, None, 1, [0x80])
+            return (0, 1)
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _DeniedClient}))
+    caplog.set_level("DEBUG", logger=monitor_module.__name__)
+
+    async with running_task(monitor._run()):
+        await asyncio.wait_for(third_attempt.wait(), timeout=2.0)
+        await asyncio.sleep(0.05)
+
+    denials = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__ and "subscription denied" in r.message
+    ]
+    assert [r.levelname for r in denials[:3]] == ["WARNING", "DEBUG", "DEBUG"], [
+        (r.levelname, r.message) for r in denials
+    ]
+    assert monitor._subscribed_this_session is False
+
+
+async def test_run_resets_log_gate_after_granted_suback(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A granted SUBACK re-arms the loud-warning gate.
 
     Without the reset, a broker that goes down → up → down again
     would only WARN once (on the very first failure) and silently
     DEBUG every subsequent outage forever, defeating the point of
     surfacing it in the operator's log. The reset trigger is
-    ``self._connected_this_session = True`` (set inside
-    ``_connect_and_listen`` right after CONNACK), not a clean
-    return — production almost never sees a clean return because
-    the inner TaskGroup parks until cancelled or raises.
+    ``self._subscribed_this_session = True`` (set inside
+    ``_connect_and_listen`` once the discovery SUBACK is granted),
+    not a clean return — production almost never sees a clean
+    return because the inner TaskGroup parks until cancelled or
+    raises.
     """
     monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
 
@@ -2708,8 +2774,8 @@ async def test_run_resets_log_gate_after_successful_connect(
 
     # Sequence of behaviours per ``_connect_and_listen`` call:
     # 1. fail (TimeoutError) — first WARNING
-    # 2. simulate a session that reached CONNACK and then was
-    #    closed by the broker (sets the in-session flag, then
+    # 2. simulate a session that reached a granted SUBACK and then
+    #    was closed by the broker (sets the in-session flag, then
     #    raises an expected error). Production's equivalent is a
     #    broker that accepted the connection, ran for a while, and
     #    then dropped us — the gate must re-arm.
@@ -2726,9 +2792,9 @@ async def test_run_resets_log_gate_after_successful_connect(
             third_failure.set()
         if action == "fail":
             raise TimeoutError("timed out")
-        # ``connect-then-drop``: signal CONNACK success, then
+        # ``connect-then-drop``: signal a granted SUBACK, then
         # raise as if the broker dropped the session.
-        monitor._connected_this_session = True
+        monitor._subscribed_this_session = True
         raise ConnectionError("broker dropped session")
 
     monkeypatch.setattr(monitor, "_connect_and_listen", _scripted)
@@ -2750,7 +2816,7 @@ async def test_run_resets_log_gate_after_successful_connect(
     ]
     # Two WARNINGs: the first failure (start of outage A) and the
     # connect-then-drop (start of outage B — gate re-armed by the
-    # CONNACK in between). The third failure is a continuation of
+    # SUBACK in between). The third failure is a continuation of
     # outage B with no successful connect between them, so it
     # collapses to DEBUG. Pinning this also catches the inverse
     # regression: dropping the gate-reset entirely would only emit

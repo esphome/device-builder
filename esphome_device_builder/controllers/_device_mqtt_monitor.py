@@ -197,16 +197,18 @@ class DeviceMqttMonitor:
         self._task: asyncio.Task[None] | None = None
         # device name → monotonic timestamp of the last MQTT response
         self._last_seen: dict[str, float] = {}
-        # Set by ``_connect_and_listen`` the moment CONNACK succeeds.
-        # Read+cleared in ``_log_reconnect_failure`` so the loud-log
-        # gates below re-arm only when we actually managed to connect
-        # this session — not when ``_connect_and_listen`` returns
-        # cleanly (which production rarely does, since the inner
-        # TaskGroup parks until cancelled or raises). Bug #324.
-        self._connected_this_session = False
+        # Set by ``_connect_and_listen`` once the broker grants the
+        # discovery subscription. Read+cleared in
+        # ``_log_reconnect_failure`` so the loud-log gates below re-arm
+        # only when this session reached working discovery — a CONNACK
+        # alone is not enough (a denied SUBACK would re-warn on every
+        # reconnect), and neither is a clean ``_connect_and_listen``
+        # return (production rarely sees one, since the inner TaskGroup
+        # parks until cancelled or raises). Bug #324.
+        self._subscribed_this_session = False
         # Per-category log gates. Each flips True after a loud log
         # and back to False on the next failure that observed a
-        # successful CONNACK. Tracked separately so a TimeoutError
+        # granted SUBACK. Tracked separately so a TimeoutError
         # loop doesn't suppress the first appearance of a different
         # unexpected exception class.
         self._connect_error_logged = False
@@ -286,15 +288,15 @@ class DeviceMqttMonitor:
         ``expected`` (TimeoutError / OSError / ConnectionError) and
         unexpected exceptions track separate gates so a TimeoutError
         loop doesn't suppress the first appearance of a different
-        exception class. A successful CONNACK during the failed
+        exception class. A granted SUBACK during the failed
         iteration re-arms both gates so the next outage logs loudly
-        again — tracked via ``self._connected_this_session``.
+        again — tracked via ``self._subscribed_this_session``.
         """
         delay = int(_RECONNECT_DELAY)
-        if self._connected_this_session:
+        if self._subscribed_this_session:
             self._connect_error_logged = False
             self._unexpected_error_logged = False
-            self._connected_this_session = False
+            self._subscribed_this_session = False
 
         if expected:
             # A failed TLS handshake (wrong CA for this broker, CN
@@ -421,14 +423,6 @@ class DeviceMqttMonitor:
                 raise ConnectionError(signals.errors[0])
 
             _LOGGER.info("MQTT connected to %s:%s", self._broker.host, self._broker.port)
-            # Signal to ``_run`` that this iteration achieved a real
-            # connection — read+cleared in its except branches to
-            # re-arm the loud-log gates. Set here rather than relying
-            # on a clean ``_connect_and_listen`` return because the
-            # inner TaskGroup parks until cancelled or raises, so the
-            # ``else`` branch on the caller's ``try`` rarely runs in
-            # production.
-            self._connected_this_session = True
             self._set_connected(value=True)
 
             async def raise_when_session_failed() -> None:
@@ -449,6 +443,13 @@ class DeviceMqttMonitor:
                     except TimeoutError:
                         msg = "no SUBACK for the discovery subscription"
                         raise ConnectionError(msg) from None
+                    # Re-arms ``_run``'s loud-log gates. Only a granted
+                    # SUBACK proves this iteration reached working
+                    # discovery (a CONNACK followed by a denied SUBACK
+                    # would re-warn on every reconnect), and a clean
+                    # return can't carry the signal because the
+                    # TaskGroup below parks until cancelled or raises.
+                    self._subscribed_this_session = True
 
             try:
                 async with asyncio.TaskGroup() as tg:
