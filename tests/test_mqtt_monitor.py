@@ -2190,6 +2190,67 @@ async def test_reconnect_subscribe_failure_tears_the_session_down(
         await asyncio.wait_for(task, timeout=2.0)
 
 
+async def test_session_client_uses_the_paho_2_callback_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With paho 2 the client is built for callback API 2 and its five-argument callbacks work."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    init_args: list[tuple[Any, ...]] = []
+
+    class _ReasonCode:
+        """The slice of paho 2's ``ReasonCode`` the callbacks compare against."""
+
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+        def __eq__(self, other: object) -> bool:
+            return other == self.value
+
+        __hash__ = None  # type: ignore[assignment]
+
+        def __repr__(self) -> str:
+            return str(self.value)
+
+    class _FakeClient(_FakePahoClient):
+        def __init__(
+            self, api_version: Any, client_id: str = "", clean_session: bool = True
+        ) -> None:
+            super().__init__(client_id, clean_session)
+            init_args.append((api_version, client_id, clean_session))
+
+        def loop_start(self) -> None:
+            self.on_connect(self, None, None, _ReasonCode(self.connack_rc), None)
+
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            self.on_subscribe(self, None, 1, [_ReasonCode(0)], None)
+            return (0, 1)
+
+    class _FakePaho:
+        CallbackAPIVersion = type("CallbackAPIVersion", (), {"VERSION2": "v2"})
+        Client = _FakeClient
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", _FakePaho)
+    signals = monitor_module._SessionSignals()
+    client = monitor._create_session_client("test-id", signals)
+
+    assert init_args == [("v2", "test-id", True)]
+    client.loop_start()
+    await asyncio.sleep(0)
+    assert signals.errors == []
+    assert signals.subscribed.is_set()
+
+    client.on_connect(client, None, None, _ReasonCode(5), None)
+    client.on_subscribe(client, None, 2, [_ReasonCode(0x80)], None)
+    assert signals.errors == [
+        "broker rejected connection (rc=5)",
+        "subscription denied (granted qos=[128])",
+    ]
+
+
 async def test_acl_denied_subscription_tears_the_session_down(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -18,7 +18,7 @@ import hashlib
 import logging
 import secrets
 import ssl
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple, Protocol
 
@@ -344,7 +344,11 @@ class DeviceMqttMonitor:
         loop = asyncio.get_running_loop()
 
         def on_connect(
-            connected_client: SubscribeClient, _userdata: object, _flags: object, rc: int
+            connected_client: SubscribeClient,
+            _userdata: object,
+            _flags: object,
+            rc: int,
+            _properties: object = None,
         ) -> None:
             # Runs on paho's thread, which swallows callback raises —
             # every path must record its error and reach the set in the
@@ -366,7 +370,11 @@ class DeviceMqttMonitor:
                 loop.call_soon_threadsafe(signals.record_verdict)
 
         def on_subscribe(
-            _client: Any, _userdata: object, _mid: int, granted_qos: tuple[int, ...]
+            _client: Any,
+            _userdata: object,
+            _mid: int,
+            granted_qos: Sequence[int],
+            _properties: object = None,
         ) -> None:
             # A broker ACL denies the subscription via SUBACK 0x80 —
             # ``subscribe()``'s rc cannot see it, and without this the
@@ -380,7 +388,12 @@ class DeviceMqttMonitor:
         def on_message(_client: Any, _userdata: Any, msg: Any) -> None:
             loop.call_soon_threadsafe(signals.messages.put_nowait, msg)
 
-        client = paho_mqtt.Client(client_id=client_id, clean_session=True)
+        # paho 2 takes the callback API version first; paho 1 has no such argument
+        api_version = getattr(paho_mqtt, "CallbackAPIVersion", None)
+        if api_version is None:
+            client = paho_mqtt.Client(client_id=client_id, clean_session=True)
+        else:
+            client = paho_mqtt.Client(api_version.VERSION2, client_id=client_id, clean_session=True)
         client.on_connect = on_connect
         client.on_subscribe = on_subscribe
         client.on_message = on_message
