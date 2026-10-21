@@ -11,6 +11,7 @@ Covers the parts that don't require a live broker:
 from __future__ import annotations
 
 import asyncio
+import enum
 import json
 import ssl
 import textwrap
@@ -1943,6 +1944,53 @@ class _FakePahoClient:
         self._record("disconnect", ())
 
 
+class _FakeApiVersion(enum.Enum):
+    VERSION1 = 1
+    VERSION2 = 2
+
+
+class _FakeReasonCode:
+    """paho 2 ``ReasonCode`` stand-in: a numeric value that prints as its name."""
+
+    def __init__(self, value: int, name: str) -> None:
+        self.value = value
+        self._name = name
+
+    @property
+    def is_failure(self) -> bool:
+        return self.value >= 0x80
+
+    def __str__(self) -> str:
+        return self._name
+
+
+class _FakePahoV2Client(_FakePahoClient):
+    """paho 2 stand-in: callback API v2 argument shapes."""
+
+    connack = _FakeReasonCode(0, "Success")
+    suback = (_FakeReasonCode(0, "Granted QoS 0"),)
+
+    def __init__(
+        self, callback_api_version: Any, client_id: str = "", clean_session: bool = True
+    ) -> None:
+        super().__init__(client_id, clean_session)
+        self._record("api_version", (callback_api_version,))
+
+    def loop_start(self) -> None:
+        self._record("loop_start", ())
+        self.on_connect(self, None, object(), self.connack, None)
+
+    def subscribe(self, topic: str) -> tuple[int, int]:
+        self._record("subscribe", (topic,))
+        if self.on_subscribe is not None:
+            self.on_subscribe(self, None, 1, self.suback, None)
+        return (0, 1)
+
+
+def _fake_paho_v2(client_cls: type[_FakePahoV2Client]) -> Any:
+    return type("M", (), {"Client": client_cls, "CallbackAPIVersion": _FakeApiVersion})
+
+
 async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2366,6 +2414,88 @@ async def test_teardown_failure_does_not_mask_the_session_error(
     # thread leaks every reconnect cycle.
     assert torn_down == ["disconnect", "loop_stop"]
     assert any("teardown failed" in rec.message for rec in caplog.records)
+
+
+async def test_paho2_client_is_built_with_callback_api_v2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A paho with ``CallbackAPIVersion`` gets a v2 client and still subscribes."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    calls: list[tuple[str, Any]] = []
+    started = asyncio.Event()
+
+    class _FakeClient(_FakePahoV2Client):
+        def _record(self, op: str, args: tuple[Any, ...]) -> None:
+            calls.append((op, args))
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", _fake_paho_v2(_FakeClient))
+
+    async def _park(_arg: Any) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(monitor, "_listen", _park)
+    monkeypatch.setattr(monitor, "_ping_loop", _park)
+
+    async with running_task(monitor._connect_and_listen("test-id")):
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+
+    assert ("api_version", (_FakeApiVersion.VERSION2,)) in calls
+    assert ("subscribe", ("esphome/discover/#",)) in calls
+    assert monitor.connected is False
+
+
+async def test_paho2_rejected_connect_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A v2 CONNACK reason code with the failure bit rejects the session by name."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    class _FakeClient(_FakePahoV2Client):
+        connack = _FakeReasonCode(134, "Bad user name or password")
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", _fake_paho_v2(_FakeClient))
+
+    with pytest.raises(ConnectionError, match="rc=Bad user name or password"):
+        await monitor._connect_and_listen("test-id")
+
+
+async def test_paho2_denied_subscription_fails_the_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A v2 SUBACK reason code at or above 0x80 is a denial."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    class _FakeClient(_FakePahoV2Client):
+        suback = (_FakeReasonCode(0x87, "Not authorized"),)
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", _fake_paho_v2(_FakeClient))
+
+    with pytest.raises(ConnectionError, match="subscription denied"):
+        await monitor._connect_and_listen("test-id")
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        pytest.param(0, 0, id="int_success"),
+        pytest.param(0x80, 0x80, id="int_denied"),
+        pytest.param(_FakeReasonCode(0, "Success"), 0, id="reason_success"),
+        pytest.param(_FakeReasonCode(134, "Bad user name or password"), 134, id="reason_failure"),
+    ],
+)
+def test_code_value_reads_int_and_reason_code(code: Any, expected: int) -> None:
+    assert monitor_module._code_value(code) == expected
 
 
 def test_unwrap_session_error_keeps_mixed_groups() -> None:

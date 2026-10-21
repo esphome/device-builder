@@ -356,12 +356,19 @@ jobs:
           --ignore=tests/e2e/slow
 
   e2e-mqtt:
-    name: E2E MQTT discovery (mosquitto)
+    name: E2E MQTT discovery (mosquitto, paho ${{ matrix.paho }})
     runs-on: ubuntu-latest
     # The MQTT discovery e2e (tests/e2e/slow/mqtt/) drives real paho
     # clients against a real mosquitto broker; the test self-skips
     # wherever the broker isn't installed, so this is the one job that
     # installs it. Linux only — the broker path is platform-independent.
+    # ``pin`` is whatever esphome's requirements resolve to; the other
+    # leg overrides paho-mqtt so both majors stay covered while esphome
+    # releases carry either one.
+    strategy:
+      fail-fast: false
+      matrix:
+        paho: [pin, "2.1.0"]
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -373,6 +380,13 @@ jobs:
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
+
+      - name: Install paho-mqtt ${{ matrix.paho }}
+        if: matrix.paho != 'pin'
+        run: uv pip install paho-mqtt==${{ matrix.paho }}
+
+      - name: Show installed paho-mqtt version
+        run: uv pip show paho-mqtt | grep -E '^(Name|Version):'
 
       - name: Install mosquitto (cached)
         # Cache-hit restores skip ``apt-get update`` entirely, so an apt

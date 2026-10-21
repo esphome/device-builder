@@ -8,7 +8,9 @@ and discovered devices are pushed into the supplied callbacks.
 
 paho-mqtt is an optional runtime dependency — it ships with the
 ``[esphome]`` extra. When it isn't importable the monitor logs once and
-disables itself; mDNS / ping discovery keeps working.
+disables itself; mDNS / ping discovery keeps working. Both paho 1.x and
+2.x are supported: the client is built with callback API v2 when the
+installed paho offers it.
 """
 
 from __future__ import annotations
@@ -68,7 +70,7 @@ class PublishInfo(Protocol):
 class SubscribeClient(Protocol):
     """The slice of paho's ``Client`` the CONNACK callback drives."""
 
-    def subscribe(self, topic: str) -> tuple[int, int]: ...
+    def subscribe(self, topic: str) -> tuple[int, int | None]: ...
 
 
 class PublishClient(Protocol):
@@ -343,14 +345,21 @@ class DeviceMqttMonitor:
         assert paho_mqtt is not None  # type narrowing — checked in start()
         loop = asyncio.get_running_loop()
 
+        # paho 2's callback API v2 appends ``properties`` to on_connect
+        # and on_subscribe; the ``*_`` keeps one callback per event
+        # valid for both majors.
         def on_connect(
-            connected_client: SubscribeClient, _userdata: object, _flags: object, rc: int
+            connected_client: SubscribeClient,
+            _userdata: object,
+            _flags: object,
+            rc: object,
+            *_: object,
         ) -> None:
             # Runs on paho's thread, which swallows callback raises —
             # every path must record its error and reach the set in the
             # finally, or the awaiting side times out with no cause.
             try:
-                if rc != 0:
+                if _code_value(rc) != 0:
                     signals.errors.append(f"broker rejected connection (rc={rc})")
                     return
                 # Subscribe from paho's own thread: its auto-reconnect
@@ -366,12 +375,12 @@ class DeviceMqttMonitor:
                 loop.call_soon_threadsafe(signals.record_verdict)
 
         def on_subscribe(
-            _client: Any, _userdata: object, _mid: int, granted_qos: tuple[int, ...]
+            _client: Any, _userdata: object, _mid: int, granted_qos: Any, *_: object
         ) -> None:
             # A broker ACL denies the subscription via SUBACK 0x80 —
             # ``subscribe()``'s rc cannot see it, and without this the
             # monitor sits connected with discovery permanently dark.
-            if any(qos == 0x80 for qos in granted_qos):
+            if any(_code_value(qos) >= 0x80 for qos in granted_qos):
                 signals.errors.append(f"subscription denied (granted qos={list(granted_qos)})")
                 loop.call_soon_threadsafe(signals.record_verdict)
             else:
@@ -380,7 +389,13 @@ class DeviceMqttMonitor:
         def on_message(_client: Any, _userdata: Any, msg: Any) -> None:
             loop.call_soon_threadsafe(signals.messages.put_nowait, msg)
 
-        client = paho_mqtt.Client(client_id=client_id, clean_session=True)
+        # Read per session, not at import: tests swap the module in.
+        api_version = getattr(paho_mqtt, "CallbackAPIVersion", None)
+        client: Any = (
+            paho_mqtt.Client(api_version.VERSION2, client_id=client_id, clean_session=True)
+            if api_version is not None
+            else paho_mqtt.Client(client_id=client_id, clean_session=True)
+        )
         client.on_connect = on_connect
         client.on_subscribe = on_subscribe
         client.on_message = on_message
@@ -557,7 +572,7 @@ class DeviceMqttMonitor:
             return
         client.tls_set_context(_build_tls_context(self._broker))
         if self._broker.skip_cert_cn_check:
-            # Never flip ``check_hostname`` directly: paho 1.6.1 then
+            # Never flip ``check_hostname`` directly: paho 1.x then
             # calls ``ssl.match_hostname``, removed in Python 3.12.
             # ``tls_insecure_set`` is the supported switch and keeps
             # chain verification on.
@@ -645,6 +660,12 @@ def _build_tls_context(broker: MqttBrokerConfig) -> ssl.SSLContext:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.load_verify_locations(cadata=broker.certificate_authority)
     return context
+
+
+def _code_value(code: Any) -> int:
+    """Numeric value of a paho 1 int result or a paho 2 ``ReasonCode``."""
+    value: Any = getattr(code, "value", code)
+    return int(value)
 
 
 def _unwrap_session_error(eg: BaseExceptionGroup) -> BaseException:
