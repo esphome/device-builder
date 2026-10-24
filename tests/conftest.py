@@ -1257,10 +1257,15 @@ def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
     return FirmwareJob(**(base | overrides))
 
 
+_BUMPED_MTIMES: dict[Path, float] = {}
+
+
 def bump_mtime(path: Path) -> None:
-    """Push *path*'s mtime past any same-size rewrite the filesystem's clock would hide."""
+    """Push *path*'s mtime past its current one and past every earlier bump of the same file."""
     stat = path.stat()
-    os.utime(path, (stat.st_atime, stat.st_mtime + 10))
+    mtime = max(stat.st_mtime, _BUMPED_MTIMES.get(path, 0.0)) + 10
+    _BUMPED_MTIMES[path] = mtime
+    os.utime(path, (stat.st_atime, mtime))
 
 
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:
