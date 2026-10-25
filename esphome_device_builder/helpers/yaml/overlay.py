@@ -137,14 +137,21 @@ def _apply_extensions(existing: str, key: str, body: list[str]) -> tuple[str, li
 
 
 def _split_list_items(body: list[str]) -> list[list[str]]:
-    """Split a list block *body* into per-item line groups at its dash indent."""
+    """Split a list block *body* into per-item line groups; a dash-level comment opens the next."""
     dash = next((leading_ws(line) for line in body if line.strip().startswith("-")), None)
     items: list[list[str]] = [[]]
+    pending: list[str] = []
     for line in body:
+        if dash is not None and leading_ws(line) == dash and line.strip().startswith("#"):
+            pending.append(line)
+            continue
         opens_item = dash is not None and leading_ws(line) == dash and line.strip().startswith("-")
         if opens_item and any(entry.strip().startswith("-") for entry in items[-1]):
             items.append([])
+        items[-1].extend(pending)
+        pending = []
         items[-1].append(line)
+    items[-1].extend(pending)
     return [item for item in items if item]
 
 
@@ -168,7 +175,10 @@ def _extend_item(existing: str, key: str, target: str, extra: list[str]) -> str:
         own = [item[0].replace("-", " ", 1), *item[1:]]
         if target not in {_line_defined_id(line) for line in own if leading_ws(line) == indent}:
             continue
-        if repeated := _child_keys(["", *own]) & _child_keys(["", *extra]):
+        added = _child_keys(["", *extra])
+        if not added:
+            raise ValueError(f"overlay {key}: !extend {target} adds no keys")
+        if repeated := _child_keys(["", *own]) & added:
             raise ValueError(
                 f"overlay {key}: !extend {target} repeats {', '.join(sorted(repeated))}"
             )

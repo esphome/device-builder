@@ -124,6 +124,14 @@ def test_merge_yaml_overlay_opens_a_block_at_any_column_0_key() -> None:
     assert parsed["_x"] == {"a": 1}
 
 
+def test_merge_yaml_overlay_keeps_a_comment_with_the_item_below_it() -> None:
+    """A dash-level comment after an ``!extend`` item stays above the next item."""
+    overlay = "switch:\n  - id: !extend a\n    x: 1\n  # Relay\n  - platform: gpio\n    id: b\n"
+    merged = merge_yaml_overlay(_BASE, overlay)
+
+    assert "    id: a\n    x: 1\n  # Relay\n  - platform: gpio\n    id: b\n" in merged
+
+
 def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None:
     """Extending the file's final item works when the base lacks a trailing newline."""
     overlay = "switch:\n  - id: !extend a\n    restore_mode: ALWAYS_ON\n"
@@ -150,6 +158,9 @@ def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None
         pytest.param("logger: {}\n", "must be a block", id="inline_value"),
         pytest.param("---\nlogger:\n", "precede the first block", id="leading_text"),
         pytest.param("nrf52:\n# note\n  board: other\n", "repeats board", id="comment_first"),
+        pytest.param(
+            "switch:\n  - id: !extend a\n    # nothing\n", "adds no keys", id="extend_empty"
+        ),
         pytest.param("nrf52:\n    dfu: true\n  y: 2\n", "indented less", id="under_indent"),
         pytest.param(
             "light:\n  - platform: x\nlight:\n  - platform: y\n", "repeated", id="repeated_block"
