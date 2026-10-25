@@ -91,7 +91,10 @@ def _overlay_blocks(text: str) -> tuple[list[tuple[str, list[str], list[str]]], 
         end = headers[pos + 1][1] if pos + 1 < len(headers) else len(lines)
         content_end = trim_trailing_gap(lines, start, end)
         comments = [line for line in lines[previous_end:start] if line.strip()]
-        blocks.append((key, comments, lines[start + 1 : content_end]))
+        body = lines[start + 1 : content_end]
+        while body and not body[0].strip():
+            body.pop(0)
+        blocks.append((key, comments, body))
         previous_end = content_end
     return blocks, [line for line in lines[previous_end:] if line.strip()]
 

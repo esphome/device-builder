@@ -132,6 +132,13 @@ def test_merge_yaml_overlay_keeps_a_comment_with_the_item_below_it() -> None:
     assert "    id: a\n    x: 1\n  # Relay\n  - platform: gpio\n    id: b\n" in merged
 
 
+def test_merge_yaml_overlay_ignores_blank_lines_after_a_header() -> None:
+    """A blank line between a list header and its first item doesn't shift the items."""
+    merged = merge_yaml_overlay(_BASE, "switch:\n\n  - platform: gpio\n    id: b\n")
+
+    assert [item["id"] for item in YAML(typ="safe").load(merged)["switch"]] == ["a", "b"]
+
+
 def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None:
     """Extending the file's final item works when the base lacks a trailing newline."""
     overlay = "switch:\n  - id: !extend a\n    restore_mode: ALWAYS_ON\n"
