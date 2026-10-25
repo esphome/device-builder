@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock
 import pytest
 from ruamel.yaml import YAML
 
+from esphome_device_builder.constants import BOARD_DEMO_FILENAME
 from esphome_device_builder.controllers.devices import mutations_yaml
 from esphome_device_builder.definitions import _BOARDS_DIR as BOARDS_DIR
-from esphome_device_builder.definitions import BOARD_DEMO_FILENAME
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import merge_yaml_overlay
 from esphome_device_builder.models import (

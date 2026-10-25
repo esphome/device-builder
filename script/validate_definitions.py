@@ -32,11 +32,11 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Imported from the stdlib-only constants module so this script stays light.
 from esphome_device_builder.constants import (  # noqa: E402
+    BOARD_DEMO_FILENAME,
     BOARD_PIN_KEYS,
     BUS_CATEGORIES,
     FEATURED_EXCLUDED_CATEGORIES,
 )
-from esphome_device_builder.definitions import BOARD_DEMO_FILENAME  # noqa: E402
 from esphome_device_builder.helpers.channel_colors import CHANNEL_COLORS_LEGACY_KEYS  # noqa: E402
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402

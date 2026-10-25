@@ -29,7 +29,7 @@ from typing import Any, NamedTuple
 import orjson
 import yaml
 
-from ..constants import IMPORT_SOURCE_TYPES
+from ..constants import BOARD_DEMO_FILENAME, IMPORT_SOURCE_TYPES
 from ..helpers.chips import normalize_chip_variant
 from ..helpers.lazy_catalog import (
     is_external_image_url,
@@ -70,7 +70,6 @@ _MIGRATION_RULES_INDEX_JSON = _DEFINITIONS_DIR / "migration_rules.index.json"
 
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 _GENERIC_DIR = _BOARDS_DIR / "_generic"
-BOARD_DEMO_FILENAME = "demo.yaml"
 
 
 # ---------------------------------------------------------------------------
