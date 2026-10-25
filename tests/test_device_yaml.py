@@ -2245,6 +2245,19 @@ def test_generate_yaml_no_wifi_board_emits_network_todo_comment() -> None:
     assert "network" in yaml
 
 
+def test_generate_yaml_nrf52_emits_mcumgr_ota_todo_comment() -> None:
+    """nRF52 gets the ``zephyr_mcumgr`` OTA hint, not the ESP32 network options."""
+    board = _make_board(platform=Platform.NRF52, pio_board="xiao_ble")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    lines = yaml.splitlines()
+    assert "api:" not in lines
+    assert "ota:" not in lines
+    assert "#   - platform: zephyr_mcumgr" in lines
+    assert "openthread:" in yaml
+    assert "esp32_hosted" not in yaml
+    assert "no native Wi-Fi" not in yaml
+
+
 def test_generate_yaml_keeps_api_and_ota_for_wifi_board() -> None:
     """Wi-Fi board → ``api:`` and ``ota:`` blocks both still emitted.
 

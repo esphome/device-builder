@@ -6,7 +6,13 @@ import logging
 
 import pytest
 
-from esphome_device_builder.models import BoardCatalogEntry, BoardCatalogResponse, PinFeature
+from esphome_device_builder.models import (
+    BoardCatalogEntry,
+    BoardCatalogResponse,
+    BoardEsphomeConfig,
+    PinFeature,
+    Platform,
+)
 from script.sync_boards import _NRF52_BOARD_NAMES, _augment_nrf52_boards, _derive_nrf52_pins
 
 pytestmark = pytest.mark.xdist_group("board_sync")
@@ -102,3 +108,21 @@ def test_nrf52_flatten_collision_keeps_first_and_warns(
         and "adafruit_itsybitsy/nrf52840" in r.getMessage()
         for r in caplog.records
     )
+
+
+def test_nrf52_fills_manifested_board_empty_pins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A manifested nRF52 board with ``pins: []`` gets the generated matrix."""
+    import esphome.components.nrf52.boards as boards_module  # noqa: PLC0415
+
+    monkeypatch.setattr(boards_module, "BOARDS_ZEPHYR", {"xiao_ble": {}})
+    board = BoardCatalogEntry(
+        id="xiao_ble",
+        name="Seeed XIAO nRF52840",
+        description="",
+        manufacturer="",
+        esphome=BoardEsphomeConfig(platform=Platform.NRF52, board="xiao_ble"),
+    )
+    boards = [board]
+    _augment_nrf52_boards(boards)
+    assert boards == [board]
+    assert len(board.pins) == 49
