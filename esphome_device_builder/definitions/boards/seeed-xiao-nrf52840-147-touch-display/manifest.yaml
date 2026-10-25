@@ -1,0 +1,283 @@
+id: seeed-xiao-nrf52840-147-touch-display
+name: Seeed XIAO 1.47" IPS Touch Display (nRF52840)
+description: >-
+  Seeed Studio XIAO nRF52840 paired with a 1.47" 172x320 IPS SPI display, a
+  6-axis LSM6DS IMU, two user buttons and an RGB status LED. New devices start
+  from a Zigbee demo: an LVGL spirit level driven by the IMU, button indicators
+  and a dimmable backlight exposed over Zigbee.
+manufacturer: Seeed Studio
+esphome:
+  platform: nrf52
+  board: xiao_ble
+hardware:
+  connectivity:
+  - bluetooth
+  - zigbee
+tags:
+- compact
+- usb-c
+- display
+docs_url: https://wiki.seeedstudio.com/getting_started_1.47_inch_touch_display_nrf52840/
+pins:
+- gpio: 4
+  label: P0.4
+  features:
+  - adc
+  - i2c_sda
+  available: false
+  occupied_by: LSM6DS IMU
+  notes: IMU I2C SDA
+- gpio: 5
+  label: P0.5
+  features:
+  - adc
+  - i2c_scl
+  available: false
+  occupied_by: LSM6DS IMU
+  notes: IMU I2C SCL
+- gpio: 6
+  label: P0.6
+  available: false
+  occupied_by: RGB LED (blue)
+  notes: Active low
+- gpio: 10
+  label: P0.10
+  available: false
+  occupied_by: USR2 button
+  notes: Active low, needs pull-up
+- gpio: 26
+  label: P0.26
+  available: false
+  occupied_by: RGB LED (red)
+  notes: Active low
+- gpio: 28
+  label: P0.28
+  features:
+  - adc
+  - spi_cs
+  available: false
+  occupied_by: Display
+  notes: Display CS
+- gpio: 29
+  label: P0.29
+  features:
+  - adc
+  available: false
+  occupied_by: Display
+  notes: Display DC
+- gpio: 30
+  label: P0.30
+  features:
+  - adc
+  available: false
+  occupied_by: RGB LED (green)
+  notes: Active low
+- gpio: 35
+  label: P1.3
+  available: false
+  occupied_by: Display
+  notes: Display reset
+- gpio: 37
+  label: P1.5
+  features:
+  - pwm
+  available: false
+  occupied_by: Display backlight
+  notes: PWM backlight
+- gpio: 39
+  label: P1.7
+  available: false
+  occupied_by: USR1 button
+  notes: Active low, needs pull-up
+- gpio: 45
+  label: P1.13
+  features:
+  - spi_clk
+  available: false
+  occupied_by: Display
+  notes: Display SPI SCLK
+- gpio: 47
+  label: P1.15
+  features:
+  - spi_mosi
+  available: false
+  occupied_by: Display
+  notes: Display SPI MOSI
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 45
+      locked: true
+    mosi_pin:
+      value: 47
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  name: 1.47" IPS Display
+  fields:
+    model:
+      value: CUSTOM
+      locked: true
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value: 28
+      locked: true
+    dc_pin:
+      value: 29
+      locked: true
+    reset_pin:
+      value: 35
+      locked: true
+    spi_mode: MODE0
+    data_rate: 8MHz
+    dimensions:
+      value:
+        width: 172
+        height: 320
+        offset_width: 34
+      locked: true
+    invert_colors: false
+    color_order: bgr
+    transform:
+      value:
+        swap_xy: false
+        mirror_x: true
+        mirror_y: false
+    init_sequence:
+      value:
+      - [0x11]
+      - delay 120ms
+      - [0x13]
+      - [0xB6, 0x0A, 0x82]
+      - [0xB0, 0x00, 0xE0]
+      - [0xB2, 0x0C, 0x0C, 0x00, 0x33, 0x33]
+      - [0xB7, 0x35]
+      - [0xBB, 0x28]
+      - [0xC0, 0x0C]
+      - [0xC2, 0x01, 0xFF]
+      - [0xC3, 0x10]
+      - [0xC4, 0x20]
+      - [0xC6, 0x0F]
+      - [0xD0, 0xA4, 0xA1]
+      - [0xE0, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32, 0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17]
+      - [0xE1, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31, 0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E]
+      locked: true
+    show_test_card: true
+    id: lcd
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.zephyr_pwm
+  fields:
+    pin:
+      value: 37
+      locked: true
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: imu_i2c
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    id:
+      value: imu_i2c
+      locked: true
+- id: imu
+  component_id: motion.lsm6ds
+  name: LSM6DS IMU
+  fields:
+    i2c_id:
+      value: imu_i2c
+      locked: true
+    id: imu
+  requires:
+  - imu_i2c
+- id: usr1_button
+  component_id: binary_sensor.gpio
+  name: USR1 Button
+  fields:
+    pin:
+      value:
+        number: 39
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    name: USR1
+    id: usr1
+- id: usr2_button
+  component_id: binary_sensor.gpio
+  name: USR2 Button
+  fields:
+    pin:
+      value:
+        number: 10
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    name: USR2
+    id: usr2
+- id: led_red
+  component_id: switch.gpio
+  name: Red LED
+  fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
+    name: Red LED
+    id: led_r
+- id: led_green
+  component_id: switch.gpio
+  name: Green LED
+  fields:
+    pin:
+      value:
+        number: 30
+        inverted: true
+      locked: true
+    name: Green LED
+    id: led_g
+- id: led_blue
+  component_id: switch.gpio
+  name: Blue LED
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
+    name: Blue LED
+    id: led_b
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  description: SPI bus, 1.47" IPS panel and PWM backlight.
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight

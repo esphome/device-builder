@@ -371,6 +371,23 @@ Default components only fire at device creation; existing devices
 keep whatever YAML they already have, and users are free to delete
 or edit any default block — the dashboard won't re-add it.
 
+**Demo config.** A board can ship a complete starter config as
+`boards/<id>/demo.yaml` next to its manifest. The sync bakes it into the
+board body (`demo_yaml`), and `devices/create` writes it as the new device's
+YAML in place of the generated template (default components and the Wi-Fi
+block don't apply). Name the device through the substitutions the create
+step prepends, and don't declare your own `substitutions:` block:
+
+```yaml
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+```
+
+The demo is used as-is, so it must validate on the esphome version the
+release ships. Featured components still work alongside it for users adding
+hardware to a device later.
+
 The validator (`script/validate_definitions.py`) cross-checks every
 featured component against the component catalog: the `component_id` must
 exist, every key in `fields:` must match a real `ConfigEntry.key`, and

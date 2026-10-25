@@ -190,6 +190,15 @@ def generate_adoption_yaml(
     return upsert_api_encryption_key(text, api_encryption_key) if api_encryption_key else text
 
 
+def generate_demo_yaml(name: str, friendly_name: str, board: BoardCatalogEntry) -> str:
+    """Generate a device YAML from *board*'s demo, binding its name substitutions."""
+    lines = [*_board_header_lines(board), "substitutions:"]
+    lines.append(f"  name: {_safe_yaml_scalar(name)}")
+    lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name or name)}")
+    lines.append("")
+    return "\n".join(lines) + "\n" + board.demo_yaml
+
+
 def generate_device_yaml(
     name: str,
     friendly_name: str,

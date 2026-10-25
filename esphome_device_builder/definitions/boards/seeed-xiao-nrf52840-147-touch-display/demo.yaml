@@ -1,0 +1,339 @@
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+nrf52:
+  board: xiao_ble
+  dfu: true
+
+# --- Buttons: light the matching LED and recolor the matching indicator ---
+binary_sensor:
+  - platform: gpio
+    id: usr1
+    name: USR1
+    pin:
+      number: P1.07
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press:
+      - switch.turn_on: led_r
+      - lvgl.widget.update:
+          id: btn1_ind
+          bg_color: 0x18BCF2
+    on_release:
+      - switch.turn_off: led_r
+      - lvgl.widget.update:
+          id: btn1_ind
+          bg_color: 0x3C3C3C
+
+  - platform: gpio
+    id: usr2
+    name: USR2
+    pin:
+      number: P0.10
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press:
+      - switch.turn_on: led_b
+      - lvgl.widget.update:
+          id: btn2_ind
+          bg_color: 0x18BCF2
+    on_release:
+      - switch.turn_off: led_b
+      - lvgl.widget.update:
+          id: btn2_ind
+          bg_color: 0x3C3C3C
+
+switch:
+  - platform: gpio
+    id: led_r
+    pin:
+      number: P0.26
+      inverted: true
+  - platform: gpio
+    id: led_g          # lit once the device has joined the Zigbee network
+    pin:
+      number: P0.30
+      inverted: true
+  - platform: gpio
+    id: led_b
+    pin:
+      number: P0.06
+      inverted: true
+
+# --- IMU: drives a marble in a small spirit-level dish ---
+i2c:
+  sda: P0.04
+  scl: P0.05
+
+motion:
+  - platform: lsm6ds
+    update_interval: 20ms        # read the IMU 50x per second for a snappy marble
+
+# Marble travel: 45 degrees of tilt moves the marble to the rim (36 px from center).
+# To reverse an axis, put a minus sign in front of x in its "Direction" filter.
+sensor:
+  - platform: motion
+    type: pitch
+    id: pitch
+    filters:
+      - lambda: return x;                     # Direction (use -x to reverse)
+      - exponential_moving_average:   # light smoothing only (higher alpha = faster)
+          alpha: 0.7
+          send_every: 1
+      - delta: 0.3
+    on_value:
+      - lvgl.widget.update:
+          id: ball
+          x: !lambda 'return (int) std::max(-36.0f, std::min(36.0f, x * 36.0f / 45.0f));'   # pitch -> horizontal
+      - script.execute: update_level
+  - platform: motion
+    type: roll
+    id: roll
+    filters:
+      # Roll spans -180..180. If the IMU sits upside down, "flat" reads near
+      # +/-180 and would pin the marble to the rim, so fold it back around 0.
+      - lambda: 'return x > 90.0f ? x - 180.0f : (x < -90.0f ? x + 180.0f : x);'
+      - lambda: return x;                     # Direction (use -x to reverse)
+      - exponential_moving_average:   # light smoothing only (higher alpha = faster)
+          alpha: 0.7
+          send_every: 1
+      - delta: 0.3
+    on_value:
+      - lvgl.widget.update:
+          id: ball
+          y: !lambda 'return (int) std::max(-36.0f, std::min(36.0f, x * 36.0f / 45.0f));'   # roll -> vertical
+      - script.execute: update_level
+
+# Marble and target ring turn green within 2 degrees of level
+script:
+  - id: update_level
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return fabsf(id(pitch).state) < 2.0f && fabsf(id(roll).state) < 2.0f;'
+          then:
+            - lvgl.widget.update:
+                id: ball
+                bg_color: 0x3CD070
+            - lvgl.widget.update:
+                id: target
+                border_color: 0x3CD070
+          else:
+            - lvgl.widget.update:
+                id: ball
+                bg_color: 0x18BCF2
+            - lvgl.widget.update:
+                id: target
+                border_color: 0x3C3C3C
+
+spi:
+  clk_pin: P1.13
+  mosi_pin: P1.15
+
+font:
+  - file: "gfonts://Roboto@500"
+    id: f
+    size: 18
+
+# ESPHome vertical logo (color on dark background), downloaded at compile time
+image:
+  - platform: file
+    file: https://media.esphome.io/logo/vertical/Logo%20Vertical%20-%20Color%20on%20Dark%20Background.svg
+    id: logo
+    type: RGB565
+    transparency: alpha_channel
+    resize: 140x140
+
+display:
+  - platform: mipi_spi
+    id: lcd
+    model: CUSTOM
+    cs_pin: P0.28
+    dc_pin: P0.29
+    reset_pin: P1.03
+    spi_mode: MODE0
+    data_rate: 8MHz
+    dimensions:
+      width: 172
+      height: 320
+      offset_width: 34
+    invert_colors: false
+    color_order: bgr
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: false
+    init_sequence:
+      - [0x11]
+      - delay 120ms
+      - [0x13]
+      - [0xB6, 0x0A, 0x82]
+      - [0xB0, 0x00, 0xE0]
+      - [0xB2, 0x0C, 0x0C, 0x00, 0x33, 0x33]
+      - [0xB7, 0x35]
+      - [0xBB, 0x28]
+      - [0xC0, 0x0C]
+      - [0xC2, 0x01, 0xFF]
+      - [0xC3, 0x10]
+      - [0xC4, 0x20]
+      - [0xC6, 0x0F]
+      - [0xD0, 0xA4, 0xA1]
+      - [0xE0, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32, 0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17]
+      - [0xE1, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31, 0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E]
+
+lvgl:
+  displays: lcd
+  # 12% of the screen = 172 x ~40 lines x 2 bytes ≈ 14 KB.
+  # LVGL renders larger dirty areas in several passes through this buffer.
+  buffer_size: 12%
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      scrollable: false
+      widgets:
+        - image:
+            src: logo
+            align: TOP_MID
+            y: 8
+
+        # Spirit-level dish: 96 px circle, y 154..250
+        - obj:
+            id: dish
+            align: TOP_MID
+            y: 154
+            width: 96
+            height: 96
+            radius: 48
+            pad_all: 0
+            bg_color: 0x0E1A22
+            border_width: 2
+            border_color: 0x3C3C3C
+            scrollable: false
+            widgets:
+              # "Level" target zone
+              - obj:
+                  id: target
+                  align: CENTER
+                  width: 26
+                  height: 26
+                  radius: 13
+                  pad_all: 0
+                  bg_opa: TRANSP
+                  border_width: 2
+                  border_color: 0x3C3C3C
+                  scrollable: false
+              # The marble (x/y are offsets from the dish center)
+              - obj:
+                  id: ball
+                  align: CENTER
+                  x: 0
+                  y: 0
+                  width: 18
+                  height: 18
+                  radius: 9
+                  pad_all: 0
+                  border_width: 0
+                  bg_color: 0x18BCF2
+                  scrollable: false
+
+        # Zigbee status: grey "starting" -> amber "searching" -> green "joined"
+        - label:
+            id: zb_label
+            align: TOP_MID
+            y: 256
+            text_font: f
+            text_color: 0x8C8C8C
+            text: "Zigbee: starting"
+
+        # Button indicators: 24 px circles centered at (50,296) and (122,296)
+        - obj:
+            id: btn1_ind
+            x: 38
+            y: 284
+            width: 24
+            height: 24
+            radius: 12
+            pad_all: 0
+            border_width: 0
+            bg_color: 0x3C3C3C
+            scrollable: false
+            widgets:
+              - label:
+                  align: CENTER
+                  text_font: f
+                  text_color: 0xFFFFFF
+                  text: "1"
+
+        - obj:
+            id: btn2_ind
+            x: 110
+            y: 284
+            width: 24
+            height: 24
+            radius: 12
+            pad_all: 0
+            border_width: 0
+            bg_color: 0x3C3C3C
+            scrollable: false
+            widgets:
+              - label:
+                  align: CENTER
+                  text_font: f
+                  text_color: 0xFFFFFF
+                  text: "2"
+
+output:
+  - platform: zephyr_pwm
+    id: lcd_bl_pwm
+    pin: P1.05
+
+# Backlight as a number (0-100 %) so it is exposed over Zigbee
+# (lights are not supported by the Zigbee component).
+number:
+  - platform: template
+    id: backlight
+    name: Backlight
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 25                     # only 0, 25, 50, 75, 100
+    optimistic: true
+    restore_value: true          # remember brightness across reboots
+    initial_value: 100
+    on_value:                    # also fires at boot with the restored value
+      - output.set_level:
+          id: lcd_bl_pwm
+          # Panel brightness saturates near 20 % duty, so the steps are spaced
+          # roughly geometrically (~2.8x each) below that point.
+          level: !lambda |-
+            switch ((int) roundf(x / 25.0f)) {
+              case 0:  return 0.0f;     //   0 % -> off
+              case 1:  return 0.025f;   //  25 % -> 2.5 % duty
+              case 2:  return 0.07f;    //  50 % -> 7 % duty
+              case 3:  return 0.20f;    //  75 % -> 20 % duty
+              default: return 1.0f;     // 100 % -> full
+            }
+
+zigbee:
+  id: my_zigbee
+  # Stack is up and trying to (re-)join a network
+  on_start:
+    - lvgl.label.update:
+        id: zb_label
+        text: "Zigbee: searching"
+        text_color: 0xF2B418
+  # x is true for a fresh join, false for a rejoin
+  on_join:
+    - switch.turn_on: led_g
+    - lvgl.label.update:
+        id: zb_label
+        text:
+          format: "Zigbee: %s"
+          args: ['x ? "joined" : "rejoined"']
+        text_color: 0x3CD070
