@@ -284,6 +284,13 @@ featured_components:
     name: Blue LED
     id: led_b
 featured_bundles:
+- id: rgb_led
+  name: RGB LED (full setup)
+  description: Onboard red, green and blue LEDs (active low).
+  component_ids:
+  - led_red
+  - led_green
+  - led_blue
 - id: display_setup
   name: Display (full setup)
   description: SPI bus, 1.47" IPS panel and PWM backlight.
