@@ -43,11 +43,7 @@ featured_components:
       locked: true
     name: Blue LED
     id: led_b
-featured_bundles:
-- id: rgb_led
-  name: RGB LED (full setup)
-  description: Onboard red, green and blue LEDs (active low).
-  component_ids:
-  - led_red
-  - led_green
-  - led_blue
+default_components:
+- led_red
+- led_green
+- led_blue

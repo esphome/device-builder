@@ -1,0 +1,25 @@
+nrf52:
+  dfu: true
+
+# Cycle the onboard RGB LED from boot: red, green, blue, one second each
+esphome:
+  on_boot:
+    then:
+      - script.execute: rgb_cycle
+
+script:
+  - id: rgb_cycle
+    then:
+      - while:
+          condition:
+            lambda: 'return true;'
+          then:
+            - switch.turn_on: led_r
+            - delay: 1s
+            - switch.turn_off: led_r
+            - switch.turn_on: led_g
+            - delay: 1s
+            - switch.turn_off: led_g
+            - switch.turn_on: led_b
+            - delay: 1s
+            - switch.turn_off: led_b
