@@ -24,17 +24,17 @@ pins:
   features:
   - adc
   - i2c_sda
-  available: false
-  occupied_by: LSM6DS IMU
-  notes: IMU I2C SDA
+  available: true
+  occupied_by: i2c_bus
+  notes: XIAO D4 (SDA). Shared I2C bus with the LSM6DS IMU and the touch controller
 - gpio: 5
   label: P0.5
   features:
   - adc
   - i2c_scl
-  available: false
-  occupied_by: LSM6DS IMU
-  notes: IMU I2C SCL
+  available: true
+  occupied_by: i2c_bus
+  notes: XIAO D5 (SCL). Shared I2C bus with the LSM6DS IMU and the touch controller
 - gpio: 6
   label: P0.6
   available: false
@@ -56,15 +56,15 @@ pins:
   - adc
   - spi_cs
   available: false
-  occupied_by: Display
-  notes: Display CS
+  occupied_by: lcd_display
+  notes: XIAO D2. Display CS
 - gpio: 29
   label: P0.29
   features:
   - adc
   available: false
-  occupied_by: Display
-  notes: Display DC
+  occupied_by: lcd_display
+  notes: XIAO D3. Display DC
 - gpio: 30
   label: P0.30
   features:
@@ -93,19 +93,27 @@ pins:
   label: P1.13
   features:
   - spi_clk
-  available: false
-  occupied_by: Display
-  notes: Display SPI SCLK
+  available: true
+  occupied_by: spi_bus
+  notes: XIAO D8 (SCK). Shared SPI bus with the display; add devices with their own CS
+- gpio: 46
+  label: P1.14
+  features:
+  - spi_miso
+  available: true
+  notes: XIAO D9 (MISO). Unused by the display; free, or add as miso_pin to share the bus
 - gpio: 47
   label: P1.15
   features:
   - spi_mosi
-  available: false
-  occupied_by: Display
-  notes: Display SPI MOSI
+  available: true
+  occupied_by: spi_bus
+  notes: XIAO D10 (MOSI). Shared SPI bus with the display; add devices with their own CS
 featured_components:
-- id: lcd_spi
+- id: spi_bus
   component_id: spi
+  name: SPI Bus
+  description: Header SPI (D8 SCK, D10 MOSI), shared with the display.
   fields:
     clk_pin:
       value: 45
@@ -114,7 +122,7 @@ featured_components:
       value: 47
       locked: true
     id:
-      value: lcd_spi
+      value: spi_bus
       locked: true
 - id: lcd_display
   component_id: display.mipi_spi
@@ -124,7 +132,7 @@ featured_components:
       value: CUSTOM
       locked: true
     spi_id:
-      value: lcd_spi
+      value: spi_bus
       locked: true
     cs_pin:
       value: 28
@@ -173,7 +181,7 @@ featured_components:
     show_test_card: true
     id: lcd
   requires:
-  - lcd_spi
+  - spi_bus
 - id: backlight_output
   component_id: output.zephyr_pwm
   fields:
@@ -190,8 +198,10 @@ featured_components:
     id: display_backlight
   requires:
   - backlight_output
-- id: imu_i2c
+- id: i2c_bus
   component_id: i2c
+  name: I2C Bus
+  description: Header I2C (D4 SDA, D5 SCL), shared by the IMU and the touch controller.
   fields:
     sda:
       value: 4
@@ -200,18 +210,18 @@ featured_components:
       value: 5
       locked: true
     id:
-      value: imu_i2c
+      value: i2c_bus
       locked: true
 - id: imu
   component_id: motion.lsm6ds
   name: LSM6DS IMU
   fields:
     i2c_id:
-      value: imu_i2c
+      value: i2c_bus
       locked: true
     id: imu
   requires:
-  - imu_i2c
+  - i2c_bus
 - id: usr1_button
   component_id: binary_sensor.gpio
   name: USR1 Button
@@ -278,17 +288,17 @@ featured_bundles:
   name: Display (full setup)
   description: SPI bus, 1.47" IPS panel and PWM backlight.
   component_ids:
-  - lcd_spi
+  - spi_bus
   - lcd_display
   - backlight_output
   - display_backlight
 default_components:
-- lcd_spi
+- spi_bus
 - id: lcd_display
   fields:
     show_test_card: false
 - backlight_output
-- imu_i2c
+- i2c_bus
 - id: imu
   fields:
     update_interval: 20ms
