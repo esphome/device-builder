@@ -2253,6 +2253,7 @@ def test_generate_yaml_nrf52_emits_mcumgr_ota_todo_comment() -> None:
     assert "api:" not in lines
     assert "ota:" not in lines
     assert "#   - platform: zephyr_mcumgr" in lines
+    assert "openthread:" in yaml
     assert "esp32_hosted" not in yaml
     assert "no native Wi-Fi" not in yaml
 

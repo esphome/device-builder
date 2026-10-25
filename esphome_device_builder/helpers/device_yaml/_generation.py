@@ -65,6 +65,8 @@ _NRF52_OTA_TODO_LINES: tuple[str, ...] = (
     "# ``zephyr_mcumgr`` OTA platform (BLE or USB CDC):",
     "# ota:",
     "#   - platform: zephyr_mcumgr",
+    "# ``api:`` requires a ``network`` component — configure",
+    "# ``openthread:`` (credentials via ``tlv``), then add ``api:``.",
     "",
 )
 
