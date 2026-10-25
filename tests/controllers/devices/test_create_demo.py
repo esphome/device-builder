@@ -59,11 +59,28 @@ def test_merge_yaml_overlay_merges_appends_and_keeps_comments() -> None:
     assert "# Status page\nlvgl:" in merged
 
 
+def test_merge_yaml_overlay_extends_item_by_id() -> None:
+    """A ``- id: !extend <id>`` item adds its keys to that existing item, nowhere else."""
+    overlay = "switch:\n  - id: !extend a\n    on_turn_on:\n      - logger.log: hi\n"
+    merged = merge_yaml_overlay(_BASE, overlay)
+
+    parsed = YAML(typ="safe").load(merged)
+    assert parsed["switch"] == [
+        {"platform": "gpio", "id": "a", "on_turn_on": [{"logger.log": "hi"}]}
+    ]
+    assert "!extend" not in merged
+
+
 @pytest.mark.parametrize(
     ("overlay", "message"),
     [
         pytest.param("nrf52:\n  board: other\n", "repeats board", id="repeated_key"),
         pytest.param("nrf52:\n  - board: other\n", "list and mapping", id="shape_mismatch"),
+        pytest.param(
+            "switch:\n  - id: !extend a\n    platform: x\n", "repeats platform", id="extend_repeat"
+        ),
+        pytest.param("switch:\n  - id: !extend z\n    x: 1\n", "matches no item", id="extend_miss"),
+        pytest.param("light:\n  - id: !extend a\n    x: 1\n", "no list", id="extend_no_block"),
     ],
 )
 def test_merge_yaml_overlay_refuses_conflicts(overlay: str, message: str) -> None:
@@ -90,7 +107,7 @@ async def test_create_device_merges_demo_into_template(
 
 
 def test_shipped_demos_merge_onto_their_board() -> None:
-    """Every shipped demo merges onto its board's template without duplicate keys."""
+    """Every shipped demo merges onto its board's template and defaults without duplicate keys."""
     demos = sorted(BOARDS_DIR.glob(f"*/{BOARD_DEMO_FILENAME}"))
     assert demos
     for demo in demos:
@@ -100,7 +117,7 @@ def test_shipped_demos_merge_onto_their_board() -> None:
         text = generate_device_yaml(
             "dev", "Dev", board, "", "", wifi_secrets_available=False, defaults=_defaults(board)
         )
-        YAML(typ="rt").load(text)
+        YAML(typ="rt").load(merge_yaml_overlay(text, board.demo_yaml))
 
 
 def _defaults(board: BoardCatalogEntry) -> list[tuple[ComponentCatalogEntry, dict[str, Any]]]:

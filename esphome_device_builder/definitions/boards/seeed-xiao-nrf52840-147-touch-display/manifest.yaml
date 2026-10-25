@@ -294,3 +294,5 @@ default_components:
 - led_red
 - led_green
 - led_blue
+- usr1_button
+- usr2_button

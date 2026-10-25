@@ -3,15 +3,7 @@ nrf52:
 
 # --- Buttons: light the matching LED and recolor the matching indicator ---
 binary_sensor:
-  - platform: gpio
-    id: usr1
-    name: USR1
-    pin:
-      number: P1.07
-      mode:
-        input: true
-        pullup: true
-      inverted: true
+  - id: !extend usr1
     on_press:
       - switch.turn_on: led_r
       - lvgl.widget.update:
@@ -23,15 +15,7 @@ binary_sensor:
           id: btn1_ind
           bg_color: 0x3C3C3C
 
-  - platform: gpio
-    id: usr2
-    name: USR2
-    pin:
-      number: P0.10
-      mode:
-        input: true
-        pullup: true
-      inverted: true
+  - id: !extend usr2
     on_press:
       - switch.turn_on: led_b
       - lvgl.widget.update:

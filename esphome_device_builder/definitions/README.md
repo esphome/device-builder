@@ -380,9 +380,11 @@ LEDs as default components) and put only the demo's behaviour in the overlay
 
 The merge appends blocks the template lacks, adds list items under an existing
 domain (`switch:`), and adds keys to an existing mapping (`nrf52: dfu: true`).
-It refuses an overlay that repeats a key the template already sets, or mixes
-list and mapping forms, so leave `esphome:` naming and the platform `board:` to
-the template.
+An item written `- id: !extend <id>` adds its keys (say `on_press:`) to the
+default component with that id, so automations attach to manifest hardware
+without redefining its pins. The merge refuses an overlay that repeats a key
+the template already sets, extends a missing id, or mixes list and mapping
+forms, so leave `esphome:` naming and the platform `board:` to the template.
 
 The validator (`script/validate_definitions.py`) cross-checks every
 featured component against the component catalog: the `component_id` must

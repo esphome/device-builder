@@ -22,7 +22,7 @@ from ...helpers.secrets_state import (
     secrets_unparsable_message,
 )
 from ...helpers.text import summarise
-from ...helpers.yaml import generate_api_encryption_key
+from ...helpers.yaml import generate_api_encryption_key, merge_yaml_overlay
 from ...helpers.yaml.marks import marked_paths, trim_marks
 from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
@@ -44,7 +44,7 @@ _GENERATED_SECRET_NAMES = frozenset(
 # ``"user"`` -> caller-supplied ``file_content`` (validation
 # failure surfaces as ``INVALID_ARGS``).
 # ``"template"`` -> :func:`generate_device_yaml` against a known
-# catalog entry, plus the board's demo overlay (validation failure
+# catalog entry, then the board's demo overlay (validation failure
 # -> ``INTERNAL_ERROR``).
 # ``"stub"`` -> :func:`generate_minimal_stub_yaml` (no inputs;
 # validation failure -> ``INTERNAL_ERROR``; caller skips the YAML-
@@ -122,16 +122,17 @@ async def yaml_content_for_create(
         wants_wifi = bool(ssid) or wifi_requested
         if catalog and not wants_wifi and not already_networked and board.featured_components:
             defaults.extend(await catalog.resolve_network_components(board))
+        yaml_text = generate_device_yaml(
+            name,
+            friendly,
+            board,
+            ssid,
+            psk,
+            wifi_secrets_available=wifi_secrets_available,
+            defaults=defaults,
+        )
         return (
-            generate_device_yaml(
-                name,
-                friendly,
-                board,
-                ssid,
-                psk,
-                wifi_secrets_available=wifi_secrets_available,
-                defaults=defaults,
-            ),
+            merge_yaml_overlay(yaml_text, board.demo_yaml) if board.demo_yaml else yaml_text,
             "template",
         )
     return (

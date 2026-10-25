@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 # characters in the name) keeps scalar-safe quoting.
 _SECRET_REF_RE = re.compile(r"!secret [A-Za-z0-9_.-]+")
 _CHILD_KEY_RE = re.compile(r"([A-Za-z0-9_.-]+):(?:\s|$)")
+_EXTEND_ITEM_RE = re.compile(r"-\s+id:\s+!extend\s+(\S+)")
 
 
 def _split_platform_id(component_id: str) -> tuple[str | None, str]:
@@ -97,11 +98,15 @@ def merge_yaml_overlay(existing: str, overlay: str) -> str:
     Merge every top-level block of *overlay* into *existing* YAML.
 
     A block absent from *existing* is appended; a present one gains the
-    overlay's list items or mapping keys. Raises ``ValueError`` when the
-    two disagree: a repeated mapping key, or list vs mapping form.
+    overlay's list items or mapping keys, and a ``- id: !extend <id>`` item
+    adds its keys to the existing item with that id. Raises ``ValueError``
+    on a repeated key, a missing ``!extend`` target, or list vs mapping form.
     """
     merged = existing
-    for key, comments, body in _overlay_blocks(overlay):
+    for key, comments, raw_body in _overlay_blocks(overlay):
+        merged, body = _apply_extensions(merged, key, raw_body)
+        if not any(line.strip() for line in body):
+            continue
         lines = merged.splitlines(keepends=True)
         bounds = _find_top_level_block_bounds(lines, key)
         if bounds is None:
@@ -597,3 +602,63 @@ def _child_keys(lines: list[str], header_idx: int = 0, end_idx: int | None = Non
         if leading_ws(line) == indent and (match := _CHILD_KEY_RE.match(line.strip())):
             keys.add(match.group(1))
     return keys
+
+
+def _apply_extensions(existing: str, key: str, body: list[str]) -> tuple[str, list[str]]:
+    """Fold *body*'s ``!extend`` items into *existing*; return it and the remaining body."""
+    kept: list[str] = []
+    for item in _split_list_items(body):
+        dash_line = next((line for line in item if line.strip().startswith("-")), "")
+        match = _EXTEND_ITEM_RE.fullmatch(dash_line.strip())
+        if match is None:
+            kept.extend(item)
+            continue
+        extra = item[item.index(dash_line) + 1 :]
+        existing = _extend_item(existing, key, match.group(1), extra)
+    return existing, kept
+
+
+def _split_list_items(body: list[str]) -> list[list[str]]:
+    """Split a list block *body* into per-item line groups at its dash indent."""
+    dash = next((leading_ws(line) for line in body if line.strip().startswith("-")), None)
+    items: list[list[str]] = [[]]
+    for line in body:
+        opens_item = dash is not None and leading_ws(line) == dash and line.strip().startswith("-")
+        if opens_item and any(entry.strip().startswith("-") for entry in items[-1]):
+            items.append([])
+        items[-1].append(line)
+    return [item for item in items if item]
+
+
+def _extend_item(existing: str, key: str, target: str, extra: list[str]) -> str:
+    """Splice *extra* key lines into the ``<key>:`` list item whose id is *target*."""
+    lines = existing.splitlines(keepends=True)
+    bounds = _find_top_level_block_bounds(lines, key)
+    if bounds is None or not block_body_is_list(lines, *bounds):
+        raise ValueError(f"overlay {key}: !extend {target} has no list to extend")
+    header, end = bounds
+    dash = _list_item_indent(lines, header, end)
+    starts = [
+        idx
+        for idx in range(header + 1, end)
+        if leading_ws(lines[idx]) == dash and lines[idx].strip().startswith("-")
+    ]
+    for pos, start in enumerate(starts):
+        stop = trim_trailing_gap(lines, start, starts[pos + 1] if pos + 1 < len(starts) else end)
+        item = lines[start:stop]
+        indent = next((leading_ws(line) for line in item[1:] if line.strip()), dash + "  ")
+        own = [item[0].replace("-", " ", 1), *item[1:]]
+        if target not in {_line_defined_id(line) for line in own if leading_ws(line) == indent}:
+            continue
+        if repeated := _child_keys(["", *own]) & _child_keys(["", *extra]):
+            raise ValueError(
+                f"overlay {key}: !extend {target} repeats {', '.join(sorted(repeated))}"
+            )
+        src = next((leading_ws(line) for line in extra if line.strip()), indent)
+        moved = [indent + line[len(src) :] if line.strip() else line for line in extra]
+        insertion = "".join(line.rstrip("\n") + "\n" for line in moved)
+        before = "".join(lines[:stop])
+        if not before.endswith("\n"):
+            before += "\n"
+        return before + insertion + "".join(lines[stop:])
+    raise ValueError(f"overlay {key}: !extend {target} matches no item")

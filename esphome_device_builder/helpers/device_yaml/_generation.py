@@ -13,7 +13,6 @@ from ..yaml import (
     fallback_ap_ssid,
     generate_api_encryption_key,
     merge_component_yaml,
-    merge_yaml_overlay,
     upsert_api_encryption_key,
 )
 
@@ -211,8 +210,7 @@ def generate_device_yaml(
     ``add_component`` would produce on a fresh YAML. When *defaults*
     supplies a network component (``NETWORK_PROVIDER_COMPONENT_IDS``,
     e.g. onboard ``ethernet:``) it takes precedence: the ``wifi:``
-    block is dropped and *ssid* / *psk* are ignored. The board's demo
-    overlay merges in last.
+    block is dropped and *ssid* / *psk* are ignored.
     """
     esphome_cfg = board.esphome
     # Board reference comment so users can find the source manifest
@@ -306,8 +304,7 @@ def generate_device_yaml(
         lines.extend(_NO_NETWORK_TODO_LINES)
 
     yaml_text = _apply_default_components("\n".join(lines), defaults)
-    yaml_text = _append_hosted_firmware_update(yaml_text, defaults)
-    return merge_yaml_overlay(yaml_text, board.demo_yaml) if board.demo_yaml else yaml_text
+    return _append_hosted_firmware_update(yaml_text, defaults)
 
 
 def _wifi_block_lines(ssid: str, psk: str, ap_name: str, platform: str) -> list[str]:
