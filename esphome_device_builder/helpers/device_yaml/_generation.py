@@ -312,7 +312,8 @@ def generate_device_yaml(
         # co-processor, ``esp32_hosted:`` for either with a Wi-Fi
         # daughterboard, etc.). Emitting a placeholder block would
         # bake an arbitrary choice into the generated YAML; a
-        # commented-out hint lets the user pick.
+        # commented-out hint lets the user pick. nRF52 instead gets the
+        # ``zephyr_mcumgr`` OTA hint, since its OTA needs no network.
         lines.extend(_NRF52_OTA_TODO_LINES if platform == "nrf52" else _NO_NETWORK_TODO_LINES)
 
     yaml_text = _apply_default_components("\n".join(lines), defaults)
