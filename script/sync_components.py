@@ -1918,13 +1918,12 @@ def _apply_libretiny_family_provides(entries: list[dict]) -> None:
 
 def _apply_platform_auto_load_provides(entries: list[dict]) -> None:
     """
-    Make each target platform ``provides`` the uncatalogued deps it ``AUTO_LOAD``s.
+    Make each target platform ``provides`` the dependencies it ``AUTO_LOAD``s.
 
     ``nrf52`` auto-loads ``zephyr``, the ``output.zephyr_pwm`` dependency no
     catalog entry represents, so only the platform block can satisfy it.
     """
-    ids = {entry["id"] for entry in entries}
-    wanted = {dep for entry in entries for dep in entry.get("dependencies") or ()} - ids
+    wanted = {dep for entry in entries for dep in entry.get("dependencies") or ()}
     platforms = _target_platform_names()
     for entry in entries:
         if entry["id"] not in platforms:

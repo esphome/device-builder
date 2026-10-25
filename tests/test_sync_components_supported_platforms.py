@@ -83,9 +83,10 @@ def test_family_platform_provides_libretiny() -> None:
 
 
 def test_platform_provides_its_uncatalogued_auto_load() -> None:
-    """``nrf52`` provides ``zephyr``: auto-loaded, depended on, and not a catalog entry."""
+    """``nrf52`` provides ``zephyr``: auto-loaded and depended on, catalogued or not."""
     entries = [
         {"id": "nrf52"},
+        {"id": "zephyr"},
         {"id": "esp32", "provides": []},
         {"id": "output.zephyr_pwm", "dependencies": ["zephyr"]},
         {"id": "preferences"},
