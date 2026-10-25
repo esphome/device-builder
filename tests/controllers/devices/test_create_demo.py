@@ -97,6 +97,16 @@ def test_merge_yaml_overlay_extend_line_may_carry_a_comment() -> None:
     assert YAML(typ="safe").load(merged)["switch"] == [{"platform": "gpio", "id": "a", "x": 1}]
 
 
+def test_merge_yaml_overlay_keeps_comments_of_extend_only_and_trailing_text() -> None:
+    """Comments above an all-``!extend`` block and after the last block survive."""
+    overlay = "# Blink a\nswitch:\n  - id: !extend a\n    x: 1\n\nlogger:\n# The end\n"
+    merged = merge_yaml_overlay(_BASE, overlay)
+
+    assert "    x: 1\n  # Blink a\n" in merged
+    assert merged.endswith("logger:\n\n# The end\n")
+    assert YAML(typ="safe").load(merged)["switch"] == [{"platform": "gpio", "id": "a", "x": 1}]
+
+
 def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None:
     """Extending the file's final item works when the base lacks a trailing newline."""
     overlay = "switch:\n  - id: !extend a\n    restore_mode: ALWAYS_ON\n"
@@ -121,6 +131,7 @@ def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None
             "switch:\n  - platform: gpio\n    id: !extend a\n", "write !extend", id="extend_form"
         ),
         pytest.param("logger: {}\n", "must be a block", id="inline_value"),
+        pytest.param("---\nlogger:\n", "precede the first block", id="leading_text"),
         pytest.param(
             "light:\n  - platform: x\nlight:\n  - platform: y\n", "repeated", id="repeated_block"
         ),

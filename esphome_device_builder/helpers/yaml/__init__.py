@@ -61,7 +61,6 @@ from .component import _splice_into_multi_conf_block as _splice_into_multi_conf_
 from .component import component_block_present as component_block_present
 from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
-from .component import merge_yaml_overlay as merge_yaml_overlay
 from .diff import apply_yaml_diff as apply_yaml_diff
 from .diff import splice_lines as splice_lines
 from .inline import SubEntityRef as SubEntityRef
@@ -76,6 +75,7 @@ from .inline import upsert_subentity_handler as upsert_subentity_handler
 from .ota_encryption import drop_ota_encryption_old_key as drop_ota_encryption_old_key
 from .ota_encryption import read_ota_encryption_key as read_ota_encryption_key
 from .ota_encryption import read_ota_encryption_old_key as read_ota_encryption_old_key
+from .overlay import merge_yaml_overlay as merge_yaml_overlay
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
 from .scalar import ESPHOME_NAME_ADD_MAC_SUFFIX_PATH as ESPHOME_NAME_ADD_MAC_SUFFIX_PATH
 from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH
