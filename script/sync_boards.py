@@ -855,7 +855,7 @@ def _derive_nrf52_pins(adc_gpios: set[int]) -> list[BoardPin]:
 
 def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     """
-    Add catalog entries for nRF52 boards no manifest id covers.
+    Fill manifested nRF52 boards' empty pins and add the boards no manifest id covers.
 
     nRF52 ships no per-board pin aliases, so every board gets the same ADC-tagged
     full-GPIO matrix from the chip-level ``AIN_TO_GPIO``. A ``BOARDS_ZEPHYR`` name
@@ -872,6 +872,9 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     boards_module = importlib.import_module("esphome.components.nrf52.boards")
     const_module = importlib.import_module("esphome.components.nrf52.const")
     adc_gpios = set(const_module.AIN_TO_GPIO.values())
+    for board in boards:
+        if board.esphome.platform is Platform.NRF52 and not board.pins:
+            board.pins = _derive_nrf52_pins(adc_gpios)
     generated_from: dict[str, str] = {}
     for name in boards_module.BOARDS_ZEPHYR:
         catalog_id = name.replace("/", "_")
