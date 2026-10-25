@@ -12,7 +12,6 @@ from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
     board_provides_network,
     generate_adoption_yaml,
-    generate_demo_yaml,
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
@@ -44,9 +43,9 @@ _GENERATED_SECRET_NAMES = frozenset(
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
 # failure surfaces as ``INVALID_ARGS``).
-# ``"template"`` -> :func:`generate_device_yaml` or
-# :func:`generate_demo_yaml` against a known catalog entry (validation
-# failure -> ``INTERNAL_ERROR``).
+# ``"template"`` -> :func:`generate_device_yaml` against a known
+# catalog entry, plus the board's demo overlay (validation failure
+# -> ``INTERNAL_ERROR``).
 # ``"stub"`` -> :func:`generate_minimal_stub_yaml` (no inputs;
 # validation failure -> ``INTERNAL_ERROR``; caller skips the YAML-
 # driven board-id derivation since the stub's hard-coded
@@ -108,8 +107,6 @@ async def yaml_content_for_create(
             ),
             "package",
         )
-    if board and board.demo_yaml:
-        return generate_demo_yaml(name, friendly, board), "template"
     if board:
         defaults = (
             await catalog.resolve_default_components(board)

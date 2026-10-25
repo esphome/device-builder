@@ -71,6 +71,7 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     safe_stat_key,
     yaml_has_name_add_mac_suffix,
 )
+from esphome_device_builder.helpers.device_yaml._tolerant_yaml import load_yaml_tolerant
 from esphome_device_builder.helpers.yaml import generate_api_encryption_key
 from esphome_device_builder.models import (
     BoardCatalogEntry,
@@ -3472,8 +3473,8 @@ def test_every_board_body_generates_creatable_platform_block() -> None:
     for entry in load_board_index():
         board = load_board_body_from_disk(entry.id)
         assert board is not None, entry.id
-        # Inline creds keep the YAML ``!secret``-free so it parses standalone.
-        config = yaml.safe_load(
+        # Tolerant load: a demo overlay carries ESPHome tags (``!lambda``).
+        config = load_yaml_tolerant(
             generate_device_yaml("dev", "Dev", board, ssid="ssid", psk="password")
         )
         platform = str(board.esphome.platform)

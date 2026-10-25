@@ -61,6 +61,7 @@ from .component import _splice_into_multi_conf_block as _splice_into_multi_conf_
 from .component import component_block_present as component_block_present
 from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
+from .component import merge_yaml_overlay as merge_yaml_overlay
 from .diff import apply_yaml_diff as apply_yaml_diff
 from .diff import splice_lines as splice_lines
 from .inline import SubEntityRef as SubEntityRef

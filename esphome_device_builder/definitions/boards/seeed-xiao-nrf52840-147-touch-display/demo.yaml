@@ -1,9 +1,4 @@
-esphome:
-  name: ${name}
-  friendly_name: ${friendly_name}
-
 nrf52:
-  board: xiao_ble
   dfu: true
 
 # --- Buttons: light the matching LED and recolor the matching indicator ---
@@ -47,32 +42,6 @@ binary_sensor:
       - lvgl.widget.update:
           id: btn2_ind
           bg_color: 0x3C3C3C
-
-switch:
-  - platform: gpio
-    id: led_r
-    pin:
-      number: P0.26
-      inverted: true
-  - platform: gpio
-    id: led_g          # lit once the device has joined the Zigbee network
-    pin:
-      number: P0.30
-      inverted: true
-  - platform: gpio
-    id: led_b
-    pin:
-      number: P0.06
-      inverted: true
-
-# --- IMU: drives a marble in a small spirit-level dish ---
-i2c:
-  sda: P0.04
-  scl: P0.05
-
-motion:
-  - platform: lsm6ds
-    update_interval: 20ms        # read the IMU 50x per second for a snappy marble
 
 # Marble travel: 45 degrees of tilt moves the marble to the rim (36 px from center).
 # To reverse an axis, put a minus sign in front of x in its "Direction" filter.
@@ -132,10 +101,6 @@ script:
                 id: target
                 border_color: 0x3C3C3C
 
-spi:
-  clk_pin: P1.13
-  mosi_pin: P1.15
-
 font:
   - file: "gfonts://Roboto@500"
     id: f
@@ -149,43 +114,6 @@ image:
     type: RGB565
     transparency: alpha_channel
     resize: 140x140
-
-display:
-  - platform: mipi_spi
-    id: lcd
-    model: CUSTOM
-    cs_pin: P0.28
-    dc_pin: P0.29
-    reset_pin: P1.03
-    spi_mode: MODE0
-    data_rate: 8MHz
-    dimensions:
-      width: 172
-      height: 320
-      offset_width: 34
-    invert_colors: false
-    color_order: bgr
-    transform:
-      swap_xy: false
-      mirror_x: true
-      mirror_y: false
-    init_sequence:
-      - [0x11]
-      - delay 120ms
-      - [0x13]
-      - [0xB6, 0x0A, 0x82]
-      - [0xB0, 0x00, 0xE0]
-      - [0xB2, 0x0C, 0x0C, 0x00, 0x33, 0x33]
-      - [0xB7, 0x35]
-      - [0xBB, 0x28]
-      - [0xC0, 0x0C]
-      - [0xC2, 0x01, 0xFF]
-      - [0xC3, 0x10]
-      - [0xC4, 0x20]
-      - [0xC6, 0x0F]
-      - [0xD0, 0xA4, 0xA1]
-      - [0xE0, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32, 0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17]
-      - [0xE1, 0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31, 0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E]
 
 lvgl:
   displays: lcd
@@ -288,11 +216,6 @@ lvgl:
                   text_color: 0xFFFFFF
                   text: "2"
 
-output:
-  - platform: zephyr_pwm
-    id: lcd_bl_pwm
-    pin: P1.05
-
 # Backlight as a number (0-100 %) so it is exposed over Zigbee
 # (lights are not supported by the Zigbee component).
 number:
@@ -308,7 +231,7 @@ number:
     initial_value: 100
     on_value:                    # also fires at boot with the restored value
       - output.set_level:
-          id: lcd_bl_pwm
+          id: backlight_output
           # Panel brightness saturates near 20 % duty, so the steps are spaced
           # roughly geometrically (~2.8x each) below that point.
           level: !lambda |-

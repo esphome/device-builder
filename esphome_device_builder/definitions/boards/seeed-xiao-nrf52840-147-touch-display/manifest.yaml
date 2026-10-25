@@ -281,3 +281,16 @@ featured_bundles:
   - lcd_display
   - backlight_output
   - display_backlight
+default_components:
+- lcd_spi
+- id: lcd_display
+  fields:
+    show_test_card: false
+- backlight_output
+- imu_i2c
+- id: imu
+  fields:
+    update_interval: 20ms
+- led_red
+- led_green
+- led_blue

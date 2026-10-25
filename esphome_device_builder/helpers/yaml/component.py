@@ -15,7 +15,13 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
-from .scan import block_end_index, find_block_header, leading_ws, trim_trailing_gap
+from .scan import (
+    block_end_index,
+    find_block_header,
+    leading_ws,
+    top_level_key_index,
+    trim_trailing_gap,
+)
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -25,6 +31,7 @@ if TYPE_CHECKING:
 # emit unquoted; anything looser (extra whitespace, quoting-significant
 # characters in the name) keeps scalar-safe quoting.
 _SECRET_REF_RE = re.compile(r"!secret [A-Za-z0-9_.-]+")
+_CHILD_KEY_RE = re.compile(r"([A-Za-z0-9_.-]+):(?:\s|$)")
 
 
 def _split_platform_id(component_id: str) -> tuple[str | None, str]:
@@ -83,6 +90,36 @@ def merge_component_yaml(
     elif _find_top_level_block_bounds(existing.splitlines(keepends=True), component.id):
         return existing
     return _append_block(existing, block)
+
+
+def merge_yaml_overlay(existing: str, overlay: str) -> str:
+    """
+    Merge every top-level block of *overlay* into *existing* YAML.
+
+    A block absent from *existing* is appended; a present one gains the
+    overlay's list items or mapping keys. Raises ``ValueError`` when the
+    two disagree: a repeated mapping key, or list vs mapping form.
+    """
+    merged = existing
+    for key, comments, body in _overlay_blocks(overlay):
+        lines = merged.splitlines(keepends=True)
+        bounds = _find_top_level_block_bounds(lines, key)
+        if bounds is None:
+            merged = _append_block(merged, "\n".join([*comments, f"{key}:", *body]))
+            continue
+        overlay_lines = [f"{key}:", *body]
+        is_list = block_body_is_list(lines, *bounds)
+        if is_list != block_body_is_list(overlay_lines, 0, len(overlay_lines)):
+            raise ValueError(f"overlay {key}: list and mapping forms differ")
+        if not is_list and (repeated := _child_keys(lines, *bounds) & _child_keys(overlay_lines)):
+            raise ValueError(f"overlay {key}: repeats {', '.join(sorted(repeated))}")
+        indent = next((leading_ws(line) for line in body if line.strip()), ESPHOME_YAML_INDENT)
+        block = [f"{key}:", *(indent + line.lstrip() for line in comments), *body]
+        spliced = _splice_into_domain_block(merged, key, "\n".join(block))
+        if spliced is None:
+            raise ValueError(f"overlay {key}: cannot splice into the existing block")
+        merged = spliced
+    return merged
 
 
 def generate_component_yaml(  # noqa: C901
@@ -534,3 +571,29 @@ def _generate_id(component_id: str, name: str | None = None) -> str:
     if slug == component_id or slug.startswith(f"{component_id}_"):
         return slug
     return f"{component_id}_{slug}"
+
+
+def _overlay_blocks(text: str) -> list[tuple[str, list[str], list[str]]]:
+    """Split *text* into ``(key, leading comments, body lines)`` per top-level block."""
+    lines = text.splitlines()
+    headers = sorted(top_level_key_index(lines).items(), key=lambda item: item[1])
+    blocks: list[tuple[str, list[str], list[str]]] = []
+    previous_end = 0
+    for pos, (key, start) in enumerate(headers):
+        end = headers[pos + 1][1] if pos + 1 < len(headers) else len(lines)
+        content_end = trim_trailing_gap(lines, start, end)
+        comments = [line for line in lines[previous_end:start] if line.strip()]
+        blocks.append((key, comments, lines[start + 1 : content_end]))
+        previous_end = content_end
+    return blocks
+
+
+def _child_keys(lines: list[str], header_idx: int = 0, end_idx: int | None = None) -> set[str]:
+    """Keys of a mapping block's direct children, lines ``(header_idx, end_idx)``."""
+    body = lines[header_idx + 1 : len(lines) if end_idx is None else end_idx]
+    indent = next((leading_ws(line) for line in body if line.strip()), "")
+    keys: set[str] = set()
+    for line in body:
+        if leading_ws(line) == indent and (match := _CHILD_KEY_RE.match(line.strip())):
+            keys.add(match.group(1))
+    return keys

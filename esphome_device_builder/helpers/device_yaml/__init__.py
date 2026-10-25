@@ -33,7 +33,6 @@ from ._generation import (
     board_provides_network,
     board_requires_wifi,
     generate_adoption_yaml,
-    generate_demo_yaml,
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
@@ -121,7 +120,6 @@ __all__ = [
     "extract_esphome_meta_from_config",
     "extract_mqtt_block",
     "generate_adoption_yaml",
-    "generate_demo_yaml",
     "generate_device_yaml",
     "generate_minimal_stub_yaml",
     "get_api_encryption_block",
