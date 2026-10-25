@@ -12,7 +12,7 @@ from .component import (
     _splice_into_domain_block,
 )
 from .scalar import ESPHOME_YAML_INDENT, block_body_is_list
-from .scan import leading_ws, opens_top_level_block, trim_trailing_gap
+from .scan import leading_ws, trim_trailing_gap
 
 _CHILD_KEY_RE = re.compile(r"([A-Za-z0-9_.-]+):(?:\s|$)")
 _EXTEND_ITEM_RE = re.compile(r"-\s+id:\s+!extend\s+(\S+)(?:\s+#.*)?")
@@ -52,14 +52,14 @@ def merge_yaml_overlay(existing: str, overlay: str) -> str:
                 raise ValueError(f"overlay {key}: repeats {', '.join(sorted(repeated))}")
             header, end = bounds
             child = _body_indent(lines, header, end)
-            src = next((leading_ws(line) for line in body if line.strip()), "")
-            notes = [src + line.lstrip() for line in comments]
-            merged = _insert_lines(lines, end, child, [*notes, *body], src)
+            src = _content_indent(body, "")
+            merged = _insert_lines(lines, end, child, [*comments, *body], src)
             continue
-        indent = next((leading_ws(line) for line in body if line.strip()), ESPHOME_YAML_INDENT)
+        indent = _content_indent(body, ESPHOME_YAML_INDENT)
         block = [f"{key}:", *(indent + line.lstrip() for line in comments), *body]
         spliced = _splice_into_domain_block(merged, key, "\n".join(block))
-        assert spliced is not None  # the block's bounds were found above
+        if spliced is None:  # pragma: no cover - the block's bounds were found above
+            raise ValueError(f"overlay {key}: cannot splice into the existing block")
         merged = spliced
     return _append_block(merged, "\n".join(trailing)) if trailing else merged
 
@@ -68,13 +68,13 @@ def _overlay_blocks(text: str) -> tuple[list[tuple[str, list[str], list[str]]], 
     """
     Split *text* into ``(key, leading comments, body lines)`` blocks plus trailing comments.
 
-    Raises ``ValueError`` on a repeated key, a header with an inline value, or
-    anything but comments before the first block.
+    Raises ``ValueError`` on a repeated key, a column-0 line that isn't a bare
+    ``key:`` header, or anything but comments before the first block.
     """
     lines = text.splitlines()
     headers: list[tuple[str, int]] = []
     for idx, line in enumerate(lines):
-        if not opens_top_level_block(line.rstrip()):
+        if not line.strip() or line[0] in " \t#-":
             continue
         match = _OVERLAY_HEADER_RE.fullmatch(line.rstrip())
         if match is None:
@@ -97,17 +97,22 @@ def _overlay_blocks(text: str) -> tuple[list[tuple[str, list[str], list[str]]], 
 
 
 def _body_indent(lines: list[str], header_idx: int, end_idx: int) -> str:
-    """Indent of a block's first body line; the canonical indent for an empty body."""
+    """Indent of a block's first content line; the canonical indent for an empty body."""
+    return _content_indent(lines[header_idx + 1 : end_idx], ESPHOME_YAML_INDENT)
+
+
+def _content_indent(lines: list[str], default: str) -> str:
+    """Indent of the first non-blank, non-comment line, else *default*."""
     return next(
-        (leading_ws(line) for line in lines[header_idx + 1 : end_idx] if line.strip()),
-        ESPHOME_YAML_INDENT,
+        (leading_ws(line) for line in lines if line.strip() and not line.lstrip().startswith("#")),
+        default,
     )
 
 
 def _child_keys(lines: list[str], header_idx: int = 0, end_idx: int | None = None) -> set[str]:
     """Keys of a mapping block's direct children, lines ``(header_idx, end_idx)``."""
     body = lines[header_idx + 1 : len(lines) if end_idx is None else end_idx]
-    indent = next((leading_ws(line) for line in body if line.strip()), "")
+    indent = _content_indent(body, "")
     keys: set[str] = set()
     for line in body:
         if leading_ws(line) == indent and (match := _CHILD_KEY_RE.match(line.strip())):
@@ -159,7 +164,7 @@ def _extend_item(existing: str, key: str, target: str, extra: list[str]) -> str:
     for pos, start in enumerate(starts):
         stop = trim_trailing_gap(lines, start, starts[pos + 1] if pos + 1 < len(starts) else end)
         item = lines[start:stop]
-        indent = next((leading_ws(line) for line in item[1:] if line.strip()), dash + "  ")
+        indent = _content_indent(item[1:], dash + "  ")
         own = [item[0].replace("-", " ", 1), *item[1:]]
         if target not in {_line_defined_id(line) for line in own if leading_ws(line) == indent}:
             continue
@@ -167,14 +172,27 @@ def _extend_item(existing: str, key: str, target: str, extra: list[str]) -> str:
             raise ValueError(
                 f"overlay {key}: !extend {target} repeats {', '.join(sorted(repeated))}"
             )
-        src = next((leading_ws(line) for line in extra if line.strip()), indent)
+        src = _content_indent(extra, indent)
         return _insert_lines(lines, stop, indent, extra, src)
     raise ValueError(f"overlay {key}: !extend {target} matches no item")
 
 
 def _insert_lines(lines: list[str], stop: int, indent: str, extra: list[str], src: str) -> str:
-    """Insert *extra* before ``lines[stop]``, re-indented from *src* to *indent*."""
-    moved = [indent + line[len(src) :] if line.strip() else line for line in extra]
+    """
+    Insert *extra* before ``lines[stop]``, re-indented from *src* to *indent*.
+
+    Comments shallower than *src* move to *indent*; any other such line raises ``ValueError``.
+    """
+    moved: list[str] = []
+    for line in extra:
+        if not line.strip():
+            moved.append(line)
+        elif line.startswith(src):
+            moved.append(indent + line[len(src) :])
+        elif line.lstrip().startswith("#"):
+            moved.append(indent + line.lstrip())
+        else:
+            raise ValueError(f"overlay: {line.strip()!r} is indented less than its siblings")
     insertion = "".join(line.rstrip("\n") + "\n" for line in moved)
     before = "".join(lines[:stop])
     if not before.endswith("\n"):

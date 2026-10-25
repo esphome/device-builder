@@ -107,6 +107,23 @@ def test_merge_yaml_overlay_keeps_comments_of_extend_only_and_trailing_text() ->
     assert YAML(typ="safe").load(merged)["switch"] == [{"platform": "gpio", "id": "a", "x": 1}]
 
 
+def test_merge_yaml_overlay_keeps_a_shallow_comment_commented() -> None:
+    """A column-0 comment inside a body moves to the child indent instead of going live."""
+    merged = merge_yaml_overlay(_BASE, "nrf52:\n  dfu: true\n\n# dfu_x: 1\n  y: 2\n")
+
+    assert "  # dfu_x: 1\n" in merged
+    assert YAML(typ="safe").load(merged)["nrf52"] == {"board": "xiao_ble", "dfu": True, "y": 2}
+
+
+def test_merge_yaml_overlay_opens_a_block_at_any_column_0_key() -> None:
+    """An underscore-led key at column 0 starts its own block, not a line of the previous one."""
+    merged = merge_yaml_overlay(_BASE, "nrf52:\n  dfu: true\n_x:\n  a: 1\n")
+
+    parsed = YAML(typ="safe").load(merged)
+    assert parsed["nrf52"] == {"board": "xiao_ble", "dfu": True}
+    assert parsed["_x"] == {"a": 1}
+
+
 def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None:
     """Extending the file's final item works when the base lacks a trailing newline."""
     overlay = "switch:\n  - id: !extend a\n    restore_mode: ALWAYS_ON\n"
@@ -132,6 +149,8 @@ def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None
         ),
         pytest.param("logger: {}\n", "must be a block", id="inline_value"),
         pytest.param("---\nlogger:\n", "precede the first block", id="leading_text"),
+        pytest.param("nrf52:\n# note\n  board: other\n", "repeats board", id="comment_first"),
+        pytest.param("nrf52:\n    dfu: true\n  y: 2\n", "indented less", id="under_indent"),
         pytest.param(
             "light:\n  - platform: x\nlight:\n  - platform: y\n", "repeated", id="repeated_block"
         ),
