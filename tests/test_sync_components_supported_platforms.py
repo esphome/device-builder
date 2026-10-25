@@ -10,6 +10,7 @@ import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _apply_libretiny_family_provides,
+    _apply_platform_auto_load_provides,
     _derive_supported_platforms,
     _expand_libretiny,
     _libretiny_families,
@@ -78,6 +79,20 @@ def test_family_platform_provides_libretiny() -> None:
     assert by_id["bk72xx"]["provides"] == ["libretiny"]
     assert by_id["rtl87xx"]["provides"] == ["libretiny"]
     assert by_id["ln882x"]["provides"] == ["libretiny"]
+    assert by_id["esp32"]["provides"] == []
+
+
+def test_platform_provides_its_uncatalogued_auto_load() -> None:
+    """``nrf52`` provides ``zephyr``: auto-loaded, depended on, and not a catalog entry."""
+    entries = [
+        {"id": "nrf52"},
+        {"id": "esp32", "provides": []},
+        {"id": "output.zephyr_pwm", "dependencies": ["zephyr"]},
+        {"id": "preferences"},
+    ]
+    _apply_platform_auto_load_provides(entries)
+    by_id = {e["id"]: e for e in entries}
+    assert by_id["nrf52"]["provides"] == ["zephyr"]
     assert by_id["esp32"]["provides"] == []
 
 

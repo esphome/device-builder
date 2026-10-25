@@ -1385,6 +1385,7 @@ def build_catalog(
     # Reads ``provides_id_paths``, so after the provides pass.
     _resolve_reference_classes(out)
     _apply_libretiny_family_provides(out)
+    _apply_platform_auto_load_provides(out)
     _apply_libretiny_family_options(out)
 
     # After the alias fold and per-entry writers so hub constraints reach
@@ -1913,6 +1914,28 @@ def _apply_libretiny_family_provides(entries: list[dict]) -> None:
     for entry in entries:
         if entry["id"] in families:
             entry["provides"] = sorted({*entry.get("provides", ()), "libretiny"})
+
+
+def _apply_platform_auto_load_provides(entries: list[dict]) -> None:
+    """
+    Make each target platform ``provides`` the uncatalogued deps it ``AUTO_LOAD``s.
+
+    ``nrf52`` auto-loads ``zephyr``, the ``output.zephyr_pwm`` dependency no
+    catalog entry represents, so only the platform block can satisfy it.
+    """
+    ids = {entry["id"] for entry in entries}
+    wanted = {dep for entry in entries for dep in entry.get("dependencies") or ()} - ids
+    platforms = _target_platform_names()
+    for entry in entries:
+        if entry["id"] not in platforms:
+            continue
+        auto_load = getattr(
+            importlib.import_module(f"esphome.components.{entry['id']}"), "AUTO_LOAD", ()
+        )
+        if callable(auto_load):
+            continue
+        if provided := wanted.intersection(auto_load):
+            entry["provides"] = sorted({*entry.get("provides", ()), *provided})
 
 
 def _apply_libretiny_family_options(entries: list[dict]) -> None:
