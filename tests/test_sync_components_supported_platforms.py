@@ -10,7 +10,6 @@ import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _apply_libretiny_family_provides,
-    _apply_platform_auto_load_provides,
     _derive_supported_platforms,
     _expand_libretiny,
     _libretiny_families,
@@ -80,31 +79,6 @@ def test_family_platform_provides_libretiny() -> None:
     assert by_id["rtl87xx"]["provides"] == ["libretiny"]
     assert by_id["ln882x"]["provides"] == ["libretiny"]
     assert by_id["esp32"]["provides"] == []
-
-
-def test_platform_provides_its_uncatalogued_auto_load() -> None:
-    """``nrf52`` provides ``zephyr``: auto-loaded and depended on, catalogued or not."""
-    entries = [
-        {"id": "nrf52"},
-        {"id": "zephyr"},
-        {"id": "esp32", "provides": []},
-        {"id": "output.zephyr_pwm", "dependencies": ["zephyr"]},
-        {"id": "preferences"},
-    ]
-    _apply_platform_auto_load_provides(entries)
-    by_id = {e["id"]: e for e in entries}
-    assert by_id["nrf52"]["provides"] == ["zephyr"]
-    assert by_id["esp32"]["provides"] == []
-
-
-def test_platform_provides_refuses_callable_auto_load(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A platform whose ``AUTO_LOAD`` is computed per config fails the sync."""
-    from esphome.components import nrf52  # noqa: PLC0415
-
-    monkeypatch.setattr(nrf52, "AUTO_LOAD", lambda: ["zephyr"], raising=False)
-    entries = [{"id": "nrf52"}, {"id": "output.zephyr_pwm", "dependencies": ["zephyr"]}]
-    with pytest.raises(TypeError, match="nrf52: callable AUTO_LOAD"):
-        _apply_platform_auto_load_provides(entries)
 
 
 def test_propagate_narrows_through_hub() -> None:

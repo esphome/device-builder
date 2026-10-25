@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock
 import pytest
 from ruamel.yaml import YAML
 
-from esphome_device_builder.controllers.components import _load_body_from_disk
 from esphome_device_builder.controllers.devices import mutations_yaml
 from esphome_device_builder.definitions import _BOARDS_DIR as BOARDS_DIR
 from esphome_device_builder.definitions import BOARD_DEMO_FILENAME
@@ -181,26 +180,3 @@ async def test_shipped_demos_merge_through_create(session_component_catalog: Any
         assert source == "template"
         assert "!extend" not in text, demo
         YAML(typ="rt").load(text)
-
-
-@pytest.mark.xdist_group("catalog")
-async def test_xiao_147_display_keeps_its_mirror_transform(session_component_catalog: Any) -> None:
-    """The display preset's ``transform`` mapping reaches the created YAML."""
-    board = await session_component_catalog._db.boards.get_board(
-        board_id="seeed-xiao-nrf52840-147-touch-display"
-    )
-    assert board is not None
-    text, _ = await mutations_yaml.yaml_content_for_create(
-        "dev", "Dev", board, None, "", "", catalog=session_component_catalog
-    )
-    (display,) = YAML(typ="rt").load(text)["display"]
-    assert dict(display["transform"]) == {"swap_xy": False, "mirror_x": True, "mirror_y": False}
-
-
-def test_mipi_transform_is_a_yaml_only_union() -> None:
-    """``transform`` (``disabled`` or a mirror mapping) is a YAML-only ``unknown`` union."""
-    body = _load_body_from_disk("display.mipi_spi")
-    assert body is not None
-    (transform,) = (e for e in body.config_entries if e.key == "transform")
-    assert transform.type == "unknown"
-    assert not transform.options

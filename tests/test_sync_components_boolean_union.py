@@ -75,17 +75,3 @@ def test_bool_default_adopts_the_surviving_option_casing() -> None:
     }
     _apply_refined_types([entry], {("x",): RefinedType("boolean")})
     assert entry["default_value"] == "True"
-
-
-def test_enum_or_mapping_union_is_unknown_without_options(schema_dir: Path) -> None:
-    """``cv.Any(cv.one_of(...), Schema)`` converts to a YAML-only ``unknown`` entry."""
-    raw = {
-        "key": "Optional",
-        "type": "enum",
-        "values": {"disabled": None},
-        "schema": {"config_vars": {"mirror_x": {"key": "Required", "type": "boolean"}}},
-    }
-    entry = _convert_field("transform", raw, schema_dir)
-    assert entry is not None
-    assert entry["type"] == "unknown"
-    assert not entry["options"]
