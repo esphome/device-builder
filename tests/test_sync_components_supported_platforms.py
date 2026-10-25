@@ -97,14 +97,14 @@ def test_platform_provides_its_uncatalogued_auto_load() -> None:
     assert by_id["esp32"]["provides"] == []
 
 
-def test_platform_provides_skips_callable_auto_load(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A platform whose ``AUTO_LOAD`` is computed per config provides nothing from it."""
+def test_platform_provides_refuses_callable_auto_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A platform whose ``AUTO_LOAD`` is computed per config fails the sync."""
     from esphome.components import nrf52  # noqa: PLC0415
 
     monkeypatch.setattr(nrf52, "AUTO_LOAD", lambda: ["zephyr"], raising=False)
     entries = [{"id": "nrf52"}, {"id": "output.zephyr_pwm", "dependencies": ["zephyr"]}]
-    _apply_platform_auto_load_provides(entries)
-    assert "provides" not in entries[0]
+    with pytest.raises(TypeError, match="nrf52: callable AUTO_LOAD"):
+        _apply_platform_auto_load_provides(entries)
 
 
 def test_propagate_narrows_through_hub() -> None:

@@ -385,6 +385,8 @@ default component with that id, so automations attach to manifest hardware
 without redefining its pins. The merge refuses an overlay that repeats a key
 the template already sets, extends a missing id, or mixes list and mapping
 forms, so leave `esphome:` naming and the platform `board:` to the template.
+Write each top-level key once, as a block header (`logger: {}` or an inline
+`!include` is refused).
 
 The validator (`script/validate_definitions.py`) cross-checks every
 featured component against the component catalog: the `component_id` must
