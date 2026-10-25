@@ -66,6 +66,16 @@ def test_merge_yaml_overlay_extends_item_by_id() -> None:
     assert "!extend" not in merged
 
 
+def test_merge_yaml_overlay_extends_last_item_without_trailing_newline() -> None:
+    """Extending the file's final item works when the base lacks a trailing newline."""
+    overlay = "switch:\n  - id: !extend a\n    restore_mode: ALWAYS_ON\n"
+    merged = merge_yaml_overlay(_BASE.rstrip("\n"), overlay)
+
+    assert YAML(typ="safe").load(merged)["switch"] == [
+        {"platform": "gpio", "id": "a", "restore_mode": "ALWAYS_ON"}
+    ]
+
+
 @pytest.mark.parametrize(
     ("overlay", "message"),
     [

@@ -121,8 +121,7 @@ def merge_yaml_overlay(existing: str, overlay: str) -> str:
         indent = next((leading_ws(line) for line in body if line.strip()), ESPHOME_YAML_INDENT)
         block = [f"{key}:", *(indent + line.lstrip() for line in comments), *body]
         spliced = _splice_into_domain_block(merged, key, "\n".join(block))
-        if spliced is None:
-            raise ValueError(f"overlay {key}: cannot splice into the existing block")
+        assert spliced is not None  # the block's bounds were found above
         merged = spliced
     return merged
 
