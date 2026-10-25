@@ -1,6 +1,16 @@
 nrf52:
   dfu: true
 
+# Re-apply the backlight once every component is set up: the number restores
+# its value during setup, possibly before the PWM output is ready.
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - number.set:
+          id: backlight
+          value: !lambda 'return id(backlight).state;'
+
 # --- Buttons: light the matching LED and recolor the matching indicator ---
 binary_sensor:
   - id: !extend usr1
