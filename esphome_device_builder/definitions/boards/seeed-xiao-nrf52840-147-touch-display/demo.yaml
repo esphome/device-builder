@@ -211,9 +211,9 @@ number:
     max_value: 100
     step: 25                     # only 0, 25, 50, 75, 100
     optimistic: true
-    restore_value: true          # remember brightness across reboots
+    restore_value: false         # always boot at full brightness
     initial_value: 100
-    on_value:                    # also fires at boot with the restored value
+    on_value:                    # also fires at boot with initial_value
       - output.set_level:
           id: backlight_output
           # Panel brightness saturates near 20 % duty, so the steps are spaced
