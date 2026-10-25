@@ -62,8 +62,7 @@ _NO_NETWORK_TODO_LINES: tuple[str, ...] = (
 # ``zephyr_mcumgr`` (BLE / USB CDC), which needs no ``network`` component.
 _NRF52_OTA_TODO_LINES: tuple[str, ...] = (
     "# This board has no Wi-Fi. Firmware updates over the air use the",
-    "# ``zephyr_mcumgr`` OTA platform (BLE or USB CDC), which requires the",
-    "# MCUboot bootloader — add it once the bootloader is set up:",
+    "# ``zephyr_mcumgr`` OTA platform (BLE or USB CDC):",
     "# ota:",
     "#   - platform: zephyr_mcumgr",
     "",
