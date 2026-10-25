@@ -4086,6 +4086,11 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         entry_type = "boolean"
     elif entry_type is None and "values" in raw:
         entry_type = "string"  # enum-shaped (options below)
+    if schema_type == "enum" and (inner_schema or {}).get("config_vars"):
+        # ``cv.Any(cv.one_of(...), Schema)`` (mipi ``transform``: ``disabled`` or
+        # a mirror/swap mapping) dumps as an enum carrying a schema; a select
+        # would reject the mapping form, so the union stays YAML-only.
+        entry_type = "unknown"
 
     # ``extends: ["core.positive_time_period_*"]`` collapses to time_period
     # — even when the schema marked the entry as ``type: schema`` (most
@@ -4174,7 +4179,7 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
-    options = _build_options(raw)
+    options = _build_options(raw) if entry_type != "unknown" else None
     default_value = _boolean_default_as_option(default_value, options)
     if (
         key in _PLATFORM_DEFAULTED_ADVANCED_KEYS

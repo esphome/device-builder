@@ -145,6 +145,12 @@ featured_components:
       locked: true
     invert_colors: false
     color_order: bgr
+    transform:
+      value:
+        swap_xy: false
+        mirror_x: true
+        mirror_y: false
+      locked: true
     init_sequence:
       value:
       - [0x11]
@@ -281,10 +287,6 @@ default_components:
 - id: lcd_display
   fields:
     show_test_card: false
-    transform:
-      swap_xy: false
-      mirror_x: true
-      mirror_y: false
 - backlight_output
 - imu_i2c
 - id: imu
