@@ -131,10 +131,14 @@ async def yaml_content_for_create(
             wifi_secrets_available=wifi_secrets_available,
             defaults=defaults,
         )
-        return (
-            merge_yaml_overlay(yaml_text, board.demo_yaml) if board.demo_yaml else yaml_text,
-            "template",
-        )
+        if board.demo_yaml:
+            try:
+                yaml_text = merge_yaml_overlay(yaml_text, board.demo_yaml)
+            except ValueError as err:
+                raise CommandError(
+                    ErrorCode.INTERNAL_ERROR, f"Board {board.id} demo config: {err}"
+                ) from err
+        return yaml_text, "template"
     return (
         generate_minimal_stub_yaml(name, friendly, wifi_secrets_available=wifi_secrets_available),
         "stub",

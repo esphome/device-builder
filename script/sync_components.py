@@ -1917,12 +1917,7 @@ def _apply_libretiny_family_provides(entries: list[dict]) -> None:
 
 
 def _apply_platform_auto_load_provides(entries: list[dict]) -> None:
-    """
-    Make each target platform ``provides`` the dependencies it ``AUTO_LOAD``s.
-
-    ``nrf52`` auto-loads ``zephyr``, the ``output.zephyr_pwm`` dependency no
-    catalog entry represents, so only the platform block can satisfy it.
-    """
+    """Make each target platform ``provides`` the dependencies it ``AUTO_LOAD``s."""
     wanted = {dep for entry in entries for dep in entry.get("dependencies") or ()}
     platforms = _target_platform_names()
     for entry in entries:
@@ -1932,7 +1927,7 @@ def _apply_platform_auto_load_provides(entries: list[dict]) -> None:
             importlib.import_module(f"esphome.components.{entry['id']}"), "AUTO_LOAD", ()
         )
         if callable(auto_load):
-            continue
+            raise TypeError(f"{entry['id']}: callable AUTO_LOAD can't be read statically")
         if provided := wanted.intersection(auto_load):
             entry["provides"] = sorted({*entry.get("provides", ()), *provided})
 
