@@ -116,10 +116,10 @@ featured_components:
   description: Header SPI (D8 SCK, D10 MOSI), shared with the display.
   fields:
     clk_pin:
-      value: 45
+      value: P1.13
       locked: true
     mosi_pin:
-      value: 47
+      value: P1.15
       locked: true
     id:
       value: spi_bus
@@ -135,13 +135,13 @@ featured_components:
       value: spi_bus
       locked: true
     cs_pin:
-      value: 28
+      value: P0.28
       locked: true
     dc_pin:
-      value: 29
+      value: P0.29
       locked: true
     reset_pin:
-      value: 35
+      value: P1.3
       locked: true
     spi_mode: MODE0
     data_rate: 8MHz
@@ -186,7 +186,7 @@ featured_components:
   component_id: output.zephyr_pwm
   fields:
     pin:
-      value: 37
+      value: P1.5
       locked: true
     id: backlight_output
 - id: display_backlight
@@ -204,10 +204,10 @@ featured_components:
   description: Header I2C (D4 SDA, D5 SCL), shared by the IMU and the touch controller.
   fields:
     sda:
-      value: 4
+      value: P0.4
       locked: true
     scl:
-      value: 5
+      value: P0.5
       locked: true
     id:
       value: i2c_bus
@@ -228,7 +228,7 @@ featured_components:
   fields:
     pin:
       value:
-        number: 39
+        number: P1.7
         mode:
           input: true
           pullup: true
@@ -242,7 +242,7 @@ featured_components:
   fields:
     pin:
       value:
-        number: 10
+        number: P0.10
         mode:
           input: true
           pullup: true
@@ -256,7 +256,7 @@ featured_components:
   fields:
     pin:
       value:
-        number: 26
+        number: P0.26
         inverted: true
       locked: true
     name: Red LED
@@ -267,7 +267,7 @@ featured_components:
   fields:
     pin:
       value:
-        number: 30
+        number: P0.30
         inverted: true
       locked: true
     name: Green LED
@@ -278,7 +278,7 @@ featured_components:
   fields:
     pin:
       value:
-        number: 6
+        number: P0.6
         inverted: true
       locked: true
     name: Blue LED
