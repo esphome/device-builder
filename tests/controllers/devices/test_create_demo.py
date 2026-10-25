@@ -9,17 +9,11 @@ from unittest.mock import AsyncMock
 import pytest
 from ruamel.yaml import YAML
 
-from esphome_device_builder.controllers.components import _load_body_from_disk
+from esphome_device_builder.controllers.devices import mutations_yaml
 from esphome_device_builder.definitions import _BOARDS_DIR as BOARDS_DIR
-from esphome_device_builder.definitions import BOARD_DEMO_FILENAME, load_board_body_from_disk
-from esphome_device_builder.helpers.device_yaml import generate_device_yaml
+from esphome_device_builder.definitions import BOARD_DEMO_FILENAME
 from esphome_device_builder.helpers.yaml import merge_yaml_overlay
-from esphome_device_builder.models import (
-    BoardCatalogEntry,
-    BoardEsphomeConfig,
-    ComponentCatalogEntry,
-    Platform,
-)
+from esphome_device_builder.models import BoardCatalogEntry, BoardEsphomeConfig, Platform
 
 from .conftest import MakeControllerFactory
 
@@ -106,29 +100,34 @@ async def test_create_device_merges_demo_into_template(
     ctrl._db.editor.validate_yaml.assert_awaited_once()
 
 
-def test_shipped_demos_merge_onto_their_board() -> None:
-    """Every shipped demo merges onto its board's template and defaults without duplicate keys."""
+@pytest.mark.xdist_group("catalog")
+async def test_shipped_demos_merge_through_create(session_component_catalog: Any) -> None:
+    """Every shipped demo merges onto its board's real defaults in the create path."""
     demos = sorted(BOARDS_DIR.glob(f"*/{BOARD_DEMO_FILENAME}"))
     assert demos
     for demo in demos:
-        board = load_board_body_from_disk(demo.parent.name)
+        board = await session_component_catalog._db.boards.get_board(board_id=demo.parent.name)
         assert board is not None, demo
         assert board.demo_yaml == demo.read_text(encoding="utf-8"), demo
-        text = generate_device_yaml(
-            "dev", "Dev", board, "", "", wifi_secrets_available=False, defaults=_defaults(board)
+        text, source = await mutations_yaml.yaml_content_for_create(
+            "dev", "Dev", board, None, "", "", catalog=session_component_catalog
         )
-        YAML(typ="rt").load(merge_yaml_overlay(text, board.demo_yaml))
+        assert source == "template"
+        assert "!extend" not in text, demo
+        YAML(typ="rt").load(text)
 
 
-def _defaults(board: BoardCatalogEntry) -> list[tuple[ComponentCatalogEntry, dict[str, Any]]]:
-    """Resolve *board*'s default components from disk, featured presets plus overrides."""
+@pytest.mark.xdist_group("catalog")
+async def test_xiao_147_display_keeps_its_mirror_transform(session_component_catalog: Any) -> None:
+    """The display default carries the ``transform`` mapping the Recommended preset omits."""
+    board = await session_component_catalog._db.boards.get_board(
+        board_id="seeed-xiao-nrf52840-147-touch-display"
+    )
+    assert board is not None
+    text, _ = await mutations_yaml.yaml_content_for_create(
+        "dev", "Dev", board, None, "", "", catalog=session_component_catalog
+    )
+    (display,) = YAML(typ="rt").load(text)["display"]
+    assert dict(display["transform"]) == {"swap_xy": False, "mirror_x": True, "mirror_y": False}
     featured = {fc.id: fc for fc in board.featured_components}
-    out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
-    for entry in board.default_components:
-        fc = featured.get(entry.id)
-        body = _load_body_from_disk(fc.component_id if fc is not None else entry.id)
-        assert body is not None, entry.id
-        presets = fc.fields.items() if fc is not None else ()
-        fields = {k: p.value for k, p in presets if p.value is not None}
-        out.append((body, {**fields, **entry.fields}))
-    return out
+    assert "transform" not in featured["lcd_display"].fields
