@@ -163,6 +163,29 @@ def test_parse_mqtt_block_unresolved_substitution_returns_none() -> None:
     assert parse_mqtt_block(yaml) is None
 
 
+@pytest.mark.parametrize("field", ["username", "password"])
+@pytest.mark.parametrize("token", ["${mqtt_login}", "$mqtt_login", "${ 'esphome_' ~ name }"])
+def test_parse_mqtt_block_unresolved_login_returns_none(field: str, token: str) -> None:
+    """An unresolved substitution in the login yields no broker."""
+    yaml = f'mqtt:\n  broker: 10.0.0.5\n  {field}: "{token}"\n'
+    assert parse_mqtt_block(yaml) is None
+
+
+@pytest.mark.parametrize(
+    ("password", "expected"),
+    [
+        pytest.param("!secret pw", "pa$word", id="secret"),
+        pytest.param('"pa$$word"', "pa$$word", id="literal"),
+    ],
+)
+def test_parse_mqtt_block_password_with_dollar_is_kept(password: str, expected: str) -> None:
+    """A password that merely contains ``$`` is not a token."""
+    yaml = f"mqtt:\n  broker: 10.0.0.5\n  username: bob\n  password: {password}\n"
+    config = parse_mqtt_block(yaml, {"pw": "pa$word"})
+    assert config is not None
+    assert config.password == expected
+
+
 def test_parse_mqtt_block_resolves_port_substitution() -> None:
     yaml = "substitutions:\n  mqtt_port: '8883'\nmqtt:\n  broker: 10.0.0.5\n  port: ${mqtt_port}\n"
     config = parse_mqtt_block(yaml)
@@ -831,14 +854,22 @@ async def test_coordinator_resolves_port_from_substitution(
     assert stub_monitor.instances[0].broker.port == 8883
 
 
+@pytest.mark.parametrize(
+    "yaml",
+    [
+        pytest.param("mqtt:\n  broker: ${mqtt_host}\n", id="host"),
+        pytest.param('mqtt:\n  broker: 10.0.0.5\n  username: "${mqtt_user}"\n', id="username"),
+    ],
+)
 async def test_coordinator_skips_unresolved_substitution(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
     caplog: pytest.LogCaptureFixture,
+    yaml: str,
 ) -> None:
     # An undefined substitution must not start a monitor on the literal
     # token; warn once instead of looping on DNS failure.
-    device = write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: ${mqtt_host}\n")
+    device = write_mqtt_device(tmp_path, "alpha", yaml)
     coord = make_mqtt_coordinator(tmp_path, [device])
 
     target = "esphome_device_builder.controllers._device_mqtt_coordinator"

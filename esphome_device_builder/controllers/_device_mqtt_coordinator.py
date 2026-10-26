@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import ssl
 from collections.abc import Callable
 from pathlib import Path
@@ -61,6 +62,10 @@ _BROKER_FIELDS = ("broker", "port", "username", "password", "certificate_authori
 _CLIENT_CERT_FIELDS = ("client_certificate", "client_certificate_key")
 
 _PEM_CERT_MARKER = "-----BEGIN CERTIFICATE-----"
+
+# A resolved block can't tell a secret from a literal, so only an unmistakable
+# token counts: any ``${``, or a value that is wholly one ``$name``.
+_UNRESOLVED_LOGIN_RE = re.compile(r"\$\{|\A\$[a-zA-Z_]\w*\Z")
 
 _UNREADABLE_DEBUG = "Could not read %s for MQTT broker config"
 
@@ -488,6 +493,9 @@ def _broker_from_block(
     # An unresolved ``${var}`` / ``$var`` token would otherwise become a
     # bogus host and loop the monitor on DNS failure.
     if isinstance(host, str) and _UNRESOLVED_SUBSTITUTION_RE.search(host):
+        return None
+    # Same for the login, which would otherwise loop on "not authorised".
+    if any(_UNRESOLVED_LOGIN_RE.search(mqtt.get(f) or "") for f in ("username", "password")):
         return None
     certificate_authority = mqtt.get("certificate_authority") or None
     # esphome's ``certificate_authority`` is PEM content; a file path or
