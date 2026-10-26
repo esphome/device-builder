@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -310,3 +311,37 @@ def test_scan_populates_and_omits_the_extract(tmp_path: Path) -> None:
     assert mqtt_device.mqtt_extract.main_block is not None
     assert "mqtt_extract" not in mqtt_device.to_dict()
     assert plain_device.mqtt_extract is None
+
+
+@pytest.mark.parametrize(
+    "package_keys",
+    [
+        pytest.param({"port": "8883", "certificate_authority": "not-a-pem"}, id="tls"),
+        pytest.param({"client_certificate": "c", "client_certificate_key": "k"}, id="client-cert"),
+    ],
+)
+async def test_seed_drops_removed_mqtt_keys(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+    package_keys: dict[str, str],
+) -> None:
+    """A ``!remove`` under ``mqtt:`` drops the package's key from the seed."""
+    (tmp_path / "base.yaml").write_text(
+        "mqtt:\n  broker: 10.2.2.2\n" + "".join(f"  {k}: {v}\n" for k, v in package_keys.items())
+    )
+    (tmp_path / "pkg.yaml").write_text(
+        "esphome:\n  name: pkg\n\npackages:\n  base: !include base.yaml\n\nmqtt:\n"
+        + "".join(f"  {k}: !remove\n" for k in package_keys)
+    )
+    device = await asyncio.to_thread(
+        load_device_from_storage, tmp_path / "pkg.yaml", "", "", "", "", 0, ()
+    )
+    coord = make_mqtt_coordinator(tmp_path, [device])
+
+    with caplog.at_level("WARNING"):
+        await coord.reconcile()
+
+    assert [(m.broker.host, m.broker.port) for m in stub_monitor.instances] == [("10.2.2.2", 1883)]
+    assert stub_monitor.instances[0].broker.certificate_authority is None
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]

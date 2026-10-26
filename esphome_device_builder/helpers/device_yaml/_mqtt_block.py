@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from esphome.config_helpers import Remove
+
 from ...models.devices import DeviceMqttExtract
 from ._parsing import _extract_resolved_substitutions
 from ._tolerant_yaml import load_yaml_tolerant
@@ -14,9 +16,9 @@ def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[s
     """
     Tolerant-parse *yaml_content*; return its ``mqtt:`` dict and substitutions.
 
-    ``!secret`` values stay as ``SecretRef`` markers; other custom
-    tags load as ``None``. Returns ``(None, {})`` when the YAML fails to
-    parse or has no ``mqtt:`` mapping.
+    ``!secret`` values stay as ``SecretRef`` markers, ``!remove``d keys
+    are dropped, other custom tags load as ``None``. Returns ``(None, {})``
+    when the YAML fails to parse or has no ``mqtt:`` mapping.
     """
     data = load_yaml_tolerant(yaml_content)
     if not isinstance(data, dict):
@@ -24,7 +26,7 @@ def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[s
     mqtt = data.get("mqtt")
     if not isinstance(mqtt, dict):
         return None, {}
-    return mqtt, _extract_resolved_substitutions(data)
+    return _drop_removed(mqtt), _extract_resolved_substitutions(data)
 
 
 def build_mqtt_extract(
@@ -39,8 +41,8 @@ def build_mqtt_extract(
     """Build the scan-time extraction the MQTT coordinator consumes."""
     main_block, main_subs = extract_mqtt_block(yaml_content)
     resolved_block = resolved_config.get("mqtt") if isinstance(resolved_config, dict) else None
-    if not isinstance(resolved_block, dict):
-        resolved_block = None
+    # ``resolve_packages`` leaves ``!remove`` markers; esphome drops them in a later pass.
+    resolved_block = _drop_removed(resolved_block) if isinstance(resolved_block, dict) else None
     return DeviceMqttExtract(
         yaml_mtime_ns=yaml_stat.st_mtime_ns,
         yaml_size=yaml_stat.st_size,
@@ -52,3 +54,8 @@ def build_mqtt_extract(
         resolved_substitutions=resolved_substitutions,
         from_shallow_load=shallow,
     )
+
+
+def _drop_removed(block: dict[str, Any]) -> dict[str, Any]:
+    """Return *block* without its ``!remove``d keys."""
+    return {k: v for k, v in block.items() if not isinstance(v, Remove)}
