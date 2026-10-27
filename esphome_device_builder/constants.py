@@ -210,6 +210,7 @@ class ToolchainArtifacts(NamedTuple):
 _PLATFORMIO_ARTIFACTS = ToolchainArtifacts(".json", idedata=True, platformio_ini=True)
 _TOOLCHAIN_ARTIFACTS = {
     TOOLCHAIN_ESP_IDF: ToolchainArtifacts(".json", idedata=False, platformio_ini=False),
+    TOOLCHAIN_SDK_NRF: ToolchainArtifacts(".json", idedata=False, platformio_ini=False),
     TOOLCHAIN_ARDUINO: ToolchainArtifacts(".arduino.json", idedata=True, platformio_ini=False),
 }
 IDEDATA_SUFFIXES = frozenset(

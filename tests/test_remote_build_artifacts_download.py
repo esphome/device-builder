@@ -618,6 +618,7 @@ def _write_receiver_state(
     validated_yaml: bytes | None = None,
     validated_json: bytes | None = None,
     toolchain: str = "platformio",
+    platformio_ini: bool | None = None,
 ) -> dict[str, Path]:
     """Lay down a minimal receiver-side build state on disk.
 
@@ -638,6 +639,9 @@ def _write_receiver_state(
     idedata are skipped in that mode. ``toolchain="arduino"``
     writes the PlatformIO tree with no platformio.ini and the
     idedata cache at ``<data_dir>/idedata/<device_name>.arduino.json``.
+    ``toolchain="sdk-nrf"`` writes the PlatformIO tree with neither.
+    *platformio_ini* overrides whether ``platformio.ini`` is written
+    (default: only for ``toolchain="platformio"``).
 
     Always writes ``<data_dir>/storage/<basename>.json`` and any
     *extra_build_files* (keys relative to ``<build_path>/``).
@@ -661,7 +665,9 @@ def _write_receiver_state(
     else:
         pioenvs = build_path / ".pioenvs" / device_name
         pioenvs.mkdir(parents=True, exist_ok=True)
-        if toolchain == "platformio":
+        if platformio_ini is None:
+            platformio_ini = toolchain == "platformio"
+        if platformio_ini:
             (build_path / "platformio.ini").write_bytes(b"[env:kitchen]\nplatform = espressif32\n")
         firmware_bin = pioenvs / "firmware.bin"
     firmware_bin.write_bytes(b"FIRMWARE")
@@ -706,7 +712,7 @@ def _write_receiver_state(
         "storage_path": storage_path,
         "platformio_ini": build_path / "platformio.ini",
     }
-    if not native_idf:
+    if not native_idf and toolchain != "sdk-nrf":
         idedata_path = resolve_idedata_path(configuration, name=device_name, toolchain=toolchain)
         idedata_path.parent.mkdir(parents=True, exist_ok=True)
         idedata_path.write_text(
@@ -928,6 +934,28 @@ def test_pack_build_artifacts_native_arduino_packs_idedata_without_pio_ini(
     assert IDEDATA_MEMBER_NAME in names
     assert PLATFORMIO_INI_MEMBER_NAME not in names
     assert ".pioenvs/kitchen/firmware.bin" in names
+
+
+@pytest.mark.parametrize("with_platformio_ini", [False, True])
+def test_pack_build_artifacts_sdk_nrf_packs_without_pio_metadata(
+    tmp_path: Path, with_platformio_ini: bool
+) -> None:
+    """An sdk-nrf build packs without an idedata cache, with or without platformio.ini."""
+    _write_receiver_state(
+        tmp_path,
+        target_platform="NRF52",
+        toolchain="sdk-nrf",
+        platformio_ini=with_platformio_ini,
+        extra_build_files={".pioenvs/kitchen/zephyr/zephyr.uf2": b"UF2"},
+    )
+
+    packed = pack_build_artifacts("kitchen.yaml")
+
+    names = _tar_member_names(packed.tarball)
+    assert IDEDATA_MEMBER_NAME not in names
+    assert (PLATFORMIO_INI_MEMBER_NAME in names) is with_platformio_ini
+    assert ".pioenvs/kitchen/firmware.bin" in names
+    assert ".pioenvs/kitchen/zephyr/zephyr.uf2" in names
 
 
 def test_pack_build_artifacts_includes_get_download_types_files(tmp_path: Path) -> None:
