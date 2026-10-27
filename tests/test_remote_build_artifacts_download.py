@@ -638,6 +638,7 @@ def _write_receiver_state(
     idedata are skipped in that mode. ``toolchain="arduino"``
     writes the PlatformIO tree with no platformio.ini and the
     idedata cache at ``<data_dir>/idedata/<device_name>.arduino.json``.
+    ``toolchain="sdk-nrf"`` writes the PlatformIO tree with neither.
 
     Always writes ``<data_dir>/storage/<basename>.json`` and any
     *extra_build_files* (keys relative to ``<build_path>/``).
@@ -724,6 +725,8 @@ def _write_receiver_state(
             encoding="utf-8",
         )
         paths["idedata_path"] = idedata_path
+        if toolchain == "sdk-nrf":
+            idedata_path.unlink()
     if validated_yaml is not None:
         validated_yaml_path = legacy_yaml_cache_path(configuration)
         validated_yaml_path.parent.mkdir(parents=True, exist_ok=True)
@@ -928,6 +931,24 @@ def test_pack_build_artifacts_native_arduino_packs_idedata_without_pio_ini(
     assert IDEDATA_MEMBER_NAME in names
     assert PLATFORMIO_INI_MEMBER_NAME not in names
     assert ".pioenvs/kitchen/firmware.bin" in names
+
+
+def test_pack_build_artifacts_sdk_nrf_packs_without_pio_metadata(tmp_path: Path) -> None:
+    """An sdk-nrf build packs with neither platformio.ini nor an idedata cache."""
+    _write_receiver_state(
+        tmp_path,
+        target_platform="NRF52",
+        toolchain="sdk-nrf",
+        extra_build_files={".pioenvs/kitchen/zephyr/zephyr.uf2": b"UF2"},
+    )
+
+    packed = pack_build_artifacts("kitchen.yaml")
+
+    names = _tar_member_names(packed.tarball)
+    assert IDEDATA_MEMBER_NAME not in names
+    assert PLATFORMIO_INI_MEMBER_NAME not in names
+    assert ".pioenvs/kitchen/firmware.bin" in names
+    assert ".pioenvs/kitchen/zephyr/zephyr.uf2" in names
 
 
 def test_pack_build_artifacts_includes_get_download_types_files(tmp_path: Path) -> None:
