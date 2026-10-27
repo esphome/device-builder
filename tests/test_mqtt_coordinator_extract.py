@@ -345,3 +345,27 @@ async def test_seed_drops_removed_mqtt_keys(
     assert [(m.broker.host, m.broker.port) for m in stub_monitor.instances] == [("10.2.2.2", 1883)]
     assert stub_monitor.instances[0].broker.certificate_authority is None
     assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+async def test_inline_broker_with_remove_keeps_package_settings(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """An inline ``broker:`` beside a ``!remove`` still takes the package's other settings."""
+    (tmp_path / "base.yaml").write_text(
+        "mqtt:\n  broker: 10.9.9.9\n  port: 8883\n  username: pkguser\n"
+        "  client_certificate: c\n  client_certificate_key: k\n"
+    )
+    (tmp_path / "pkg.yaml").write_text(
+        "esphome:\n  name: pkg\n\npackages:\n  base: !include base.yaml\n\nmqtt:\n"
+        "  broker: 10.2.2.2\n  client_certificate: !remove\n  client_certificate_key: !remove\n"
+    )
+    device = await asyncio.to_thread(
+        load_device_from_storage, tmp_path / "pkg.yaml", "", "", "", "", 0, ()
+    )
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert [(m.broker.host, m.broker.port, m.broker.username) for m in stub_monitor.instances] == [
+        ("10.2.2.2", 8883, "pkguser")
+    ]

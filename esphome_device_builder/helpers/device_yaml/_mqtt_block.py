@@ -16,17 +16,18 @@ def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[s
     """
     Tolerant-parse *yaml_content*; return its ``mqtt:`` dict and substitutions.
 
-    ``!secret`` values stay as ``SecretRef`` markers, ``!remove``d keys
-    are dropped, other custom tags load as ``None``. Returns ``(None, {})``
-    when the YAML fails to parse or has no ``mqtt:`` mapping.
+    ``!secret`` values stay as ``SecretRef`` markers; other custom
+    tags load as ``None``. Returns ``(None, {})`` when the YAML fails to
+    parse, has no ``mqtt:`` mapping, or ``!remove``s a key from it (only
+    the package-merged block describes that broker).
     """
     data = load_yaml_tolerant(yaml_content)
     if not isinstance(data, dict):
         return None, {}
     mqtt = data.get("mqtt")
-    if not isinstance(mqtt, dict):
+    if not isinstance(mqtt, dict) or any(isinstance(v, Remove) for v in mqtt.values()):
         return None, {}
-    return _drop_removed(mqtt), _extract_resolved_substitutions(data)
+    return mqtt, _extract_resolved_substitutions(data)
 
 
 def build_mqtt_extract(
