@@ -933,20 +933,25 @@ def test_pack_build_artifacts_native_arduino_packs_idedata_without_pio_ini(
     assert ".pioenvs/kitchen/firmware.bin" in names
 
 
-def test_pack_build_artifacts_sdk_nrf_packs_without_pio_metadata(tmp_path: Path) -> None:
-    """An sdk-nrf build packs with neither platformio.ini nor an idedata cache."""
-    _write_receiver_state(
+@pytest.mark.parametrize("with_platformio_ini", [False, True])
+def test_pack_build_artifacts_sdk_nrf_packs_without_pio_metadata(
+    tmp_path: Path, with_platformio_ini: bool
+) -> None:
+    """An sdk-nrf build packs without an idedata cache, with or without platformio.ini."""
+    state = _write_receiver_state(
         tmp_path,
         target_platform="NRF52",
         toolchain="sdk-nrf",
         extra_build_files={".pioenvs/kitchen/zephyr/zephyr.uf2": b"UF2"},
     )
+    if with_platformio_ini:
+        state["platformio_ini"].write_bytes(b"[env:kitchen]\n")
 
     packed = pack_build_artifacts("kitchen.yaml")
 
     names = _tar_member_names(packed.tarball)
     assert IDEDATA_MEMBER_NAME not in names
-    assert PLATFORMIO_INI_MEMBER_NAME not in names
+    assert (PLATFORMIO_INI_MEMBER_NAME in names) is with_platformio_ini
     assert ".pioenvs/kitchen/firmware.bin" in names
     assert ".pioenvs/kitchen/zephyr/zephyr.uf2" in names
 
