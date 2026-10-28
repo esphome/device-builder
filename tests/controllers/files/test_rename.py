@@ -51,6 +51,12 @@ _real_commit_history_many = file_change._commit_history_many
         ('m: "Use !include common/base.yaml"\n', "", 'm: "Use !include common/base.yaml"\n'),
         ("m: 'Use !include common/base.yaml'\n", "", "m: 'Use !include common/base.yaml'\n"),
         ("x: !include common/base.yaml.bak\n", "", "x: !include common/base.yaml.bak\n"),
+        # a quoted ``#`` is not a comment
+        (
+            'packages: {"base #1": !include common/base.yaml}\n',
+            "",
+            'packages: {"base #1": !include common/main.yaml}\n',
+        ),
     ],
 )
 def test_rewrite_includes(text: str, folder: str, expected: str) -> None:
@@ -88,7 +94,7 @@ def test_plan_rename_covers_devices_and_packages(tmp_path: Path) -> None:
         "common/extra.yaml": "<<: !include main.yaml\n",
     }
     assert plan.originals["kitchen.yaml"] == "packages:\n  base: !include common/base.yaml\n"
-    assert plan.remaining == {"garage.yaml", "named.yaml"}
+    assert plan.remaining == {"garage.yaml", "named.yaml", "secrets.yaml"}
 
 
 @pytest.fixture
@@ -112,6 +118,31 @@ def _users() -> list[SimpleNamespace]:
         SimpleNamespace(configuration="kitchen.yaml", dependencies=deps),
         SimpleNamespace(configuration="garage.yaml", dependencies=deps),
     ]
+
+
+def test_plan_rename_matches_an_uppercase_extension(tmp_path: Path) -> None:
+    _tree(tmp_path, {"kitchen.yaml": "base: !include common/Base.YAML\n"})
+
+    plan = plan_rename(tmp_path, "common/Base.YAML", "common/Main.YAML")
+
+    assert plan.texts == {"kitchen.yaml": "base: !include common/Main.YAML\n"}
+    assert plan.remaining == set()
+
+
+def test_plan_rename_checks_secrets_and_block_form_substitutions(tmp_path: Path) -> None:
+    _tree(
+        tmp_path,
+        {
+            "kitchen.yaml": "packages:\n  b: !include\n    file: ${dir}/base.yaml\n",
+            "secrets.yaml": "<<: !include common/base.yaml\n",
+        },
+    )
+
+    plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
+
+    # flagged, but a secrets file is never rewritten
+    assert plan.texts == {}
+    assert plan.remaining == {"kitchen.yaml", "secrets.yaml"}
 
 
 def test_plan_rename_keeps_crlf_line_endings(tmp_path: Path) -> None:
@@ -218,13 +249,8 @@ async def test_rename_flags_a_device_with_a_missed_reference_despite_a_rewrite(
     assert result["unresolved"] == ["garage.yaml"]
 
 
-async def test_rename_records_one_real_history_commit(
-    tmp_path: Path,
-    files: FilesController,
-    setup: tuple[FilesController, Any, list],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _, devices, _ = setup
+async def _real_history(devices: Any, monkeypatch: pytest.MonkeyPatch) -> VersionHistoryController:
+    """Attach a started, real version history; its baseline holds the devices only."""
     monkeypatch.setattr(file_change, "_commit_history_many", _real_commit_history_many)
     prefs = UserPreferences(version_history_enabled=True)
     history = VersionHistoryController(
@@ -236,16 +262,31 @@ async def test_rename_records_one_real_history_commit(
         )
     )
     await history.start()
-    # as if created through files/create; the start-up baseline covers devices only
-    await history.commit([tmp_path / "common/base.yaml"], "Create common/base.yaml")
     devices._db.version_history = history
+    return history
+
+
+async def test_rename_records_one_real_history_commit(
+    tmp_path: Path,
+    files: FilesController,
+    setup: tuple[FilesController, Any, list],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, devices, _ = setup
+    history = await _real_history(devices, monkeypatch)
 
     with patch.object(devices, "get_devices", return_value=_users()):
         await files.rename(path="common/base.yaml", new_path="common/main.yaml")
     await history.stop()
 
-    # one commit: the old path removed, the new one added, the referrer rewritten
     repo = history._repo
+    # the untracked package was recorded first
+    base_log = await run_in_executor(repo.log_file, tmp_path / "common/base.yaml")
+    assert [c.message for c in base_log] == [
+        "Rename common/base.yaml to common/main.yaml",
+        "Before: Rename common/base.yaml to common/main.yaml",
+    ]
+    # then one commit: the old path removed, the new one added, the referrer rewritten
     heads = {
         rel: (await run_in_executor(repo.log_file, tmp_path / rel))[0]
         for rel in ("common/base.yaml", "common/main.yaml", "kitchen.yaml")
@@ -256,6 +297,24 @@ async def test_rename_records_one_real_history_commit(
     assert await run_in_executor(repo.file_at, tmp_path / "common/base.yaml", sha) is None
     main = await run_in_executor(repo.file_at, tmp_path / "common/main.yaml", sha)
     assert main == "wifi: !include wifi.yaml\n"
+
+
+async def test_delete_keeps_an_untracked_package_in_history(
+    tmp_path: Path,
+    files: FilesController,
+    setup: tuple[FilesController, Any, list],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, devices, _ = setup
+    history = await _real_history(devices, monkeypatch)
+
+    await files.delete(path="common/wifi.yaml")
+    await history.stop()
+
+    assert not (tmp_path / "common/wifi.yaml").exists()
+    latest = await run_in_executor(history._repo.latest_content, tmp_path / "common/wifi.yaml")
+    assert latest is not None
+    assert latest[1] == "ssid: x\n"
 
 
 async def test_rename_failed_move_restores_the_referrers(

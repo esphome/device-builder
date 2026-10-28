@@ -29,6 +29,9 @@ async def commit_file_change(
         # Sorted, so two multi-file writers can't take the locks in opposite orders.
         for configuration in sorted(set(configurations)):
             await stack.enter_async_context(controller._yaml_write_lock(configuration))
+        # The history baseline seeds top-level YAMLs only: record an untracked
+        # package before a delete or rename removes its only copy (no-op otherwise).
+        await _commit_history_many(controller, configurations, f"Before: {message}")
         await run_in_executor(change)
         await _commit_history_many(controller, configurations, message)
     for configuration in configurations:

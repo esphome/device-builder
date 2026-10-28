@@ -29,6 +29,8 @@ def setup(
     commits: list[tuple[str, str]] = []
 
     async def _commit(_: DevicesController, configurations: list[str], message: str) -> None:
+        if message.startswith("Before: "):
+            return  # the pre-change snapshot; test_rename covers it against real git
         commits.extend((configuration, message) for configuration in configurations)
 
     monkeypatch.setattr(file_change, "_commit_history_many", _commit)

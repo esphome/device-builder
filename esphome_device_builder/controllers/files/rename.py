@@ -10,7 +10,7 @@ from typing import NamedTuple
 
 from esphome import util
 
-from ...constants import is_secrets_file
+from ...constants import SECRETS_FILENAMES, is_secrets_file
 from .paths import list_package_files
 
 # ``!include path`` / ``!include {file: path}``, path optionally quoted. Not
@@ -18,14 +18,15 @@ from .paths import list_package_files
 # is another file). Matches inside a quoted string are skipped in ``_swap``.
 # shortcut: matches inside block scalars too; parse YAML nodes if that bites.
 _TAG = r"""(?<![\w"'])!include"""
-_PATH = r"""(["']?)([^\s"'{},#]+\.ya?ml)\1(?=[\s"'},]|$)"""
+_PATH = r"""(["']?)([^\s"'{},#]+\.(?i:ya?ml))\1(?=[\s"'},]|$)"""
 _INCLUDE_RE = re.compile(_TAG + r"\s+(?:\{\s*file:\s*)?" + _PATH)
 # Block form: ``!include`` ending the line, ``file: path`` on a deeper line.
 _BARE_TAG_RE = re.compile(_TAG + r"\s*$")
 # An ``!include`` whose path is built from a ``${substitution}``; never rewritten.
 _DYNAMIC_RE = re.compile(_TAG + r"""\s+(?:\{\s*file:\s*)?["']?[^\s"',#]*\$""")
+# Any ``file:`` value built from a substitution, for the block form (conservative).
+_DYNAMIC_FILE_RE = re.compile(r"""(?<![\w-])file:\s*["']?[^\s"',#]*\$""")
 _FILE_KEY_RE = re.compile(r"\s*file:\s*" + _PATH)
-_COMMENT_RE = re.compile(r"(^|\s)#")
 
 
 class RenamePlan(NamedTuple):
@@ -93,18 +94,34 @@ def plan_rename(config_dir: Path, old: str, new: str) -> RenamePlan:
             text = (config_dir / rel).read_bytes().decode("utf-8")  # keeps CRLF
         except (OSError, UnicodeDecodeError):
             continue
-        updated = rewrite_includes(text, folder=posixpath.dirname(rel), old=old, new=new)
+        # Secrets files are only checked: rewriting them would need the secrets lock.
+        updated = (
+            text
+            if is_secrets_file(rel)
+            else rewrite_includes(text, folder=posixpath.dirname(rel), old=old, new=new)
+        )
         if updated != text:
             texts[rel], originals[rel] = updated, text
         codes = [_code(line) for line in updated.splitlines()]
-        if any(old_name.search(code) or _DYNAMIC_RE.search(code) for code in codes):
+        dynamic = (_DYNAMIC_RE, _DYNAMIC_FILE_RE)
+        if any(old_name.search(code) or any(r.search(code) for r in dynamic) for code in codes):
             remaining.add(rel)
     return RenamePlan(texts, originals, remaining)
 
 
 def _code(line: str) -> str:
-    comment = _COMMENT_RE.search(line)
-    return line[: comment.start()] if comment else line
+    """Return *line* up to its comment; a ``#`` inside a quoted scalar starts none."""
+    quote, prev = "", " "
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote and not (quote == '"' and prev == "\\"):
+                quote = ""
+        elif ch in "\"'" and (prev.isspace() or prev in ":[{,"):
+            quote = ch
+        elif ch == "#" and prev.isspace():
+            return line[:i]
+        prev = ch
+    return line
 
 
 def _indent(line: str) -> int:
@@ -120,6 +137,6 @@ def _resolve(folder: str, ref: str) -> str | None:
 
 def _candidates(config_dir: Path) -> Iterable[str]:
     for path in util.list_yaml_files([config_dir]):
-        if not is_secrets_file(path):
-            yield path.name
+        yield path.name
+    yield from (name for name in SECRETS_FILENAMES if (config_dir / name).is_file())
     yield from list_package_files(config_dir)
