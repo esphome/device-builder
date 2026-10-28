@@ -9,12 +9,15 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_config import raise_device_not_found
+from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode
 from ..devices.helpers import refuse_empty_write
 from .paths import dependency_key, list_package_files, parse_file_path
+from .rename import plan_rename
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
+    from ..devices import DevicesController
 
 
 class FilesController:
@@ -58,7 +61,7 @@ class FilesController:
             except FileExistsError as err:
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{rel!r} already exists") from err
 
-        await self._db.devices.commit_file_change(rel, _create, message=f"Create {rel}")
+        await self._devices.commit_file_change([rel], _create, message=f"Create {rel}")
         return {"path": rel}
 
     @api_command("files/delete")
@@ -73,7 +76,55 @@ class FilesController:
             except FileNotFoundError as err:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{rel!r} not found") from err
 
-        await self._db.devices.commit_file_change(rel, _delete, message=f"Delete {rel}")
+        await self._devices.commit_file_change([rel], _delete, message=f"Delete {rel}")
+
+    @api_command("files/rename")
+    async def rename(self, *, path: Any, new_path: Any, **kwargs: Any) -> dict[str, Any]:
+        """
+        Move a package YAML and rewrite the ``!include`` references to it.
+
+        Returns the new ``path``, the files whose references were ``rewritten``
+        and the devices using the file whose references couldn't be
+        (``unresolved``, e.g. substitution-built paths).
+        """
+        old = parse_file_path(path, in_subfolder=True)
+        new = parse_file_path(new_path, in_subfolder=True)
+        if dependency_key(old) == dependency_key(new):
+            raise CommandError(ErrorCode.INVALID_ARGS, "the new path is the current one")
+        settings = self._db.settings
+        users = self._users(dependency_key(old))
+        # shortcut: planned before the write locks; an edit landing in between is
+        # overwritten by the planned text. Fine for a user-driven rename.
+        plan = await run_in_executor(plan_rename, settings.config_dir, old, new)
+
+        def _apply() -> None:
+            src, dst = settings.rel_path(old), settings.rel_path(new)
+            if not src.is_file():
+                raise CommandError(ErrorCode.NOT_FOUND, f"{old!r} not found")
+            if dst.exists():
+                raise CommandError(ErrorCode.ALREADY_EXISTS, f"{new!r} already exists")
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+            except (FileExistsError, NotADirectoryError) as err:
+                msg = f"a parent of {new!r} is not a folder"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg) from err
+            src.rename(dst)
+            for rel, text in plan.items():
+                write_user_yaml(settings.rel_path(new if rel == old else rel), text)
+
+        touched = sorted({old, new, *plan})
+        await self._devices.commit_file_change(touched, _apply, message=f"Rename {old} to {new}")
+        rewritten = sorted(rel for rel in plan if rel != old)
+        covered = {dependency_key(rel) for rel in rewritten}
+        return {
+            "path": new,
+            "rewritten": rewritten,
+            "unresolved": sorted(
+                configuration
+                for configuration, deps in users.items()
+                if not covered & {dependency_key(configuration), *deps}
+            ),
+        }
 
     @api_command("files/usage")
     async def usage(self, *, path: Any, **kwargs: Any) -> dict[str, Any]:
@@ -83,11 +134,9 @@ class FilesController:
         ``unknown`` lists devices whose files aren't known yet (never parsed, or still loading).
         """
         key = dependency_key(parse_file_path(path, in_subfolder=False))
-        devices = self._db.devices.get_devices()
+        devices = self._devices.get_devices()
         return {
-            "used_by": sorted(
-                d.configuration for d in devices if d.dependencies and key in d.dependencies
-            ),
+            "used_by": sorted(self._users(key)),
             "unknown": sorted(d.configuration for d in devices if d.dependencies is None),
         }
 
@@ -95,7 +144,7 @@ class FilesController:
     async def dependencies(self, *, configuration: Any, **kwargs: Any) -> dict[str, Any]:
         """Return the files *configuration* pulls in, secrets files left out."""
         device = (
-            self._db.devices.get_by_configuration(configuration)
+            self._devices.get_by_configuration(configuration)
             if isinstance(configuration, str)
             else None
         )
@@ -106,3 +155,18 @@ class FilesController:
             "files": [d for d in deps or () if not is_secrets_file(d)],
             "complete": deps is not None,
         }
+
+    def _users(self, key: str) -> dict[str, tuple[str, ...]]:
+        """Devices whose dependencies include *key*, mapped to those dependencies."""
+        return {
+            d.configuration: d.dependencies
+            for d in self._devices.get_devices()
+            if d.dependencies and key in d.dependencies
+        }
+
+    @property
+    def _devices(self) -> DevicesController:
+        devices = self._db.devices
+        if devices is None:  # pragma: no cover — devices is always up post-start
+            raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
+        return devices

@@ -15,28 +15,6 @@ from esphome_device_builder.controllers.files import FilesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
-from ...conftest import MakeSettingsFactory
-from ..devices.conftest import MakeControllerFactory
-
-
-@pytest.fixture
-def setup(
-    tmp_path: Path, make_controller: MakeControllerFactory, make_settings: MakeSettingsFactory
-) -> tuple[FilesController, DevicesController, list[tuple[str, str]]]:
-    """Build a FilesController over a real DevicesController and real path validation."""
-    devices = make_controller(tmp_path)
-    devices._db.settings = make_settings()
-    commits: list[tuple[str, str]] = []
-
-    async def _commit(configuration: str, message: str) -> None:
-        commits.append((configuration, message))
-
-    devices._commit_history = _commit  # type: ignore[method-assign]
-    files = FilesController.__new__(FilesController)
-    files._db = SimpleNamespace(settings=devices._db.settings, devices=devices)  # type: ignore[assignment]
-    return files, devices, commits
-
-
 Setup = tuple[FilesController, DevicesController, list[tuple[str, str]]]
 
 

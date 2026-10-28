@@ -11,7 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -940,13 +941,31 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         return result
 
     async def commit_file_change(
-        self, configuration: str, change: Callable[[], None], *, message: str
+        self, configurations: Sequence[str], change: Callable[[], None], *, message: str
     ) -> None:
-        """Run blocking *change* on *configuration* under its write lock, then record history."""
-        async with self._yaml_write_lock(configuration):
+        """Run blocking *change* under the write locks of *configurations*, then record history."""
+        async with AsyncExitStack() as stack:
+            # Sorted, so two multi-file writers can't take the locks in opposite orders.
+            for configuration in sorted(set(configurations)):
+                await stack.enter_async_context(self._yaml_write_lock(configuration))
             await run_in_executor(change)
-            await self._commit_history(configuration, message)
-        self._db.invalidate_editor_cache()
+            await self._commit_history_many(configurations, message)
+        for configuration in configurations:
+            self._after_yaml_write(configuration)
+
+    async def _commit_history_many(self, configurations: Sequence[str], message: str) -> None:
+        """Record *configurations* in one version-history commit; swallow genuine git errors."""
+        version_history = self._db.version_history
+        if version_history is None:
+            return
+        paths = [self._db.settings.rel_path(c) for c in configurations]
+        try:
+            await version_history.commit(paths, message)
+        except GIT_COMMIT_ERRORS:
+            _LOGGER.exception("Version-history commit failed for %s", ", ".join(configurations))
+            return
+        for configuration in configurations:
+            version_history.discard_pending(configuration)
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
