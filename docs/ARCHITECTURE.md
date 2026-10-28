@@ -49,6 +49,7 @@ esphome_device_builder/
 │   ├── components.py          # ComponentCatalog: 896 components
 │   ├── devices/               # DevicesController package: CRUD, file scanning, logs
 │   ├── firmware/              # FirmwareController package: job queue, local + remote runners
+│   ├── files/                 # FilesController package: package YAMLs, usage
 │   ├── remote_build/          # RemoteBuildController package: pair flow, peer-link transport, job fanout
 │   ├── automations.py         # AutomationsController: triggers + actions
 │   ├── auth.py                # AuthController: session tokens

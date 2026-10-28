@@ -404,6 +404,20 @@ User-defined chips (name + optional `#rrggbb` color) that can be assigned to dev
 
 Renaming or recoloring a label leaves device assignments untouched — devices reference labels by id, not by name. The frontend is expected to subscribe to `subscribe_events`, fetch the catalog once via `labels/list`, then resolve ids → name + color at render time.
 
+### Files
+
+> Controller: [`FilesController`](../esphome_device_builder/controllers/files/controller.py)
+
+Non-device YAMLs: a YAML in a subfolder of the config dir is a **package** (top-level YAMLs stay devices). Hidden folders, `archive/` and secrets files are never packages. Read and edit a package with `devices/get_config` / `devices/update_config` (they take any config-relative path); usage comes from each device's tracked dependency list, computed on request.
+
+| Command | Args | Response | Description |
+|---------|------|----------|-------------|
+| `files/list_packages` | — | `[{path}]` | Every package YAML, POSIX-relative, sorted |
+| `files/create` | `{path, content}` | `{path}` | Create a package (parent folders included) and record it in version history. `already_exists` when taken; `invalid_args` for a top-level, hidden, secrets, `archive/` or escaping path, or empty content |
+| `files/delete` | `{path}` | — | Delete a package and record it in version history; `not_found` when missing. Devices that still include it fail to load until fixed |
+| `files/usage` | `{path}` | `{used_by: [configuration], unknown: [configuration]}` | Devices whose config pulls in `path` (directly or through other includes); `path` may be top-level. `unknown` lists devices whose files aren't known yet (never parsed, or startup still loading) |
+| `files/dependencies` | `{configuration}` | `{files: [path], complete}` | Files the device pulls in, secrets files left out; paths outside the config dir stay absolute. `complete` is false while the list is unknown; `not_found` for an unknown device |
+
 ### Version History
 
 > Controller: [`VersionHistoryController`](../esphome_device_builder/controllers/version_history/controller.py)

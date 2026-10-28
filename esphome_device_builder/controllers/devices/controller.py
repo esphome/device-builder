@@ -939,6 +939,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._after_yaml_write(configuration)
         return result
 
+    async def commit_file_change(
+        self, configuration: str, change: Callable[[], None], *, message: str
+    ) -> None:
+        """Run blocking *change* on *configuration* under its write lock, then record history."""
+        async with self._yaml_write_lock(configuration):
+            await run_in_executor(change)
+            await self._commit_history(configuration, message)
+        self._db.invalidate_editor_cache()
+
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
 
