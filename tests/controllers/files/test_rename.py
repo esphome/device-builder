@@ -51,6 +51,7 @@ _real_commit_history_many = file_change._commit_history_many
         ('m: "Use !include common/base.yaml"\n', "", 'm: "Use !include common/base.yaml"\n'),
         ("m: 'Use !include common/base.yaml'\n", "", "m: 'Use !include common/base.yaml'\n"),
         ("x: !include common/base.yaml.bak\n", "", "x: !include common/base.yaml.bak\n"),
+        ("x: !include /cfg/common/base.yaml\n", "", "x: !include /cfg/common/base.yaml\n"),
         # a quoted ``#`` is not a comment
         (
             'packages: {"base #1": !include common/base.yaml}\n',
@@ -143,6 +144,16 @@ def test_plan_rename_checks_secrets_and_block_form_substitutions(tmp_path: Path)
     # flagged, but a secrets file is never rewritten
     assert plan.texts == {}
     assert plan.remaining == {"kitchen.yaml", "secrets.yaml"}
+
+
+def test_plan_rename_skips_a_file_that_is_not_utf8(tmp_path: Path) -> None:
+    _tree(tmp_path, {"kitchen.yaml": "base: !include common/base.yaml\n"})
+    (tmp_path / "binary.yaml").write_bytes(b"\xff\xfe!include common/base.yaml\n")
+
+    plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
+
+    assert set(plan.texts) == {"kitchen.yaml"}
+    assert plan.remaining == set()
 
 
 def test_plan_rename_keeps_crlf_line_endings(tmp_path: Path) -> None:
