@@ -90,7 +90,7 @@ def plan_rename(config_dir: Path, old: str, new: str) -> RenamePlan:
     old_name = re.compile(r"(?<![\w.-])" + re.escape(posixpath.basename(old)) + r"(?![\w.-])")
     for rel in _candidates(config_dir):
         try:
-            text = (config_dir / rel).read_text("utf-8")
+            text = (config_dir / rel).read_bytes().decode("utf-8")  # keeps CRLF
         except (OSError, UnicodeDecodeError):
             continue
         updated = rewrite_includes(text, folder=posixpath.dirname(rel), old=old, new=new)

@@ -12,6 +12,7 @@ from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_config import raise_device_not_found
 from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode
+from ..devices.file_change import commit_file_change
 from ..devices.helpers import refuse_empty_write
 from .paths import dependency_key, list_package_files, parse_file_path
 from .rename import plan_rename
@@ -62,7 +63,7 @@ class FilesController:
             except FileExistsError as err:
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{rel!r} already exists") from err
 
-        await self._devices.commit_file_change([rel], _create, message=f"Create {rel}")
+        await commit_file_change(self._devices, [rel], _create, message=f"Create {rel}")
         return {"path": rel}
 
     @api_command("files/delete")
@@ -77,7 +78,7 @@ class FilesController:
             except FileNotFoundError as err:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{rel!r} not found") from err
 
-        await self._devices.commit_file_change([rel], _delete, message=f"Delete {rel}")
+        await commit_file_change(self._devices, [rel], _delete, message=f"Delete {rel}")
 
     @api_command("files/rename")
     async def rename(self, *, path: Any, new_path: Any, **kwargs: Any) -> dict[str, Any]:
@@ -126,7 +127,7 @@ class FilesController:
                     write_user_yaml(settings.rel_path(rel), plan.originals[rel])
                 raise
 
-        await self._devices.commit_file_change(touched, _apply, message=f"Rename {old} to {new}")
+        await commit_file_change(self._devices, touched, _apply, message=f"Rename {old} to {new}")
         remaining = {dependency_key(new if rel == old else rel) for rel in plan.remaining}
         return {
             "path": new,

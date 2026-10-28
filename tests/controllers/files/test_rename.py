@@ -9,11 +9,18 @@ from unittest.mock import patch
 
 import pytest
 
+from esphome_device_builder.controllers.devices import file_change
 from esphome_device_builder.controllers.files import FilesController
 from esphome_device_builder.controllers.files import controller as controller_module
 from esphome_device_builder.controllers.files.rename import plan_rename, rewrite_includes
+from esphome_device_builder.controllers.version_history import VersionHistoryController
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import ErrorCode
+from esphome_device_builder.helpers.async_ import run_in_executor
+from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.models import ErrorCode, UserPreferences
+
+# Captured before the ``setup`` fixture stubs it out.
+_real_commit_history_many = file_change._commit_history_many
 
 
 @pytest.mark.parametrize(
@@ -105,6 +112,15 @@ def _users() -> list[SimpleNamespace]:
         SimpleNamespace(configuration="kitchen.yaml", dependencies=deps),
         SimpleNamespace(configuration="garage.yaml", dependencies=deps),
     ]
+
+
+def test_plan_rename_keeps_crlf_line_endings(tmp_path: Path) -> None:
+    (tmp_path / "kitchen.yaml").write_bytes(b"packages:\r\n  base: !include common/base.yaml\r\n")
+
+    plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
+
+    assert plan.texts["kitchen.yaml"] == "packages:\r\n  base: !include common/main.yaml\r\n"
+    assert plan.originals["kitchen.yaml"].count("\r\n") == 2
 
 
 async def test_rename_renames_rewrites_and_reports(
@@ -200,6 +216,46 @@ async def test_rename_flags_a_device_with_a_missed_reference_despite_a_rewrite(
 
     assert "garage.yaml" in result["rewritten"]
     assert result["unresolved"] == ["garage.yaml"]
+
+
+async def test_rename_records_one_real_history_commit(
+    tmp_path: Path,
+    files: FilesController,
+    setup: tuple[FilesController, Any, list],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, devices, _ = setup
+    monkeypatch.setattr(file_change, "_commit_history_many", _real_commit_history_many)
+    prefs = UserPreferences(version_history_enabled=True)
+    history = VersionHistoryController(
+        SimpleNamespace(  # type: ignore[arg-type]
+            bus=EventBus(),
+            devices=devices,
+            settings=devices._db.settings,
+            config=SimpleNamespace(prefs=SimpleNamespace(snapshot=lambda: prefs)),
+        )
+    )
+    await history.start()
+    # as if created through files/create; the start-up baseline covers devices only
+    await history.commit([tmp_path / "common/base.yaml"], "Create common/base.yaml")
+    devices._db.version_history = history
+
+    with patch.object(devices, "get_devices", return_value=_users()):
+        await files.rename(path="common/base.yaml", new_path="common/main.yaml")
+    await history.stop()
+
+    # one commit: the old path removed, the new one added, the referrer rewritten
+    repo = history._repo
+    heads = {
+        rel: (await run_in_executor(repo.log_file, tmp_path / rel))[0]
+        for rel in ("common/base.yaml", "common/main.yaml", "kitchen.yaml")
+    }
+    assert {c.message for c in heads.values()} == {"Rename common/base.yaml to common/main.yaml"}
+    assert len({c.sha for c in heads.values()}) == 1
+    sha = heads["kitchen.yaml"].sha
+    assert await run_in_executor(repo.file_at, tmp_path / "common/base.yaml", sha) is None
+    main = await run_in_executor(repo.file_at, tmp_path / "common/main.yaml", sha)
+    assert main == "wifi: !include wifi.yaml\n"
 
 
 async def test_rename_failed_move_restores_the_referrers(
