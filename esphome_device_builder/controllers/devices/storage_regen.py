@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ...constants import is_secrets_file
+from ...constants import is_device_config_name
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
@@ -47,9 +47,9 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     persisted failure stamp ``_run`` consults (attempt budget, backoff
     min-age, TTL), and ``_regenerate_lock`` serialising the subprocess.
     """
-    if is_secrets_file(configuration):
-        # Shared credentials, not a buildable config: no build dir to
-        # --only-generate, so a regen would only warn about a missing hash.
+    if not is_device_config_name(configuration):
+        # secrets.yaml or a subfolder include: not a buildable config, so
+        # --only-generate would fail or only warn about a missing hash.
         return
     if not controller.state.esphome_cmd:
         return  # ``start()`` hasn't run yet.

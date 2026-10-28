@@ -256,6 +256,18 @@ def test_regenerate_skips_secrets_yaml(
     assert controller.state.regen.pending == set()
 
 
+def test_regenerate_skips_subfolder_include(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A YAML in a subfolder is an include, not a device; regen is a no-op."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+
+    controller._schedule_storage_regenerate("common/base.yaml")
+
+    assert controller._spawned_tasks == []  # type: ignore[attr-defined]
+    assert controller.state.regen.pending == set()
+
+
 def test_regenerate_skips_duplicate_schedule(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
