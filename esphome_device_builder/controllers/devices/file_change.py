@@ -42,7 +42,8 @@ async def _commit_history_many(
     version_history = controller._db.version_history
     if version_history is None:
         return
-    paths = [controller._db.settings.rel_path(c) for c in configurations]
+    rel_path = controller._db.settings.rel_path
+    paths = await run_in_executor(lambda: [rel_path(c) for c in configurations])
     try:
         await version_history.commit(paths, message)
     except GIT_COMMIT_ERRORS:

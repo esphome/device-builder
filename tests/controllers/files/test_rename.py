@@ -64,7 +64,7 @@ def _tree(root: Path, files: dict[str, str]) -> None:
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_bytes(text.encode("utf-8"))  # no CRLF on Windows
 
 
 def test_plan_rename_covers_devices_and_packages(tmp_path: Path) -> None:

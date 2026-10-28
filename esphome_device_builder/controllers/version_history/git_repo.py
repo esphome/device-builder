@@ -716,7 +716,8 @@ class GitRepo:
         """Return *path* relative to the work-tree root (git's pathspec base)."""
         assert self.toplevel is not None
         try:
-            return str(path.resolve().relative_to(self.toplevel.resolve()))
+            # POSIX, as ``git ls-files`` prints it, so subfolder paths match on Windows.
+            return path.resolve().relative_to(self.toplevel.resolve()).as_posix()
         except ValueError:
             return path.name
 
