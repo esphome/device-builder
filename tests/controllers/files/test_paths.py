@@ -64,6 +64,14 @@ def test_parse_top_level_allowed_outside_subfolder_mode() -> None:
         parse_file_path("secrets.yaml", in_subfolder=False)
 
 
+@pytest.mark.parametrize("name", ["base 1", "base#1", "it's", "a{b}", "a[1]", "a,b"])
+def test_parse_new_file_refuses_names_that_need_yaml_quoting(name: str) -> None:
+    path = f"common/{name}.yaml"
+    assert parse_file_path(path, in_subfolder=True) == path  # existing files stay usable
+    with pytest.raises(CommandError):
+        parse_file_path(path, in_subfolder=True, new_file=True)
+
+
 def _write(root: Path, rel: str) -> None:
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)

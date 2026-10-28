@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
 
@@ -14,16 +15,19 @@ from ...models import ErrorCode
 # The dashboard's archived device YAMLs live here; they are devices, not packages.
 ARCHIVE_DIR = "archive"
 _YAML_SUFFIXES = (".yaml", ".yml")
+# Whitespace, comment, quote and flow characters (``:`` is refused for all paths).
+_YAML_SIGNIFICANT_RE = re.compile(r"""[\s#"'{}\[\],]""")
 
 
-def parse_file_path(path: Any, *, in_subfolder: bool) -> str:
+def parse_file_path(path: Any, *, in_subfolder: bool, new_file: bool = False) -> str:
     """
     Validate a config-relative YAML *path* from the wire; return its POSIX form.
 
     Refused with ``INVALID_ARGS``: absolute paths, ``..``, hidden segments,
-    non-YAML names, secrets files, the archive folder and, with
-    *in_subfolder*, a top-level file (that is a device). Symlink escapes
-    are left to ``DashboardSettings.rel_path``.
+    non-YAML names, secrets files, the archive folder, with *in_subfolder*
+    a top-level file (that is a device) and, with *new_file*, characters that
+    would need quoting in an ``!include``. Symlink escapes are left to
+    ``DashboardSettings.rel_path``.
     """
     if not isinstance(path, str) or not path or "\\" in path or ":" in path or "\x00" in path:
         _invalid(path)
@@ -36,6 +40,7 @@ def parse_file_path(path: Any, *, in_subfolder: bool) -> str:
         or is_secrets_file(pure.name)
         or (len(parts) > 1 and parts[0].casefold() == ARCHIVE_DIR)
         or (in_subfolder and len(parts) < 2)
+        or (new_file and _YAML_SIGNIFICANT_RE.search(path))
     ):
         _invalid(path)
     return pure.as_posix()

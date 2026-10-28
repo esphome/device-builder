@@ -17,38 +17,38 @@ from esphome_device_builder.models import ErrorCode
 
 
 @pytest.mark.parametrize(
-    ("text", "read_dir", "write_dir", "expected"),
+    ("text", "folder", "expected"),
     [
         # a device at the top level
-        ("base: !include common/base.yaml\n", "", "", "base: !include shared/base.yaml\n"),
-        ('base: !include "common/base.yaml"\n', "", "", 'base: !include "shared/base.yaml"\n'),
+        ("base: !include common/base.yaml\n", "", "base: !include common/main.yaml\n"),
+        ('base: !include "common/base.yaml"\n', "", 'base: !include "common/main.yaml"\n'),
         (
             "base: !include {file: common/base.yaml, vars: {a: 1}}\n",
             "",
-            "",
-            "base: !include {file: shared/base.yaml, vars: {a: 1}}\n",
+            "base: !include {file: common/main.yaml, vars: {a: 1}}\n",
         ),
+        # block form: the path sits under ``file:`` on the next, deeper line
+        (
+            "b: !include\n  file: common/base.yaml\n  vars: {a: 1}\n",
+            "",
+            "b: !include\n  file: common/main.yaml\n  vars: {a: 1}\n",
+        ),
+        ("b: !include\nfile: common/base.yaml\n", "", "b: !include\nfile: common/base.yaml\n"),
         # a sibling package refers to it relative to its own folder
-        ("<<: !include base.yaml\n", "common", "common", "<<: !include ../shared/base.yaml\n"),
-        # untouched: other files, comments, substitutions
-        ("x: !include common/other.yaml\n", "", "", "x: !include common/other.yaml\n"),
-        ("# x: !include common/base.yaml\n", "", "", "# x: !include common/base.yaml\n"),
-        ("x: !include ${d}/base.yaml\n", "", "", "x: !include ${d}/base.yaml\n"),
-        # the moved file rebases its own relative includes
-        ("wifi: !include wifi.yaml\n", "common", "shared", "wifi: !include ../common/wifi.yaml\n"),
+        ("<<: !include ./base.yaml\n", "common", "<<: !include ./main.yaml\n"),
+        # untouched: other files, comments, substitutions, strings, longer names
+        ("x: !include common/other.yaml\n", "", "x: !include common/other.yaml\n"),
+        ("# x: !include common/base.yaml\n", "", "# x: !include common/base.yaml\n"),
+        ("x: !include ${d}/base.yaml\n", "", "x: !include ${d}/base.yaml\n"),
+        ('note: "!include common/base.yaml"\n', "", 'note: "!include common/base.yaml"\n'),
+        ("x: !include common/base.yaml.bak\n", "", "x: !include common/base.yaml.bak\n"),
     ],
 )
-def test_rewrite_includes(text: str, read_dir: str, write_dir: str, expected: str) -> None:
-    assert (
-        rewrite_includes(
-            text,
-            read_dir=read_dir,
-            write_dir=write_dir,
-            old="common/base.yaml",
-            new="shared/base.yaml",
-        )
-        == expected
+def test_rewrite_includes(text: str, folder: str, expected: str) -> None:
+    rewritten = rewrite_includes(
+        text, folder=folder, old="common/base.yaml", new="common/main.yaml"
     )
+    assert rewritten == expected
 
 
 def _tree(root: Path, files: dict[str, str]) -> None:
@@ -58,28 +58,27 @@ def _tree(root: Path, files: dict[str, str]) -> None:
         path.write_text(text, encoding="utf-8")
 
 
-def test_plan_rename_covers_devices_packages_and_the_moved_file(tmp_path: Path) -> None:
+def test_plan_rename_covers_devices_and_packages(tmp_path: Path) -> None:
     _tree(
         tmp_path,
         {
             "kitchen.yaml": "packages:\n  base: !include common/base.yaml\n",
-            "other.yaml": "logger:\n",
+            "garage.yaml": "packages:\n  base: !include ${dir}/base.yaml\n",
+            "other.yaml": "logger:  # base.yaml\n",
             "secrets.yaml": "x: !include common/base.yaml\n",
             "common/base.yaml": "wifi: !include wifi.yaml\n",
-            "common/wifi.yaml": "ssid: x\n",
             "common/extra.yaml": "<<: !include base.yaml\n",
-            "common/dyn.yaml": "a: !include ${dir}/x.yaml\n# b: !include ${y}.yaml\n",
         },
     )
 
-    plan = plan_rename(tmp_path, "common/base.yaml", "shared/base.yaml")
+    plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
 
-    assert plan.dynamic == {"common/dyn.yaml"}
     assert plan.texts == {
-        "kitchen.yaml": "packages:\n  base: !include shared/base.yaml\n",
-        "common/extra.yaml": "<<: !include ../shared/base.yaml\n",
-        "common/base.yaml": "wifi: !include ../common/wifi.yaml\n",
+        "kitchen.yaml": "packages:\n  base: !include common/main.yaml\n",
+        "common/extra.yaml": "<<: !include main.yaml\n",
     }
+    assert plan.originals["kitchen.yaml"] == "packages:\n  base: !include common/base.yaml\n"
+    assert plan.remaining == {"garage.yaml"}
 
 
 @pytest.fixture
@@ -105,27 +104,27 @@ def _users() -> list[SimpleNamespace]:
     ]
 
 
-async def test_rename_moves_rewrites_and_reports(
+async def test_rename_renames_rewrites_and_reports(
     tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
 ) -> None:
     _, devices, commits = setup
 
     with patch.object(devices, "get_devices", return_value=_users()):
-        result = await files.rename(path="common/base.yaml", new_path="shared/base.yaml")
+        result = await files.rename(path="common/base.yaml", new_path="common/main.yaml")
 
     assert result == {
-        "path": "shared/base.yaml",
+        "path": "common/main.yaml",
         "rewritten": ["kitchen.yaml"],
         "unresolved": ["garage.yaml"],
     }
     assert not (tmp_path / "common/base.yaml").exists()
-    assert (tmp_path / "shared/base.yaml").read_text(encoding="utf-8") == (
-        "wifi: !include ../common/wifi.yaml\n"
+    assert (tmp_path / "common/main.yaml").read_text(encoding="utf-8") == (
+        "wifi: !include wifi.yaml\n"
     )
-    assert "shared/base.yaml" in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "common/main.yaml" in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     # one history commit covering every touched file
-    assert {c for c, _ in commits} == {"common/base.yaml", "shared/base.yaml", "kitchen.yaml"}
-    assert {m for _, m in commits} == {"Rename common/base.yaml to shared/base.yaml"}
+    assert {c for c, _ in commits} == {"common/base.yaml", "common/main.yaml", "kitchen.yaml"}
+    assert {m for _, m in commits} == {"Rename common/base.yaml to common/main.yaml"}
 
 
 @pytest.mark.parametrize(
@@ -133,8 +132,11 @@ async def test_rename_moves_rewrites_and_reports(
     [
         ("common/wifi.yaml", ErrorCode.ALREADY_EXISTS),
         ("common/base.yaml", ErrorCode.INVALID_ARGS),
+        ("shared/base.yaml", ErrorCode.INVALID_ARGS),
+        ("common/sub/base.yaml", ErrorCode.INVALID_ARGS),
         ("base.yaml", ErrorCode.INVALID_ARGS),
         ("../x/base.yaml", ErrorCode.INVALID_ARGS),
+        ("common/base #1.yaml", ErrorCode.INVALID_ARGS),
     ],
 )
 async def test_rename_refusals_change_nothing(
@@ -161,11 +163,11 @@ async def test_rename_refusals_change_nothing(
 
 async def test_rename_missing_source(files: FilesController) -> None:
     with pytest.raises(CommandError) as exc_info:
-        await files.rename(path="common/nope.yaml", new_path="shared/nope.yaml")
+        await files.rename(path="common/nope.yaml", new_path="common/new.yaml")
     assert exc_info.value.code is ErrorCode.NOT_FOUND
 
 
-async def test_rename_flags_a_device_with_a_dynamic_include_despite_a_rewrite(
+async def test_rename_flags_a_device_with_a_missed_reference_despite_a_rewrite(
     tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
 ) -> None:
     _, devices, _ = setup
@@ -173,19 +175,36 @@ async def test_rename_flags_a_device_with_a_dynamic_include_despite_a_rewrite(
         tmp_path,
         {
             "garage.yaml": (
-                "packages:\n  a: !include ${dir}/base.yaml\n  b: !include common/extra.yaml\n"
+                "packages:\n  a: !include common/base.yaml\n  b: !include ${dir}/base.yaml\n"
             ),
-            "common/extra.yaml": "<<: !include base.yaml\n",
         },
     )
-    deps = ("common/base.yaml", "common/extra.yaml")
-    users = [SimpleNamespace(configuration="garage.yaml", dependencies=deps)]
+    users = [SimpleNamespace(configuration="garage.yaml", dependencies=("common/base.yaml",))]
 
     with patch.object(devices, "get_devices", return_value=users):
-        result = await files.rename(path="common/base.yaml", new_path="shared/base.yaml")
+        result = await files.rename(path="common/base.yaml", new_path="common/main.yaml")
 
-    assert "common/extra.yaml" in result["rewritten"]
+    assert "garage.yaml" in result["rewritten"]
     assert result["unresolved"] == ["garage.yaml"]
+
+
+async def test_rename_failed_move_restores_the_referrers(
+    tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
+) -> None:
+    _, devices, commits = setup
+    before = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+    with (
+        patch.object(devices, "get_devices", return_value=_users()),
+        patch.object(Path, "rename", side_effect=OSError("disk full")),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        await files.rename(path="common/base.yaml", new_path="common/main.yaml")
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == before
+    assert (tmp_path / "common/base.yaml").exists()
+    assert not (tmp_path / "common/main.yaml").exists()
+    assert commits == []
 
 
 async def test_rename_refuses_when_a_new_referrer_appears_before_the_locks(
@@ -206,7 +225,7 @@ async def test_rename_refuses_when_a_new_referrer_appears_before_the_locks(
         patch(f"{controller_module.__name__}.plan_rename", _plan_then_add_referrer),
         pytest.raises(CommandError) as exc_info,
     ):
-        await files.rename(path="common/base.yaml", new_path="shared/base.yaml")
+        await files.rename(path="common/base.yaml", new_path="common/main.yaml")
 
     assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
     assert (tmp_path / "common/base.yaml").exists()

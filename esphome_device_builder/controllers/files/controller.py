@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
@@ -41,7 +42,7 @@ class FilesController:
     @api_command("files/create")
     async def create(self, *, path: Any, content: Any, **kwargs: Any) -> dict[str, str]:
         """Create a package YAML in a subfolder (parents included); ``ALREADY_EXISTS`` if taken."""
-        rel = parse_file_path(path, in_subfolder=True)
+        rel = parse_file_path(path, in_subfolder=True, new_file=True)
         if not isinstance(content, str):
             raise CommandError(ErrorCode.INVALID_ARGS, "content must be a string")
         if not content.strip():
@@ -81,14 +82,17 @@ class FilesController:
     @api_command("files/rename")
     async def rename(self, *, path: Any, new_path: Any, **kwargs: Any) -> dict[str, Any]:
         """
-        Move a package YAML and rewrite the ``!include`` references to it.
+        Rename a package YAML within its folder and rewrite the ``!include`` references to it.
 
         Returns the new ``path``, the files whose references were ``rewritten``
-        and the devices using the file whose references couldn't be
+        and the devices using the file that still name the old one
         (``unresolved``, e.g. substitution-built paths).
         """
         old = parse_file_path(path, in_subfolder=True)
-        new = parse_file_path(new_path, in_subfolder=True)
+        new = parse_file_path(new_path, in_subfolder=True, new_file=True)
+        # A move would change what the file's own !secret / !include_dir_* resolve to.
+        if posixpath.dirname(old) != posixpath.dirname(new):
+            raise CommandError(ErrorCode.INVALID_ARGS, "a rename stays within the folder")
         if dependency_key(old) == dependency_key(new):
             raise CommandError(ErrorCode.INVALID_ARGS, "the new path is the current one")
         settings = self._db.settings
@@ -108,27 +112,29 @@ class FilesController:
             if not plan.texts.keys() <= set(touched):
                 msg = "files changed while renaming; try again"
                 raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+            # Referrers first, the move last; on any failure put the texts back.
+            written: list[str] = []
             try:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-            except (FileExistsError, NotADirectoryError) as err:
-                msg = f"a parent of {new!r} is not a folder"
-                raise CommandError(ErrorCode.INVALID_ARGS, msg) from err
-            src.rename(dst)
-            for rel, text in plan.texts.items():
-                write_user_yaml(settings.rel_path(new if rel == old else rel), text)
+                for rel, text in plan.texts.items():
+                    write_user_yaml(settings.rel_path(rel), text)
+                    written.append(rel)
+                src.rename(dst)
+            except BaseException:
+                for rel in written:
+                    write_user_yaml(settings.rel_path(rel), plan.originals[rel])
+                raise
 
         await self._devices.commit_file_change(touched, _apply, message=f"Rename {old} to {new}")
-        rewritten = sorted(rel for rel in plan.texts if rel != old)
-        covered = {dependency_key(rel) for rel in rewritten}
-        dynamic = {dependency_key(rel) for rel in plan.dynamic}
-        # Conservative: a substitution-built include anywhere in a device's
-        # files may point at the moved one, so that device is flagged too.
-        unresolved = []
-        for configuration, deps in users.items():
-            files = {dependency_key(configuration), *deps}
-            if dynamic & files or not covered & files:
-                unresolved.append(configuration)
-        return {"path": new, "rewritten": rewritten, "unresolved": sorted(unresolved)}
+        remaining = {dependency_key(new if rel == old else rel) for rel in plan.remaining}
+        return {
+            "path": new,
+            "rewritten": sorted(rel for rel in plan.texts if rel != old),
+            "unresolved": sorted(
+                configuration
+                for configuration, deps in users.items()
+                if remaining & {dependency_key(configuration), *deps}
+            ),
+        }
 
     @api_command("files/usage")
     async def usage(self, *, path: Any, **kwargs: Any) -> dict[str, Any]:
