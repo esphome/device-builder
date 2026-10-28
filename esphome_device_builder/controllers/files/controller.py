@@ -42,7 +42,7 @@ class FilesController:
     @api_command("files/create")
     async def create(self, *, path: Any, content: Any, **kwargs: Any) -> dict[str, str]:
         """Create a package YAML in a subfolder (parents included); ``ALREADY_EXISTS`` if taken."""
-        rel = parse_file_path(path, in_subfolder=True, new_file=True)
+        rel = parse_file_path(path, in_subfolder=True, plain_name=True)
         if not isinstance(content, str):
             raise CommandError(ErrorCode.INVALID_ARGS, "content must be a string")
         if not content.strip():
@@ -88,8 +88,10 @@ class FilesController:
         and the devices using the file that still name the old one
         (``unresolved``, e.g. substitution-built paths).
         """
-        old = parse_file_path(path, in_subfolder=True)
-        new = parse_file_path(new_path, in_subfolder=True, new_file=True)
+        # Both ends must be safe unquoted: references to a name that needs
+        # quoting can't be found or rewritten reliably.
+        old = parse_file_path(path, in_subfolder=True, plain_name=True)
+        new = parse_file_path(new_path, in_subfolder=True, plain_name=True)
         # A move would change what the file's own !secret / !include_dir_* resolve to.
         if posixpath.dirname(old) != posixpath.dirname(new):
             raise CommandError(ErrorCode.INVALID_ARGS, "a rename stays within the folder")

@@ -41,6 +41,8 @@ from esphome_device_builder.models import ErrorCode
         ("# x: !include common/base.yaml\n", "", "# x: !include common/base.yaml\n"),
         ("x: !include ${d}/base.yaml\n", "", "x: !include ${d}/base.yaml\n"),
         ('note: "!include common/base.yaml"\n', "", 'note: "!include common/base.yaml"\n'),
+        ('m: "Use !include common/base.yaml"\n', "", 'm: "Use !include common/base.yaml"\n'),
+        ("m: 'Use !include common/base.yaml'\n", "", "m: 'Use !include common/base.yaml'\n"),
         ("x: !include common/base.yaml.bak\n", "", "x: !include common/base.yaml.bak\n"),
     ],
 )
@@ -64,6 +66,7 @@ def test_plan_rename_covers_devices_and_packages(tmp_path: Path) -> None:
         {
             "kitchen.yaml": "packages:\n  base: !include common/base.yaml\n",
             "garage.yaml": "packages:\n  base: !include ${dir}/base.yaml\n",
+            "named.yaml": "packages:\n  base: !include common/${name}.yaml\n",
             "other.yaml": "logger:  # base.yaml\n",
             "secrets.yaml": "x: !include common/base.yaml\n",
             "common/base.yaml": "wifi: !include wifi.yaml\n",
@@ -78,7 +81,7 @@ def test_plan_rename_covers_devices_and_packages(tmp_path: Path) -> None:
         "common/extra.yaml": "<<: !include main.yaml\n",
     }
     assert plan.originals["kitchen.yaml"] == "packages:\n  base: !include common/base.yaml\n"
-    assert plan.remaining == {"garage.yaml"}
+    assert plan.remaining == {"garage.yaml", "named.yaml"}
 
 
 @pytest.fixture
@@ -137,6 +140,7 @@ async def test_rename_renames_rewrites_and_reports(
         ("base.yaml", ErrorCode.INVALID_ARGS),
         ("../x/base.yaml", ErrorCode.INVALID_ARGS),
         ("common/base #1.yaml", ErrorCode.INVALID_ARGS),
+        ("common/@main.yaml", ErrorCode.INVALID_ARGS),
     ],
 )
 async def test_rename_refusals_change_nothing(
@@ -161,6 +165,16 @@ async def test_rename_refusals_change_nothing(
     assert commits == []
 
 
+async def test_rename_refuses_a_source_name_that_needs_quoting(
+    tmp_path: Path, files: FilesController
+) -> None:
+    _tree(tmp_path, {"common/base #1.yaml": "a: 1\n"})
+    with pytest.raises(CommandError) as exc_info:
+        await files.rename(path="common/base #1.yaml", new_path="common/main.yaml")
+    assert exc_info.value.code is ErrorCode.INVALID_ARGS
+    assert (tmp_path / "common/base #1.yaml").exists()
+
+
 async def test_rename_missing_source(files: FilesController) -> None:
     with pytest.raises(CommandError) as exc_info:
         await files.rename(path="common/nope.yaml", new_path="common/new.yaml")
@@ -175,7 +189,7 @@ async def test_rename_flags_a_device_with_a_missed_reference_despite_a_rewrite(
         tmp_path,
         {
             "garage.yaml": (
-                "packages:\n  a: !include common/base.yaml\n  b: !include ${dir}/base.yaml\n"
+                "packages:\n  a: !include common/base.yaml\n  b: !include common/${name}.yaml\n"
             ),
         },
     )

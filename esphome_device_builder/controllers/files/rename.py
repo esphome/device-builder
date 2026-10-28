@@ -14,14 +14,16 @@ from ...constants import is_secrets_file
 from .paths import list_package_files
 
 # ``!include path`` / ``!include {file: path}``, path optionally quoted. Not
-# inside a quoted string or after a word character, and the path must end
-# there (``base.yaml.backup`` is another file).
+# after a word character, and the path must end there (``base.yaml.backup``
+# is another file). Matches inside a quoted string are skipped in ``_swap``.
 # shortcut: matches inside block scalars too; parse YAML nodes if that bites.
 _TAG = r"""(?<![\w"'])!include"""
 _PATH = r"""(["']?)([^\s"'{},#]+\.ya?ml)\1(?=[\s"'},]|$)"""
 _INCLUDE_RE = re.compile(_TAG + r"\s+(?:\{\s*file:\s*)?" + _PATH)
 # Block form: ``!include`` ending the line, ``file: path`` on a deeper line.
 _BARE_TAG_RE = re.compile(_TAG + r"\s*$")
+# An ``!include`` whose path is built from a ``${substitution}``; never rewritten.
+_DYNAMIC_RE = re.compile(_TAG + r"""\s+(?:\{\s*file:\s*)?["']?[^\s"',#]*\$""")
 _FILE_KEY_RE = re.compile(r"\s*file:\s*" + _PATH)
 _COMMENT_RE = re.compile(r"(^|\s)#")
 
@@ -32,7 +34,8 @@ class RenamePlan(NamedTuple):
 
     ``texts`` maps each changed config-relative YAML to its new text and
     ``originals`` to its current one. ``remaining`` lists the scanned files
-    that still name the old file outside a comment after the rewrite.
+    that may still reference the old file after the rewrite: they name it
+    outside a comment or have a substitution-built ``!include``.
     """
 
     texts: dict[str, str]
@@ -57,6 +60,9 @@ def rewrite_includes(text: str, *, folder: str, old: str, new: str) -> str:
         for match in matches:
             if match is None or _resolve(folder, match.group(2)) != old:
                 continue
+            before = line[: match.start()]
+            if before.count('"') % 2 or before.count("'") % 2:
+                continue  # inside a quoted string; ``remaining`` still flags it
             name_start = match.end(2) - len(posixpath.basename(match.group(2)))
             parts += [line[last:name_start], new_name]
             last = match.end(2)
@@ -90,7 +96,8 @@ def plan_rename(config_dir: Path, old: str, new: str) -> RenamePlan:
         updated = rewrite_includes(text, folder=posixpath.dirname(rel), old=old, new=new)
         if updated != text:
             texts[rel], originals[rel] = updated, text
-        if any(old_name.search(_code(line)) for line in updated.splitlines()):
+        codes = [_code(line) for line in updated.splitlines()]
+        if any(old_name.search(code) or _DYNAMIC_RE.search(code) for code in codes):
             remaining.add(rel)
     return RenamePlan(texts, originals, remaining)
 
