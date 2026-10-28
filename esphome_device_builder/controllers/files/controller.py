@@ -93,38 +93,42 @@ class FilesController:
             raise CommandError(ErrorCode.INVALID_ARGS, "the new path is the current one")
         settings = self._db.settings
         users = self._users(dependency_key(old))
-        # shortcut: planned before the write locks; an edit landing in between is
-        # overwritten by the planned text. Fine for a user-driven rename.
+        # Planned here to know which files to lock, then again under the locks.
         plan = await run_in_executor(plan_rename, settings.config_dir, old, new)
+        touched = sorted({old, new, *plan.texts})
 
         def _apply() -> None:
+            nonlocal plan
             src, dst = settings.rel_path(old), settings.rel_path(new)
             if not src.is_file():
                 raise CommandError(ErrorCode.NOT_FOUND, f"{old!r} not found")
             if dst.exists():
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{new!r} already exists")
+            plan = plan_rename(settings.config_dir, old, new)
+            if not plan.texts.keys() <= set(touched):
+                msg = "files changed while renaming; try again"
+                raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)
             except (FileExistsError, NotADirectoryError) as err:
                 msg = f"a parent of {new!r} is not a folder"
                 raise CommandError(ErrorCode.INVALID_ARGS, msg) from err
             src.rename(dst)
-            for rel, text in plan.items():
+            for rel, text in plan.texts.items():
                 write_user_yaml(settings.rel_path(new if rel == old else rel), text)
 
-        touched = sorted({old, new, *plan})
         await self._devices.commit_file_change(touched, _apply, message=f"Rename {old} to {new}")
-        rewritten = sorted(rel for rel in plan if rel != old)
+        rewritten = sorted(rel for rel in plan.texts if rel != old)
         covered = {dependency_key(rel) for rel in rewritten}
-        return {
-            "path": new,
-            "rewritten": rewritten,
-            "unresolved": sorted(
-                configuration
-                for configuration, deps in users.items()
-                if not covered & {dependency_key(configuration), *deps}
-            ),
-        }
+        dynamic = {dependency_key(rel) for rel in plan.dynamic}
+        # Conservative: a substitution-built include anywhere in a device's
+        # files may point at the moved one, so that device is flagged too.
+        unresolved = []
+        for configuration, deps in users.items():
+            files = {dependency_key(configuration), *deps}
+            if dynamic & files or not covered & files:
+                unresolved.append(configuration)
+        return {"path": new, "rewritten": rewritten, "unresolved": sorted(unresolved)}
 
     @api_command("files/usage")
     async def usage(self, *, path: Any, **kwargs: Any) -> dict[str, Any]:

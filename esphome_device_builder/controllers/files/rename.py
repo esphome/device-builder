@@ -6,6 +6,7 @@ import posixpath
 import re
 from collections.abc import Iterable
 from pathlib import Path
+from typing import NamedTuple
 
 from esphome import util
 
@@ -14,7 +15,16 @@ from .paths import list_package_files
 
 # ``!include path`` / ``!include {file: path}``, path optionally quoted.
 _INCLUDE_RE = re.compile(r"""!include\s+(?:\{\s*file:\s*)?(["']?)([^\s"'{},#]+\.ya?ml)\1""")
+# An ``!include`` whose path is built from a ``${substitution}``; never rewritten.
+_DYNAMIC_RE = re.compile(r"""!include\s+(?:\{\s*file:\s*)?["']?[^\s"',#]*\$""")
 _COMMENT_RE = re.compile(r"(^|\s)#")
+
+
+class RenamePlan(NamedTuple):
+    """New text per changed file, plus the files holding includes that can't be rewritten."""
+
+    texts: dict[str, str]
+    dynamic: set[str]
 
 
 def rewrite_includes(text: str, *, read_dir: str, write_dir: str, old: str, new: str) -> str:
@@ -48,13 +58,16 @@ def rewrite_includes(text: str, *, read_dir: str, write_dir: str, old: str, new:
     return "".join(_rewrite(line) for line in text.splitlines(keepends=True))
 
 
-def plan_rename(config_dir: Path, old: str, new: str) -> dict[str, str]:
+def plan_rename(config_dir: Path, old: str, new: str) -> RenamePlan:
     """
-    Map each config-relative YAML whose text changes when *old* moves to *new* to that text.
+    Plan moving *old* to *new* across the device YAMLs and packages.
 
-    Covers device YAMLs and packages; the moved file is keyed by *old*. Blocking.
+    ``texts`` maps each config-relative YAML whose text changes to that text,
+    the moved file keyed by *old*. ``dynamic`` lists the scanned files with a
+    substitution-built ``!include``. Blocking.
     """
-    plan: dict[str, str] = {}
+    texts: dict[str, str] = {}
+    dynamic: set[str] = set()
     for rel in _candidates(config_dir):
         path = config_dir / rel
         try:
@@ -65,8 +78,19 @@ def plan_rename(config_dir: Path, old: str, new: str) -> dict[str, str]:
         write_dir = posixpath.dirname(new) if rel == old else folder
         updated = rewrite_includes(text, read_dir=folder, write_dir=write_dir, old=old, new=new)
         if updated != text:
-            plan[rel] = updated
-    return plan
+            texts[rel] = updated
+        if has_dynamic_include(text):
+            dynamic.add(rel)
+    return RenamePlan(texts, dynamic)
+
+
+def has_dynamic_include(text: str) -> bool:
+    """Whether *text* has an uncommented substitution-built ``!include``."""
+    for line in text.splitlines():
+        comment = _COMMENT_RE.search(line)
+        if _DYNAMIC_RE.search(line, 0, comment.start() if comment else len(line)):
+            return True
+    return False
 
 
 def _resolve(folder: str, ref: str) -> str | None:

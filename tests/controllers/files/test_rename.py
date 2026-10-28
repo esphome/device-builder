@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from esphome_device_builder.controllers.files import FilesController
+from esphome_device_builder.controllers.files import controller as controller_module
 from esphome_device_builder.controllers.files.rename import plan_rename, rewrite_includes
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
@@ -66,12 +68,14 @@ def test_plan_rename_covers_devices_packages_and_the_moved_file(tmp_path: Path) 
             "common/base.yaml": "wifi: !include wifi.yaml\n",
             "common/wifi.yaml": "ssid: x\n",
             "common/extra.yaml": "<<: !include base.yaml\n",
+            "common/dyn.yaml": "a: !include ${dir}/x.yaml\n# b: !include ${y}.yaml\n",
         },
     )
 
     plan = plan_rename(tmp_path, "common/base.yaml", "shared/base.yaml")
 
-    assert plan == {
+    assert plan.dynamic == {"common/dyn.yaml"}
+    assert plan.texts == {
         "kitchen.yaml": "packages:\n  base: !include shared/base.yaml\n",
         "common/extra.yaml": "<<: !include ../shared/base.yaml\n",
         "common/base.yaml": "wifi: !include ../common/wifi.yaml\n",
@@ -159,3 +163,51 @@ async def test_rename_missing_source(files: FilesController) -> None:
     with pytest.raises(CommandError) as exc_info:
         await files.rename(path="common/nope.yaml", new_path="shared/nope.yaml")
     assert exc_info.value.code is ErrorCode.NOT_FOUND
+
+
+async def test_rename_flags_a_device_with_a_dynamic_include_despite_a_rewrite(
+    tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
+) -> None:
+    _, devices, _ = setup
+    _tree(
+        tmp_path,
+        {
+            "garage.yaml": (
+                "packages:\n  a: !include ${dir}/base.yaml\n  b: !include common/extra.yaml\n"
+            ),
+            "common/extra.yaml": "<<: !include base.yaml\n",
+        },
+    )
+    deps = ("common/base.yaml", "common/extra.yaml")
+    users = [SimpleNamespace(configuration="garage.yaml", dependencies=deps)]
+
+    with patch.object(devices, "get_devices", return_value=users):
+        result = await files.rename(path="common/base.yaml", new_path="shared/base.yaml")
+
+    assert "common/extra.yaml" in result["rewritten"]
+    assert result["unresolved"] == ["garage.yaml"]
+
+
+async def test_rename_refuses_when_a_new_referrer_appears_before_the_locks(
+    tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
+) -> None:
+    _, _, commits = setup
+    calls = 0
+
+    def _plan_then_add_referrer(*args: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        plan = plan_rename(*args)
+        if calls == 1:
+            _tree(tmp_path, {"late.yaml": "packages:\n  b: !include common/base.yaml\n"})
+        return plan
+
+    with (
+        patch(f"{controller_module.__name__}.plan_rename", _plan_then_add_referrer),
+        pytest.raises(CommandError) as exc_info,
+    ):
+        await files.rename(path="common/base.yaml", new_path="shared/base.yaml")
+
+    assert exc_info.value.code is ErrorCode.PRECONDITION_FAILED
+    assert (tmp_path / "common/base.yaml").exists()
+    assert commits == []
