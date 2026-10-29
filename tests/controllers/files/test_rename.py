@@ -10,11 +10,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+import yaml
 from esphome import yaml_util
 
 from esphome_device_builder.controllers.devices import archive, file_change
 from esphome_device_builder.controllers.files import FilesController
 from esphome_device_builder.controllers.files import controller as controller_module
+from esphome_device_builder.controllers.files import rename as rename_module
 from esphome_device_builder.controllers.files.rename import (
     find_referrers,
     plan_rename,
@@ -844,3 +846,15 @@ async def test_usage_and_rename_skip_an_unrelated_incomplete_file(
 
     assert usage["referenced_by"] == ["common/base.yaml"]
     assert result["rewritten"] == ["common/base.yaml"]
+
+
+@pytest.mark.parametrize("loader", [yaml.SafeLoader, yaml.CSafeLoader])
+def test_rewrite_positions_match_with_either_scanner(
+    monkeypatch: pytest.MonkeyPatch, loader: type
+) -> None:
+    monkeypatch.setattr(rename_module, "FastestSafeLoader", loader)
+    text = '\ufeffname: "Küche ✓"\r\nb: !include {vars: {t: "ä"}, file: common/base.yaml}\r\n'
+
+    rewritten = rewrite_includes(text, folder="", old="common/base.yaml", new="common/main.yaml")
+
+    assert rewritten == text.replace("common/base.yaml", "common/main.yaml")

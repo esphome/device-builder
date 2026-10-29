@@ -26,6 +26,7 @@ from yaml.tokens import (
 )
 
 from ...constants import SECRETS_FILENAMES, is_secrets_file
+from ...helpers.yaml import FastestSafeLoader
 from .paths import list_archived_devices, list_package_files
 
 _OPENERS = (
@@ -74,6 +75,13 @@ class _Target(NamedTuple):
     span: tuple[int, int] | None
 
 
+class _Doc(NamedTuple):
+    """A YAML file's include targets and the values of all its scalars."""
+
+    targets: list[_Target]
+    scalars: list[str]
+
+
 def rewrite_includes(text: str, *, folder: str, old: str, new: str) -> str:
     """
     Return *text*, read from a file in *folder*, with includes of *old* pointing at *new*.
@@ -81,11 +89,11 @@ def rewrite_includes(text: str, *, folder: str, old: str, new: str) -> str:
     *old* and *new* share a folder, so only the file name in each reference
     changes. Substitution-built, absolute and out-of-tree references are left alone.
     """
-    tokens = _scan(text)
-    if tokens is None:
+    doc = _parse(text)
+    if doc is None:
         return text
     new_name = posixpath.basename(new)
-    spans = sorted(t.span for t in _includes_of(tokens, folder, old) if t.span is not None)
+    spans = sorted(t.span for t in _includes_of(doc, folder, old) if t.span is not None)
     # Right to left, so earlier spans keep their offsets.
     for start, end in reversed(spans):
         name_start = end - len(posixpath.basename(text[start:end]))
@@ -113,10 +121,10 @@ def plan_rename(
         )
         if updated != text:
             texts[rel], originals[rel] = updated, text
-        tokens = _scan(updated)
-        if tokens is None or _may_still_name(tokens, old_name):
+        doc = _parse(updated)
+        if doc is None or _may_still_name(doc, old_name):
             remaining.add(rel)
-        if tokens is not None and any(_includes_of(tokens, folder, old)):
+        if doc is not None and any(_includes_of(doc, folder, old)):
             stale.add(rel)
     return RenamePlan(texts, originals, remaining, stale)
 
@@ -133,7 +141,7 @@ def find_referrers(config_dir: Path, path: str) -> Referrers:
     for rel, folder in _candidates(config_dir):
         if is_secrets_file(rel) or (text := _read(config_dir / rel)) is None:
             continue
-        targets = list(_includes_of(tokens, folder, path)) if (tokens := _scan(text)) else []
+        targets = list(_includes_of(doc, folder, path)) if (doc := _parse(text)) else []
         if targets:
             found.append(rel)
         if any(t.span is not None for t in targets):
@@ -141,35 +149,40 @@ def find_referrers(config_dir: Path, path: str) -> Referrers:
     return Referrers(sorted(found), sorted(rewritable))
 
 
-def _includes_of(tokens: list[Token], folder: str, path: str) -> Iterator[_Target]:
-    """Yield the targets in *tokens*, read from a file in *folder*, that resolve to *path*."""
-    return (
-        t for t in _targets(tokens) if t.value is not None and _resolve(folder, t.value) == path
+def _includes_of(doc: _Doc, folder: str, path: str) -> Iterator[_Target]:
+    """Yield the targets in *doc*, read from a file in *folder*, that resolve to *path*."""
+    return (t for t in doc.targets if t.value is not None and _resolve(folder, t.value) == path)
+
+
+def _may_still_name(doc: _Doc, old_name: re.Pattern[str]) -> bool:
+    """Whether *doc* has an unreadable or substitution-built include, or names *old_name*."""
+    return any(t.value is None or "$" in t.value for t in doc.targets) or any(
+        old_name.search(value) for value in doc.scalars
     )
 
 
-def _may_still_name(tokens: list[Token], old_name: re.Pattern[str]) -> bool:
-    """Whether *tokens* have an unreadable or substitution-built include, or name *old_name*."""
-    return any(t.value is None or "$" in t.value for t in _targets(tokens)) or any(
-        isinstance(t, ScalarToken) and old_name.search(t.value) for t in tokens
-    )
-
-
-def _scan(text: str) -> list[Token] | None:
-    """Tokenize *text* as YAML; None when its syntax isn't valid YAML."""
+def _parse(text: str) -> _Doc | None:
+    """Read *text*'s include targets, spans into *text*; None when its syntax isn't valid YAML."""
+    # libyaml doesn't count a BOM in token positions and PyYAML does; leave it out of both.
+    body = text.removeprefix("\ufeff")
     try:
-        tokens = list(yaml.scan(text, Loader=yaml.SafeLoader))
+        tokens = list(yaml.scan(body, Loader=FastestSafeLoader))
         # Tokenizing alone accepts truncated structures (``{ ?``); the parser doesn't.
-        for _ in yaml.parse(text, Loader=yaml.SafeLoader):
+        for _ in yaml.parse(body, Loader=FastestSafeLoader):
             pass
     except yaml.YAMLError:
         return None
-    return tokens
+    offset = len(text) - len(body)
+    targets = [
+        t._replace(span=(t.span[0] + offset, t.span[1] + offset)) if t.span else t
+        for t in _targets(tokens, body)
+    ]
+    return _Doc(targets, [t.value for t in tokens if isinstance(t, ScalarToken)])
 
 
-def _targets(tokens: list[Token]) -> Iterator[_Target]:
+def _targets(tokens: list[Token], text: str) -> Iterator[_Target]:
     """
-    Yield the target of every ``!include`` in *tokens*.
+    Yield the target of every ``!include`` in *tokens*, read from *text*.
 
     A scalar (``!include path``), or the ``file`` key of the include's own
     mapping, flow or block, in any key order; a ``file`` nested deeper
@@ -177,16 +190,16 @@ def _targets(tokens: list[Token]) -> Iterator[_Target]:
     """
     for i, token in enumerate(tokens):
         if isinstance(token, TagToken) and token.value == ("!", "include"):
-            target = _include_target(tokens, i + 1)
+            target = _include_target(tokens, i + 1, text)
             if target is not None:
                 yield target
 
 
-def _include_target(tokens: list[Token], i: int) -> _Target | None:
+def _include_target(tokens: list[Token], i: int, text: str) -> _Target | None:
     """Return the target of the include node at token *i*; None for a mapping without one."""
     node = tokens[i] if i < len(tokens) else None
     if isinstance(node, ScalarToken):
-        return _scalar_target(node)
+        return _scalar_target(node, text)
     if not isinstance(node, (BlockMappingStartToken, FlowMappingStartToken)):
         return _Target(None, None)
     depth = 0
@@ -200,7 +213,9 @@ def _include_target(tokens: list[Token], i: int) -> _Target | None:
                 return None
         elif depth == 1 and isinstance(token, KeyToken) and _is_file_key(tokens, j):
             value = tokens[j + 3] if j + 3 < len(tokens) else None
-            return _scalar_target(value) if isinstance(value, ScalarToken) else _Target(None, None)
+            if isinstance(value, ScalarToken):
+                return _scalar_target(value, text)
+            return _Target(None, None)
     return _Target(None, None)  # the mapping never closes
 
 
@@ -210,14 +225,13 @@ def _is_file_key(tokens: list[Token], i: int) -> bool:
     return isinstance(key, ScalarToken) and key.value == "file" and isinstance(colon, ValueToken)
 
 
-def _scalar_target(token: ScalarToken) -> _Target:
+def _scalar_target(token: ScalarToken, text: str) -> _Target:
     start, end = token.start_mark.index, token.end_mark.index
     if token.style in ("'", '"'):
         start, end = start + 1, end - 1
     elif not token.plain:
         return _Target(token.value, None)  # a block scalar
-    source = token.start_mark.buffer[start:end]
-    return _Target(token.value, (start, end) if source == token.value else None)
+    return _Target(token.value, (start, end) if text[start:end] == token.value else None)
 
 
 def _resolve(folder: str, ref: str) -> str | None:
