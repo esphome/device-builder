@@ -59,10 +59,12 @@ async def _archive_locks(controller: DevicesController, configuration: str) -> A
 async def archive_single(controller: DevicesController, configuration: str) -> None:
     """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe build artifacts."""
     _validate_archive_configuration(configuration)
-    config_path = controller._db.settings.rel_path(configuration)
-    config_dir = controller._db.settings.config_dir
+    settings = controller._db.settings
+    config_dir = settings.config_dir
 
     def _archive_sync() -> None:
+        # rel_path resolves symlinks (blocking), so it runs here, not on the loop.
+        config_path = settings.rel_path(configuration)
         require_file_exists(config_path, configuration)
         archive_dir = config_dir / "archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
@@ -110,9 +112,10 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
     _validate_archive_configuration(configuration)
     config_dir = controller._db.settings.config_dir
     archive_path = config_dir / "archive" / configuration
-    target = controller._db.settings.rel_path(configuration)
+    settings = controller._db.settings
 
     def _unarchive_sync() -> None:
+        target = settings.rel_path(configuration)
         require_file_exists(archive_path, configuration, archived=True)
         if target.exists():
             msg = (
@@ -167,12 +170,12 @@ async def delete_archived_single(controller: DevicesController, configuration: s
     _validate_archive_configuration(configuration)
     config_dir = controller._db.settings.config_dir
     archive_path = config_dir / "archive" / configuration
-    active_path = controller._db.settings.rel_path(configuration)
+    settings = controller._db.settings
 
     def _delete_all() -> bool:
         require_file_exists(archive_path, configuration, archived=True)
         archive_path.unlink()
-        if active_path.exists():
+        if settings.rel_path(configuration).exists():
             # An active config with the same filename owns the
             # sidecars now; leave them alone.
             return False
