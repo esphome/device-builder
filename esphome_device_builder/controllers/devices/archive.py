@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from contextlib import contextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
@@ -23,7 +23,7 @@ from ...models import ErrorCode
 from .helpers import _validate_archive_configuration, require_file_exists
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterator, Sequence
+    from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 
     from .controller import DevicesController
 
@@ -44,6 +44,16 @@ def _translate_archive_fs_errors(configuration: str, *, archived: bool = False) 
     except FileNotFoundError as exc:
         prefix = "Archived file" if archived else "File"
         raise CommandError(ErrorCode.NOT_FOUND, f"{prefix} not found: {configuration}") from exc
+
+
+@asynccontextmanager
+async def _archive_locks(controller: DevicesController, configuration: str) -> AsyncIterator[None]:
+    """Hold the write locks of *configuration* and its archived copy, in sorted order."""
+    async with AsyncExitStack() as locks:
+        # Sorted like ``commit_file_change``, which a package rename uses on ``archive/`` paths.
+        for name in sorted((configuration, f"archive/{configuration}")):
+            await locks.enter_async_context(controller._yaml_write_lock(name))
+        yield
 
 
 async def archive_single(controller: DevicesController, configuration: str) -> None:
@@ -77,10 +87,10 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         unlink_storage_sidecar(configuration)
         unlink_validated_cache(configuration)
 
-    # Hold the per-file write lock across the move + history commit so a
+    # Hold both per-file write locks across the move + history commit so a
     # concurrent editor save to the same config can't interleave with the
     # archive's removal commit (same serialisation as ``_persist_yaml_mutation``).
-    async with controller._yaml_write_lock(configuration):
+    async with _archive_locks(controller, configuration):
         with _translate_archive_fs_errors(configuration):
             await run_in_executor(_archive_sync)
         # Drop volatile fields across both stores: live mDNS state and
@@ -112,8 +122,9 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
             raise FileExistsError(msg)
         shutil.move(str(archive_path), str(target))
 
-    with _translate_archive_fs_errors(configuration, archived=True):
-        await run_in_executor(_unarchive_sync)
+    async with _archive_locks(controller, configuration):
+        with _translate_archive_fs_errors(configuration, archived=True):
+            await run_in_executor(_unarchive_sync)
 
 
 def list_archived_sync(controller: DevicesController) -> list[dict[str, Any]]:
@@ -169,14 +180,15 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         unlink_validated_cache(configuration)
         return True
 
-    with _translate_archive_fs_errors(configuration, archived=True):
-        sidecars_purged = await run_in_executor(_delete_all)
-    if sidecars_purged:
-        # Drop the per-device metadata entry (both the store +
-        # shared identity sidecar) on the event loop side and
-        # flush immediately; a quick restart after the delete
-        # mustn't resurrect a stale entry.
-        await controller._delete_device_metadata(configuration)
+    async with _archive_locks(controller, configuration):
+        with _translate_archive_fs_errors(configuration, archived=True):
+            sidecars_purged = await run_in_executor(_delete_all)
+        if sidecars_purged:
+            # Drop the per-device metadata entry (both the store +
+            # shared identity sidecar) on the event loop side and
+            # flush immediately; a quick restart after the delete
+            # mustn't resurrect a stale entry.
+            await controller._delete_device_metadata(configuration)
 
 
 async def delete_single(controller: DevicesController, configuration: str) -> None:

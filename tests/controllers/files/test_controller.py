@@ -145,7 +145,12 @@ async def test_usage(setup: Setup) -> None:
     with patch.object(devices, "get_devices", return_value=rows):
         result = await files.usage(path="common/base.yaml")
 
-    assert result == {"used_by": ["a.yaml", "b.yaml"], "unknown": ["d.yaml"]}
+    assert result == {
+        "used_by": ["a.yaml", "b.yaml"],
+        "unknown": ["d.yaml"],
+        "referenced_by": [],
+        "rewritable": [],
+    }
 
 
 async def test_usage_of_top_level_include(setup: Setup) -> None:
@@ -155,7 +160,52 @@ async def test_usage_of_top_level_include(setup: Setup) -> None:
     with patch.object(devices, "get_devices", return_value=rows):
         result = await files.usage(path="_shared.yaml")
 
-    assert result == {"used_by": ["a.yaml"], "unknown": []}
+    assert result == {"used_by": ["a.yaml"], "unknown": [], "referenced_by": [], "rewritable": []}
+
+
+async def test_usage_lists_packages_and_archived_devices_that_include_the_file(
+    tmp_path: Path, setup: Setup
+) -> None:
+    files, devices, _ = setup
+    tree = {
+        "common/minimal.yaml": "logger:\n",
+        "bridge/plug.yaml": "<<: !include ../common/minimal.yaml\n",
+        "bridge/relay.yaml": (
+            "p:\n  m: !include\n    vars: {x: 1}\n    file: ../common/minimal.yaml\n"
+        ),
+        "archive/old.yaml": "packages:\n  m: !include common/minimal.yaml\n",
+        "new-device.yaml": "packages:\n  m: !include {vars: {x: 1}, file: common/minimal.yaml}\n",
+        "bridge/flow.yaml": (
+            "packages: {\n  a: !include ../common/minimal.yaml,\n  b: !include other.yaml\n}\n"
+        ),
+        "bridge/nested.yaml": (
+            "m: !include\n  vars:\n    inner: !include\n      file: ../common/other.yaml\n"
+            "  file: ../common/minimal.yaml\n"
+        ),
+        "secrets.yaml": "x: !include common/minimal.yaml\n",
+    }
+    for rel, text in tree.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+
+    # the scanner hasn't seen new-device.yaml yet
+    with patch.object(devices, "get_devices", return_value=[]):
+        result = await files.usage(path="common/minimal.yaml")
+
+    assert result["rewritable"] == result["referenced_by"]
+    assert result == {
+        "used_by": [],
+        "unknown": [],
+        "rewritable": result["rewritable"],
+        "referenced_by": [
+            "archive/old.yaml",
+            "bridge/flow.yaml",
+            "bridge/nested.yaml",
+            "bridge/plug.yaml",
+            "bridge/relay.yaml",
+            "new-device.yaml",
+        ],
+    }
 
 
 async def test_dependencies(setup: Setup) -> None:

@@ -14,8 +14,8 @@ from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode
 from ..devices.file_change import commit_file_change
 from ..devices.helpers import refuse_empty_write
-from .paths import dependency_key, list_package_files, parse_file_path
-from .rename import plan_rename
+from .paths import ARCHIVE_DIR, dependency_key, list_package_files, parse_file_path
+from .rename import find_referrers, plan_rename
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -81,13 +81,15 @@ class FilesController:
         await commit_file_change(self._devices, [rel], _delete, message=f"Delete {rel}")
 
     @api_command("files/rename")
-    async def rename(self, *, path: Any, new_path: Any, **kwargs: Any) -> dict[str, Any]:
+    async def rename(
+        self, *, path: Any, new_path: Any, skip: Any = None, **kwargs: Any
+    ) -> dict[str, Any]:
         """
         Rename a package YAML within its folder and rewrite the ``!include`` references to it.
 
-        Returns the new ``path``, the files whose references were ``rewritten``
-        and the devices using the file that still name the old one
-        (``unresolved``, e.g. substitution-built paths).
+        Files in *skip* keep the old name. Returns the new ``path``, the files
+        whose references were ``rewritten`` and the devices or archived files
+        that may still name the old one (``unresolved``, e.g. substitution-built paths).
         """
         # Both ends must be safe unquoted: references to a name that needs
         # quoting can't be found or rewritten reliably.
@@ -98,10 +100,11 @@ class FilesController:
             raise CommandError(ErrorCode.INVALID_ARGS, "a rename stays within the folder")
         if dependency_key(old) == dependency_key(new):
             raise CommandError(ErrorCode.INVALID_ARGS, "the new path is the current one")
+        skipped = _parse_skip(skip)
         settings = self._db.settings
         users = self._users(dependency_key(old))
         # Planned here to know which files to lock, then again under the locks.
-        plan = await run_in_executor(plan_rename, settings.config_dir, old, new)
+        plan = await run_in_executor(plan_rename, settings.config_dir, old, new, skipped)
         touched = sorted({old, new, *plan.texts})
 
         def _apply() -> None:
@@ -111,7 +114,7 @@ class FilesController:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{old!r} not found")
             if dst.exists():
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{new!r} already exists")
-            plan = plan_rename(settings.config_dir, old, new)
+            plan = plan_rename(settings.config_dir, old, new, skipped)
             if not plan.texts.keys() <= set(touched):
                 msg = "files changed while renaming; try again"
                 raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
@@ -129,13 +132,21 @@ class FilesController:
 
         await commit_file_change(self._devices, touched, _apply, message=f"Rename {old} to {new}")
         remaining = {dependency_key(new if rel == old else rel) for rel in plan.remaining}
+        # Files that certainly still include the old one, and archived devices, whose
+        # dependencies the scanner doesn't know, are reported directly.
+        direct = {new if rel == old else rel for rel in plan.stale} | {
+            rel for rel in plan.remaining if rel.startswith(f"{ARCHIVE_DIR}/")
+        }
         return {
             "path": new,
             "rewritten": sorted(rel for rel in plan.texts if rel != old),
             "unresolved": sorted(
-                configuration
-                for configuration, deps in users.items()
-                if remaining & {dependency_key(configuration), *deps}
+                direct
+                | {
+                    configuration
+                    for configuration, deps in users.items()
+                    if remaining & {dependency_key(configuration), *deps}
+                }
             ),
         }
 
@@ -144,13 +155,20 @@ class FilesController:
         """
         Return the devices whose config pulls in *path*, directly or through other includes.
 
-        ``unknown`` lists devices whose files aren't known yet (never parsed, or still loading).
+        ``unknown`` lists devices whose files aren't known yet (never parsed, or
+        still loading); ``referenced_by`` the files whose ``!include`` names
+        *path* directly, packages and archived devices included, and
+        ``rewritable`` those of them a rename updates.
         """
-        key = dependency_key(parse_file_path(path, in_subfolder=False))
+        rel = parse_file_path(path, in_subfolder=False)
+        key = dependency_key(rel)
+        referrers = await run_in_executor(find_referrers, self._db.settings.config_dir, rel)
         devices = self._devices.get_devices()
         return {
             "used_by": sorted(self._users(key)),
             "unknown": sorted(d.configuration for d in devices if d.dependencies is None),
+            "referenced_by": referrers.referenced_by,
+            "rewritable": referrers.rewritable,
         }
 
     @api_command("files/dependencies")
@@ -183,3 +201,12 @@ class FilesController:
         if devices is None:  # pragma: no cover — devices is always up post-start
             raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
         return devices
+
+
+def _parse_skip(skip: Any) -> frozenset[str]:
+    """Validate the wire ``skip`` list of config-relative paths."""
+    if skip is None:
+        return frozenset()
+    if not isinstance(skip, list) or not all(isinstance(rel, str) for rel in skip):
+        raise CommandError(ErrorCode.INVALID_ARGS, "skip must be a list of paths")
+    return frozenset(skip)

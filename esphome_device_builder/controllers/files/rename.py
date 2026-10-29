@@ -1,32 +1,40 @@
-"""Rewriting ``!include`` references when a package YAML is renamed in its folder."""
+"""Finding and rewriting the ``!include`` references to a package YAML."""
 
 from __future__ import annotations
 
 import posixpath
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import NamedTuple
 
+import yaml
 from esphome import util
+from yaml.tokens import (
+    BlockEndToken,
+    BlockMappingStartToken,
+    BlockSequenceStartToken,
+    FlowMappingEndToken,
+    FlowMappingStartToken,
+    FlowSequenceEndToken,
+    FlowSequenceStartToken,
+    KeyToken,
+    ScalarToken,
+    TagToken,
+    Token,
+    ValueToken,
+)
 
 from ...constants import SECRETS_FILENAMES, is_secrets_file
-from .paths import list_package_files
+from .paths import list_archived_devices, list_package_files
 
-# ``!include path`` / ``!include {file: path}``, path optionally quoted. Not
-# after a word character, and the path must end there (``base.yaml.backup``
-# is another file). Matches inside a quoted string are skipped in ``_swap``.
-# shortcut: matches inside block scalars too; parse YAML nodes if that bites.
-_TAG = r"""(?<![\w"'])!include"""
-_PATH = r"""(["']?)([^\s"'{},#]+\.(?i:ya?ml))\1(?=[\s"'},]|$)"""
-_INCLUDE_RE = re.compile(_TAG + r"\s+(?:\{\s*file:\s*)?" + _PATH)
-# Block form: ``!include`` ending the line, ``file: path`` on a deeper line.
-_BARE_TAG_RE = re.compile(_TAG + r"\s*$")
-# An ``!include`` whose path is built from a ``${substitution}``; never rewritten.
-_DYNAMIC_RE = re.compile(_TAG + r"""\s+(?:\{\s*file:\s*)?["']?[^\s"',#]*\$""")
-# Any ``file:`` value built from a substitution, for the block form (conservative).
-_DYNAMIC_FILE_RE = re.compile(r"""(?<![\w-])file:\s*["']?[^\s"',#]*\$""")
-_FILE_KEY_RE = re.compile(r"\s*file:\s*" + _PATH)
+_OPENERS = (
+    BlockMappingStartToken,
+    BlockSequenceStartToken,
+    FlowMappingStartToken,
+    FlowSequenceStartToken,
+)
+_CLOSERS = (BlockEndToken, FlowMappingEndToken, FlowSequenceEndToken)
 
 
 class RenamePlan(NamedTuple):
@@ -35,13 +43,35 @@ class RenamePlan(NamedTuple):
 
     ``texts`` maps each changed config-relative YAML to its new text and
     ``originals`` to its current one. ``remaining`` lists the scanned files
-    that may still reference the old file after the rewrite: they name it
-    outside a comment or have a substitution-built ``!include``.
+    that may still reference the old file after the rewrite: they name it,
+    or have an unreadable or substitution-built include target. ``stale``
+    is the part of it that certainly still includes the old file.
     """
 
     texts: dict[str, str]
     originals: dict[str, str]
     remaining: set[str]
+    stale: set[str]
+
+
+class Referrers(NamedTuple):
+    """The files including a path directly, and those of them ``files/rename`` can update."""
+
+    referenced_by: list[str]
+    rewritable: list[str]
+
+
+class _Target(NamedTuple):
+    """
+    An include target and where its text sits in the file.
+
+    ``value`` is None when the target can't be read (an alias, a tag, a
+    collection, or a file that isn't valid YAML); ``span`` is None when the
+    source text isn't the value verbatim (escapes, a scalar spanning lines).
+    """
+
+    value: str | None
+    span: tuple[int, int] | None
 
 
 def rewrite_includes(text: str, *, folder: str, old: str, new: str) -> str:
@@ -51,81 +81,143 @@ def rewrite_includes(text: str, *, folder: str, old: str, new: str) -> str:
     *old* and *new* share a folder, so only the file name in each reference
     changes. Substitution-built, absolute and out-of-tree references are left alone.
     """
+    tokens = _scan(text)
+    if tokens is None:
+        return text
     new_name = posixpath.basename(new)
-    out: list[str] = []
-    bare_indent: int | None = None
-
-    def _swap(line: str, matches: Iterable[re.Match[str] | None]) -> str:
-        parts: list[str] = []
-        last = 0
-        for match in matches:
-            if match is None or _resolve(folder, match.group(2)) != old:
-                continue
-            before = line[: match.start()]
-            if before.count('"') % 2 or before.count("'") % 2:
-                continue  # inside a quoted string; ``remaining`` still flags it
-            name_start = match.end(2) - len(posixpath.basename(match.group(2)))
-            parts += [line[last:name_start], new_name]
-            last = match.end(2)
-        return "".join(parts) + line[last:] if parts else line
-
-    for raw in text.splitlines(keepends=True):
-        code = _code(raw)
-        line = raw
-        if bare_indent is not None and code.strip():
-            if _indent(raw) > bare_indent:
-                line = _swap(line, [_FILE_KEY_RE.match(code)])
-            bare_indent = None
-        line = _swap(line, _INCLUDE_RE.finditer(code))
-        if _BARE_TAG_RE.search(code.rstrip()):
-            bare_indent = _indent(raw)
-        out.append(line)
-    return "".join(out)
+    spans = sorted(t.span for t in _includes_of(tokens, folder, old) if t.span is not None)
+    # Right to left, so earlier spans keep their offsets.
+    for start, end in reversed(spans):
+        name_start = end - len(posixpath.basename(text[start:end]))
+        text = text[:name_start] + new_name + text[end:]
+    return text
 
 
-def plan_rename(config_dir: Path, old: str, new: str) -> RenamePlan:
-    """Plan renaming *old* to *new* across the device YAMLs and packages. Blocking."""
+def plan_rename(
+    config_dir: Path, old: str, new: str, skip: frozenset[str] = frozenset()
+) -> RenamePlan:
+    """Plan renaming *old* to *new* across the scanned YAMLs, leaving *skip* alone. Blocking."""
     texts: dict[str, str] = {}
     originals: dict[str, str] = {}
     remaining: set[str] = set()
+    stale: set[str] = set()
     old_name = re.compile(r"(?<![\w.-])" + re.escape(posixpath.basename(old)) + r"(?![\w.-])")
-    for rel in _candidates(config_dir):
-        try:
-            text = (config_dir / rel).read_bytes().decode("utf-8")  # keeps CRLF
-        except (OSError, UnicodeDecodeError):
+    for rel, folder in _candidates(config_dir):
+        if rel in skip or (text := _read(config_dir / rel)) is None:
             continue
         # Secrets files are only checked: rewriting them would need the secrets lock.
         updated = (
             text
             if is_secrets_file(rel)
-            else rewrite_includes(text, folder=posixpath.dirname(rel), old=old, new=new)
+            else rewrite_includes(text, folder=folder, old=old, new=new)
         )
         if updated != text:
             texts[rel], originals[rel] = updated, text
-        codes = [_code(line) for line in updated.splitlines()]
-        dynamic = (_DYNAMIC_RE, _DYNAMIC_FILE_RE)
-        if any(old_name.search(code) or any(r.search(code) for r in dynamic) for code in codes):
+        tokens = _scan(updated)
+        if tokens is None or _may_still_name(tokens, old_name):
             remaining.add(rel)
-    return RenamePlan(texts, originals, remaining)
+        if tokens is not None and any(_includes_of(tokens, folder, old)):
+            stale.add(rel)
+    return RenamePlan(texts, originals, remaining, stale)
 
 
-def _code(line: str) -> str:
-    """Return *line* up to its comment; a ``#`` inside a quoted scalar starts none."""
-    quote, prev = "", " "
-    for i, ch in enumerate(line):
-        if quote:
-            if ch == quote and not (quote == '"' and prev == "\\"):
-                quote = ""
-        elif ch in "\"'" and (prev.isspace() or prev in ":[{,"):
-            quote = ch
-        elif ch == "#" and prev.isspace():
-            return line[:i]
-        prev = ch
-    return line
+def find_referrers(config_dir: Path, path: str) -> Referrers:
+    """
+    Return the scanned YAMLs whose ``!include`` names *path*, sorted. Blocking.
+
+    ``rewritable`` are the ones ``plan_rename`` rewrites for *path*; secrets
+    files are left out. Best effort: a substitution-built include isn't resolved.
+    """
+    found: list[str] = []
+    rewritable: list[str] = []
+    for rel, folder in _candidates(config_dir):
+        if is_secrets_file(rel) or (text := _read(config_dir / rel)) is None:
+            continue
+        targets = list(_includes_of(tokens, folder, path)) if (tokens := _scan(text)) else []
+        if targets:
+            found.append(rel)
+        if any(t.span is not None for t in targets):
+            rewritable.append(rel)
+    return Referrers(sorted(found), sorted(rewritable))
 
 
-def _indent(line: str) -> int:
-    return len(line) - len(line.lstrip())
+def _includes_of(tokens: list[Token], folder: str, path: str) -> Iterator[_Target]:
+    """Yield the targets in *tokens*, read from a file in *folder*, that resolve to *path*."""
+    return (
+        t for t in _targets(tokens) if t.value is not None and _resolve(folder, t.value) == path
+    )
+
+
+def _may_still_name(tokens: list[Token], old_name: re.Pattern[str]) -> bool:
+    """Whether *tokens* have an unreadable or substitution-built include, or name *old_name*."""
+    return any(t.value is None or "$" in t.value for t in _targets(tokens)) or any(
+        isinstance(t, ScalarToken) and old_name.search(t.value) for t in tokens
+    )
+
+
+def _scan(text: str) -> list[Token] | None:
+    """Tokenize *text* as YAML; None when its syntax isn't valid YAML."""
+    try:
+        tokens = list(yaml.scan(text, Loader=yaml.SafeLoader))
+        # Tokenizing alone accepts truncated structures (``{ ?``); the parser doesn't.
+        for _ in yaml.parse(text, Loader=yaml.SafeLoader):
+            pass
+    except yaml.YAMLError:
+        return None
+    return tokens
+
+
+def _targets(tokens: list[Token]) -> Iterator[_Target]:
+    """
+    Yield the target of every ``!include`` in *tokens*.
+
+    A scalar (``!include path``), or the ``file`` key of the include's own
+    mapping, flow or block, in any key order; a ``file`` nested deeper
+    (``vars: {file: …}``) is not the target.
+    """
+    for i, token in enumerate(tokens):
+        if isinstance(token, TagToken) and token.value == ("!", "include"):
+            target = _include_target(tokens, i + 1)
+            if target is not None:
+                yield target
+
+
+def _include_target(tokens: list[Token], i: int) -> _Target | None:
+    """Return the target of the include node at token *i*; None for a mapping without one."""
+    node = tokens[i] if i < len(tokens) else None
+    if isinstance(node, ScalarToken):
+        return _scalar_target(node)
+    if not isinstance(node, (BlockMappingStartToken, FlowMappingStartToken)):
+        return _Target(None, None)
+    depth = 0
+    for j in range(i, len(tokens)):
+        token = tokens[j]
+        if isinstance(token, _OPENERS):
+            depth += 1
+        elif isinstance(token, _CLOSERS):
+            depth -= 1
+            if depth == 0:
+                return None
+        elif depth == 1 and isinstance(token, KeyToken) and _is_file_key(tokens, j):
+            value = tokens[j + 3] if j + 3 < len(tokens) else None
+            return _scalar_target(value) if isinstance(value, ScalarToken) else _Target(None, None)
+    return _Target(None, None)  # the mapping never closes
+
+
+def _is_file_key(tokens: list[Token], i: int) -> bool:
+    """Whether the key at token *i* is ``file``, followed by a value."""
+    key, colon = tokens[i + 1 : i + 3] if i + 3 <= len(tokens) else (None, None)
+    return isinstance(key, ScalarToken) and key.value == "file" and isinstance(colon, ValueToken)
+
+
+def _scalar_target(token: ScalarToken) -> _Target:
+    start, end = token.start_mark.index, token.end_mark.index
+    if token.style in ("'", '"'):
+        start, end = start + 1, end - 1
+    elif not token.plain:
+        return _Target(token.value, None)  # a block scalar
+    source = token.start_mark.buffer[start:end]
+    return _Target(token.value, (start, end) if source == token.value else None)
 
 
 def _resolve(folder: str, ref: str) -> str | None:
@@ -135,8 +227,18 @@ def _resolve(folder: str, ref: str) -> str | None:
     return None if target == ".." or target.startswith("../") else target
 
 
-def _candidates(config_dir: Path) -> Iterable[str]:
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_bytes().decode("utf-8")  # keeps CRLF
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _candidates(config_dir: Path) -> Iterable[tuple[str, str]]:
+    """Each scanned YAML, with the folder its includes resolve from."""
     for path in util.list_yaml_files([config_dir]):
-        yield path.name
-    yield from (name for name in SECRETS_FILENAMES if (config_dir / name).is_file())
-    yield from list_package_files(config_dir)
+        yield path.name, ""
+    yield from ((name, "") for name in SECRETS_FILENAMES if (config_dir / name).is_file())
+    yield from ((rel, posixpath.dirname(rel)) for rel in list_package_files(config_dir))
+    # Unarchiving moves a device back to the top level, so its includes resolve from there.
+    yield from ((rel, "") for rel in list_archived_devices(config_dir))

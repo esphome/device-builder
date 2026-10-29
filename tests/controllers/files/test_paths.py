@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.controllers.files.paths import list_package_files, parse_file_path
+from esphome_device_builder.controllers.files.paths import (
+    list_archived_devices,
+    list_package_files,
+    parse_file_path,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -125,3 +129,25 @@ def test_list_package_files_symlinks(
 
 def test_list_package_files_empty_config_dir(tmp_path: Path) -> None:
     assert list_package_files(tmp_path) == []
+
+
+@posix_only
+def test_list_archived_devices(tmp_path: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
+    outside = tmp_path_factory.mktemp("outside")
+    _write(outside, "evil.yaml")
+    for rel in (
+        "kitchen.yaml",
+        "archive/old.yaml",
+        "archive/Older.YML",
+        "archive/.hidden.yaml",
+        "archive/notes.txt",
+        "archive/common/base.yaml",
+    ):
+        _write(tmp_path, rel)
+    (tmp_path / "archive/escape.yaml").symlink_to(outside / "evil.yaml")
+
+    assert list_archived_devices(tmp_path) == ["archive/Older.YML", "archive/old.yaml"]
+
+
+def test_list_archived_devices_without_archive(tmp_path: Path) -> None:
+    assert list_archived_devices(tmp_path) == []

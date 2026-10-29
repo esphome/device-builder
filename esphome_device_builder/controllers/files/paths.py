@@ -80,6 +80,28 @@ def list_package_files(config_dir: Path) -> list[str]:
     return sorted(found)
 
 
+def list_archived_devices(config_dir: Path) -> list[str]:
+    """Return every archived device YAML (``archive/<name>``), sorted. Blocking."""
+    archive = config_dir / ARCHIVE_DIR
+    if not archive.is_dir():
+        return []
+    root = config_dir.resolve()
+    found: list[str] = []
+    for path in archive.iterdir():
+        if (
+            path.name.startswith(".")
+            or not path.name.lower().endswith(_YAML_SUFFIXES)
+            or not path.is_file()
+        ):
+            continue
+        try:
+            resolve_under_root(path, root)
+        except PathEscapeError:
+            continue
+        found.append(f"{ARCHIVE_DIR}/{path.name}")
+    return sorted(found)
+
+
 def dependency_key(path: str) -> str:
     """*path* in the form ``Device.dependencies`` stores (case-folded on Windows)."""
     return os.path.normcase(path).replace(os.sep, "/")
