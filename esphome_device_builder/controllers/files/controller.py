@@ -73,8 +73,11 @@ class FilesController:
         settings = self._db.settings
 
         def _delete() -> None:
+            target = settings.rel_path(rel)
+            if target.is_dir():
+                raise CommandError(ErrorCode.INVALID_ARGS, f"{rel!r} is a folder")
             try:
-                settings.rel_path(rel).unlink()
+                target.unlink()
             except FileNotFoundError as err:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{rel!r} not found") from err
 

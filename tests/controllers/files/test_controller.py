@@ -119,6 +119,18 @@ async def test_delete_missing_is_not_found(setup: Setup) -> None:
     assert commits == []
 
 
+async def test_delete_refuses_a_folder_named_like_a_yaml(tmp_path: Path, setup: Setup) -> None:
+    files, _, commits = setup
+    (tmp_path / "common/odd.yaml").mkdir(parents=True)
+
+    with pytest.raises(CommandError) as exc_info:
+        await files.delete(path="common/odd.yaml")
+
+    assert exc_info.value.code is ErrorCode.INVALID_ARGS
+    assert (tmp_path / "common/odd.yaml").is_dir()
+    assert commits == []
+
+
 async def test_delete_refuses_device_yaml(tmp_path: Path, setup: Setup) -> None:
     files, _, _ = setup
     (tmp_path / "kitchen.yaml").write_text("esphome:\n", encoding="utf-8")
