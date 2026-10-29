@@ -27,7 +27,7 @@ from yaml.tokens import (
 
 from ...constants import SECRETS_FILENAMES, is_secrets_file
 from ...helpers.yaml import FastestSafeLoader
-from .paths import list_archived_devices, list_package_files
+from .paths import dependency_key, list_archived_devices, list_package_files
 
 _OPENERS = (
     BlockMappingStartToken,
@@ -109,7 +109,11 @@ def plan_rename(
     originals: dict[str, str] = {}
     remaining: set[str] = set()
     stale: set[str] = set()
-    old_name = re.compile(r"(?<![\w.-])" + re.escape(posixpath.basename(old)) + r"(?![\w.-])")
+    # A case-folding filesystem (Windows) loads ``Base.yaml`` for ``base.yaml``.
+    flags = re.IGNORECASE if dependency_key("A") != "A" else 0
+    old_name = re.compile(
+        r"(?<![\w.-])" + re.escape(posixpath.basename(old)) + r"(?![\w.-])", flags
+    )
     for rel, folder in _candidates(config_dir):
         if rel in skip or (text := _read(config_dir / rel)) is None:
             continue
@@ -151,7 +155,14 @@ def find_referrers(config_dir: Path, path: str) -> Referrers:
 
 def _includes_of(doc: _Doc, folder: str, path: str) -> Iterator[_Target]:
     """Yield the targets in *doc*, read from a file in *folder*, that resolve to *path*."""
-    return (t for t in doc.targets if t.value is not None and _resolve(folder, t.value) == path)
+    key = dependency_key(path)
+    return (
+        t
+        for t in doc.targets
+        if t.value is not None
+        and (resolved := _resolve(folder, t.value)) is not None
+        and dependency_key(resolved) == key
+    )
 
 
 def _may_still_name(doc: _Doc, old_name: re.Pattern[str]) -> bool:

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import DevicesController, file_change
 from esphome_device_builder.controllers.files import FilesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
@@ -119,16 +119,24 @@ async def test_delete_missing_is_not_found(setup: Setup) -> None:
     assert commits == []
 
 
-async def test_delete_refuses_a_folder_named_like_a_yaml(tmp_path: Path, setup: Setup) -> None:
-    files, _, commits = setup
+async def test_delete_refuses_a_folder_named_like_a_yaml(
+    tmp_path: Path, setup: Setup, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files, _, _ = setup
     (tmp_path / "common/odd.yaml").mkdir(parents=True)
+    messages: list[str] = []
+
+    async def _record(_: DevicesController, __: list[str], message: str) -> None:
+        messages.append(message)  # the "Before:" snapshot too
+
+    monkeypatch.setattr(file_change, "_commit_history_many", _record)
 
     with pytest.raises(CommandError) as exc_info:
         await files.delete(path="common/odd.yaml")
 
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
     assert (tmp_path / "common/odd.yaml").is_dir()
-    assert commits == []
+    assert messages == []
 
 
 async def test_delete_refuses_device_yaml(tmp_path: Path, setup: Setup) -> None:

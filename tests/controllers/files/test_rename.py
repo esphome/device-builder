@@ -848,7 +848,17 @@ async def test_usage_and_rename_skip_an_unrelated_incomplete_file(
     assert result["rewritten"] == ["common/base.yaml"]
 
 
-@pytest.mark.parametrize("loader", [yaml.SafeLoader, yaml.CSafeLoader])
+@pytest.mark.parametrize(
+    "loader",
+    [
+        pytest.param(yaml.SafeLoader, id="python"),
+        pytest.param(
+            getattr(yaml, "CSafeLoader", None),
+            id="libyaml",
+            marks=pytest.mark.skipif(not yaml.__with_libyaml__, reason="PyYAML without libyaml"),
+        ),
+    ],
+)
 def test_rewrite_positions_match_with_either_scanner(
     monkeypatch: pytest.MonkeyPatch, loader: type
 ) -> None:
@@ -858,3 +868,22 @@ def test_rewrite_positions_match_with_either_scanner(
     rewritten = rewrite_includes(text, folder="", old="common/base.yaml", new="common/main.yaml")
 
     assert rewritten == text.replace("common/base.yaml", "common/main.yaml")
+
+
+def test_case_folding_filesystems_match_any_spelling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(rename_module, "dependency_key", str.lower)
+    _tree(
+        tmp_path,
+        {
+            "kitchen.yaml": "b: !include common/Base.yaml\n",
+            "garage.yaml": "note: Kept in BASE.YAML\n",
+        },
+    )
+
+    plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
+
+    assert plan.texts == {"kitchen.yaml": "b: !include common/main.yaml\n"}
+    assert plan.remaining == {"garage.yaml"}
+    assert find_referrers(tmp_path, "common/base.yaml").rewritable == ["kitchen.yaml"]
