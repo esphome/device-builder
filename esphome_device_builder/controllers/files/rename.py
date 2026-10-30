@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import posixpath
 import re
 from collections.abc import Iterable, Iterator
@@ -29,6 +30,8 @@ from ...constants import SECRETS_FILENAMES, is_secrets_file
 from ...helpers.yaml import FastestSafeLoader
 from .paths import dependency_key, list_archived_devices, list_package_files
 
+_LOGGER = logging.getLogger(__name__)
+
 _OPENERS = (
     BlockMappingStartToken,
     BlockSequenceStartToken,
@@ -45,8 +48,8 @@ class RenamePlan(NamedTuple):
     ``texts`` maps each changed config-relative YAML to its new text and
     ``originals`` to its current one. ``remaining`` lists the scanned files
     that may still reference the old file after the rewrite: they name it,
-    or have an unreadable or substitution-built include target. ``stale``
-    is the part of it that certainly still includes the old file.
+    can't be read, or have an unreadable or substitution-built include
+    target. ``stale`` is the part of it that certainly still includes the old file.
     """
 
     texts: dict[str, str]
@@ -115,7 +118,10 @@ def plan_rename(
         r"(?<![\w.-])" + re.escape(posixpath.basename(old)) + r"(?![\w.-])", flags
     )
     for rel, folder in _candidates(config_dir):
-        if rel in skip or (text := _read(config_dir / rel)) is None:
+        if rel in skip:
+            continue
+        if (text := _read(config_dir / rel)) is None:
+            remaining.add(rel)  # can't be checked
             continue
         # Secrets files are only checked: rewriting them would need the secrets lock.
         updated = (
@@ -253,9 +259,13 @@ def _resolve(folder: str, ref: str) -> str | None:
 
 
 def _read(path: Path) -> str | None:
+    """Return the text of *path*; ``""`` if it is gone, ``None`` if it can't be read."""
     try:
         return path.read_bytes().decode("utf-8")  # keeps CRLF
-    except (OSError, UnicodeDecodeError):
+    except FileNotFoundError:
+        return ""
+    except (OSError, UnicodeDecodeError) as err:
+        _LOGGER.warning("Can't check %s for includes: %s", path, err)
         return None
 
 

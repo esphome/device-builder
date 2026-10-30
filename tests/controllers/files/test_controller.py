@@ -126,7 +126,7 @@ async def test_delete_refuses_a_folder_named_like_a_yaml(
     (tmp_path / "common/odd.yaml").mkdir(parents=True)
     messages: list[str] = []
 
-    async def _record(_: DevicesController, __: list[str], message: str) -> None:
+    async def _record(_: DevicesController, __: list[str], message: str, **___: object) -> None:
         messages.append(message)  # the "Before:" snapshot too
 
     monkeypatch.setattr(file_change, "_commit_history_many", _record)

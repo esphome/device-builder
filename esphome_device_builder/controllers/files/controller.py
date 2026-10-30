@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import posixpath
 from typing import TYPE_CHECKING, Any
 
@@ -15,11 +16,14 @@ from ...models import ErrorCode
 from ..devices.file_change import commit_file_change
 from ..devices.helpers import refuse_empty_write
 from .paths import ARCHIVE_DIR, dependency_key, list_package_files, parse_file_path
-from .rename import find_referrers, plan_rename
+from .rename import RenamePlan, find_referrers, plan_rename
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
+    from ..config.settings import DashboardSettings
     from ..devices import DevicesController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class FilesController:
@@ -50,8 +54,12 @@ class FilesController:
             refuse_empty_write(rel)
         settings = self._db.settings
 
-        def _create() -> None:
+        def _check() -> None:
             # rel_path resolves symlinks (blocking), so it runs here, not on the loop.
+            if settings.rel_path(rel).exists():
+                raise CommandError(ErrorCode.ALREADY_EXISTS, f"{rel!r} already exists")
+
+        def _create() -> None:
             target = settings.rel_path(rel)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -63,7 +71,15 @@ class FilesController:
             except FileExistsError as err:
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{rel!r} already exists") from err
 
-        await commit_file_change(self._devices, [rel], _create, message=f"Create {rel}")
+        # Nothing to snapshot: the file doesn't exist yet.
+        await commit_file_change(
+            self._devices,
+            [rel],
+            _create,
+            message=f"Create {rel}",
+            precheck=_check,
+            snapshot=False,
+        )
         return {"path": rel}
 
     @api_command("files/delete")
@@ -72,9 +88,12 @@ class FilesController:
         rel = parse_file_path(path, in_subfolder=True)
         settings = self._db.settings
 
-        # Before commit_file_change, whose history snapshot would record the folder.
-        if await run_in_executor(lambda: settings.rel_path(rel).is_dir()):
-            raise CommandError(ErrorCode.INVALID_ARGS, f"{rel!r} is a folder")
+        def _check() -> None:
+            target = settings.rel_path(rel)
+            if target.is_dir():
+                raise CommandError(ErrorCode.INVALID_ARGS, f"{rel!r} is a folder")
+            if not target.exists():
+                raise CommandError(ErrorCode.NOT_FOUND, f"{rel!r} not found")
 
         def _delete() -> None:
             try:
@@ -82,7 +101,9 @@ class FilesController:
             except FileNotFoundError as err:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{rel!r} not found") from err
 
-        await commit_file_change(self._devices, [rel], _delete, message=f"Delete {rel}")
+        await commit_file_change(
+            self._devices, [rel], _delete, message=f"Delete {rel}", precheck=_check
+        )
 
     @api_command("files/rename")
     async def rename(
@@ -111,30 +132,24 @@ class FilesController:
         plan = await run_in_executor(plan_rename, settings.config_dir, old, new, skipped)
         touched = sorted({old, new, *plan.texts})
 
-        def _apply() -> None:
+        def _check() -> None:
             nonlocal plan
-            src, dst = settings.rel_path(old), settings.rel_path(new)
-            if not src.is_file():
+            if not settings.rel_path(old).is_file():
                 raise CommandError(ErrorCode.NOT_FOUND, f"{old!r} not found")
-            if dst.exists():
+            if settings.rel_path(new).exists():
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{new!r} already exists")
             plan = plan_rename(settings.config_dir, old, new, skipped)
             if not plan.texts.keys() <= set(touched):
                 msg = "files changed while renaming; try again"
                 raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
-            # Referrers first, the move last; on any failure put the texts back.
-            written: list[str] = []
-            try:
-                for rel, text in plan.texts.items():
-                    write_user_yaml(settings.rel_path(rel), text)
-                    written.append(rel)
-                src.rename(dst)
-            except BaseException:
-                for rel in written:
-                    write_user_yaml(settings.rel_path(rel), plan.originals[rel])
-                raise
 
-        await commit_file_change(self._devices, touched, _apply, message=f"Rename {old} to {new}")
+        await commit_file_change(
+            self._devices,
+            touched,
+            lambda: _apply_rename(settings, plan, old, new),
+            message=f"Rename {old} to {new}",
+            precheck=_check,
+        )
         remaining = {dependency_key(new if rel == old else rel) for rel in plan.remaining}
         # Files that certainly still include the old one, and archived devices, whose
         # dependencies the scanner doesn't know, are reported directly.
@@ -214,3 +229,25 @@ def _parse_skip(skip: Any) -> frozenset[str]:
     if not isinstance(skip, list) or not all(isinstance(rel, str) for rel in skip):
         raise CommandError(ErrorCode.INVALID_ARGS, "skip must be a list of paths")
     return frozenset(skip)
+
+
+def _apply_rename(settings: DashboardSettings, plan: RenamePlan, old: str, new: str) -> None:
+    """Write *plan*'s referrers, then move *old* to *new*; put the texts back on failure."""
+    written: list[str] = []
+    try:
+        for rel, text in plan.texts.items():
+            write_user_yaml(settings.rel_path(rel), text)
+            written.append(rel)
+        settings.rel_path(old).rename(settings.rel_path(new))
+    except BaseException as err:
+        failed: list[str] = []
+        for rel in written:
+            try:
+                write_user_yaml(settings.rel_path(rel), plan.originals[rel])
+            except Exception:
+                _LOGGER.exception("Couldn't restore %s after a failed rename", rel)
+                failed.append(rel)
+        if failed:
+            msg = f"renaming failed and {', '.join(failed)} could not be restored"
+            raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from err
+        raise

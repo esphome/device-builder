@@ -15,6 +15,17 @@ from ..devices.conftest import MakeControllerFactory, make_controller
 
 __all__ = ["make_controller"]
 
+# The loader decodes both to ``base.yaml``, but the source isn't that text verbatim.
+UNREWRITABLE_INCLUDES = ['b: !include "\\u0062ase.yaml"\n', "b: !include >-\n  base.yaml\n"]
+
+
+def write_tree(root: Path, files: dict[str, str]) -> None:
+    """Write *files* (config-relative path to text) under *root*."""
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))  # no CRLF on Windows
+
 
 @pytest.fixture
 def setup(
@@ -28,7 +39,9 @@ def setup(
     devices._db.settings = make_settings()
     commits: list[tuple[str, str]] = []
 
-    async def _commit(_: DevicesController, configurations: list[str], message: str) -> None:
+    async def _commit(
+        _: DevicesController, configurations: list[str], message: str, **__: object
+    ) -> None:
         if message.startswith("Before: "):
             return  # the pre-change snapshot; test_rename covers it against real git
         commits.extend((configuration, message) for configuration in configurations)
