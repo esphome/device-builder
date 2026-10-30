@@ -1,4 +1,4 @@
-"""Tolerant PyYAML loading for raw device text: ``!secret`` kept as a marker, other tags ignored."""
+"""Tolerant PyYAML loading for device text: ``!secret`` / ``!remove`` kept, other tags ignored."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import yaml
+from esphome.config_helpers import Remove
 
 from ..yaml import FastestSafeLoader
 
@@ -22,7 +23,7 @@ class SecretRef:
 
 
 def load_yaml_tolerant(yaml_content: str) -> Any | None:
-    """Parse *yaml_content* tolerantly: ``!secret`` kept, other tags ignored, ``None`` on error."""
+    """Parse *yaml_content* tolerantly: ``!secret`` / ``!remove`` kept, other tags ``None``."""
     try:
         # _TolerantYamlLoader subclasses FastestSafeLoader (libyaml's
         # CSafeLoader when available, the pure-Python SafeLoader
@@ -41,9 +42,14 @@ def _construct_secret(loader: yaml.Loader, node: yaml.ScalarNode) -> SecretRef:
     return SecretRef(loader.construct_scalar(node))
 
 
+def _construct_remove(_loader: yaml.Loader, _node: yaml.Node) -> Remove:
+    return Remove()
+
+
 def _ignore_unknown_tag(_loader: yaml.Loader, _tag_suffix: str, _node: yaml.Node) -> None:
     return None
 
 
 _TolerantYamlLoader.add_constructor("!secret", _construct_secret)
+_TolerantYamlLoader.add_constructor("!remove", _construct_remove)
 _TolerantYamlLoader.add_multi_constructor("!", _ignore_unknown_tag)
