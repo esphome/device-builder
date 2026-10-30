@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import subprocess
@@ -75,6 +76,7 @@ _platform_sets()
 # bootloader, so it has a UF2 and this update image; ``get_download_types``
 # lists the image only for a build with no UF2.
 _MCUBOOT_UPDATE_IMAGE = "zephyr/app_update.bin"
+_MD5_CHUNK_SIZE = 1024 * 1024
 
 
 def _helper_cmd() -> tuple[str, ...]:
@@ -172,7 +174,50 @@ def collect_download_entries(
         artifact_type = _ARTIFACT_TYPES.get(entry["file"])
         if artifact_type:
             entry["type"] = artifact_type
+    _add_md5_sidecars(build_dir, downloads, device_name=storage.name)
     return downloads
+
+
+def _add_md5_sidecars(build_dir: Path, downloads: list[dict], *, device_name: str) -> None:
+    """Generate MD5 sidecars and attach hashes to downloadable firmware artifacts."""
+    sidecars = []
+    for entry in downloads:
+        filename = entry["file"]
+        if filename.endswith((".md5", ".elf")):
+            continue
+        artifact_path = resolve_under_root(build_dir / filename, build_dir)
+        digest = _md5_file(artifact_path)
+        sidecar_name = f"{filename}.md5"
+        sidecar_path = resolve_under_root(build_dir / sidecar_name, build_dir)
+        sidecar_path.write_text(
+            f"{digest}  {_download_filename(device_name, artifact_path.name)}\n",
+            encoding="ascii",
+        )
+        entry["md5"] = digest
+        title = entry.get("title") or filename
+        sidecars.append(
+            {
+                "title": f"MD5 checksum for {title}",
+                "description": digest,
+                "file": sidecar_name,
+                "type": "md5",
+            }
+        )
+    downloads.extend(sidecars)
+
+
+def _md5_file(path: Path) -> str:
+    """Return the MD5 digest of *path* without reading it all into memory."""
+    digest = hashlib.md5(usedforsecurity=False)
+    with path.open("rb") as source:
+        while chunk := source.read(_MD5_CHUNK_SIZE):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _download_filename(device_name: str, artifact_name: str) -> str:
+    """Return the filename used by the HTTP download response."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", f"{device_name}-{artifact_name}")
 
 
 def _download_types_for(
@@ -262,7 +307,7 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
         msg = f"Binary not found: {file}"
         raise FileNotFoundError(msg)
 
-    download_name = re.sub(r"[^A-Za-z0-9._-]", "_", f"{storage.name}-{path.name}")
+    download_name = _download_filename(storage.name, path.name)
     return path, download_name
 
 
