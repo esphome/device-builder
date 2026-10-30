@@ -170,6 +170,7 @@ async def test_usage(setup: Setup) -> None:
         "unknown": ["d.yaml"],
         "referenced_by": [],
         "rewritable": [],
+        "unreadable": [],
     }
 
 
@@ -180,7 +181,13 @@ async def test_usage_of_top_level_include(setup: Setup) -> None:
     with patch.object(devices, "get_devices", return_value=rows):
         result = await files.usage(path="_shared.yaml")
 
-    assert result == {"used_by": ["a.yaml"], "unknown": [], "referenced_by": [], "rewritable": []}
+    assert result == {
+        "used_by": ["a.yaml"],
+        "unknown": [],
+        "referenced_by": [],
+        "rewritable": [],
+        "unreadable": [],
+    }
 
 
 async def test_usage_lists_packages_and_archived_devices_that_include_the_file(
@@ -217,6 +224,7 @@ async def test_usage_lists_packages_and_archived_devices_that_include_the_file(
         "used_by": [],
         "unknown": [],
         "rewritable": result["rewritable"],
+        "unreadable": [],
         "referenced_by": [
             "archive/old.yaml",
             "bridge/flow.yaml",

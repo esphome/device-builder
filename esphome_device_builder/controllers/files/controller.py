@@ -15,7 +15,7 @@ from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode
 from ..devices.file_change import commit_file_change
 from ..devices.helpers import refuse_empty_write
-from .paths import ARCHIVE_DIR, dependency_key, list_package_files, parse_file_path
+from .paths import dependency_key, list_package_files, parse_file_path
 from .rename import RenamePlan, find_referrers, plan_rename
 
 if TYPE_CHECKING:
@@ -113,8 +113,8 @@ class FilesController:
         Rename a package YAML within its folder and rewrite the ``!include`` references to it.
 
         Files in *skip* keep the old name. Returns the new ``path``, the files
-        whose references were ``rewritten`` and the devices or archived files
-        that may still name the old one (``unresolved``, e.g. substitution-built paths).
+        whose references were ``rewritten`` and the devices or files that may
+        still name the old one (``unresolved``, e.g. substitution-built paths).
         """
         # Both ends must be safe unquoted: references to a name that needs
         # quoting can't be found or rewritten reliably.
@@ -150,23 +150,19 @@ class FilesController:
             message=f"Rename {old} to {new}",
             precheck=_check,
         )
-        remaining = {dependency_key(new if rel == old else rel) for rel in plan.remaining}
-        # Files that certainly still include the old one, and archived devices, whose
-        # dependencies the scanner doesn't know, are reported directly.
-        direct = {new if rel == old else rel for rel in plan.stale} | {
-            rel for rel in plan.remaining if rel.startswith(f"{ARCHIVE_DIR}/")
-        }
+        remaining = {new if rel == old else rel for rel in plan.remaining}
+        keys = {dependency_key(rel) for rel in remaining}
+        flagged = {c: deps for c, deps in users.items() if keys & {dependency_key(c), *deps}}
+        reached = {key for c, deps in flagged.items() for key in (dependency_key(c), *deps)}
+        # A file no loaded device reaches (a package nothing loaded uses, an archived
+        # device, a device not loaded yet) is reported itself, as are the files that
+        # certainly still include the old one.
+        unmapped = {rel for rel in remaining if dependency_key(rel) not in reached}
+        stale = {new if rel == old else rel for rel in plan.stale}
         return {
             "path": new,
             "rewritten": sorted(rel for rel in plan.texts if rel != old),
-            "unresolved": sorted(
-                direct
-                | {
-                    configuration
-                    for configuration, deps in users.items()
-                    if remaining & {dependency_key(configuration), *deps}
-                }
-            ),
+            "unresolved": sorted(stale | unmapped | flagged.keys()),
         }
 
     @api_command("files/usage")
@@ -177,7 +173,8 @@ class FilesController:
         ``unknown`` lists devices whose files aren't known yet (never parsed, or
         still loading); ``referenced_by`` the files whose ``!include`` names
         *path* directly, packages and archived devices included, and
-        ``rewritable`` those of them a rename updates.
+        ``rewritable`` those of them a rename updates, and ``unreadable`` the files
+        that couldn't be checked.
         """
         rel = parse_file_path(path, in_subfolder=False)
         key = dependency_key(rel)
@@ -188,6 +185,7 @@ class FilesController:
             "unknown": sorted(d.configuration for d in devices if d.dependencies is None),
             "referenced_by": referrers.referenced_by,
             "rewritable": referrers.rewritable,
+            "unreadable": referrers.unreadable,
         }
 
     @api_command("files/dependencies")

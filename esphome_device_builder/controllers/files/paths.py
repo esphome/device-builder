@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path, PurePosixPath
@@ -11,6 +12,8 @@ from ...constants import is_secrets_file
 from ...helpers.api import CommandError
 from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...models import ErrorCode
+
+_LOGGER = logging.getLogger(__name__)
 
 # The dashboard's archived device YAMLs live here; they are devices, not packages.
 ARCHIVE_DIR = "archive"
@@ -53,7 +56,7 @@ def list_package_files(config_dir: Path) -> list[str]:
     root = config_dir.resolve()
     found: list[str] = []
     # os.walk does not descend into symlinked dirs (followlinks=False).
-    for dirpath, dirnames, filenames in os.walk(config_dir):
+    for dirpath, dirnames, filenames in os.walk(config_dir, onerror=_log_walk_error):
         rel_dir = Path(dirpath).relative_to(config_dir)
         top = rel_dir == Path()
         dirnames[:] = [
@@ -105,6 +108,10 @@ def list_archived_devices(config_dir: Path) -> list[str]:
 def dependency_key(path: str) -> str:
     """*path* in the form ``Device.dependencies`` stores (case-folded on Windows)."""
     return os.path.normcase(path).replace(os.sep, "/")
+
+
+def _log_walk_error(err: OSError) -> None:
+    _LOGGER.warning("Can't list %s for packages: %s", err.filename, err)
 
 
 def _invalid(path: Any) -> NoReturn:

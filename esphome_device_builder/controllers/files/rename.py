@@ -59,10 +59,16 @@ class RenamePlan(NamedTuple):
 
 
 class Referrers(NamedTuple):
-    """The files including a path directly, and those of them ``files/rename`` can update."""
+    """
+    The files including a path directly, and those of them ``files/rename`` can update.
+
+    ``unreadable`` are the files that couldn't be checked: unreadable, or not
+    valid YAML while naming the path's file name.
+    """
 
     referenced_by: list[str]
     rewritable: list[str]
+    unreadable: list[str]
 
 
 class _Target(NamedTuple):
@@ -112,11 +118,7 @@ def plan_rename(
     originals: dict[str, str] = {}
     remaining: set[str] = set()
     stale: set[str] = set()
-    # A case-folding filesystem (Windows) loads ``Base.yaml`` for ``base.yaml``.
-    flags = re.IGNORECASE if dependency_key("A") != "A" else 0
-    old_name = re.compile(
-        r"(?<![\w.-])" + re.escape(posixpath.basename(old)) + r"(?![\w.-])", flags
-    )
+    old_name = _name_pattern(old)
     for rel, folder in _candidates(config_dir):
         if rel in skip:
             continue
@@ -148,15 +150,30 @@ def find_referrers(config_dir: Path, path: str) -> Referrers:
     """
     found: list[str] = []
     rewritable: list[str] = []
+    unreadable: list[str] = []
+    name = _name_pattern(path)
     for rel, folder in _candidates(config_dir):
-        if is_secrets_file(rel) or (text := _read(config_dir / rel)) is None:
+        if is_secrets_file(rel):
             continue
-        targets = list(_includes_of(doc, folder, path)) if (doc := _parse(text)) else []
+        text = _read(config_dir / rel)
+        doc = None if text is None else _parse(text)
+        if doc is None:
+            if text is None or name.search(text):
+                unreadable.append(rel)
+            continue
+        targets = list(_includes_of(doc, folder, path))
         if targets:
             found.append(rel)
         if any(t.span is not None for t in targets):
             rewritable.append(rel)
-    return Referrers(sorted(found), sorted(rewritable))
+    return Referrers(sorted(found), sorted(rewritable), sorted(unreadable))
+
+
+def _name_pattern(path: str) -> re.Pattern[str]:
+    """Match *path*'s file name as a whole word, in any case where the filesystem folds it."""
+    # A case-folding filesystem (Windows) loads ``Base.yaml`` for ``base.yaml``.
+    flags = re.IGNORECASE if dependency_key("A") != "A" else 0
+    return re.compile(r"(?<![\w.-])" + re.escape(posixpath.basename(path)) + r"(?![\w.-])", flags)
 
 
 def _includes_of(doc: _Doc, folder: str, path: str) -> Iterator[_Target]:

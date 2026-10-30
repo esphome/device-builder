@@ -165,6 +165,17 @@ def test_plan_rename_checks_secrets_and_block_form_substitutions(tmp_path: Path)
     assert plan.remaining == {"kitchen.yaml", "secrets.yaml"}
 
 
+def test_find_referrers_lists_a_file_it_cannot_read(tmp_path: Path) -> None:
+    write_tree(tmp_path, {"kitchen.yaml": "base: !include common/base.yaml\n"})
+    (tmp_path / "binary.yaml").write_bytes(b"\xff\xfe!include common/base.yaml\n")
+
+    assert find_referrers(tmp_path, "common/base.yaml") == (
+        ["kitchen.yaml"],
+        ["kitchen.yaml"],
+        ["binary.yaml"],
+    )
+
+
 def test_plan_rename_flags_a_file_it_cannot_read(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -265,7 +276,7 @@ def test_lookalike_includes_are_left_alone(tmp_path: Path, text: str) -> None:
     assert rewrite_includes(text, folder="", old="common/base.yaml", new="common/main.yaml") == (
         text
     )
-    assert find_referrers(tmp_path, "common/base.yaml") == ([], [])
+    assert find_referrers(tmp_path, "common/base.yaml") == ([], [], [])
 
 
 @pytest.mark.parametrize(
@@ -398,7 +409,13 @@ def test_incomplete_yaml_is_unreadable(tmp_path: Path, text: str) -> None:
         tmp_path, {"common/wrapper.yaml": text, "kitchen.yaml": "b: !include common/base.yaml\n"}
     )
 
-    assert find_referrers(tmp_path, "common/base.yaml") == (["kitchen.yaml"], ["kitchen.yaml"])
+    # listed as unchecked only when it names the file at all
+    unreadable = ["common/wrapper.yaml"] if "base.yaml" in text else []
+    assert find_referrers(tmp_path, "common/base.yaml") == (
+        ["kitchen.yaml"],
+        ["kitchen.yaml"],
+        unreadable,
+    )
     plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
     assert set(plan.texts) == {"kitchen.yaml"}
     assert "common/wrapper.yaml" in plan.remaining
@@ -412,7 +429,7 @@ def test_unrewritable_includes_are_referrers_but_not_rewritable(tmp_path: Path, 
     referrers = find_referrers(tmp_path, "common/base.yaml")
     plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
 
-    assert referrers == (["common/wrapper.yaml"], [])
+    assert referrers == (["common/wrapper.yaml"], [], [])
     assert plan.texts == {}
     assert plan.stale == {"common/wrapper.yaml"}
 

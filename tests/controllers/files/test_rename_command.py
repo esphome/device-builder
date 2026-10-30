@@ -494,7 +494,25 @@ async def test_rename_reports_a_package_it_could_not_rewrite(
     assert usage["referenced_by"] == ["common/wrapper.yaml", "kitchen.yaml"]
     assert usage["rewritable"] == ["kitchen.yaml"]
     assert result["rewritten"] == ["kitchen.yaml"]
-    assert result["unresolved"] == ["common/wrapper.yaml"]
+    # garage.yaml's substitution-built include: no loaded device maps it either
+    assert result["unresolved"] == ["common/wrapper.yaml", "garage.yaml"]
+
+
+async def test_rename_reports_files_no_loaded_device_reaches(
+    tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
+) -> None:
+    _, devices, _ = setup
+    write_tree(tmp_path, {"common/extra.yaml": "b: !include ${dir}/base.yaml\n"})
+    # garage.yaml's config isn't loaded yet, kitchen.yaml's doesn't use extra.yaml
+    users = [
+        SimpleNamespace(configuration="kitchen.yaml", dependencies=("common/base.yaml",)),
+        SimpleNamespace(configuration="garage.yaml", dependencies=None),
+    ]
+
+    with patch.object(devices, "get_devices", return_value=users):
+        result = await files.rename(path="common/base.yaml", new_path="common/main.yaml")
+
+    assert result["unresolved"] == ["common/extra.yaml", "garage.yaml"]
 
 
 async def test_usage_and_rename_skip_an_unrelated_incomplete_file(

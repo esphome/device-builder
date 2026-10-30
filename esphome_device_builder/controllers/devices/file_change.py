@@ -46,10 +46,13 @@ async def commit_file_change(
             await _commit_history_many(
                 controller, configurations, f"Before: {message}", strict=True
             )
-        await run_in_executor(change)
-        await _commit_history_many(controller, configurations, message)
-    for configuration in configurations:
-        controller._after_yaml_write(configuration)
+        try:
+            await run_in_executor(change)
+            await _commit_history_many(controller, configurations, message)
+        finally:
+            # Also after a change that failed part-way: some files may be written.
+            for configuration in configurations:
+                controller._after_yaml_write(configuration)
 
 
 async def _commit_history_many(

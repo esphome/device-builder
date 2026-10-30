@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -92,7 +92,10 @@ async def test_a_refused_precheck_records_nothing(
     def _refuse() -> None:
         raise CommandError(ErrorCode.NOT_FOUND, "gone")
 
-    with pytest.raises(CommandError):
+    with (
+        patch.object(controller, "_after_yaml_write") as after_write,
+        pytest.raises(CommandError),
+    ):
         await commit_file_change(
             controller,
             ["kitchen.yaml"],
@@ -102,4 +105,25 @@ async def test_a_refused_precheck_records_nothing(
         )
 
     commit.assert_not_awaited()
+    after_write.assert_not_called()
     assert not (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_a_change_failing_part_way_still_refreshes_the_caches(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    controller = make_controller(tmp_path)
+
+    def _half() -> None:
+        _write(tmp_path / "kitchen.yaml")
+        raise OSError("disk full")
+
+    with (
+        patch.object(controller, "_after_yaml_write") as after_write,
+        pytest.raises(OSError, match="disk full"),
+    ):
+        await commit_file_change(
+            controller, ["kitchen.yaml", "garage.yaml"], _half, message="Edit both"
+        )
+
+    assert [c.args[0] for c in after_write.call_args_list] == ["kitchen.yaml", "garage.yaml"]
