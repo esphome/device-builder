@@ -1385,6 +1385,7 @@ def build_catalog(
     # Reads ``provides_id_paths``, so after the provides pass.
     _resolve_reference_classes(out)
     _apply_libretiny_family_provides(out)
+    _apply_platform_auto_load_provides(out)
     _apply_libretiny_family_options(out)
 
     # After the alias fold and per-entry writers so hub constraints reach
@@ -1913,6 +1914,22 @@ def _apply_libretiny_family_provides(entries: list[dict]) -> None:
     for entry in entries:
         if entry["id"] in families:
             entry["provides"] = sorted({*entry.get("provides", ()), "libretiny"})
+
+
+def _apply_platform_auto_load_provides(entries: list[dict]) -> None:
+    """Make each target platform ``provides`` the dependencies it ``AUTO_LOAD``s."""
+    wanted = {dep for entry in entries for dep in entry.get("dependencies") or ()}
+    platforms = _target_platform_names()
+    for entry in entries:
+        if entry["id"] not in platforms:
+            continue
+        auto_load = getattr(
+            importlib.import_module(f"esphome.components.{entry['id']}"), "AUTO_LOAD", ()
+        )
+        if callable(auto_load):
+            raise TypeError(f"{entry['id']}: callable AUTO_LOAD can't be read statically")
+        if provided := wanted.intersection(auto_load):
+            entry["provides"] = sorted({*entry.get("provides", ()), *provided})
 
 
 def _apply_libretiny_family_options(entries: list[dict]) -> None:
@@ -4064,6 +4081,11 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         entry_type = "boolean"
     elif entry_type is None and "values" in raw:
         entry_type = "string"  # enum-shaped (options below)
+    if schema_type == "enum" and (inner_schema or {}).get("config_vars"):
+        # ``cv.Any(cv.one_of(...), Schema)`` (mipi ``transform``: ``disabled`` or
+        # a mirror/swap mapping) dumps as an enum carrying a schema; a select
+        # would reject the mapping form, so the union stays YAML-only.
+        entry_type = "unknown"
 
     # ``extends: ["core.positive_time_period_*"]`` collapses to time_period
     # — even when the schema marked the entry as ``type: schema`` (most
@@ -4152,7 +4174,7 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
-    options = _build_options(raw)
+    options = _build_options(raw) if entry_type != "unknown" else None
     default_value = _boolean_default_as_option(default_value, options)
     if (
         key in _PLATFORM_DEFAULTED_ADVANCED_KEYS
