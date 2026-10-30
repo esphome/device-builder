@@ -15,7 +15,12 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
-from .scan import block_end_index, find_block_header, leading_ws, trim_trailing_gap
+from .scan import (
+    block_end_index,
+    find_block_header,
+    leading_ws,
+    trim_trailing_gap,
+)
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry

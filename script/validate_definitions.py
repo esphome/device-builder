@@ -32,6 +32,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Imported from the stdlib-only constants module so this script stays light.
 from esphome_device_builder.constants import (  # noqa: E402
+    BOARD_DEMO_FILENAME,
     BOARD_PIN_KEYS,
     BUS_CATEGORIES,
     FEATURED_EXCLUDED_CATEGORIES,
@@ -256,6 +257,22 @@ def validate_board(
 
     errors.extend(_validate_image_paths(board_id, data))
 
+    errors.extend(_validate_demo(board_id, manifest.parent, data))
+
+    return errors
+
+
+def _validate_demo(board_id: str, board_dir: Path, data: dict) -> list[str]:
+    """Flag a misnamed demo file and a demo on a package board, whose create ignores it."""
+    errors = [
+        f"{board_id}: {path.name} is not loaded; name the demo {BOARD_DEMO_FILENAME}"
+        for path in sorted(board_dir.glob("*"))
+        if path.is_file()
+        and path.name != BOARD_DEMO_FILENAME
+        and (path.stem.lower() == "demo" or path.suffix.lower() == ".yml")
+    ]
+    if data.get("package_import_url") and (board_dir / BOARD_DEMO_FILENAME).is_file():
+        errors.append(f"{board_id}: {BOARD_DEMO_FILENAME} is ignored on a package_import_url board")
     return errors
 
 
