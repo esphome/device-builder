@@ -45,6 +45,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
     _decode_txt_bytes_to_sorted_pairs,
 )
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.helpers import _ping_targets
 from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import (
@@ -262,6 +263,39 @@ async def test_resolve_and_ping_falls_back_to_known_ip() -> None:
     assert devices[0].runtime_state.state is DeviceState.ONLINE
 
 
+async def test_resolve_and_ping_tries_the_other_addresses_when_the_primary_is_silent() -> None:
+    """A silent IPv4 primary falls through to the resolved IPv6 before OFFLINE."""
+    devices = [_make_device(state=DeviceState.UNKNOWN)]
+    monitor = _make_monitor(devices)
+    monitor.state.dns_cache.async_resolve = AsyncMock(
+        return_value=["fe80::1%eth0", "2001:db8::5", "10.0.0.5"]
+    )
+
+    dead = MagicMock(is_alive=False, min_rtt=0.0)
+    alive = MagicMock(is_alive=True, min_rtt=1.0)
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        AsyncMock(side_effect=[dead, dead, alive]),
+    ) as mock_ping:
+        await monitor.ping._resolve_and_ping(devices[0])
+
+    assert [call.args[0] for call in mock_ping.await_args_list] == [
+        "10.0.0.5",
+        "10.0.0.5",
+        "2001:db8::5",
+    ]
+    assert devices[0].runtime_state.state is DeviceState.ONLINE
+
+
+def test_ping_targets_order_ipv4_then_routable_then_link_local() -> None:
+    assert _ping_targets(["fe80::1%eth0", "2001:db8::5", "10.0.0.5", "fd00::7"]) == [
+        "10.0.0.5",
+        "2001:db8::5",
+        "fd00::7",
+        "fe80::1%eth0",
+    ]
+
+
 def _wire_resolved_addresses_clear(monitor: DeviceStateMonitor, devices: list[Device]) -> None:
     """Wire the shared production-shaped cleared-callback recorder."""
     monitor._on_resolved_addresses_cleared = RecordingMonitorCallbacks(
@@ -366,7 +400,7 @@ async def test_ping_success_records_rtt_and_observation() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.ONLINE, active_source="ping", ip="10.0.0.42"
@@ -388,7 +422,7 @@ async def test_ping_failure_does_not_record_rtt() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.OFFLINE, active_source="ping", ip="10.0.0.42"
@@ -410,7 +444,7 @@ async def test_ping_retry_absorbs_transient_miss() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     assert fake_ping.await_count == 2
     # First call is the cheap single-shot.
@@ -437,7 +471,7 @@ async def test_ping_retry_still_offline_when_retry_also_misses() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     assert fake_ping.await_count == 2
     assert devices[0].runtime_state.state == DeviceState.OFFLINE
@@ -458,7 +492,7 @@ async def test_ping_no_retry_when_first_probe_succeeds() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     fake_ping.assert_awaited_once()
 
@@ -474,7 +508,7 @@ async def test_ping_no_retry_when_already_offline() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     fake_ping.assert_awaited_once()
     assert devices[0].runtime_state.state == DeviceState.OFFLINE
@@ -498,7 +532,7 @@ async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     assert fake_ping.await_count == 2
     assert fake_ping.await_args_list[1].kwargs.get("count", 1) > 1
@@ -568,7 +602,7 @@ async def test_ping_device_uses_privileged_flag_from_probe() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor.ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], ["10.0.0.42"])
 
     assert fake_ping.await_args_list[0].kwargs.get("privileged") is False
     assert fake_ping.await_args_list[1].kwargs.get("privileged") is False

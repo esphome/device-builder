@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from icmplib import async_ping as icmp_ping
@@ -14,7 +15,7 @@ from ...helpers.ip import drop_unusable_addresses
 from ...models import Device, DeviceState
 from . import shared
 from ._sweep_source import SweepSource
-from .helpers import _pick_ipv4
+from .helpers import _ping_targets
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -114,7 +115,7 @@ class PingSource(SweepSource):
     ) -> float | None:
         """One budget-acquired probe of *target* for out-of-sweep callers."""
         async with self.icmp_concurrency:
-            return await self._ping_device(device, target, apply=apply)
+            return await self._ping_device(device, [target], apply=apply)
 
     async def _prepare(self) -> bool:
         privileged = await _can_use_icmp_lib_with_privilege()
@@ -253,12 +254,6 @@ class PingSource(SweepSource):
             if not addresses:
                 shared.apply_ping_result(monitor, device.name, None)
                 return
-            # Ping the IPv4 primary, not ``addresses[0]`` — a resolve/cache
-            # hit can order a scoped IPv6 first even when an IPv4 is present,
-            # and ICMP across subnets is friendlier on V4. ``_pick_ipv4`` is
-            # the same chooser ``apply_ip_addresses`` uses for ``device.ip``,
-            # so the pinged IP and the drawer's primary stay in lockstep.
-            target = _pick_ipv4(addresses)
             # ``apply_ip_addresses`` populates ``device.ip`` (V4 primary)
             # and the full ``runtime_state.ip_addresses`` list for ``.local`` hosts
             # that don't broadcast ``_esphomelib._tcp`` (non-API ESPHome
@@ -266,10 +261,12 @@ class PingSource(SweepSource):
             # drawer's IP row even after successful pings, and forwarding the
             # whole set keeps a cached multi-IP device's secondary addresses.
             monitor.apply_ip_addresses(device.name, addresses)
-            await self._ping_device(device, target)
+            # Same IPv4-first order as ``device.ip``; the remaining addresses
+            # are only tried when the primary stays silent.
+            await self._ping_device(device, _ping_targets(addresses))
 
     async def _ping_device(
-        self, device: Device, target: str, *, apply: bool = True
+        self, device: Device, targets: Sequence[str], *, apply: bool = True
     ) -> float | None:
         # Skip the retry only for already-OFFLINE devices: the miss
         # just confirms the state, nothing to flap. ONLINE devices
@@ -277,9 +274,14 @@ class PingSource(SweepSource):
         # get it too so the first classification on a lossy path
         # (dashboard cold-start, every device starts UNKNOWN) doesn't
         # immediately label a reachable device OFFLINE on a single
-        # dropped packet.
+        # dropped packet. Fallback targets get one packet each.
         needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
-        rtt_ms = await self.ping_once(target, retry=needs_retry)
+        rtt_ms: float | None = None
+        for target in targets:
+            rtt_ms = await self.ping_once(target, retry=needs_retry)
+            if rtt_ms is not None:
+                break
+            needs_retry = False
         if apply:
             shared.apply_ping_result(self._monitor, device.name, rtt_ms)
         return rtt_ms

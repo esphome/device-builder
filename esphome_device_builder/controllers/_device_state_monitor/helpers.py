@@ -7,6 +7,7 @@ record utilities the monitor and its sibling source modules share.
 from __future__ import annotations
 
 from functools import lru_cache
+from ipaddress import ip_address
 from operator import attrgetter
 from typing import Any
 
@@ -118,3 +119,19 @@ def _pick_ipv4(addresses: list[str]) -> str:
         if "." in address and ":" not in address:
             return address
     return addresses[0]
+
+
+def _is_link_local(address: str) -> bool:
+    try:
+        return ip_address(address.partition("%")[0]).is_link_local
+    except ValueError:
+        return False
+
+
+def _ping_targets(addresses: list[str]) -> list[str]:
+    """Return *addresses* ordered IPv4 first, then routable IPv6, then link-local."""
+    ipv4 = [a for a in addresses if "." in a and ":" not in a]
+    ipv6 = [a for a in addresses if a not in ipv4]
+    routable = [a for a in ipv6 if not _is_link_local(a)]
+    link_local = [a for a in ipv6 if _is_link_local(a)]
+    return [*ipv4, *routable, *link_local]
