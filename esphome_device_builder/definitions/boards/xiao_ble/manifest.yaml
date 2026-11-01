@@ -16,11 +16,9 @@ featured_components:
   description: Red channel of the onboard RGB LED (P0.26, active low).
   fields:
     pin:
-      value:
-        number: 26
-        inverted: true
-        allow_other_uses: true
+      value: P0.26
       locked: true
+    inverted: true
     id: led_red
 - id: led_green
   component_id: output.gpio
@@ -28,11 +26,9 @@ featured_components:
   description: Green channel of the onboard RGB LED (P0.30, active low).
   fields:
     pin:
-      value:
-        number: 30
-        inverted: true
-        allow_other_uses: true
+      value: P0.30
       locked: true
+    inverted: true
     id: led_green
 - id: led_blue
   component_id: output.gpio
@@ -40,9 +36,7 @@ featured_components:
   description: Blue channel of the onboard RGB LED (P0.6, active low).
   fields:
     pin:
-      value:
-        number: 6
-        inverted: true
-        allow_other_uses: true
+      value: P0.6
       locked: true
+    inverted: true
     id: led_blue

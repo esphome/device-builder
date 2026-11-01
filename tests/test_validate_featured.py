@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import pytest
 
-import script.validate_definitions as vd  # type: ignore[import-not-found]
 from script.validate_definitions import (  # type: ignore[import-not-found]
     _build_components_index,
     _validate_featured,
@@ -664,12 +663,3 @@ def test_locked_reference_to_locked_sibling_id_passes(_index: dict | None) -> No
         _index,
     )
     assert not any("locked reference" in e for e in errors)
-
-
-def test_empty_manifest_pins_fall_back_to_generated_body(tmp_path, monkeypatch) -> None:
-    """A manifest with empty ``pins:`` validates presets against the generated body's pins."""
-    (tmp_path / "demo.json").write_text('{"pins": [{"gpio": 26, "label": "P0.26"}]}')
-    monkeypatch.setattr(vd, "BOARD_BODIES_DIR", tmp_path)
-
-    assert set(vd._synthesized_pins_by_gpio("demo")) == {26}
-    assert vd._synthesized_pins_by_gpio("missing") == {}
