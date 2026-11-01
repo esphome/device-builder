@@ -53,6 +53,7 @@ DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
 COMPONENTS_INDEX_JSON = DEFINITIONS_DIR / "components.index.json"
 COMPONENTS_BODIES_DIR = DEFINITIONS_DIR / "components"
+BOARD_BODIES_DIR = DEFINITIONS_DIR / "board_bodies"
 
 # Network components offered as board "suggested hardware" despite their
 # ``core`` category — auto-pulled in place of wifi: when a board has onboard
@@ -235,6 +236,8 @@ def validate_board(
                     errors.append(f"{board_id}: duplicate gpio {gpio}")
                 seen_gpios.add(gpio)
                 pins_by_gpio[gpio] = pin
+    if not pins:
+        pins_by_gpio = _synthesized_pins_by_gpio(board_id)
 
     errors.extend(_validate_variant_vocabulary(board_id, data))
 
@@ -1132,6 +1135,19 @@ def main() -> int:
     comp_count = len(list(components_dir.glob("*/manifest.yaml")))
     print(f"OK: {board_count} boards, {comp_count} components validated")
     return 0
+
+
+def _synthesized_pins_by_gpio(board_id: str) -> dict[int, dict]:
+    """Return the generated body's pins for a manifest whose ``pins:`` the sync fills."""
+    try:
+        body = json.loads((BOARD_BODIES_DIR / f"{board_id}.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return {
+        pin["gpio"]: pin
+        for pin in body.get("pins", [])
+        if isinstance(pin, dict) and pin.get("gpio") is not None
+    }
 
 
 if __name__ == "__main__":

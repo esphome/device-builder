@@ -9,3 +9,40 @@ esphome:
   board: xiao_ble
 docs_url: https://esphome.io/components/nrf52.html
 pins: []
+featured_components:
+- id: led_red
+  component_id: output.gpio
+  name: 'Onboard RGB LED: red'
+  description: Red channel of the onboard RGB LED (P0.26, active low).
+  fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+        allow_other_uses: true
+      locked: true
+    id: led_red
+- id: led_green
+  component_id: output.gpio
+  name: 'Onboard RGB LED: green'
+  description: Green channel of the onboard RGB LED (P0.30, active low).
+  fields:
+    pin:
+      value:
+        number: 30
+        inverted: true
+        allow_other_uses: true
+      locked: true
+    id: led_green
+- id: led_blue
+  component_id: output.gpio
+  name: 'Onboard RGB LED: blue'
+  description: Blue channel of the onboard RGB LED (P0.6, active low).
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+        allow_other_uses: true
+      locked: true
+    id: led_blue
