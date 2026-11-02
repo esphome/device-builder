@@ -63,7 +63,7 @@ runs:
       if: inputs.initial-release != 'true'
       # Resolves through the caller's workspace checkout — both call
       # sites check the repo out at the workspace root.
-      uses: ./.github/actions/setup-uv-python
+      uses: $/.github/actions/setup-uv-python
       with:
         python-version: "3.14"
 
