@@ -1390,5 +1390,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-A32Pro
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-A32Pro/index.md
-  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
+  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
   content_hash: dc217630dbf15d761477939610a7ad2044c767d367dac4c3de044cc6aae6c380
