@@ -35,6 +35,7 @@ secrets.yaml
 .cache/
 /__pycache__
 *.lock
+!/.github/workflows/actions.lock
 /.claude/*
 !/.claude/skills/
 
