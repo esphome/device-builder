@@ -159,9 +159,9 @@ jobs:
 
       - name: Set up uv and Python 3.14
         if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
-        # Path goes through the trusted base checkout — the workspace
+        # Resolved from the trusted workflow commit ($/) - the workspace
         # root holds no repo, and pr/ is never executed.
-        uses: ./base/.github/actions/setup-uv-python
+        uses: $/.github/actions/setup-uv-python
         with:
           python-version: "3.14"
 

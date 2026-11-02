@@ -40,10 +40,12 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'astral-sh/setup-uv@v8.3.2'
     '.github/workflows/regen-board-catalog.yml':
+        - 'actions/cache@v6.1.0'
         - 'actions/checkout@v7.0.1'
         - 'actions/create-github-app-token@v3.3.0'
         - 'actions/github-script@v9.0.0'
         - 'actions/upload-artifact@v7.0.2'
+        - 'astral-sh/setup-uv@v8.3.2'
     '.github/workflows/release.yml':
         - 'actions/cache@v6.1.0'
         - 'actions/checkout@v7.0.1'
