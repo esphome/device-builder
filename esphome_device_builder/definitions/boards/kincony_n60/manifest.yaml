@@ -3749,5 +3749,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-N60
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-N60/index.md
-  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
+  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
   content_hash: 69ba3172757c42b3dbb6bd35a8e5b5881af4fa364ec7f356141432c949dc9d5e

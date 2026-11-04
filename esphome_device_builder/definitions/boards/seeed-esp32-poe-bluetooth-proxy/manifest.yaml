@@ -47,5 +47,5 @@ source:
   type: bluetooth-proxies
   remote_id: seeed/seeed-esp32-poe
   upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/seeed/seeed-esp32-poe.yaml
-  upstream_revision: cf5de9b95ab4a81dcd859378166e526e57f98237
+  upstream_revision: aa3d6c5170f02e2549e00a6448c9d1f1b0a0741c
   content_hash: 5b90ecfd0fb80aff9b34858b2a65014101a17e374422b6afbfcc48aa8b7e6ece
