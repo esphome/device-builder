@@ -456,6 +456,21 @@ def test_rewrite_positions_match_with_either_scanner(
     assert rewritten == text.replace("common/base.yaml", "common/main.yaml")
 
 
+def test_rewrite_keeps_the_folder_of_a_windows_style_include(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rename_module, "dependency_key", lambda path: path.replace("\\", "/"))
+
+    rewritten = rewrite_includes(
+        "b: !include common\\base.yaml\n",
+        folder="",
+        old="common/base.yaml",
+        new="common/main.yaml",
+    )
+
+    assert rewritten == "b: !include common\\main.yaml\n"
+
+
 def test_case_folding_filesystems_match_any_spelling(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

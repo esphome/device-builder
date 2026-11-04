@@ -105,7 +105,8 @@ def rewrite_includes(text: str, *, folder: str, old: str, new: str) -> str:
     spans = sorted(t.span for t in _includes_of(doc, folder, old) if t.span is not None)
     # Right to left, so earlier spans keep their offsets.
     for start, end in reversed(spans):
-        name_start = end - len(posixpath.basename(text[start:end]))
+        # Windows also takes ``\\`` as a separator; elsewhere a matched reference has none.
+        name_start = end - len(posixpath.basename(text[start:end].replace("\\", "/")))
         text = text[:name_start] + new_name + text[end:]
     return text
 
