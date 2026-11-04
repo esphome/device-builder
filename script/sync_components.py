@@ -158,6 +158,7 @@ from esphome_device_builder.models import (  # noqa: E402
     AutomationTrigger,
     AutomationTriggerIndex,
     ComponentCatalogEntry,
+    ComponentCategory,
     Filter,
     FilterIndex,
     LightEffect,
@@ -5542,73 +5543,73 @@ def _resolve_name(component_id: str, stem: str, doc_name: str | None) -> str:
 # external_components, ...). The frontend's "Add core configuration"
 # dialog is a thin filter on category=core, so this list defines what
 # the user sees there.
-_CATEGORY_OVERRIDES: dict[str, str] = {
+_CATEGORY_OVERRIDES: dict[str, ComponentCategory] = {
     # Core ESPHome infrastructure
-    "esphome": "core",
-    "wifi": "core",
-    "api": "core",
-    "ota": "core",
-    "logger": "core",
-    "mqtt": "core",
-    "web_server": "core",
-    "captive_portal": "core",
-    "safe_mode": "core",
-    "time": "core",
-    "network": "core",
-    "ethernet": "core",
-    "mdns": "core",
-    "improv_serial": "core",
-    "debug": "core",
-    "preferences": "core",
+    "esphome": ComponentCategory.CORE,
+    "wifi": ComponentCategory.CORE,
+    "api": ComponentCategory.CORE,
+    "ota": ComponentCategory.CORE,
+    "logger": ComponentCategory.CORE,
+    "mqtt": ComponentCategory.CORE,
+    "web_server": ComponentCategory.CORE,
+    "captive_portal": ComponentCategory.CORE,
+    "safe_mode": ComponentCategory.CORE,
+    "time": ComponentCategory.CORE,
+    "network": ComponentCategory.CORE,
+    "ethernet": ComponentCategory.CORE,
+    "mdns": ComponentCategory.CORE,
+    "improv_serial": ComponentCategory.CORE,
+    "debug": ComponentCategory.CORE,
+    "preferences": ComponentCategory.CORE,
     # Networking / web infrastructure that's auto-pulled by other
     # core components (ota.http_request → http_request,
     # web_server → web_server_base, etc.). Keeping them tagged
     # `core` lets the dependency-satisfaction filter on the core
     # dialog pass the parent OTA / web entries that depend on them.
-    "http_request": "core",
-    "web_server_base": "core",
-    "web_server_idf": "core",
-    "socket": "core",
-    "async_tcp": "core",
+    "http_request": ComponentCategory.CORE,
+    "web_server_base": ComponentCategory.CORE,
+    "web_server_idf": ComponentCategory.CORE,
+    "socket": ComponentCategory.CORE,
+    "async_tcp": ComponentCategory.CORE,
     # Target platform components (esp32, esp8266, ...) — these are
     # also tagged via `is_target_platform` introspection, but listing
     # them explicitly here makes the override authoritative.
-    "esp32": "core",
-    "esp8266": "core",
-    RP2_CANONICAL_PLATFORM: "core",
-    "bk72xx": "core",
-    "rtl87xx": "core",
-    "ln882x": "core",
-    "nrf52": "core",
-    "host": "core",
+    "esp32": ComponentCategory.CORE,
+    "esp8266": ComponentCategory.CORE,
+    RP2_CANONICAL_PLATFORM: ComponentCategory.CORE,
+    "bk72xx": ComponentCategory.CORE,
+    "rtl87xx": ComponentCategory.CORE,
+    "ln882x": ComponentCategory.CORE,
+    "nrf52": ComponentCategory.CORE,
+    "host": ComponentCategory.CORE,
     # Device-wide config keys (not really "components" — they don't
     # have C++ implementations — but they live at the top level of
     # YAML alongside real components).
-    "substitutions": "core",
-    "packages": "core",
-    "external_components": "core",
-    "dashboard_import": "core",
-    "globals": "core",
+    "substitutions": ComponentCategory.CORE,
+    "packages": ComponentCategory.CORE,
+    "external_components": ComponentCategory.CORE,
+    "dashboard_import": ComponentCategory.CORE,
+    "globals": ComponentCategory.CORE,
     # Bus / transport components
-    "i2c": "bus",
-    "spi": "bus",
-    "uart": "bus",
-    "one_wire": "bus",
-    "modbus": "bus",
-    "canbus": "bus",
+    "i2c": ComponentCategory.BUS,
+    "spi": ComponentCategory.BUS,
+    "uart": ComponentCategory.BUS,
+    "one_wire": ComponentCategory.BUS,
+    "modbus": ComponentCategory.BUS,
+    "canbus": ComponentCategory.BUS,
     # Automation primitives
-    "script": "automation",
-    "interval": "automation",
+    "script": ComponentCategory.AUTOMATION,
+    "interval": ComponentCategory.AUTOMATION,
 }
 
 
-def _infer_misc_category(top_key: str) -> str:
+def _infer_misc_category(top_key: str) -> ComponentCategory:
     """Best-effort category for non-platform components.
 
     Looks up ``_CATEGORY_OVERRIDES`` first (curated list mirroring the
     legacy catalog), falls through to ``misc`` for everything else.
     """
-    return _CATEGORY_OVERRIDES.get(top_key, "misc")
+    return _CATEGORY_OVERRIDES.get(top_key, ComponentCategory.MISC)
 
 
 # ---------------------------------------------------------------------------

@@ -18,12 +18,7 @@ class IntegrationDocEntry(TypedDict):
 
 
 class ComponentCategory(StrEnum):
-    """
-    Categories the dashboard assigns itself, beside platform domains.
-
-    A platform component's category is its domain string (``sensor``,
-    ``packet_interface``), carried verbatim with no enum member.
-    """
+    """Dashboard-assigned categories; a platform entry's category is its domain string."""
 
     CORE = "core"
     BUS = "bus"
