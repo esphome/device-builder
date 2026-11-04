@@ -19,9 +19,10 @@ _LOGGER = logging.getLogger(__name__)
 ARCHIVE_DIR = "archive"
 _YAML_SUFFIXES = (".yaml", ".yml")
 # Whitespace, comment, quote and flow characters anywhere (``:`` is refused for
-# all paths), or a segment not starting with a letter, digit or ``_`` (``@``,
-# ``!``, ``&``, ``*`` … can't begin a plain YAML scalar).
-_YAML_SIGNIFICANT_RE = re.compile(r"""[\s#"'{}\[\],]|(?:^|/)[^\w/]""")
+# all paths), ``$`` (ESPHome expands ``$var`` in an include path), or a segment
+# not starting with a letter, digit or ``_`` (``@``, ``!``, ``&``, ``*`` … can't
+# begin a plain YAML scalar).
+_YAML_SIGNIFICANT_RE = re.compile(r"""[\s#"'{}\[\],$]|(?:^|/)[^\w/]""")
 
 
 def parse_file_path(path: Any, *, in_subfolder: bool, plain_name: bool = False) -> str:
@@ -31,7 +32,7 @@ def parse_file_path(path: Any, *, in_subfolder: bool, plain_name: bool = False) 
     Refused with ``INVALID_ARGS``: absolute paths, ``..``, hidden segments,
     non-YAML names, secrets files, the archive folder, with *in_subfolder*
     a top-level file (that is a device) and, with *plain_name*, names that
-    would need quoting in an ``!include``. Symlink escapes are left to
+    can't be written verbatim in an ``!include``. Symlink escapes are left to
     ``DashboardSettings.rel_path``.
     """
     if not isinstance(path, str) or not path or "\\" in path or ":" in path or "\x00" in path:
@@ -45,7 +46,7 @@ def parse_file_path(path: Any, *, in_subfolder: bool, plain_name: bool = False) 
         or is_secrets_file(pure.name)
         or (len(parts) > 1 and parts[0].casefold() == ARCHIVE_DIR)
         or (in_subfolder and len(parts) < 2)
-        or (plain_name and _YAML_SIGNIFICANT_RE.search(path))
+        or (plain_name and (_YAML_SIGNIFICANT_RE.search(path) or not path.isprintable()))
     ):
         _invalid(path)
     return pure.as_posix()

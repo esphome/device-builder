@@ -69,9 +69,25 @@ def test_parse_top_level_allowed_outside_subfolder_mode() -> None:
 
 
 @pytest.mark.parametrize(
-    "name", ["base 1", "base#1", "it's", "a{b}", "a[1]", "a,b", "@main", "!x", "&a", "*a", "-a"]
+    "name",
+    [
+        "base 1",
+        "base#1",
+        "it's",
+        "a{b}",
+        "a[1]",
+        "a,b",
+        "@main",
+        "!x",
+        "&a",
+        "*a",
+        "-a",
+        "a$b",
+        "a\x01b",
+        "a\x7fb",
+    ],
 )
-def test_parse_new_file_refuses_names_that_need_yaml_quoting(name: str) -> None:
+def test_parse_new_file_refuses_names_an_include_cant_hold(name: str) -> None:
     path = f"common/{name}.yaml"
     assert parse_file_path(path, in_subfolder=True) == path  # existing files stay usable
     with pytest.raises(CommandError):
