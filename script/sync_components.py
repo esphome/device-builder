@@ -184,17 +184,6 @@ def _platform_domains_from_shipped_index() -> frozenset[str]:
     return _domains_from_ids(c["id"] for c in payload["components"])
 
 
-def _require_component_categories(domains: frozenset[str]) -> None:
-    """Fail the sync loudly when a platform domain has no ``ComponentCategory`` member."""
-    missing = sorted(domains - {c.value for c in ComponentCategory})
-    if missing:
-        raise SystemExit(
-            f"New upstream platform domain(s) without a ComponentCategory member: {missing}. "
-            "Add the enum member(s) in esphome_device_builder/models/components.py and "
-            "coordinate the frontend category UI, then re-run."
-        )
-
-
 # Top-level platform domains in the schema. Components are keyed as
 # ``<id>.<domain>`` in the schema files — e.g. ``dht.sensor`` lives in
 # dht.json under the key ``dht.sensor``. Seeded from the shipped catalog
@@ -1179,10 +1168,9 @@ def load_index(schema_dir: Path) -> SchemaIndex:
 
     Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
     ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set):
-    a bundle with no ``core.platforms`` fails loud, and a shipped
-    domain missing from the fresh bundle logs a warning.
+    a bundle with no ``core.platforms`` fails loud, and an added or
+    dropped domain logs a warning.
     """
-    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
 
     # 1. esphome.json — core.components and core.platforms.
@@ -1201,16 +1189,7 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             f"Schema bundle at {schema_dir} has no core.platforms (esphome.json missing or "
             "empty); refusing to sync against the stale shipped domain set."
         )
-    fresh_domains = frozenset(platforms)
-    _require_component_categories(fresh_domains)
-    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
-        _LOGGER.warning(
-            "Platform domain(s) in the shipped catalog but absent from the fresh "
-            "schema bundle: %s. Expected for a genuine upstream removal; check the "
-            "catalog diff if not.",
-            dropped,
-        )
-    _PLATFORM_DOMAINS = fresh_domains
+    _refresh_platform_domains(frozenset(platforms))
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -1232,6 +1211,25 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             metadata.setdefault(cid, meta or {})
 
     return SchemaIndex(metadata=metadata)
+
+
+def _refresh_platform_domains(fresh_domains: frozenset[str]) -> None:
+    """Replace ``_PLATFORM_DOMAINS``, warning on each added or dropped domain."""
+    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
+    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
+        _LOGGER.warning(
+            "Platform domain(s) in the shipped catalog but absent from the fresh "
+            "schema bundle: %s. Expected for a genuine upstream removal; check the "
+            "catalog diff if not.",
+            dropped,
+        )
+    if added := sorted(fresh_domains - _PLATFORM_DOMAINS):
+        _LOGGER.warning(
+            "New upstream platform domain(s): %s. Check the frontend's category "
+            "handling (ComponentCategory, filterByDomain, PLATFORM_DOMAINS).",
+            added,
+        )
+    _PLATFORM_DOMAINS = fresh_domains
 
 
 def iter_schema_files(schema_dir: Path) -> Iterable[Path]:
@@ -5555,73 +5553,69 @@ def _resolve_name(component_id: str, stem: str, doc_name: str | None) -> str:
 # external_components, ...). The frontend's "Add core configuration"
 # dialog is a thin filter on category=core, so this list defines what
 # the user sees there.
-_CATEGORY_OVERRIDES: dict[str, str] = {
+_CATEGORY_OVERRIDES: dict[str, ComponentCategory] = {
     # Core ESPHome infrastructure
-    "esphome": "core",
-    "wifi": "core",
-    "api": "core",
-    "ota": "core",
-    "logger": "core",
-    "mqtt": "core",
-    "web_server": "core",
-    "captive_portal": "core",
-    "safe_mode": "core",
-    "time": "core",
-    "network": "core",
-    "ethernet": "core",
-    "mdns": "core",
-    "improv_serial": "core",
-    "debug": "core",
-    "preferences": "core",
+    "esphome": ComponentCategory.CORE,
+    "wifi": ComponentCategory.CORE,
+    "api": ComponentCategory.CORE,
+    "ota": ComponentCategory.CORE,
+    "logger": ComponentCategory.CORE,
+    "mqtt": ComponentCategory.CORE,
+    "web_server": ComponentCategory.CORE,
+    "captive_portal": ComponentCategory.CORE,
+    "safe_mode": ComponentCategory.CORE,
+    "time": ComponentCategory.CORE,
+    "network": ComponentCategory.CORE,
+    "ethernet": ComponentCategory.CORE,
+    "mdns": ComponentCategory.CORE,
+    "improv_serial": ComponentCategory.CORE,
+    "debug": ComponentCategory.CORE,
+    "preferences": ComponentCategory.CORE,
     # Networking / web infrastructure that's auto-pulled by other
     # core components (ota.http_request → http_request,
     # web_server → web_server_base, etc.). Keeping them tagged
     # `core` lets the dependency-satisfaction filter on the core
     # dialog pass the parent OTA / web entries that depend on them.
-    "http_request": "core",
-    "web_server_base": "core",
-    "web_server_idf": "core",
-    "socket": "core",
-    "async_tcp": "core",
+    "http_request": ComponentCategory.CORE,
+    "web_server_base": ComponentCategory.CORE,
+    "web_server_idf": ComponentCategory.CORE,
+    "socket": ComponentCategory.CORE,
+    "async_tcp": ComponentCategory.CORE,
     # Target platform components (esp32, esp8266, ...) — these are
     # also tagged via `is_target_platform` introspection, but listing
     # them explicitly here makes the override authoritative.
-    "esp32": "core",
-    "esp8266": "core",
-    RP2_CANONICAL_PLATFORM: "core",
-    "bk72xx": "core",
-    "rtl87xx": "core",
-    "ln882x": "core",
-    "nrf52": "core",
-    "host": "core",
+    "esp32": ComponentCategory.CORE,
+    "esp8266": ComponentCategory.CORE,
+    RP2_CANONICAL_PLATFORM: ComponentCategory.CORE,
+    "bk72xx": ComponentCategory.CORE,
+    "rtl87xx": ComponentCategory.CORE,
+    "ln882x": ComponentCategory.CORE,
+    "nrf52": ComponentCategory.CORE,
+    "host": ComponentCategory.CORE,
     # Device-wide config keys (not really "components" — they don't
     # have C++ implementations — but they live at the top level of
     # YAML alongside real components).
-    "substitutions": "core",
-    "packages": "core",
-    "external_components": "core",
-    "dashboard_import": "core",
-    "globals": "core",
+    "substitutions": ComponentCategory.CORE,
+    "packages": ComponentCategory.CORE,
+    "external_components": ComponentCategory.CORE,
+    "dashboard_import": ComponentCategory.CORE,
+    "globals": ComponentCategory.CORE,
     # Bus / transport components
-    "i2c": "bus",
-    "spi": "bus",
-    "uart": "bus",
-    "one_wire": "bus",
-    "modbus": "bus",
-    "canbus": "bus",
+    "i2c": ComponentCategory.BUS,
+    "spi": ComponentCategory.BUS,
+    "uart": ComponentCategory.BUS,
+    "one_wire": ComponentCategory.BUS,
+    "modbus": ComponentCategory.BUS,
+    "canbus": ComponentCategory.BUS,
     # Automation primitives
-    "script": "automation",
-    "interval": "automation",
+    "script": ComponentCategory.AUTOMATION,
+    "interval": ComponentCategory.AUTOMATION,
 }
 
 
-def _infer_misc_category(top_key: str) -> str:
-    """Best-effort category for non-platform components.
-
-    Looks up ``_CATEGORY_OVERRIDES`` first (curated list mirroring the
-    legacy catalog), falls through to ``misc`` for everything else.
-    """
-    return _CATEGORY_OVERRIDES.get(top_key, "misc")
+def _infer_misc_category(top_key: str) -> ComponentCategory:
+    """Category for a non-platform component: its override, else ``misc``."""
+    return _CATEGORY_OVERRIDES.get(top_key, ComponentCategory.MISC)
 
 
 # ---------------------------------------------------------------------------

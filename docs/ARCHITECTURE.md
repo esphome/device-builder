@@ -316,8 +316,8 @@ repeatable. The platform-domain set itself is derived, not hand-curated: the
 schema bundle's `core.platforms` (upstream's `IS_PLATFORM_COMPONENT` markers)
 refreshes `_PLATFORM_DOMAINS` at sync time, the shipped catalog's dotted-id
 prefixes seed it at import, and the YAML serializer reads platform-ness off the
-dotted id directly. A new upstream domain missing a `ComponentCategory` member
-fails the sync loudly instead of degrading to MISC.
+dotted id directly. A platform entry's category is its domain string, so a new
+upstream domain flows through to the catalog filter with no code change.
 Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
 
