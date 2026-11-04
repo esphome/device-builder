@@ -34,6 +34,7 @@ from ..helpers.device_yaml import (
     SecretRef,
     _resolve_substitutions,
     extract_mqtt_block,
+    extract_mqtt_parts,
     safe_stat_key,
 )
 from ..helpers.subscriber_presence import SubscriberPresence
@@ -78,6 +79,16 @@ _PARSED_FIELDS = (*_BROKER_FIELDS, "skip_cert_cn_check", *_CLIENT_CERT_FIELDS)
 # the path only shapes a WebSocket endpoint.
 _ENDPOINT_FIELDS = ("broker", "transport")
 _WS_ENDPOINT_FIELDS = (*_ENDPOINT_FIELDS, "ws_path")
+# Fields that decide TLS, port and path; a ``packages:`` device whose
+# main block lacks one can't connect until a package-merged seed vouches
+# for it, or a package's ``transport: wss`` would go out as plaintext.
+_TRANSPORT_SHAPING_FIELDS = (
+    "transport",
+    "port",
+    "certificate_authority",
+    "ws_path",
+    "skip_cert_cn_check",
+)
 
 _PEM_CERT_MARKER = "-----BEGIN CERTIFICATE-----"
 
@@ -398,7 +409,8 @@ class DeviceMqttCoordinator:
             self._unresolved_logged,
             configuration,
             "Device %s declares mqtt: but broker could not be resolved "
-            "(missing secret, invalid config, an unsupported transport or ws_path, "
+            "(missing secret, invalid config, packages: that failed to load, "
+            "an unsupported transport, a ws_path not starting with '/', "
             "or a certificate_authority that is not valid inline PEM content)",
             "Device %s declares mqtt: but broker still could not be resolved",
             configuration,
@@ -496,6 +508,10 @@ def _mqtt_block_for(
     """Stat, ``mqtt:`` block and substitutions to parse; None when a reload must run first."""
     if extract is not None and _extract_fresh(extract, yaml_stat):
         block, subs = extract.main_block, extract.main_substitutions
+        if _needs_package_seed(extract, block, has_packages=extract.has_packages):
+            # Shallow: the deep reload fills the seed. Failed deep parse:
+            # refuse through the unresolved warning.
+            return None if extract.from_shallow_load else (yaml_stat, None, subs)
         if (merged := _inherit_seed_fields(block, extract.resolved_block)) is not None:
             # Seed values bake in secrets, so they are only as fresh as
             # the secrets file they were read against.
@@ -510,10 +526,25 @@ def _mqtt_block_for(
     # the extract-seed comparison. A seed that would add fields is as
     # stale as the extract and needs the reload too.
     yaml_stat, yaml_content = read_text_with_stat(yaml_path)
-    block, subs = extract_mqtt_block(yaml_content)
+    block, subs, has_packages = extract_mqtt_parts(yaml_content)
     if extract is not None and _inherit_seed_fields(block, extract.resolved_block) is not None:
         return None
+    if _needs_package_seed(extract, block, has_packages=has_packages):
+        return None
     return yaml_stat, block, subs
+
+
+def _needs_package_seed(
+    extract: DeviceMqttExtract | None, main_block: dict[str, Any] | None, *, has_packages: bool
+) -> bool:
+    """Whether packages may shape the transport but no package-merged seed is carried."""
+    if extract is not None and extract.resolved_block is not None:
+        return False
+    return (
+        has_packages
+        and main_block is not None
+        and any(f not in main_block for f in _TRANSPORT_SHAPING_FIELDS)
+    )
 
 
 def _inherit_seed_fields(
@@ -545,10 +576,13 @@ def _broker_from_block(
     # An unresolved ``${var}`` / ``$var`` token, or a declared field that
     # resolved to nothing (a missing secret), would otherwise become a
     # bogus or default endpoint and loop the monitor on connect failure.
+    # A WebSocket path must also be absolute.
     for field in _WS_ENDPOINT_FIELDS if websocket else _ENDPOINT_FIELDS:
         value = mqtt.get(field)
-        if (field in raw_mqtt and not value) or (
-            isinstance(value, str) and _UNRESOLVED_SUBSTITUTION_RE.search(value)
+        if (
+            (field in raw_mqtt and not value)
+            or (isinstance(value, str) and _UNRESOLVED_SUBSTITUTION_RE.search(value))
+            or (field == "ws_path" and value is not None and not value.startswith("/"))
         ):
             return None
     host = mqtt.get("broker")

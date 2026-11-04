@@ -197,6 +197,8 @@ def test_parse_mqtt_block_unresolved_port_substitution_falls_back_to_default() -
         # A leftover path on a plain TCP broker must not split its session.
         pytest.param("ws_path: /leftover", "tcp", "/mqtt", id="tcp-ignores-ws-path"),
         pytest.param("ws_path: ${unset}", "tcp", "/mqtt", id="tcp-ignores-unresolved-ws-path"),
+        pytest.param("ws_path: no-slash", "tcp", "/mqtt", id="tcp-ignores-unshaped-ws-path"),
+        pytest.param("ws_path: 123", "tcp", "/mqtt", id="tcp-ignores-non-string-ws-path"),
     ],
 )
 def test_parse_mqtt_block_reads_transport(block: str, transport: str, ws_path: str) -> None:
@@ -1121,6 +1123,10 @@ def test_coordinator_default_transport() -> None:
         pytest.param(
             {"transport": "wss", "ws_path": None}, id="declared-ws-path-resolves-to-nothing"
         ),
+        pytest.param({"transport": "ws", "ws_path": "esphome/mqtt"}, id="ws-path-no-slash"),
+        pytest.param({"transport": "wss", "ws_path": "mqtt"}, id="wss-path-no-slash"),
+        pytest.param({"transport": "ws", "ws_path": 123}, id="ws-path-non-string"),
+        pytest.param({"transport": "wss", "ws_path": ["/mqtt"]}, id="wss-path-list"),
     ],
 )
 def test_coordinator_refuses_unusable_transport(block: dict[str, Any]) -> None:
