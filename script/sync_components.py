@@ -1168,10 +1168,9 @@ def load_index(schema_dir: Path) -> SchemaIndex:
 
     Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
     ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set):
-    a bundle with no ``core.platforms`` fails loud, and a shipped
-    domain missing from the fresh bundle logs a warning.
+    a bundle with no ``core.platforms`` fails loud, and an added or
+    dropped domain logs a warning.
     """
-    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
 
     # 1. esphome.json — core.components and core.platforms.
@@ -1190,15 +1189,7 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             f"Schema bundle at {schema_dir} has no core.platforms (esphome.json missing or "
             "empty); refusing to sync against the stale shipped domain set."
         )
-    fresh_domains = frozenset(platforms)
-    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
-        _LOGGER.warning(
-            "Platform domain(s) in the shipped catalog but absent from the fresh "
-            "schema bundle: %s. Expected for a genuine upstream removal; check the "
-            "catalog diff if not.",
-            dropped,
-        )
-    _PLATFORM_DOMAINS = fresh_domains
+    _refresh_platform_domains(frozenset(platforms))
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -1220,6 +1211,25 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             metadata.setdefault(cid, meta or {})
 
     return SchemaIndex(metadata=metadata)
+
+
+def _refresh_platform_domains(fresh_domains: frozenset[str]) -> None:
+    """Replace ``_PLATFORM_DOMAINS``, warning on each added or dropped domain."""
+    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
+    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
+        _LOGGER.warning(
+            "Platform domain(s) in the shipped catalog but absent from the fresh "
+            "schema bundle: %s. Expected for a genuine upstream removal; check the "
+            "catalog diff if not.",
+            dropped,
+        )
+    if added := sorted(fresh_domains - _PLATFORM_DOMAINS):
+        _LOGGER.warning(
+            "New upstream platform domain(s): %s. Check the frontend's category "
+            "handling (ComponentCategory, filterByDomain, PLATFORM_DOMAINS).",
+            added,
+        )
+    _PLATFORM_DOMAINS = fresh_domains
 
 
 def iter_schema_files(schema_dir: Path) -> Iterable[Path]:
@@ -5604,11 +5614,7 @@ _CATEGORY_OVERRIDES: dict[str, ComponentCategory] = {
 
 
 def _infer_misc_category(top_key: str) -> ComponentCategory:
-    """Best-effort category for non-platform components.
-
-    Looks up ``_CATEGORY_OVERRIDES`` first (curated list mirroring the
-    legacy catalog), falls through to ``misc`` for everything else.
-    """
+    """Category for a non-platform component: its override, else ``misc``."""
     return _CATEGORY_OVERRIDES.get(top_key, ComponentCategory.MISC)
 
 

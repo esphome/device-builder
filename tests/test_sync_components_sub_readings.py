@@ -270,6 +270,21 @@ def test_load_index_warns_on_dropped_domain(
     assert frozenset({"sensor"}) == sync_components._PLATFORM_DOMAINS
 
 
+def test_load_index_warns_on_new_domain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A domain in the fresh bundle but not the shipped set logs a warning and syncs."""
+    from script import sync_components  # noqa: PLC0415
+
+    monkeypatch.setattr(sync_components, "_PLATFORM_DOMAINS", frozenset({"sensor"}))
+    platforms = {"sensor": {}, "packet_interface": {}}
+    (tmp_path / "esphome.json").write_text(json.dumps({"core": {"platforms": platforms}}))
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        sync_components.load_index(tmp_path)
+    assert "New upstream platform domain(s): ['packet_interface']" in caplog.text
+    assert frozenset(platforms) == sync_components._PLATFORM_DOMAINS
+
+
 def test_resolve_auto_load_handles_callable() -> None:
     """A callable AUTO_LOAD resolves to its list; one that can't run falls back to []."""
     assert _resolve_auto_load(["a", "b"]) == ["a", "b"]
