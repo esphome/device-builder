@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import run_in_executor
-from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.atomic_io import atomic_write_exclusive, move_exclusive
 from ...helpers.device_config import raise_device_not_found
 from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode
@@ -236,7 +236,8 @@ def _apply_rename(settings: DashboardSettings, plan: RenamePlan, old: str, new: 
         for rel, text in plan.texts.items():
             write_user_yaml(settings.rel_path(rel), text)
             written.append(rel)
-        settings.rel_path(old).rename(settings.rel_path(new))
+        # An editor outside the dashboard may have taken the name since the check.
+        move_exclusive(settings.rel_path(old), settings.rel_path(new))
     except BaseException as err:
         failed: list[str] = []
         for rel in written:
@@ -248,4 +249,6 @@ def _apply_rename(settings: DashboardSettings, plan: RenamePlan, old: str, new: 
         if failed:
             msg = f"renaming failed and {', '.join(failed)} could not be restored"
             raise CommandError(ErrorCode.INTERNAL_ERROR, msg) from err
+        if isinstance(err, FileExistsError):
+            raise CommandError(ErrorCode.ALREADY_EXISTS, f"{new!r} already exists") from err
         raise

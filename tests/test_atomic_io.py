@@ -15,6 +15,7 @@ from esphome_device_builder.helpers.atomic_io import (
     atomic_write,
     atomic_write_exclusive,
     atomic_write_preserving_mode,
+    move_exclusive,
     read_bytes_with_retry,
     read_text_with_stat,
 )
@@ -475,3 +476,25 @@ def test_atomic_write_exclusive_fallback_still_refuses_existing_target(
 
     assert target.read_bytes() == b"original"
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_move_exclusive_moves_the_file(tmp_path: Path) -> None:
+    src, dst = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    src.write_text("x: 1\n", encoding="utf-8")
+
+    move_exclusive(src, dst)
+
+    assert not src.exists()
+    assert dst.read_text(encoding="utf-8") == "x: 1\n"
+
+
+def test_move_exclusive_refuses_an_existing_destination(tmp_path: Path) -> None:
+    src, dst = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    src.write_text("x: 1\n", encoding="utf-8")
+    dst.write_text("mine: 1\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        move_exclusive(src, dst)
+
+    assert src.read_text(encoding="utf-8") == "x: 1\n"
+    assert dst.read_text(encoding="utf-8") == "mine: 1\n"

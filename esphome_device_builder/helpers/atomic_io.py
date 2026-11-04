@@ -95,6 +95,13 @@ def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> Non
     _staged_write(path, data, mode=mode, publish=_publish_exclusive)
 
 
+def move_exclusive(src: Path, dst: Path) -> None:
+    """Move *src* onto *dst* in the same folder; ``FileExistsError`` when *dst* exists."""
+    _publish_exclusive(src, dst)
+    if not _IS_WINDOWS:  # There the publish was the move.
+        src.unlink()
+
+
 def read_bytes_with_retry(path: Path) -> bytes:
     """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
     return _retry_windows_permission(path.read_bytes)

@@ -222,7 +222,7 @@ async def test_rename_failed_move_restores_the_referrers(
 
     with (
         patch.object(devices, "get_devices", return_value=_users()),
-        patch.object(Path, "rename", side_effect=OSError("disk full")),
+        patch.object(controller_module, "move_exclusive", side_effect=OSError("disk full")),
         pytest.raises(OSError, match="disk full"),
     ):
         await files.rename(path="common/base.yaml", new_path="common/main.yaml")
@@ -230,6 +230,34 @@ async def test_rename_failed_move_restores_the_referrers(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == before
     assert (tmp_path / "common/base.yaml").exists()
     assert not (tmp_path / "common/main.yaml").exists()
+    assert commits == []
+
+
+async def test_rename_keeps_a_destination_created_after_the_check(
+    tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
+) -> None:
+    _, devices, commits = setup
+    kitchen = tmp_path / "kitchen.yaml"
+    before = kitchen.read_text(encoding="utf-8")
+    destination = tmp_path / "common/main.yaml"
+    real_write = controller_module.write_user_yaml
+
+    def _write(path: Path, text: str) -> None:
+        real_write(path, text)
+        if not destination.exists():
+            destination.write_text("mine: 1\n", encoding="utf-8")
+
+    with (
+        patch.object(devices, "get_devices", return_value=_users()),
+        patch.object(controller_module, "write_user_yaml", _write),
+        pytest.raises(CommandError) as exc_info,
+    ):
+        await files.rename(path="common/base.yaml", new_path="common/main.yaml")
+
+    assert exc_info.value.code is ErrorCode.ALREADY_EXISTS
+    assert destination.read_text(encoding="utf-8") == "mine: 1\n"
+    assert kitchen.read_text(encoding="utf-8") == before
+    assert (tmp_path / "common/base.yaml").exists()
     assert commits == []
 
 
@@ -292,7 +320,7 @@ async def test_rename_names_a_referrer_it_could_not_restore(
     with (
         patch.object(devices, "get_devices", return_value=_users()),
         patch.object(controller_module, "write_user_yaml", _write),
-        patch.object(Path, "rename", side_effect=OSError("disk full")),
+        patch.object(controller_module, "move_exclusive", side_effect=OSError("disk full")),
         pytest.raises(CommandError) as exc_info,
     ):
         await files.rename(path="common/base.yaml", new_path="common/main.yaml")
