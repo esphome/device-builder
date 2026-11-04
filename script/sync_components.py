@@ -158,7 +158,6 @@ from esphome_device_builder.models import (  # noqa: E402
     AutomationTrigger,
     AutomationTriggerIndex,
     ComponentCatalogEntry,
-    ComponentCategory,
     Filter,
     FilterIndex,
     LightEffect,
@@ -182,17 +181,6 @@ def _platform_domains_from_shipped_index() -> frozenset[str]:
     """Platform domains present in the checked-in catalog."""
     payload = orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())
     return _domains_from_ids(c["id"] for c in payload["components"])
-
-
-def _require_component_categories(domains: frozenset[str]) -> None:
-    """Fail the sync loudly when a platform domain has no ``ComponentCategory`` member."""
-    missing = sorted(domains - {c.value for c in ComponentCategory})
-    if missing:
-        raise SystemExit(
-            f"New upstream platform domain(s) without a ComponentCategory member: {missing}. "
-            "Add the enum member(s) in esphome_device_builder/models/components.py and "
-            "coordinate the frontend category UI, then re-run."
-        )
 
 
 # Top-level platform domains in the schema. Components are keyed as
@@ -1202,7 +1190,6 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             "empty); refusing to sync against the stale shipped domain set."
         )
     fresh_domains = frozenset(platforms)
-    _require_component_categories(fresh_domains)
     if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
         _LOGGER.warning(
             "Platform domain(s) in the shipped catalog but absent from the fresh "

@@ -289,7 +289,7 @@ def _apply_preset_value(entry: ConfigEntry, value: object, *, locked: bool) -> N
 # ---------------------------------------------------------------------------
 
 
-def _as_category_set(value: ComponentCategory | str | list[str]) -> set[str]:
+def _as_category_set(value: str | list[str]) -> set[str]:
     """Normalise a category filter into a set of plain strings.
 
     Accepts a single ``ComponentCategory`` / string or a list of

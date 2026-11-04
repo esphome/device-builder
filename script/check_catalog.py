@@ -9,7 +9,6 @@ JSON loader the API uses), then asserts that a curated list of
 well-known components are present and structured the way the
 frontend expects. Catches:
 
-- A new ``ComponentCategory`` value the loader doesn't know about
 - A popular component disappearing from the catalog
 - A field's type changing in a way that would break form rendering
   (e.g. ``output.gpio.pin`` flipping from ``pin`` to ``string``)

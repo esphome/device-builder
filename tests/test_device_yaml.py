@@ -3628,9 +3628,7 @@ def test_board_provides_network_for_package_boards() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_component(
-    entry_id: str, category: ComponentCategory = ComponentCategory.CORE
-) -> ComponentCatalogEntry:
+def _make_component(entry_id: str, category: str = ComponentCategory.CORE) -> ComponentCatalogEntry:
     """Minimal ``ComponentCatalogEntry`` for the network-default tests."""
     return ComponentCatalogEntry(id=entry_id, name=entry_id, description="", category=category)
 
