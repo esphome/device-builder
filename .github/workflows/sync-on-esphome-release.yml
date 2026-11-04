@@ -78,6 +78,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         with:
+          retries: 3
           script: |
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
