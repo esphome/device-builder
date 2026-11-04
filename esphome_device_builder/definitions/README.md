@@ -371,6 +371,23 @@ Default components only fire at device creation; existing devices
 keep whatever YAML they already have, and users are free to delete
 or edit any default block — the dashboard won't re-add it.
 
+**Demo config.** A board can ship a starter config as `boards/<id>/demo.yaml`
+next to its manifest. The sync bakes it into the board body (`demo_yaml`), and
+`devices/create` merges it on top of the generated template plus
+`default_components`. Keep hardware in the manifest (buses, display, outputs,
+LEDs as default components) and put only the demo's behaviour in the overlay
+(LVGL pages, scripts, automations), referencing the default components by id.
+
+The merge appends blocks the template lacks, adds list items under an existing
+domain (`switch:`), and adds keys to an existing mapping (`nrf52: dfu: true`).
+An item written `- id: !extend <id>` adds its keys (say `on_press:`) to the
+default component with that id, so automations attach to manifest hardware
+without redefining its pins. The merge refuses an overlay that repeats a key
+the template already sets, extends a missing id, or mixes list and mapping
+forms, so leave `esphome:` naming and the platform `board:` to the template.
+Write each top-level key once, as a block header (`logger: {}` or an inline
+`!include` is refused).
+
 The validator (`script/validate_definitions.py`) cross-checks every
 featured component against the component catalog: the `component_id` must
 exist, every key in `fields:` must match a real `ConfigEntry.key`, and

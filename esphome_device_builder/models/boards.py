@@ -287,6 +287,10 @@ class BoardCatalogEntry(DashboardModel):
     # The ``packages:`` mapping key for the import (e.g.
     # ``esphome.bluetooth-proxy``); falls back to the board id when empty.
     package_name: str = ""
+    # Complete demo config (the board dir's ``demo.yaml``, written against the
+    # ``${name}`` / ``${friendly_name}`` substitutions): when set,
+    # ``devices/create`` writes it instead of expanding component defaults.
+    demo_yaml: str = ""
     # Components recommended for this board, surfaced in the Add
     # Component dialog as a "Recommended" section.
     featured_components: list[FeaturedComponent] = field(default_factory=list)

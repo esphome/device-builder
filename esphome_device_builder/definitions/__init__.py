@@ -70,6 +70,7 @@ _MIGRATION_RULES_INDEX_JSON = _DEFINITIONS_DIR / "migration_rules.index.json"
 
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 _GENERIC_DIR = _BOARDS_DIR / "_generic"
+BOARD_DEMO_FILENAME = "demo.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +351,12 @@ def _resolve_full_config(data: dict[str, Any]) -> bool:
     return isinstance(source, dict) and source.get("type") in IMPORT_SOURCE_TYPES
 
 
+def _load_demo_yaml(board_dir: Path) -> str:
+    """Return the board's ``demo.yaml`` text, or ``""`` when it ships none."""
+    demo = board_dir / BOARD_DEMO_FILENAME
+    return demo.read_text(encoding="utf-8") if demo.is_file() else ""
+
+
 def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogResponse:
     """
     Build the board catalog by parsing every ``manifest.yaml`` on disk.
@@ -405,6 +412,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                     full_config=full_config,
                     package_import_url=data.get("package_import_url", ""),
                     package_name=data.get("package_name", ""),
+                    demo_yaml=_load_demo_yaml(board_dir),
                     featured_components=[
                         _load_featured_component(fc, board_dir, multi_conf_by_id)
                         for fc in data.get("featured_components", [])
