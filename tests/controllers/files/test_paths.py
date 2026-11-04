@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -177,3 +180,20 @@ def test_list_archived_devices(tmp_path: Path, tmp_path_factory: pytest.TempPath
 
 def test_list_archived_devices_without_archive(tmp_path: Path) -> None:
     assert list_archived_devices(tmp_path) == []
+
+
+def test_listing_logs_a_folder_it_cannot_list(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "private").mkdir()
+    real_scandir = os.scandir
+
+    def _scandir(path: Any) -> Any:
+        if Path(path).name == "private":
+            raise PermissionError(13, "denied", str(path))
+        return real_scandir(path)
+
+    with patch("os.scandir", _scandir):
+        assert list_package_files(tmp_path) == []
+
+    assert "private" in caplog.text

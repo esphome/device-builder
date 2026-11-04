@@ -12,6 +12,7 @@ import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController, file_change
 from esphome_device_builder.controllers.files import FilesController
+from esphome_device_builder.controllers.files import controller as controller_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -266,5 +267,32 @@ async def test_dependencies_missing_device(setup: Setup) -> None:
         pytest.raises(CommandError) as exc_info,
     ):
         await files.dependencies(configuration="nope.yaml")
+
+    assert exc_info.value.code is ErrorCode.NOT_FOUND
+
+
+async def test_create_losing_a_race_is_already_exists(tmp_path: Path, setup: Setup) -> None:
+    files, _, commits = setup
+
+    with (
+        patch.object(controller_module, "atomic_write_exclusive", side_effect=FileExistsError),
+        pytest.raises(CommandError) as exc_info,
+    ):
+        await files.create(path="common/new.yaml", content="a: 1\n")
+
+    assert exc_info.value.code is ErrorCode.ALREADY_EXISTS
+    assert commits == []
+
+
+async def test_delete_losing_a_race_is_not_found(tmp_path: Path, setup: Setup) -> None:
+    files, _, _ = setup
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common/gone.yaml").write_text("a: 1\n", encoding="utf-8")
+
+    with (
+        patch.object(Path, "unlink", side_effect=FileNotFoundError),
+        pytest.raises(CommandError) as exc_info,
+    ):
+        await files.delete(path="common/gone.yaml")
 
     assert exc_info.value.code is ErrorCode.NOT_FOUND

@@ -505,3 +505,24 @@ def test_case_folding_filesystems_match_any_spelling(
     assert plan.texts == {"kitchen.yaml": "b: !include common/main.yaml\n"}
     assert plan.remaining == {"garage.yaml"}
     assert find_referrers(tmp_path, "common/base.yaml").rewritable == ["kitchen.yaml"]
+
+
+def test_an_include_mapping_without_a_file_has_no_target(tmp_path: Path) -> None:
+    write_tree(tmp_path, {"kitchen.yaml": "b: !include {vars: {a: 1}}\n"})
+
+    plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
+
+    assert plan.remaining == set()
+
+
+def test_a_file_key_that_is_not_a_scalar_may_still_name_the_old_file(tmp_path: Path) -> None:
+    write_tree(tmp_path, {"kitchen.yaml": "b: !include {file: [common/base.yaml]}\n"})
+
+    plan = plan_rename(tmp_path, "common/base.yaml", "common/main.yaml")
+
+    assert plan.texts == {}
+    assert plan.remaining == {"kitchen.yaml"}
+
+
+def test_a_file_gone_since_the_listing_reads_as_empty(tmp_path: Path) -> None:
+    assert rename_module._read(tmp_path / "gone.yaml") == ""

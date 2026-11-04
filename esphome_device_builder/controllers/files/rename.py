@@ -251,7 +251,7 @@ def _include_target(tokens: list[Token], i: int, text: str) -> _Target | None:
             if isinstance(value, ScalarToken):
                 return _scalar_target(value, text)
             return _Target(None, None)
-    return _Target(None, None)  # the mapping never closes
+    return _Target(None, None)  # pragma: no cover - the parser rejects an unclosed mapping
 
 
 def _is_file_key(tokens: list[Token], i: int) -> bool:
