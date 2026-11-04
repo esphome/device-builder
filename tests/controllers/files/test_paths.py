@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.controllers.files.paths import (
+    iter_subfolder_yamls,
     list_archived_devices,
     list_package_files,
     parse_file_path,
@@ -60,6 +61,15 @@ def test_parse_refuses(path: object) -> None:
     with pytest.raises(CommandError) as exc_info:
         parse_file_path(path, in_subfolder=True)
     assert exc_info.value.code is ErrorCode.INVALID_ARGS
+
+
+def test_folder_secrets_are_walked_but_are_not_packages(tmp_path: Path) -> None:
+    (tmp_path / "common").mkdir()
+    for name in ("base.yaml", "secrets.yaml"):
+        (tmp_path / "common" / name).write_text("x: 1\n", encoding="utf-8")
+
+    assert list_package_files(tmp_path) == ["common/base.yaml"]
+    assert sorted(iter_subfolder_yamls(tmp_path)) == ["common/base.yaml", "common/secrets.yaml"]
 
 
 def test_parse_top_level_allowed_outside_subfolder_mode() -> None:

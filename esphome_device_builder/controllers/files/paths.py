@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
 
@@ -54,8 +55,12 @@ def parse_file_path(path: Any, *, in_subfolder: bool, plain_name: bool = False) 
 
 def list_package_files(config_dir: Path) -> list[str]:
     """Return every YAML below a subfolder of *config_dir*, POSIX-relative and sorted. Blocking."""
+    return sorted(rel for rel in iter_subfolder_yamls(config_dir) if not is_secrets_file(rel))
+
+
+def iter_subfolder_yamls(config_dir: Path) -> Iterator[str]:
+    """Yield every YAML below a subfolder of *config_dir*, secrets files included. Blocking."""
     root = config_dir.resolve()
-    found: list[str] = []
     # os.walk does not descend into symlinked dirs (followlinks=False).
     for dirpath, dirnames, filenames in os.walk(config_dir, onerror=_log_walk_error):
         rel_dir = Path(dirpath).relative_to(config_dir)
@@ -68,11 +73,7 @@ def list_package_files(config_dir: Path) -> list[str]:
         if top:
             continue
         for name in filenames:
-            if (
-                name.startswith(".")
-                or not name.lower().endswith(_YAML_SUFFIXES)
-                or is_secrets_file(name)
-            ):
+            if name.startswith(".") or not name.lower().endswith(_YAML_SUFFIXES):
                 continue
             full = Path(dirpath, name)
             if full.is_symlink():
@@ -80,8 +81,7 @@ def list_package_files(config_dir: Path) -> list[str]:
                     resolve_under_root(full, root)
                 except PathEscapeError:
                     continue
-            found.append((rel_dir / name).as_posix())
-    return sorted(found)
+            yield (rel_dir / name).as_posix()
 
 
 def list_archived_devices(config_dir: Path) -> list[str]:

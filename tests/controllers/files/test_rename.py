@@ -149,6 +149,23 @@ def test_plan_rename_matches_an_uppercase_extension(tmp_path: Path) -> None:
     assert plan.remaining == set()
 
 
+def test_plan_rename_checks_a_folders_secrets_without_rewriting_them(tmp_path: Path) -> None:
+    write_tree(
+        tmp_path,
+        {
+            "common/secrets.yaml": "<<: !include creds.yaml\n",
+            "common/creds.yaml": "wifi: x\n",
+        },
+    )
+
+    plan = plan_rename(tmp_path, "common/creds.yaml", "common/keys.yaml")
+
+    assert plan.texts == {}
+    assert plan.remaining == {"common/secrets.yaml"}
+    assert plan.stale == {"common/secrets.yaml"}
+    assert find_referrers(tmp_path, "common/creds.yaml").referenced_by == []
+
+
 def test_plan_rename_checks_secrets_and_block_form_substitutions(tmp_path: Path) -> None:
     write_tree(
         tmp_path,

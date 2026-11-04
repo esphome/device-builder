@@ -28,7 +28,7 @@ from yaml.tokens import (
 
 from ...constants import SECRETS_FILENAMES, is_secrets_file
 from ...helpers.yaml import FastestSafeLoader
-from .paths import dependency_key, list_archived_devices, list_package_files
+from .paths import dependency_key, iter_subfolder_yamls, list_archived_devices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -292,6 +292,7 @@ def _candidates(config_dir: Path) -> Iterable[tuple[str, str]]:
     for path in util.list_yaml_files([config_dir]):
         yield path.name, ""
     yield from ((name, "") for name in SECRETS_FILENAMES if (config_dir / name).is_file())
-    yield from ((rel, posixpath.dirname(rel)) for rel in list_package_files(config_dir))
+    # A folder's own secrets.yaml is included: ``!secret`` in that folder reads it.
+    yield from ((rel, posixpath.dirname(rel)) for rel in iter_subfolder_yamls(config_dir))
     # Unarchiving moves a device back to the top level, so its includes resolve from there.
     yield from ((rel, "") for rel in list_archived_devices(config_dir))
