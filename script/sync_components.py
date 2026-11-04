@@ -1225,8 +1225,7 @@ def _refresh_platform_domains(fresh_domains: frozenset[str]) -> None:
         )
     if added := sorted(fresh_domains - _PLATFORM_DOMAINS):
         _LOGGER.warning(
-            "New upstream platform domain(s): %s. Check the frontend's category "
-            "handling (ComponentCategory, filterByDomain, PLATFORM_DOMAINS).",
+            "New upstream platform domain(s): %s",
             added,
         )
     _PLATFORM_DOMAINS = fresh_domains
