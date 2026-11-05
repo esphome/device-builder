@@ -60,6 +60,8 @@ from esphome_device_builder.models import Device, DeviceState
 from .conftest import RecordingMonitorCallbacks
 from .conftest import make_device as _make_device
 
+_MDNS_CLOCK = "esphome_device_builder.controllers._device_state_monitor.mdns.current_time_millis"
+
 
 def _flip_state(devices: list[Device]) -> Any:
     """Production's ``_on_state_change`` writes the new state back onto every matching device.
@@ -678,6 +680,7 @@ def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
     unit mismatch surfaces here without depending on a stub
     matching the production assumption.
     """
+    now = float(int(current_time_millis()))
     zc = Zeroconf(interfaces=["127.0.0.1"])
     try:
         rec = DNSAddress(
@@ -686,7 +689,7 @@ def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
             class_=_CLASS_IN,
             ttl=120,
             address=socket.inet_aton("10.0.0.42"),
-            created=current_time_millis() - 30_000,
+            created=now - 30_000,
         )
         zc.cache.async_add_records([rec])
 
@@ -695,16 +698,14 @@ def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
         # ``Zeroconf`` in a stub object exposing the same attribute.
         monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.mdns.get_mdns_cache_info("kitchen")
+        with patch(_MDNS_CLOCK, return_value=now):
+            info = monitor.mdns.get_mdns_cache_info("kitchen")
         assert info is not None
-        # Age is "now - created" in seconds. Allow a small margin
-        # for the milliseconds elapsed between the test's
-        # ``current_time_millis()`` capture and the helper's.
-        assert info.age_seconds == pytest.approx(30.0, abs=0.5)
+        assert info.age_seconds == 30.0
         # TTL=120s, age=30s → ~90s remaining. The bug rendered
         # this as 0.090 (ms-treated-as-s); the assertion would
         # fail there.
-        assert info.ttl_remaining_seconds == pytest.approx(90.0, abs=0.5)
+        assert info.ttl_remaining_seconds == 90.0
     finally:
         zc.close()
 
@@ -718,6 +719,7 @@ def test_get_mdns_a_record_ttl_remaining_picks_min_across_a_aaaa() -> None:
     longer-TTL PTR. Pin the min-across-A/AAAA shape so a future
     change picking max (or only A) doesn't sleep too long.
     """
+    now = float(int(current_time_millis()))
     zc = Zeroconf(interfaces=["127.0.0.1"])
     try:
         a_rec = DNSAddress(
@@ -726,7 +728,7 @@ def test_get_mdns_a_record_ttl_remaining_picks_min_across_a_aaaa() -> None:
             class_=_CLASS_IN,
             ttl=120,
             address=socket.inet_aton("10.0.0.42"),
-            created=current_time_millis() - 30_000,  # 90s remaining
+            created=now - 30_000,  # 90s remaining
         )
         aaaa_rec = DNSAddress(
             name="kitchen.local.",
@@ -734,17 +736,18 @@ def test_get_mdns_a_record_ttl_remaining_picks_min_across_a_aaaa() -> None:
             class_=_CLASS_IN,
             ttl=120,
             address=b"\x20\x01" + b"\x00" * 14,
-            created=current_time_millis() - 80_000,  # 40s remaining
+            created=now - 80_000,  # 40s remaining
         )
         zc.cache.async_add_records([a_rec, aaaa_rec])
 
         monitor = _make_monitor([_make_device()], None)
         monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        ttl_remaining = monitor.mdns.get_mdns_a_record_ttl_remaining("kitchen")
+        with patch(_MDNS_CLOCK, return_value=now):
+            ttl_remaining = monitor.mdns.get_mdns_a_record_ttl_remaining("kitchen")
         assert ttl_remaining is not None
         # AAAA's 40s wins (smaller).
-        assert ttl_remaining == pytest.approx(40.0, abs=0.5)
+        assert ttl_remaining == 40.0
     finally:
         zc.close()
 
@@ -770,6 +773,7 @@ def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
     via a real ``Zeroconf`` cache so a refactor that drops one
     of the type queries surfaces here.
     """
+    now = float(int(current_time_millis()))
     zc = Zeroconf(interfaces=["127.0.0.1"])
     try:
         a_rec = DNSAddress(
@@ -778,7 +782,7 @@ def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
             class_=_CLASS_IN,
             ttl=120,
             address=socket.inet_aton("10.0.0.42"),
-            created=current_time_millis() - 110_000,
+            created=now - 110_000,
         )
         ptr_rec = DNSPointer(
             name="_esphomelib._tcp.local.",
@@ -786,17 +790,18 @@ def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
             class_=_CLASS_IN,
             ttl=4500,
             alias="kitchen._esphomelib._tcp.local.",
-            created=current_time_millis() - 5_000,
+            created=now - 5_000,
         )
         zc.cache.async_add_records([a_rec, ptr_rec])
 
         monitor = _make_monitor([_make_device()], None)
         monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.mdns.get_mdns_cache_info("kitchen")
+        with patch(_MDNS_CLOCK, return_value=now):
+            info = monitor.mdns.get_mdns_cache_info("kitchen")
         assert info is not None
         # PTR (5s ago) is fresher than A (110s ago) → PTR wins.
-        assert info.age_seconds == pytest.approx(5.0, abs=0.5)
+        assert info.age_seconds == 5.0
         # PTR full announced lifetime (not remaining) — the drawer
         # derives the offline countdown from this minus last-seen age.
         assert info.ptr_ttl_seconds == 4500.0
@@ -1217,7 +1222,7 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     wins. Pin the unit-conversion contract too (zeroconf's
     millisecond timestamps → reachability's seconds).
     """
-    now_ms = current_time_millis()
+    now_ms = float(int(current_time_millis()))
     # ``get_remaining_ttl`` returns SECONDS already (zeroconf's
     # implementation divides by 1000 internally). Stub it as
     # seconds — passing milliseconds here masked a real bug
@@ -1234,13 +1239,12 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     monitor = _make_monitor([_make_device()], None)
     monitor.mdns._zeroconf = fake_zeroconf
 
-    info = monitor.mdns.get_mdns_cache_info("kitchen")
+    with patch(_MDNS_CLOCK, return_value=now_ms):
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
     assert isinstance(info, MdnsCacheInfo)
-    # Newer record wins; allow a small margin for the millisecond
-    # difference between the test's ``current_time_millis()`` capture
-    # and the one inside ``get_mdns_cache_info``.
-    assert info.age_seconds == pytest.approx(5.0, abs=0.5)
-    assert info.ttl_remaining_seconds == pytest.approx(115.0, abs=0.5)
+    # Newer record wins.
+    assert info.age_seconds == 5.0
+    assert info.ttl_remaining_seconds == 115.0
     # No PTR cached (lookup stubbed to None) → no offline-countdown horizon.
     assert info.ptr_ttl_seconds is None
 
@@ -1365,6 +1369,7 @@ def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr(
     esphomelib_ttl: int, http_ttl: int
 ) -> None:
     """With both PTRs live the countdown rides the esphomelib ownership anchor."""
+    now = float(int(current_time_millis()))
     zc = Zeroconf(interfaces=["127.0.0.1"])
     try:
         zc.cache.async_add_records(
@@ -1375,7 +1380,7 @@ def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr(
                     class_=_CLASS_IN,
                     ttl=esphomelib_ttl,
                     alias="kitchen._esphomelib._tcp.local.",
-                    created=current_time_millis(),
+                    created=now,
                 ),
                 DNSPointer(
                     name="_http._tcp.local.",
@@ -1383,17 +1388,18 @@ def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr(
                     class_=_CLASS_IN,
                     ttl=http_ttl,
                     alias="kitchen._http._tcp.local.",
-                    created=current_time_millis(),
+                    created=now,
                 ),
             ]
         )
         monitor = _make_monitor([_make_device()], None)
         monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.mdns.get_mdns_cache_info("kitchen")
+        with patch(_MDNS_CLOCK, return_value=now):
+            info = monitor.mdns.get_mdns_cache_info("kitchen")
 
         assert info is not None
         assert info.ptr_ttl_seconds == float(esphomelib_ttl)
-        assert info.ttl_remaining_seconds == pytest.approx(float(esphomelib_ttl), abs=0.5)
+        assert info.ttl_remaining_seconds == float(esphomelib_ttl)
     finally:
         zc.close()
