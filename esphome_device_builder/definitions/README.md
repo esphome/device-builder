@@ -132,6 +132,26 @@ hook regenerates the same bytes, and passes.
 
 ## Adding a Board
 
+**Submit the board to [devices.esphome.io](https://devices.esphome.io/devices/adding-devices) first.**
+Its device page hosts the photo, documents the pinout and links the shop, so the
+manifest here can point at it instead of at the manufacturer's site. Open the
+board PR here once that page has merged.
+
+### No new external domains
+
+A board manifest must not add a URL on a domain the catalog doesn't already
+reference. Every external domain is something the dashboard links to or fetches
+for as long as the board ships, from a site we don't control.
+
+- **Images**: the photo goes in the device folder on devices.esphome.io; reference it through
+  `https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/<Dir>/<file>`.
+- **`docs_url`**: the board's devices.esphome.io page,
+  `https://devices.esphome.io/devices/<Dir>/`, or an esphome.io component page.
+- **`product_url`**: leave it out when its domain isn't already in the catalog.
+  The devices.esphome.io page's `project-url` carries the shop link instead.
+
+`boards/iotix-adam/manifest.yaml` is a curated board that follows this shape.
+
 Create a new subfolder in `boards/` with a `manifest.yaml`:
 
 ```
@@ -172,17 +192,18 @@ hardware:
 
 # Optional metadata
 tags: [compact, usb-c, rgb-led]   # only the enum values in board.schema.json
-docs_url: "https://esphome.io/components/esp32.html"
-product_url: "https://example.com/my-awesome-board"
+docs_url: "https://devices.esphome.io/devices/My-Awesome-Board/"
+product_url: "https://www.waveshare.com/my-awesome-board.htm"  # only on a domain already in the catalog
 is_generic: false              # true only for generic fallback boards
 
-# Images: hosted URLs (manufacturer product page), first = primary.
-# Don't commit image files — definitions/ ships in the PyPI wheel, so
-# binaries bloat every install (the generic chip SVGs are the one
-# exception). validate_definitions.py --check-images verifies the URLs.
+# Images: hosted on devices.esphome.io (see "No new external domains"),
+# first = primary. Don't commit image files here; definitions/ ships in
+# the PyPI wheel, so binaries bloat every install (the generic chip SVGs
+# are the one exception). validate_definitions.py --check-images verifies
+# the URLs.
 images:
-  - "https://example.com/media/my-awesome-board-top.jpg"
-  - "https://example.com/media/my-awesome-board-pinout.jpg"
+  - "https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/My-Awesome-Board/top.jpg"
+  - "https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/My-Awesome-Board/pinout.jpg"
 
 # Pin definitions (see below)
 pins:
