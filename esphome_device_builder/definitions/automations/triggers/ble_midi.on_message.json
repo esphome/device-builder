@@ -1,0 +1,1 @@
+{"id":"ble_midi.on_message","name":"Ble Midi → On Message","description":"An automation to perform for every MIDI message, as raw bytes. See [`on_message`](https://esphome.io/components/ble_midi/#on_message).","docs_url":"https://esphome.io/components/ble_midi/#configuration-variables","applies_to":["ble_midi"],"is_device_level":false,"supports_list":true,"config_entries":[]}

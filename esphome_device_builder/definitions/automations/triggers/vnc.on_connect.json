@@ -1,0 +1,1 @@
+{"id":"vnc.on_connect","name":"Vnc → On Connect","description":"An automation to run when the client has connected to the server, before the first picture arrives.","docs_url":"https://esphome.io/components/vnc/#configuration-variables","applies_to":["vnc"],"is_device_level":false,"supports_list":true,"config_entries":[]}
