@@ -488,6 +488,26 @@ def test_rewrite_keeps_the_folder_of_a_windows_style_include(
     assert rewritten == "b: !include common\\main.yaml\n"
 
 
+@pytest.mark.parametrize(
+    ("ref", "expected"),
+    [
+        pytest.param(".\\base.yaml", ".\\main.yaml", id="dot"),
+        pytest.param("sub\\..\\base.yaml", "sub\\..\\main.yaml", id="parent"),
+        pytest.param("sub\\foo/../base.yaml", "sub\\foo/../base.yaml", id="mixed-elsewhere"),
+    ],
+)
+def test_rewrite_normalizes_windows_style_includes(
+    monkeypatch: pytest.MonkeyPatch, ref: str, expected: str
+) -> None:
+    monkeypatch.setattr(rename_module, "dependency_key", lambda path: path.replace("\\", "/"))
+
+    rewritten = rewrite_includes(
+        f"b: !include {ref}\n", folder="common", old="common/base.yaml", new="common/main.yaml"
+    )
+
+    assert rewritten == f"b: !include {expected}\n"
+
+
 def test_case_folding_filesystems_match_any_spelling(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

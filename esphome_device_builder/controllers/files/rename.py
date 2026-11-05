@@ -28,7 +28,12 @@ from yaml.tokens import (
 
 from ...constants import SECRETS_FILENAMES, is_secrets_file
 from ...helpers.yaml import FastestSafeLoader
-from .paths import dependency_key, iter_subfolder_yamls, list_archived_devices
+from .paths import (
+    dependency_key,
+    iter_subfolder_yamls,
+    list_archived_devices,
+    list_hidden_yamls,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -270,6 +275,7 @@ def _scalar_target(token: ScalarToken, text: str) -> _Target:
 
 
 def _resolve(folder: str, ref: str) -> str | None:
+    ref = dependency_key(ref)  # Windows separators, before the path is normalized
     if "$" in ref or ref.startswith("/") or re.match(r"[A-Za-z]:", ref):
         return None
     target = posixpath.normpath(posixpath.join(folder, ref))
@@ -294,5 +300,7 @@ def _candidates(config_dir: Path) -> Iterable[tuple[str, str]]:
     yield from ((name, "") for name in SECRETS_FILENAMES if (config_dir / name).is_file())
     # A folder's own secrets.yaml is included: ``!secret`` in that folder reads it.
     yield from ((rel, posixpath.dirname(rel)) for rel in iter_subfolder_yamls(config_dir))
+    # Hidden files aren't devices or packages, but devices can include them.
+    yield from ((rel, "") for rel in list_hidden_yamls(config_dir))
     # Unarchiving moves a device back to the top level, so its includes resolve from there.
     yield from ((rel, "") for rel in list_archived_devices(config_dir))

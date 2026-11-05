@@ -89,11 +89,22 @@ def list_archived_devices(config_dir: Path) -> list[str]:
     archive = config_dir / ARCHIVE_DIR
     if not archive.is_dir():
         return []
+    names = _contained_yamls(archive, config_dir, hidden=False)
+    return [f"{ARCHIVE_DIR}/{name}" for name in names]
+
+
+def list_hidden_yamls(config_dir: Path) -> list[str]:
+    """Return every top-level YAML whose name starts with a dot, sorted. Blocking."""
+    return _contained_yamls(config_dir, config_dir, hidden=True)
+
+
+def _contained_yamls(folder: Path, config_dir: Path, *, hidden: bool) -> list[str]:
+    """Return the sorted names of *folder*'s (hidden or visible) YAMLs inside *config_dir*."""
     root = config_dir.resolve()
     found: list[str] = []
-    for path in archive.iterdir():
+    for path in folder.iterdir():
         if (
-            path.name.startswith(".")
+            path.name.startswith(".") != hidden
             or not path.name.lower().endswith(_YAML_SUFFIXES)
             or not path.is_file()
         ):
@@ -102,7 +113,7 @@ def list_archived_devices(config_dir: Path) -> list[str]:
             resolve_under_root(path, root)
         except PathEscapeError:
             continue
-        found.append(f"{ARCHIVE_DIR}/{path.name}")
+        found.append(path.name)
     return sorted(found)
 
 
