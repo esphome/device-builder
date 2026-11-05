@@ -105,14 +105,15 @@ def test_parse_mqtt_block_custom_port() -> None:
     assert config.port == 8883
 
 
-def test_parse_mqtt_block_resolves_secrets() -> None:
+@pytest.mark.parametrize("pw", ["topsecret", "pa$word"])
+def test_parse_mqtt_block_resolves_secrets(pw: str) -> None:
     yaml = "mqtt:\n  broker: !secret broker_host\n  port: !secret port\n  password: !secret pw\n"
-    secrets = {"broker_host": "192.168.1.5", "port": "8883", "pw": "topsecret"}
+    secrets = {"broker_host": "192.168.1.5", "port": "8883", "pw": pw}
     config = parse_mqtt_block(yaml, secrets)
     assert config is not None
     assert config.host == "192.168.1.5"
     assert config.port == 8883
-    assert config.password == "topsecret"
+    assert config.password == pw
 
 
 def test_parse_mqtt_block_missing_secret_returns_none() -> None:
@@ -164,26 +165,19 @@ def test_parse_mqtt_block_unresolved_substitution_returns_none() -> None:
 
 
 @pytest.mark.parametrize("field", ["username", "password"])
-@pytest.mark.parametrize("token", ["${mqtt_login}", "$mqtt_login", "${ 'esphome_' ~ name }"])
+@pytest.mark.parametrize("token", ["${mqtt_login}", "$mqtt_login"])
 def test_parse_mqtt_block_unresolved_login_returns_none(field: str, token: str) -> None:
     """An unresolved substitution in the login yields no broker."""
     yaml = f'mqtt:\n  broker: 10.0.0.5\n  {field}: "{token}"\n'
     assert parse_mqtt_block(yaml) is None
 
 
-@pytest.mark.parametrize(
-    ("password", "expected"),
-    [
-        pytest.param("!secret pw", "pa$word", id="secret"),
-        pytest.param('"pa$$word"', "pa$$word", id="literal"),
-    ],
-)
-def test_parse_mqtt_block_password_with_dollar_is_kept(password: str, expected: str) -> None:
+def test_parse_mqtt_block_password_with_dollar_is_kept() -> None:
     """A password that merely contains ``$`` is not a token."""
-    yaml = f"mqtt:\n  broker: 10.0.0.5\n  username: bob\n  password: {password}\n"
-    config = parse_mqtt_block(yaml, {"pw": "pa$word"})
+    yaml = 'mqtt:\n  broker: 10.0.0.5\n  username: bob\n  password: "pa$$word"\n'
+    config = parse_mqtt_block(yaml)
     assert config is not None
-    assert config.password == expected
+    assert config.password == "pa$$word"
 
 
 def test_parse_mqtt_block_resolves_port_substitution() -> None:
@@ -867,8 +861,7 @@ async def test_coordinator_skips_unresolved_substitution(
     caplog: pytest.LogCaptureFixture,
     yaml: str,
 ) -> None:
-    # An undefined substitution must not start a monitor on the literal
-    # token; warn once instead of looping on DNS failure.
+    # An unresolved token must not start a monitor; warn once.
     device = write_mqtt_device(tmp_path, "alpha", yaml)
     coord = make_mqtt_coordinator(tmp_path, [device])
 

@@ -18,7 +18,6 @@ import asyncio
 import contextlib
 import logging
 import os
-import re
 import ssl
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +31,7 @@ from ..helpers.async_ import run_in_executor
 from ..helpers.atomic_io import read_text_with_stat
 from ..helpers.device_yaml import (
     _UNRESOLVED_SUBSTITUTION_RE,
+    _UNRESOLVED_WHOLE_TOKEN_RE,
     SecretRef,
     _resolve_substitutions,
     extract_mqtt_block,
@@ -63,9 +63,7 @@ _CLIENT_CERT_FIELDS = ("client_certificate", "client_certificate_key")
 
 _PEM_CERT_MARKER = "-----BEGIN CERTIFICATE-----"
 
-# A resolved block can't tell a secret from a literal, so only an unmistakable
-# token counts: any ``${``, or a value that is wholly one ``$name``.
-_UNRESOLVED_LOGIN_RE = re.compile(r"\$\{|\A\$[a-zA-Z_]\w*\Z")
+_LOGIN_FIELDS = ("username", "password")
 
 _UNREADABLE_DEBUG = "Could not read %s for MQTT broker config"
 
@@ -384,8 +382,8 @@ class DeviceMqttCoordinator:
             self._unresolved_logged,
             configuration,
             "Device %s declares mqtt: but broker could not be resolved "
-            "(missing secret, invalid config, or a certificate_authority "
-            "that is not valid inline PEM content)",
+            "(missing secret, unresolved substitution, invalid config, or a "
+            "certificate_authority that is not valid inline PEM content)",
             "Device %s declares mqtt: but broker still could not be resolved",
             configuration,
         )
@@ -438,8 +436,8 @@ def parse_mqtt_block(
     block has no resolvable ``broker:`` field, or when the YAML fails
     to parse. ``!secret xyz`` references and ``${var}`` / ``$var``
     substitutions from the file's own ``substitutions:`` block are
-    resolved; a broker still carrying an unresolved token returns
-    ``None`` so the caller defers to the seed or a scanner reload.
+    resolved; a broker or login still carrying an unresolved token
+    returns ``None`` so the caller defers to the seed or a scanner reload.
     ``CLIENT_CERT_UNSUPPORTED`` flags a block using client-certificate
     auth, which discovery cannot do.
     """
@@ -495,7 +493,10 @@ def _broker_from_block(
     if isinstance(host, str) and _UNRESOLVED_SUBSTITUTION_RE.search(host):
         return None
     # Same for the login, which would otherwise loop on "not authorised".
-    if any(_UNRESOLVED_LOGIN_RE.search(mqtt.get(f) or "") for f in ("username", "password")):
+    username, password = (mqtt.get(f) for f in _LOGIN_FIELDS)
+    if any(
+        isinstance(v, str) and _UNRESOLVED_WHOLE_TOKEN_RE.search(v) for v in (username, password)
+    ):
         return None
     certificate_authority = mqtt.get("certificate_authority") or None
     # esphome's ``certificate_authority`` is PEM content; a file path or
@@ -518,13 +519,11 @@ def _broker_from_block(
         port = int(port_raw) if port_raw else _DEFAULT_PORT
     except (TypeError, ValueError):
         port = _DEFAULT_PORT
-    username = mqtt.get("username") or None
-    password = mqtt.get("password") or None
     return MqttBrokerConfig(
         host=str(host),
         port=port,
-        username=str(username) if username is not None else None,
-        password=str(password) if password is not None else None,
+        username=str(username) if username else None,
+        password=str(password) if password else None,
         certificate_authority=certificate_authority,
         skip_cert_cn_check=skip_cert_cn_check,
     )

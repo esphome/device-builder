@@ -48,6 +48,7 @@ from ._mqtt_block import build_mqtt_extract, extract_mqtt_block
 from ._ota_old_key import yaml_declares_ota_old_key
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
+    _UNRESOLVED_WHOLE_TOKEN_RE,
     DEFAULT_API_PORT,
     EsphomeMeta,
     _extract_resolved_substitutions,
@@ -91,6 +92,7 @@ __all__ = [
     "NETWORK_PROVIDER_COMPONENT_IDS",
     "WIFI_RADIO_PROVIDER_COMPONENT_IDS",
     "_UNRESOLVED_SUBSTITUTION_RE",
+    "_UNRESOLVED_WHOLE_TOKEN_RE",
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",
     "LoadBatch",
