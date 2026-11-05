@@ -219,6 +219,12 @@ async def test_shallow_package_extract_defers_to_a_reload(
             True,
             id="main-pins-transport",
         ),
+        pytest.param(
+            "mqtt:\n  broker: 192.168.1.10\n  port: 8883\n  transport: tcp\n"
+            "  certificate_authority: !secret ca\n",
+            True,
+            id="main-pins-tcp-without-path-or-cn",
+        ),
     ],
 )
 async def test_shallow_extract_connects_when_packages_cannot_shape_transport(
@@ -459,3 +465,36 @@ def test_scan_populates_and_omits_the_extract(tmp_path: Path) -> None:
     assert mqtt_device.mqtt_extract.main_block is not None
     assert "mqtt_extract" not in mqtt_device.to_dict()
     assert plain_device.mqtt_extract is None
+
+
+async def test_shallow_ws_extract_without_path_defers_to_a_reload(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A main block pinning a WebSocket transport still waits for a package's ws_path."""
+    yaml = "mqtt:\n  broker: 192.168.1.10\n  port: 443\n  transport: ws\n"
+    yaml += "  certificate_authority: ''\n"
+    device = _main_mqtt_device(tmp_path, yaml, shallow=True)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+    await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    assert reloads == ["main.yaml"]
+
+
+async def test_stale_seed_cannot_vouch_for_added_packages(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """An edit adding packages defers to a reload even when the stale seed has nothing to add."""
+    device = _seed_package_device(tmp_path, {"broker": "10.1.1.1"})
+    path = tmp_path / "pkg.yaml"
+    path.write_text(path.read_text() + "\nmqtt:\n  broker: 10.1.1.1\n")
+    bump_mtime(path)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+    await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    assert reloads == ["pkg.yaml"]

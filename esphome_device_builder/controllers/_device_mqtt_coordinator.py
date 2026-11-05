@@ -79,16 +79,11 @@ _PARSED_FIELDS = (*_BROKER_FIELDS, "skip_cert_cn_check", *_CLIENT_CERT_FIELDS)
 # the path only shapes a WebSocket endpoint.
 _ENDPOINT_FIELDS = ("broker", "transport")
 _WS_ENDPOINT_FIELDS = (*_ENDPOINT_FIELDS, "ws_path")
-# Fields that decide TLS, port and path; a ``packages:`` device whose
+# Fields that decide TLS and the endpoint; a ``packages:`` device whose
 # main block lacks one can't connect until a package-merged seed vouches
 # for it, or a package's ``transport: wss`` would go out as plaintext.
-_TRANSPORT_SHAPING_FIELDS = (
-    "transport",
-    "port",
-    "certificate_authority",
-    "ws_path",
-    "skip_cert_cn_check",
-)
+# ``ws_path`` joins them unless the main block pins TCP.
+_TRANSPORT_SHAPING_FIELDS = ("transport", "port", "certificate_authority")
 
 _PEM_CERT_MARKER = "-----BEGIN CERTIFICATE-----"
 
@@ -508,7 +503,7 @@ def _mqtt_block_for(
     """Stat, ``mqtt:`` block and substitutions to parse; None when a reload must run first."""
     if extract is not None and _extract_fresh(extract, yaml_stat):
         block, subs = extract.main_block, extract.main_substitutions
-        if _needs_package_seed(extract, block, has_packages=extract.has_packages):
+        if _needs_package_seed(extract.resolved_block, block, has_packages=extract.has_packages):
             # Shallow: the deep reload fills the seed. Failed deep parse:
             # refuse through the unresolved warning.
             return None if extract.from_shallow_load else (yaml_stat, None, subs)
@@ -529,22 +524,22 @@ def _mqtt_block_for(
     block, subs, has_packages = extract_mqtt_parts(yaml_content)
     if extract is not None and _inherit_seed_fields(block, extract.resolved_block) is not None:
         return None
-    if _needs_package_seed(extract, block, has_packages=has_packages):
+    # The stale seed can't vouch for what the edited file's packages set.
+    if _needs_package_seed(None, block, has_packages=has_packages):
         return None
     return yaml_stat, block, subs
 
 
 def _needs_package_seed(
-    extract: DeviceMqttExtract | None, main_block: dict[str, Any] | None, *, has_packages: bool
+    seed: dict[str, Any] | None, main_block: dict[str, Any] | None, *, has_packages: bool
 ) -> bool:
-    """Whether packages may shape the transport but no package-merged seed is carried."""
-    if extract is not None and extract.resolved_block is not None:
+    """Whether packages may shape the transport and no package-merged *seed* vouches for it."""
+    if seed is not None or not has_packages or main_block is None:
         return False
-    return (
-        has_packages
-        and main_block is not None
-        and any(f not in main_block for f in _TRANSPORT_SHAPING_FIELDS)
-    )
+    fields: tuple[str, ...] = _TRANSPORT_SHAPING_FIELDS
+    if str(main_block.get("transport", "")).lower() != _DEFAULT_TRANSPORT:
+        fields = (*fields, "ws_path")
+    return any(f not in main_block for f in fields)
 
 
 def _inherit_seed_fields(
