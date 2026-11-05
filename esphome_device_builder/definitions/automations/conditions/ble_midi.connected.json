@@ -1,0 +1,1 @@
+{"id":"ble_midi.connected","name":"Ble Midi → Connected","description":"Checks whether the MIDI device is connected and ready.","docs_url":"https://esphome.io/automations/actions","domain":"ble_midi","config_entries":[{"key":"id","type":"id","label":"ID","display_format":null,"references_component":"ble_midi"}],"accepts_condition_list":false,"scalar_shorthand_key":null}
