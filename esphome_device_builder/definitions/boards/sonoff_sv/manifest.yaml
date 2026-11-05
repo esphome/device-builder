@@ -45,5 +45,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-SV
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-SV/index.md
-  upstream_revision: 232bac526f06237daabba9111cee7910ac282f9c
+  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
   content_hash: bb63e4f13e39091d409b12f25a8da874d96bdc0a382136e8de2b542be2bb648e

@@ -9,7 +9,6 @@ JSON loader the API uses), then asserts that a curated list of
 well-known components are present and structured the way the
 frontend expects. Catches:
 
-- A new ``ComponentCategory`` value the loader doesn't know about
 - A popular component disappearing from the catalog
 - A field's type changing in a way that would break form rendering
   (e.g. ``output.gpio.pin`` flipping from ``pin`` to ``string``)
@@ -309,8 +308,8 @@ _GATING_EXPECTATIONS: list[tuple[str, str, str | None]] = [
 # the checked-in catalog from both sides.
 _GATING_FLOORS: dict[str, int] = {
     "mqtt": 6000,
-    "web_server": 2500,
-    "zigbee": 3000,
+    "web_server": 3500,
+    "zigbee": 4000,
 }
 
 # Catalog-wide floor on automation entries carrying live-introspection

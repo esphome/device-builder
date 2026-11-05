@@ -1,0 +1,1 @@
+{"id":"ble_midi.on_note_on","name":"Ble Midi → On Note On","description":"An automation to perform when a key or pad is pressed. See [`on_note_on`](https://esphome.io/components/ble_midi/#on_note_on).","docs_url":"https://esphome.io/components/ble_midi/#configuration-variables","applies_to":["ble_midi"],"is_device_level":false,"supports_list":true,"config_entries":[]}

@@ -50,7 +50,7 @@ jobs:
     steps:
       - name: Mint GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        uses: actions/create-github-app-token@v3.3.0
         with:
           client-id: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.ESPHOME_GITHUB_APP_PRIVATE_KEY }}
@@ -60,14 +60,14 @@ jobs:
           permission-pull-requests: read
 
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Resolve previous tag and next version
         id: versions
-        uses: ./.github/actions/resolve-release-versions
+        uses: $/.github/actions/resolve-release-versions
         with:
           # No ``version`` input — the action computes the next
           # version per the matrix's ``mode`` and resolves the diff
@@ -85,7 +85,7 @@ jobs:
       - name: Generate release notes
         id: notes
         if: matrix.kind != 'stable' || steps.versions.outputs.previous-tag != ''
-        uses: ./.github/actions/generate-release-notes
+        uses: $/.github/actions/generate-release-notes
         with:
           version: ${{ steps.versions.outputs.version }}
           previous-tag: ${{ steps.versions.outputs.previous-tag }}

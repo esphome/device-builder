@@ -61,6 +61,9 @@ _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")
 # digit / space / punctuation (e.g. ``"Replaces a $40 sensor"``) so a
 # fully-resolved edit carrying a literal ``$`` isn't mistaken for one.
 _UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
+# Strict form for values where a literal ``$`` is legal: any ``${``, or the
+# whole value one ``$identifier``.
+_UNRESOLVED_WHOLE_TOKEN_RE = re.compile(r"\$\{|\A\$[a-zA-Z_]\w*\Z")
 
 # Cap on recursive substitution passes — protects against circular
 # references (``a: ${b}`` / ``b: ${a}``) without bailing on legitimately
@@ -596,7 +599,8 @@ def extract_logger_interface(
     Resolve the ``logger:`` output interface, or ``None`` when unknowable.
 
     Explicit ``hardware_uart`` wins; otherwise the snapshotted per-platform
-    default, with esp32 keyed by :func:`resolve_esp32_variant`.
+    default, with esp32 keyed by :func:`resolve_esp32_variant` and nrf52 by
+    :func:`resolve_nrf52_variant` when its chip has a row of its own.
     """
     if not isinstance(config, dict) or const.CONF_LOGGER not in config:
         return None
@@ -610,11 +614,13 @@ def extract_logger_interface(
         value = value.strip().upper()
         return value if value in caps.logger_interface_values else None
     platform = normalize_platform(target_platform.strip().lower())
-    key = (
-        resolve_esp32_variant(config, extra_substitutions, storage_variant)
-        if platform == "esp32"
-        else platform
-    )
+    key: str | None = platform
+    if platform == "esp32":
+        key = resolve_esp32_variant(config, extra_substitutions, storage_variant)
+    elif platform == "nrf52":
+        variant = resolve_nrf52_variant(config, extra_substitutions)
+        if variant in caps.logger_interface_defaults:
+            key = variant
     # The falsy guard is for mypy (resolve may return None); dict.get(None)
     # would behave identically.
     return caps.logger_interface_defaults.get(key) if key else None
@@ -652,6 +658,21 @@ def resolve_esp32_variant(
     # Post-compile classic chips legitimately store the bare ``esp32``; with
     # no board to disambiguate the seeded-family case, stay unknowable.
     return None
+
+
+def resolve_nrf52_variant(
+    config: dict | None, extra_substitutions: dict[str, str] | None = None
+) -> str | None:
+    """Canonical nRF52 chip (``nrf54l15``) from the board snapshot, or ``None`` when unknowable."""
+    nrf52 = config.get("nrf52") if isinstance(config, dict) else None
+    nrf52 = nrf52 if isinstance(nrf52, dict) else {}
+    board = _resolve_substitutions(
+        _str_or_none(nrf52.get(const.CONF_BOARD)), extra_substitutions or {}
+    )
+    if not isinstance(board, str):
+        return None
+    snapshot = load_platform_capabilities_index().nrf52_board_variants.get(board.strip())
+    return normalize_chip_variant(snapshot) if snapshot else None
 
 
 def get_ota_encryption_key(config: dict | None) -> str:

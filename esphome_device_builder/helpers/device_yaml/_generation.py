@@ -58,6 +58,18 @@ _NO_NETWORK_TODO_LINES: tuple[str, ...] = (
     "",
 )
 
+# nRF52 counterpart of ``_NO_NETWORK_TODO_LINES``: OTA there is
+# ``zephyr_mcumgr`` (BLE / USB CDC), which needs no ``network`` component.
+_NRF52_OTA_TODO_LINES: tuple[str, ...] = (
+    "# This board has no Wi-Fi. Firmware updates over the air use the",
+    "# ``zephyr_mcumgr`` OTA platform (BLE or USB CDC):",
+    "# ota:",
+    "#   - platform: zephyr_mcumgr",
+    "# ``api:`` requires a ``network`` component — configure",
+    "# ``openthread:`` (credentials via ``tlv``), then add ``api:``.",
+    "",
+)
+
 # Emitted instead of the Wi-Fi block when no ``wifi_ssid`` / ``wifi_password``
 # secrets are defined (the user skipped Wi-Fi / uses Ethernet). The board may
 # have native Wi-Fi, so unlike ``_NO_NETWORK_TODO_LINES`` this doesn't claim
@@ -300,8 +312,9 @@ def generate_device_yaml(
         # co-processor, ``esp32_hosted:`` for either with a Wi-Fi
         # daughterboard, etc.). Emitting a placeholder block would
         # bake an arbitrary choice into the generated YAML; a
-        # commented-out hint lets the user pick.
-        lines.extend(_NO_NETWORK_TODO_LINES)
+        # commented-out hint lets the user pick. nRF52 instead gets the
+        # ``zephyr_mcumgr`` OTA hint, since its OTA needs no network.
+        lines.extend(_NRF52_OTA_TODO_LINES if platform == "nrf52" else _NO_NETWORK_TODO_LINES)
 
     yaml_text = _apply_default_components("\n".join(lines), defaults)
     return _append_hosted_firmware_update(yaml_text, defaults)

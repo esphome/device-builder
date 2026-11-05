@@ -147,9 +147,9 @@ _ESP32_BOARD_VARIANT_RE = re.compile(
 
 # Top-level platform-list keys in ESPHome configs. Each list item
 # carries a ``platform: <stem>`` and we project to ``<domain>.<stem>``
-# in our component catalog. Mirrors the ``ComponentCategory`` entity
-# domains in the catalog so we don't reject hardware that's actually
-# representable (speakers, microphones, touchscreens, alarm panels).
+# in our component catalog. Covers the catalog's entity domains so we
+# don't reject hardware that's actually representable (speakers,
+# microphones, touchscreens, alarm panels).
 _PLATFORM_LIST_DOMAINS: frozenset[str] = frozenset(
     {
         "alarm_control_panel",

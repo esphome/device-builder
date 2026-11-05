@@ -1,0 +1,42 @@
+id: xiao_ble
+name: Seeed XIAO nRF52840
+description: ''
+manufacturer: ''
+images:
+- https://files.seeedstudio.com/wiki/XIAO-BLE/nrf52840_front.jpg
+esphome:
+  platform: nrf52
+  board: xiao_ble
+docs_url: https://esphome.io/components/nrf52.html
+pins: []
+featured_components:
+- id: led_red
+  component_id: output.gpio
+  name: 'Onboard RGB LED: red'
+  description: Red channel of the onboard RGB LED (P0.26, active low).
+  fields:
+    pin:
+      value: P0.26
+      locked: true
+    inverted: true
+    id: led_red
+- id: led_green
+  component_id: output.gpio
+  name: 'Onboard RGB LED: green'
+  description: Green channel of the onboard RGB LED (P0.30, active low).
+  fields:
+    pin:
+      value: P0.30
+      locked: true
+    inverted: true
+    id: led_green
+- id: led_blue
+  component_id: output.gpio
+  name: 'Onboard RGB LED: blue'
+  description: Blue channel of the onboard RGB LED (P0.6, active low).
+  fields:
+    pin:
+      value: P0.6
+      locked: true
+    inverted: true
+    id: led_blue

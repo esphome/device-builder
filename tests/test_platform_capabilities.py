@@ -15,9 +15,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import orjson
+import pytest
+from esphome.components import nrf52 as nrf52_component
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
+from esphome.components.nrf52 import boards as nrf52_boards
 from esphome.components.rp2.boards import BOARDS
 from esphome.components.wifi import NO_WIFI_VARIANTS
 
@@ -28,10 +31,12 @@ from esphome_device_builder.definitions import (
     load_board_index,
     load_platform_capabilities_index,
 )
+from script import sync_components  # type: ignore[import-not-found]
 from script._board_mcus import board_mcus  # type: ignore[import-not-found]
 from script.sync_components import (  # type: ignore[import-not-found]
     _logger_interface_snapshot,
     _nrf52_board_bootloaders,
+    _nrf52_board_variants,
 )
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
@@ -83,6 +88,7 @@ def test_index_within_installed_esphome() -> None:
         (set(caps.esp32_board_variants), set(ESP32_BOARDS)),
         # ``.items()``: a board both sides list is the same bootloader on both.
         (set(caps.nrf52_board_bootloaders.items()), set(_nrf52_board_bootloaders().items())),
+        (set(caps.nrf52_board_variants.items()), set(_nrf52_board_variants().items())),
     ]
     installed_mcus = board_mcus()
     assert set(caps.board_mcus) == set(installed_mcus)
@@ -126,6 +132,30 @@ def test_logger_interface_snapshot_within_installed_esphome() -> None:
         else:
             extra = indexed - installed
             assert not extra, f"committed logger data no installed esphome exposes: {extra}"
+
+
+def test_nrf52_board_variants_cover_alias_targets() -> None:
+    """A board's full Zephyr name resolves like its short alias."""
+    variants = _nrf52_board_variants()
+    for alias, target in getattr(nrf52_boards, "BOARD_ALIASES", {}).items():
+        assert variants[target] == variants[alias]
+
+
+def test_nrf52_board_variants_fail_without_board_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Losing the board rule while ESPHome names the chips fails the sync."""
+    monkeypatch.delattr(nrf52_component, "_board_variant", raising=False)
+    monkeypatch.setattr(sync_components, "_nrf52_variants", lambda: {"NRF54L15"})
+    with pytest.raises(RuntimeError, match="_board_variant"):
+        _nrf52_board_variants()
+
+
+def test_logger_snapshot_keys_nrf52_variant_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An nRF52 per-chip default is keyed by the chip, like an esp32 variant."""
+    raw = {("hardware_uart",): {"nrf52": "USB_CDC", "nrf52_54l15": "UART0"}}
+    monkeypatch.setattr(sync_components, "_collect_platform_defaults", lambda _component: raw)
+    monkeypatch.setattr(sync_components, "_nrf52_variants", lambda: {"NRF54L15"})
+    defaults, _values = _logger_interface_snapshot()
+    assert defaults == {"nrf52": "USB_CDC", "nrf54l15": "UART0"}
 
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:

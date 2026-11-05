@@ -273,7 +273,7 @@ Board catalog dataclasses (`BoardCatalogIndex`, `BoardCatalogEntry`, `BoardHardw
 
 > Controller: [`ComponentCatalog`](../esphome_device_builder/controllers/components.py)
 >
-> Enums: [`ComponentCategory`](../esphome_device_builder/models/components.py), [`ConfigEntryType`](../esphome_device_builder/models/common.py)
+> Enums: [`ComponentCategory`](../esphome_device_builder/models/components.py) (the dashboard's own categories; a platform entry's `category` is its domain string, such as `sensor`), [`ConfigEntryType`](../esphome_device_builder/models/common.py)
 
 `ComponentCatalogEntry`, `ComponentCatalogIndexEntry` and `ConfigEntry` (so the `config_entries` inside automation bodies too) serialise like the board catalog models above: a field whose value equals its declared default, or `None`, is **absent from the wire payload**. Only `key`, `type` and `label` are guaranteed on a `ConfigEntry`; read an absent flag as `false`, an absent nullable (including the nullable collections `options`, `platform_defaults`, `platform_options` and a nested `config_entries`) as `null`, an absent non-nullable list or map as empty and an absent string as `""`. No field on these models has a truthy default, so unlike the board `FeaturedComponent.multi_conf` above, an absent component `multi_conf` means `false`. The comparison is per field, so a `default_value` of `false` is sent (its declared default is `None`) while `required: false` is not. The frontend types mark these fields optional and its API client backfills the component level `config_entries`.
 

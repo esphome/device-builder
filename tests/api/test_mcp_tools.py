@@ -309,7 +309,7 @@ async def test_search_components_projects_index_rows(
         id="sensor.dht",
         name="DHT",
         description="Temperature",
-        category=ComponentCategory.SENSOR,
+        category="sensor",
         docs_url="https://esphome.io/components/sensor/dht",
     )
     handler = AsyncMock(return_value=PagedComponentsResponse(components=[entry], total=7))
