@@ -62,6 +62,7 @@ from esphome_device_builder.helpers.channel_colors import (  # noqa: E402
 )
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.helpers.entry_gates import entry_gate_active  # noqa: E402
+from esphome_device_builder.models.boards import RP2_PLATFORM_ALIASES, Platform  # noqa: E402
 from script._board_import import (  # noqa: E402
     ESP32_VARIANT_DEFAULT_BOARD,
     build_esphome_block,
@@ -124,9 +125,11 @@ _DEVICES_PAGE_BASE = "https://devices.esphome.io/devices"
 _DEVICES_REPO_BLOB_BASE = "https://github.com/esphome/devices.esphome.io/blob/main"
 _DEVICES_REPO_RAW_BASE = "https://raw.githubusercontent.com/esphome/devices.esphome.io/main"
 
-# Closed enums upstream enforces (mirror of
-# devices.esphome.io/src/utils/validFrontmatter.ts).
-_VALID_SOC_FAMILIES: frozenset[str] = frozenset({"esp32", "esp8266", "bk72xx", "rp2040", "rtl87xx"})
+# SoC families a device page can declare: every target platform the dashboard
+# builds for (``host`` has no hardware), under either rp2 spelling.
+_VALID_SOC_FAMILIES: frozenset[str] = (
+    frozenset(p.value for p in Platform if p is not Platform.HOST) | RP2_PLATFORM_ALIASES
+)
 
 
 # ESPHome esp32 board ids encode the chip variant (``esp32-p4-evboard``,
