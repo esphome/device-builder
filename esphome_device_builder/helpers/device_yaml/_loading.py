@@ -14,7 +14,7 @@ from esphome import const, yaml_util
 from esphome.components.packages import resolve_packages
 from esphome.components.substitutions import do_substitution_pass
 from esphome.config_helpers import Extend, Remove
-from esphome.const import CONF_PACKAGES
+from esphome.const import CONF_ID, CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
@@ -637,6 +637,7 @@ def load_device_yaml(path: Path) -> dict | None:
                 path,
                 exc_info=True,
             )
+    _drop_removed_keys(config)
     # ``config`` came from ``yaml_util.load_yaml`` (esphome,
     # untyped) and was further passed through ``resolve_packages``
     # (also untyped), so it stays ``Any`` despite the
@@ -694,6 +695,19 @@ def _has_substituted_block(config: dict) -> bool:
         ):
             return True
     return False
+
+
+def _drop_removed_keys(value: object) -> None:
+    """Drop every ``key: !remove`` from *value*'s mappings in place, at any depth."""
+    # An ``id: !remove`` removes its list item by id; ``esphome config`` resolves that.
+    if isinstance(value, dict):
+        for key in [k for k, v in value.items() if isinstance(v, Remove) and k != CONF_ID]:
+            del value[key]
+        for v in value.values():
+            _drop_removed_keys(v)
+    elif isinstance(value, list):
+        for v in value:
+            _drop_removed_keys(v)
 
 
 def _holds_deferred_marker(
