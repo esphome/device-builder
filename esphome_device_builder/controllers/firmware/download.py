@@ -25,7 +25,7 @@ from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.capability_tokens import CapabilityTokens
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
-from ...helpers.paths import resolve_under_root
+from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...helpers.sibling_cli import helper_cli_cmd
 from ...helpers.storage_path import resolve_storage_path
 from ...models.boards import normalize_platform
@@ -177,19 +177,23 @@ def collect_download_entries(
             entry["type"] = artifact_type
         # Debug symbols are 14 MB+ and never verified before a flash.
         if artifact_type != "elf":
-            # ``md5`` is optional: an artifact that resolves outside the build
-            # dir or can't be read keeps its row without a digest; one a
-            # rebuild removed since the existence filter drops out.
+            # ``md5`` is optional: an artifact that can't be read keeps its row
+            # without a digest. One a rebuild removed since the existence filter,
+            # or one resolving outside the build dir (its download would refuse
+            # it too), drops out.
             try:
                 path = resolve_under_root(build_dir / entry["file"], build_dir)
                 stat = path.stat()
-                entry["md5"] = _md5_digest(path, stat.st_size, stat.st_mtime_ns)
+                entry["md5"] = _md5_digest(
+                    path, stat.st_size, stat.st_mtime_ns, stat.st_ino, stat.st_ctime_ns
+                )
             except FileNotFoundError:
                 _LOGGER.debug("%s vanished before it could be hashed", entry["file"])
                 continue
-            except ValueError as err:
-                _LOGGER.debug("Could not hash %s: %s", entry["file"], err)
-            except OSError as err:
+            except PathEscapeError as err:
+                _LOGGER.warning("Not listing %s: %s", entry["file"], err)
+                continue
+            except (OSError, ValueError) as err:
                 _LOGGER.warning("Could not hash %s: %s", entry["file"], err)
         listed.append(entry)
     return listed
@@ -201,8 +205,8 @@ def _download_filename(device_name: str, artifact_name: str) -> str:
 
 
 @lru_cache(maxsize=32)
-def _md5_digest(path: Path, _size: int, _mtime_ns: int) -> str:
-    """Hex MD5 of *path*, cached per ``(size, mtime)`` so a rebuild rehashes."""
+def _md5_digest(path: Path, *_stat_key: int) -> str:
+    """Hex MD5 of *path*, cached per stat key (size, mtime, inode, ctime) so a rebuild rehashes."""
     with path.open("rb") as source:
         return hashlib.file_digest(source, lambda: hashlib.md5(usedforsecurity=False)).hexdigest()
 

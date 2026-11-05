@@ -31,6 +31,7 @@ from esphome_device_builder.controllers.firmware.download import (
     _platform_sets,
     _resolve_download_component,
 )
+from esphome_device_builder.helpers.paths import PathEscapeError
 from tests._storage_fixtures import write_storage_json
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
@@ -671,10 +672,13 @@ async def test_get_binaries_quietly_skips_a_vanished_artifact(
     assert "Could not hash" not in caplog.text
 
 
-async def test_get_binaries_keeps_an_escaping_artifact_without_md5(
-    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+async def test_get_binaries_drops_an_artifact_resolving_outside_the_build_dir(
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: pytest.LogCaptureFixture,
+    firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """An artifact resolving outside the build dir stays listed without a digest."""
+    """An artifact resolving outside the build dir is not offered, with a warning."""
     firmware = {"title": "Firmware", "file": "firmware.bin"}
     _stub_download_types(monkeypatch, [firmware])
     build_dir = _make_build(tmp_path, "firmware.bin")
@@ -686,11 +690,13 @@ async def test_get_binaries_keeps_an_escaping_artifact_without_md5(
     )
 
     def _escape(*_args: Any) -> Path:
-        raise ValueError("escapes the build dir")
+        raise PathEscapeError("escapes the build dir")
 
     monkeypatch.setattr(download_mod, "resolve_under_root", _escape)
     controller = firmware_controller_factory()
 
-    result = await controller.get_binaries(configuration="kitchen.yaml")
+    with caplog.at_level(logging.WARNING):
+        result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [_listed({**firmware, "type": "bin"}, md5=False)]
+    assert result == []
+    assert "Not listing firmware.bin" in caplog.text
