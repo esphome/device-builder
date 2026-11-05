@@ -639,3 +639,33 @@ async def test_get_binaries_keeps_an_artifact_it_cannot_hash(
 
     assert result == [_listed({**firmware, "type": "bin"}, md5=False)]
     assert "Could not hash firmware.bin" in caplog.text
+
+
+async def test_get_binaries_quietly_skips_a_vanished_artifact(
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: pytest.LogCaptureFixture,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An artifact a rebuild removed mid-listing loses its ``md5`` without a warning."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    _stub_download_types(monkeypatch, [firmware])
+    build_dir = _make_build(tmp_path, "firmware.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+
+    def _raise(*_args: Any) -> str:
+        raise FileNotFoundError("gone")
+
+    monkeypatch.setattr(download_mod, "_md5_digest", _raise)
+    controller = firmware_controller_factory()
+
+    with caplog.at_level(logging.WARNING):
+        result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [_listed({**firmware, "type": "bin"}, md5=False)]
+    assert "Could not hash" not in caplog.text
