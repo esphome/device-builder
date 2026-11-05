@@ -61,6 +61,9 @@ _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")
 # digit / space / punctuation (e.g. ``"Replaces a $40 sensor"``) so a
 # fully-resolved edit carrying a literal ``$`` isn't mistaken for one.
 _UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
+# Strict form for values where a literal ``$`` is legal: any ``${``, or the
+# whole value one ``$identifier``.
+_UNRESOLVED_WHOLE_TOKEN_RE = re.compile(r"\$\{|\A\$[a-zA-Z_]\w*\Z")
 
 # Cap on recursive substitution passes — protects against circular
 # references (``a: ${b}`` / ``b: ${a}``) without bailing on legitimately
