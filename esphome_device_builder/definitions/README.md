@@ -150,7 +150,7 @@ for as long as the board ships, from a site we don't control.
 - **`product_url`**: leave it out when its domain isn't already in the catalog.
   The devices.esphome.io page's `project-url` carries the shop link instead.
 
-`kincony_kc868_a16` follows this shape.
+`boards/iotix-adam/manifest.yaml` is a curated board that follows this shape.
 
 Create a new subfolder in `boards/` with a `manifest.yaml`:
 
