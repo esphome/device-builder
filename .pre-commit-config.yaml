@@ -41,8 +41,8 @@ repos:
         # custom tags (``!secret``, ``!include``) that the plain
         # PyYAML loader can't resolve. The fixtures are read as
         # raw text by the YAML-search code path under test, not
-        # parsed.
-        exclude: ^tests/fixtures/
+        # parsed. Board demo configs carry ESPHome tags (``!lambda``) too.
+        exclude: ^(tests/fixtures/|esphome_device_builder/definitions/boards/[^/]+/demo\.yaml$)
       - id: check-json
         exclude: ^\.vscode/
       - id: check-ast

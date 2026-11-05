@@ -132,6 +132,9 @@ DEFAULT_REMOTE_BUILD_PORT = 6055
 REMOTE_BUILD_PORT_SCAN_ATTEMPTS = 10
 
 
+# A board dir's demo overlay, next to its ``manifest.yaml``.
+BOARD_DEMO_FILENAME = "demo.yaml"
+
 # Long-form pin keys describing a board GPIO. Any other key in a pin mapping
 # names an I/O-expander provider whose value is the hub id (or an
 # ``{address: ...}`` hub selector). ``id`` is included because expander pin

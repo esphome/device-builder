@@ -1,0 +1,15 @@
+nrf52:
+  dfu: true
+
+# Toggling at 1 s / 2 s / 4 s counts in binary across the onboard RGB LED,
+# stepping through all eight color combinations
+interval:
+  - interval: 1s
+    then:
+      - switch.toggle: led_r
+  - interval: 2s
+    then:
+      - switch.toggle: led_g
+  - interval: 4s
+    then:
+      - switch.toggle: led_b

@@ -112,6 +112,7 @@ _INDEX_DROP_FIELDS: frozenset[str] = frozenset(
         "full_config",
         "package_import_url",
         "package_name",
+        "demo_yaml",
     }
 )
 
