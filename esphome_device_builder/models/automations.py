@@ -81,6 +81,10 @@ class AutomationAction(DashboardModel):
     has_else_branch: bool = False
     # True when the action takes a ``condition`` / ``all`` / ``any`` boolean gate.
     has_condition_gate: bool = False
+    # Gate keys the schema takes (``if``: all three; ``while`` / ``wait_until``: ``condition``).
+    condition_gate_keys: list[str] = field(default_factory=list)
+    # The body is a list of ``{if, then}`` choices plus an optional trailing ``{else}``.
+    has_branches: bool = False
     accepts_action_list: list[str] = field(default_factory=list)
     # The config key a bare-scalar shorthand maps to (ESPHome's
     # ``maybe_simple_value`` key) — ``logger.log: "hi"`` is ``{format: "hi"}``,
@@ -231,6 +235,8 @@ class AutomationActionIndex(DashboardModel):
     is_control_flow: bool = False
     has_else_branch: bool = False
     has_condition_gate: bool = False
+    condition_gate_keys: list[str] = field(default_factory=list)
+    has_branches: bool = False
     accepts_action_list: list[str] = field(default_factory=list)
     # False when the editor should not render this action as a form.
     form_editable: bool = True
@@ -444,24 +450,35 @@ class ConditionNode(DashboardModel):
 
 
 @dataclass
+class ChooseBranch(DashboardModel):
+    """One ``{if, then}`` choice of a ``choose`` action."""
+
+    conditions: list[ConditionNode] = field(default_factory=list)
+    actions: list[ActionNode] = field(default_factory=list)
+
+
+@dataclass
 class ActionNode(DashboardModel):
     """
     A single action node.
 
     Control-flow actions carry nested action lists under
     ``children`` (e.g. ``{"then": [...], "else": [...]}`` for
-    ``if``). ``conditions`` is the boolean gate, populated only for
-    ``if`` / ``wait_until``. ``unknown`` marks an uncatalogued action
-    (an external component's, or a typo): ``raw_body`` holds its body so
-    the emitter re-emits it (YAML tags preserved; comments and exact
-    formatting are not) while its siblings stay editable, and the
-    frontend renders it read-only in place.
+    ``if``). ``conditions`` is the boolean gate of a ``has_condition_gate``
+    action (an ``all`` / ``any`` gate is one combinator node). ``branches``
+    holds a ``has_branches`` action's choices; its ``else`` list rides in
+    ``children``. ``unknown`` marks an uncatalogued action (an external
+    component's, or a typo): ``raw_body`` holds its body so the emitter
+    re-emits it (YAML tags preserved; comments and exact formatting are
+    not) while its siblings stay editable, and the frontend renders it
+    read-only in place.
     """
 
     action_id: str
     params: dict[str, Any] = field(default_factory=dict)
     children: dict[str, list[ActionNode]] = field(default_factory=dict)
     conditions: list[ConditionNode] = field(default_factory=list)
+    branches: list[ChooseBranch] = field(default_factory=list)
     unknown: bool = False
     raw_body: Any = None
 

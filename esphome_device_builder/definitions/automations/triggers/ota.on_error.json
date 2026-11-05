@@ -1,1 +1,1 @@
-{"id":"ota.on_error","name":"Ota → On Error","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["ota"],"is_device_level":false,"supports_list":true,"config_entries":[]}
+{"id":"ota.on_error","name":"Ota → On Error","description":"An action to be performed after a failed OTA update. See [`on_error`](https://esphome.io/components/ota/#ota-on_error).","docs_url":"https://esphome.io/components/ota/#configuration-variables","applies_to":["ota"],"is_device_level":false,"supports_list":true,"config_entries":[]}

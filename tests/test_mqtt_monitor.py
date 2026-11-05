@@ -11,6 +11,7 @@ Covers the parts that don't require a live broker:
 from __future__ import annotations
 
 import asyncio
+import enum
 import json
 import ssl
 import textwrap
@@ -1943,6 +1944,49 @@ class _FakePahoClient:
         self._record("disconnect", ())
 
 
+class _FakeApiVersion(enum.Enum):
+    VERSION1 = 1
+    VERSION2 = 2
+
+
+class _FakeReasonCode:
+    """paho 2 ``ReasonCode`` stand-in: a numeric value that prints as its name."""
+
+    def __init__(self, value: int, name: str) -> None:
+        self.value = value
+        self._name = name
+
+    def __str__(self) -> str:
+        return self._name
+
+
+class _FakePahoV2Client(_FakePahoClient):
+    """paho 2 stand-in: callback API v2 argument shapes."""
+
+    connack = _FakeReasonCode(0, "Success")
+    suback = (_FakeReasonCode(0, "Granted QoS 0"),)
+
+    def __init__(
+        self, callback_api_version: Any, client_id: str = "", clean_session: bool = True
+    ) -> None:
+        super().__init__(client_id, clean_session)
+        self._record("api_version", (callback_api_version,))
+
+    def loop_start(self) -> None:
+        self._record("loop_start", ())
+        self.on_connect(self, None, object(), self.connack, None)
+
+    def subscribe(self, topic: str) -> tuple[int, int]:
+        self._record("subscribe", (topic,))
+        if self.on_subscribe is not None:
+            self.on_subscribe(self, None, 1, self.suback, None)
+        return (0, 1)
+
+
+def _fake_paho_v2(client_cls: type[_FakePahoV2Client]) -> Any:
+    return type("M", (), {"Client": client_cls, "CallbackAPIVersion": _FakeApiVersion})
+
+
 async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2368,6 +2412,88 @@ async def test_teardown_failure_does_not_mask_the_session_error(
     assert any("teardown failed" in rec.message for rec in caplog.records)
 
 
+async def test_paho2_client_is_built_with_callback_api_v2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A paho with ``CallbackAPIVersion`` gets a v2 client and still subscribes."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    calls: list[tuple[str, Any]] = []
+    started = asyncio.Event()
+
+    class _FakeClient(_FakePahoV2Client):
+        def _record(self, op: str, args: tuple[Any, ...]) -> None:
+            calls.append((op, args))
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", _fake_paho_v2(_FakeClient))
+
+    async def _park(_arg: Any) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(monitor, "_listen", _park)
+    monkeypatch.setattr(monitor, "_ping_loop", _park)
+
+    async with running_task(monitor._connect_and_listen("test-id")):
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+
+    assert ("api_version", (_FakeApiVersion.VERSION2,)) in calls
+    assert ("subscribe", ("esphome/discover/#",)) in calls
+    assert monitor.connected is False
+
+
+async def test_paho2_rejected_connect_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A v2 CONNACK reason code with the failure bit rejects the session by name."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    class _FakeClient(_FakePahoV2Client):
+        connack = _FakeReasonCode(134, "Bad user name or password")
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", _fake_paho_v2(_FakeClient))
+
+    with pytest.raises(ConnectionError, match="rc=Bad user name or password"):
+        await monitor._connect_and_listen("test-id")
+
+
+async def test_paho2_denied_subscription_fails_the_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A v2 SUBACK reason code at or above 0x80 is a denial."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    class _FakeClient(_FakePahoV2Client):
+        suback = (_FakeReasonCode(0x87, "Not authorized"),)
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", _fake_paho_v2(_FakeClient))
+
+    with pytest.raises(ConnectionError, match="subscription denied"):
+        await monitor._connect_and_listen("test-id")
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        pytest.param(0, 0, id="int_success"),
+        pytest.param(0x80, 0x80, id="int_denied"),
+        pytest.param(_FakeReasonCode(0, "Success"), 0, id="reason_success"),
+        pytest.param(_FakeReasonCode(134, "Bad user name or password"), 134, id="reason_failure"),
+    ],
+)
+def test_code_value_reads_int_and_reason_code(code: Any, expected: int) -> None:
+    assert monitor_module._code_value(code) == expected
+
+
 def test_unwrap_session_error_keeps_mixed_groups() -> None:
     """Only a lone expected connection error unwraps; anything else stays grouped."""
     lone = ExceptionGroup("g", [ConnectionError("x")])
@@ -2557,21 +2683,85 @@ async def test_run_collapses_repeat_unreachable_errors_to_debug(
         assert record.exc_info is None
 
 
-async def test_run_resets_log_gate_after_successful_connect(
+async def test_granted_suback_arms_the_log_gate_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A healthy session flags the granted SUBACK for ``_run``'s log-gate reset."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    session_running = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    class _FakeClient(_FakePahoClient):
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            loop.call_soon_threadsafe(session_running.set)
+            return _PublishInfo()
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    async with running_task(monitor._connect_and_listen("test-id")):
+        await asyncio.wait_for(session_running.wait(), timeout=2.0)
+        assert monitor._subscribed_this_session is True
+
+
+async def test_run_warns_once_for_a_persistently_denied_subscription(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A successful CONNACK re-arms the loud-warning gate.
+    """A SUBACK denial repeating across reconnects WARNs once, then collapses to DEBUG."""
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
 
-    Without the reset, a broker that goes down → up → down again
-    would only WARN once (on the very first failure) and silently
-    DEBUG every subsequent outage forever, defeating the point of
-    surfacing it in the operator's log. The reset trigger is
-    ``self._connected_this_session = True`` (set inside
-    ``_connect_and_listen`` right after CONNACK), not a clean
-    return — production almost never sees a clean return because
-    the inner TaskGroup parks until cancelled or raises.
-    """
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    sessions = 0
+    fourth_session_parked = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    class _DeniedClient(_FakePahoClient):
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            return (0, 1)  # accepted; the SUBACK arrives later, from the live session
+
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            # The first broadcast proves the session passed the CONNACK
+            # verdict; deny the subscription from there, as paho's
+            # network thread would. The fourth session is left parked
+            # so teardown never races a failing TaskGroup.
+            nonlocal sessions
+            sessions += 1
+            if sessions <= 3:
+                self.on_subscribe(self, None, 1, [0x80])
+            else:
+                loop.call_soon_threadsafe(fourth_session_parked.set)
+            return _PublishInfo()
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _DeniedClient}))
+    caplog.set_level("DEBUG", logger=monitor_module.__name__)
+
+    async with running_task(monitor._run()):
+        await asyncio.wait_for(fourth_session_parked.wait(), timeout=2.0)
+
+    connected = [r for r in caplog.records if r.message.startswith("MQTT connected to")]
+    assert len(connected) >= 3, "every iteration must pass the CONNACK verdict first"
+    denials = [
+        r
+        for r in caplog.records
+        if r.name == monitor_module.__name__ and "subscription denied" in r.message
+    ]
+    assert [r.levelname for r in denials[:3]] == ["WARNING", "DEBUG", "DEBUG"], [
+        (r.levelname, r.message) for r in denials
+    ]
+    assert monitor._subscribed_this_session is False
+
+
+async def test_run_resets_log_gate_after_granted_suback(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A granted SUBACK re-arms the loud-warning gate, so down → up → down warns twice."""
     monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
 
     monitor = DeviceMqttMonitor(
@@ -2582,8 +2772,8 @@ async def test_run_resets_log_gate_after_successful_connect(
 
     # Sequence of behaviours per ``_connect_and_listen`` call:
     # 1. fail (TimeoutError) — first WARNING
-    # 2. simulate a session that reached CONNACK and then was
-    #    closed by the broker (sets the in-session flag, then
+    # 2. simulate a session that reached a granted SUBACK and then
+    #    was closed by the broker (sets the in-session flag, then
     #    raises an expected error). Production's equivalent is a
     #    broker that accepted the connection, ran for a while, and
     #    then dropped us — the gate must re-arm.
@@ -2600,9 +2790,9 @@ async def test_run_resets_log_gate_after_successful_connect(
             third_failure.set()
         if action == "fail":
             raise TimeoutError("timed out")
-        # ``connect-then-drop``: signal CONNACK success, then
+        # ``connect-then-drop``: signal a granted SUBACK, then
         # raise as if the broker dropped the session.
-        monitor._connected_this_session = True
+        monitor._subscribed_this_session = True
         raise ConnectionError("broker dropped session")
 
     monkeypatch.setattr(monitor, "_connect_and_listen", _scripted)
@@ -2624,7 +2814,7 @@ async def test_run_resets_log_gate_after_successful_connect(
     ]
     # Two WARNINGs: the first failure (start of outage A) and the
     # connect-then-drop (start of outage B — gate re-armed by the
-    # CONNACK in between). The third failure is a continuation of
+    # SUBACK in between). The third failure is a continuation of
     # outage B with no successful connect between them, so it
     # collapses to DEBUG. Pinning this also catches the inverse
     # regression: dropping the gate-reset entirely would only emit

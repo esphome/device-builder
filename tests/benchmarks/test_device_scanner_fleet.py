@@ -16,11 +16,12 @@ from ._fleet import synthesize_fleet
 
 
 def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
-    """Empty-field metadata; isolates ``_load_devices`` from sidecar IO."""
+    """Empty-field metadata with the fleet's persisted list; isolates ``_load_devices`` from IO."""
     return DeviceFileMetadata(
         board_id="esp32-c3-devkitm-1",
         ip="",
         expected_config_hash="",
+        dependencies=("secrets.yaml",),
     )
 
 
@@ -86,9 +87,9 @@ def test_build_cache_keys_fleet(
     synthesize_fleet(tmp_path, fleet_size)
     scanner = _make_scanner(tmp_path)
 
-    warm = scanner._build_cache_keys()
+    warm = scanner._build_cache_keys({})
     assert len(warm) == fleet_size
 
     @benchmark
     def run() -> None:
-        scanner._build_cache_keys()
+        scanner._build_cache_keys({})

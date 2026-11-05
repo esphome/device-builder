@@ -1,0 +1,11 @@
+id: xiao_ble
+name: Seeed XIAO nRF52840
+description: ''
+manufacturer: ''
+images:
+- https://files.seeedstudio.com/wiki/XIAO-BLE/nrf52840_front.jpg
+esphome:
+  platform: nrf52
+  board: xiao_ble
+docs_url: https://esphome.io/components/nrf52.html
+pins: []

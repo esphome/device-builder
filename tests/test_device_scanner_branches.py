@@ -14,32 +14,42 @@ so the regression surfaces in CI rather than in a user's logs.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.controllers._device_scanner import (
     DeviceFileMetadata,
     DeviceScanner,
     ScanChange,
 )
+from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
 from esphome_device_builder.models import Device
+from tests.conftest import bump_mtime
 
 
 def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
     return DeviceFileMetadata(board_id="", ip="", expected_config_hash="")
 
 
+def _stub_metadata_with_list(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
+    """Metadata of a device whose dependency list was persisted, so a shallow scan stays shallow."""
+    return DeviceFileMetadata(board_id="", ip="", expected_config_hash="", dependencies=())
+
+
 def _make_scanner(
-    config_dir: Path,
+    config_dir: Path, *, persisted_dependencies: bool = False
 ) -> tuple[DeviceScanner, list[tuple[ScanChange, Device, Device | None]]]:
     """Build a scanner with a recording on_change callback."""
     events: list[tuple[ScanChange, Device, Device | None]] = []
+    resolver = _stub_metadata_with_list if persisted_dependencies else _stub_metadata
     scanner = DeviceScanner(
         config_dir=config_dir,
-        make_metadata_resolver=lambda: _stub_metadata,
+        make_metadata_resolver=lambda: resolver,
         on_change=lambda kind, device, previous: events.append((kind, device, previous)),
     )
     return scanner, events
@@ -485,8 +495,9 @@ def _shallow_capturing_loader(seen: list[bool]) -> Any:
     return _capture
 
 
-async def test_scan_shallow_threads_to_loader(tmp_path: Path) -> None:
-    """``scan(shallow=True)`` passes the flag through to ``load_device_from_storage``."""
+@pytest.mark.parametrize("persisted", [True, False])
+async def test_scan_shallow_threads_to_loader(tmp_path: Path, persisted: bool) -> None:
+    """``scan(shallow=True)`` stays shallow only for a device whose dependency list is persisted."""
     cfg = tmp_path / "configs"
     cfg.mkdir()
     _write_yaml(cfg, "kitchen")
@@ -496,10 +507,10 @@ async def test_scan_shallow_threads_to_loader(tmp_path: Path) -> None:
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
         side_effect=_shallow_capturing_loader(seen),
     ):
-        scanner, _ = _make_scanner(cfg)
+        scanner, _ = _make_scanner(cfg, persisted_dependencies=persisted)
         await scanner.scan(shallow=True)
 
-    assert seen == [True]
+    assert seen == [persisted]
 
 
 async def test_scan_default_is_deep(tmp_path: Path) -> None:
@@ -530,7 +541,7 @@ async def test_reload_after_shallow_scan_is_deep(tmp_path: Path) -> None:
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
         side_effect=_shallow_capturing_loader(seen),
     ):
-        scanner, _ = _make_scanner(cfg)
+        scanner, _ = _make_scanner(cfg, persisted_dependencies=True)
         await scanner.scan(shallow=True)
         assert await scanner.reload("kitchen.yaml") is True
 
@@ -548,10 +559,133 @@ async def test_plain_scan_does_not_redeepen_shallow_rows(tmp_path: Path) -> None
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
         side_effect=_shallow_capturing_loader(seen),
     ):
-        scanner, _ = _make_scanner(cfg)
+        scanner, _ = _make_scanner(cfg, persisted_dependencies=True)
         await scanner.scan(shallow=True)
         await scanner.scan()
 
     # The unchanged cache key skipped the file entirely; only reload /
     # request deepens the row.
     assert seen == [True]
+
+
+# ---------------------------------------------------------------------------
+# Dependency files in the change key
+# ---------------------------------------------------------------------------
+
+
+def _write_package_fleet(config_dir: Path) -> tuple[Path, Path]:
+    """``kitchen.yaml`` pulling in ``packages/common.yaml``; ``porch.yaml`` standalone."""
+    (config_dir / "packages").mkdir()
+    package = config_dir / "packages" / "common.yaml"
+    package.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    kitchen = config_dir / "kitchen.yaml"
+    kitchen.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
+    _write_yaml(config_dir, "porch")
+    return kitchen, package
+
+
+async def test_dependency_edit_fires_updated_for_dependents_only(tmp_path: Path) -> None:
+    """A package edit surfaces as UPDATED on the devices that pull it in and nowhere else."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    kitchen, package = _write_package_fleet(cfg)
+    scanner, events = _make_scanner(cfg)
+
+    await scanner.scan()
+    assert sorted((kind, device.name) for kind, device, _ in events) == [
+        (ScanChange.ADDED, "kitchen"),
+        (ScanChange.ADDED, "porch"),
+    ]
+    assert scanner.by_path[kitchen].dependencies == ("packages/common.yaml",)
+    events.clear()
+    await scanner.scan()
+    assert events == []
+
+    package.write_text("esphome:\n  name: kitchen\nlogger:\n", encoding="utf-8")
+    bump_mtime(package)
+    await scanner.scan()
+
+    assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
+    _, device, previous = events[0]
+    assert previous is not None
+    assert device.content_fingerprint != previous.content_fingerprint
+    events.clear()
+    await scanner.scan()
+    assert events == []
+
+
+async def test_secret_edit_updates_a_device_whose_package_probes_an_absent_secrets_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A package's ``!secret`` probes ``packages/secrets.yaml``; its absence blanks nothing."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    # esphome falls back to the secrets file beside ``CORE.config_path``, the dashboard sentinel.
+    monkeypatch.setattr(CORE, "config_path", cfg / "__dashboard__.yaml")
+    (cfg / "packages").mkdir()
+    (cfg / "packages" / "common.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n  encryption:\n    key: !secret api_key\n",
+        encoding="utf-8",
+    )
+    secrets = cfg / "secrets.yaml"
+    secrets.write_text("api_key: abc\n", encoding="utf-8")
+    kitchen = cfg / "kitchen.yaml"
+    kitchen.write_text("packages:\n  common: !include packages/common.yaml\n", encoding="utf-8")
+    scanner, events = _make_scanner(cfg)
+
+    with caplog.at_level(logging.WARNING):
+        await scanner.scan()
+        first = scanner.by_path[kitchen].content_fingerprint
+        events.clear()
+        await scanner.scan()
+        assert events == []
+
+        secrets.write_text("api_key: xyz\n", encoding="utf-8")
+        bump_mtime(secrets)
+        await scanner.scan()
+
+    assert "packages/secrets.yaml" in scanner.by_path[kitchen].dependencies
+    assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
+    assert first.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert events[0][1].content_fingerprint not in ("", first)
+    assert not [r for r in caplog.records if "Could not read" in r.getMessage()]
+
+
+async def test_dependency_touch_fires_one_updated_with_the_digest_unchanged(
+    tmp_path: Path,
+) -> None:
+    """An mtime-only change reloads once; the digest the regen gate reads stays put."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _, package = _write_package_fleet(cfg)
+    scanner, events = _make_scanner(cfg)
+    await scanner.scan()
+    events.clear()
+
+    bump_mtime(package)
+    await scanner.scan()
+
+    assert [(kind, device.name) for kind, device, _ in events] == [(ScanChange.UPDATED, "kitchen")]
+    _, device, previous = events[0]
+    assert previous is not None
+    assert device.content_fingerprint == previous.content_fingerprint
+    events.clear()
+    await scanner.scan()
+    assert events == []
+
+
+async def test_reload_keeps_dependency_keys_so_the_next_scan_is_quiet(tmp_path: Path) -> None:
+    """A reload re-stats the device file and carries the dependency keys the load read against."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    kitchen, package = _write_package_fleet(cfg)
+    scanner, events = _make_scanner(cfg)
+    await scanner.scan()
+    events.clear()
+
+    assert await scanner.reload("kitchen.yaml") is True
+    await scanner.scan()
+
+    assert events == []
+    stat = package.stat()
+    assert scanner._index.cache_key(kitchen)[4] == ((stat.st_mtime_ns, stat.st_size),)

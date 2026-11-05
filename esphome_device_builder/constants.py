@@ -6,6 +6,7 @@ import re
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import NamedTuple
 
 from .helpers.cross_os_path import cross_os_basename
 
@@ -36,6 +37,29 @@ DEFAULT_HOST = "0.0.0.0"
 SECRETS_FILENAME = "secrets.yaml"  # the file this project creates and writes
 # Both spellings esphome accepts, for guards; pinned against esphome.const in tests.
 SECRETS_FILENAMES: tuple[str, ...] = (SECRETS_FILENAME, "secrets.yml")
+# A ``!secret <name>`` reference, the name bare or quoted, alone or in a flow collection.
+# No leading assertion: a literal prefix keeps the scan on the regex engine's fast path.
+SECRET_REF_RE = re.compile(
+    r"""!secret\s+(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"',}\]#]+))"""
+)
+
+
+def secret_ref_name(match: re.Match[str]) -> str:
+    """Return the name a ``SECRET_REF_RE`` match references."""
+    return match[match.lastgroup or "bare"]
+
+
+def secret_ref_names(text: str) -> list[str]:
+    """Names of every ``!secret`` reference in *text*, minus quoted literals and comment lines."""
+    names: list[str] = []
+    for match in SECRET_REF_RE.finditer(text):
+        start = match.start()
+        if start and (text[start - 1].isalnum() or text[start - 1] in "_\"'"):
+            continue
+        if text[text.rfind("\n", 0, start) + 1 : start].lstrip()[:1] == "#":
+            continue
+        names.append(secret_ref_name(match))
+    return names
 
 
 # No NTFS stream suffix (``::$DATA``); the extension rules out the 8.3 alias ``SECRET~1.YAM``.
@@ -109,9 +133,10 @@ REMOTE_BUILD_PORT_SCAN_ATTEMPTS = 10
 
 
 # Long-form pin keys describing a board GPIO. Any other key in a pin mapping
-# names an I/O-expander provider whose value is the hub id. ``id`` is included
-# because expander pin schemas share this base, so a channel carrying an ``id``
-# must not have it taken for the provider key.
+# names an I/O-expander provider whose value is the hub id (or an
+# ``{address: ...}`` hub selector). ``id`` is included because expander pin
+# schemas share this base, so a channel carrying an ``id`` must not have it
+# taken for the provider key.
 BOARD_PIN_KEYS: frozenset[str] = frozenset(
     {
         "id",
@@ -171,6 +196,34 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 # import it.
 TOOLCHAIN_ESP_IDF = "esp-idf"
 TOOLCHAIN_SDK_NRF = "sdk-nrf"
+TOOLCHAIN_ARDUINO = "arduino"
+
+
+class ToolchainArtifacts(NamedTuple):
+    """The build metadata a toolchain writes beside its firmware."""
+
+    idedata_suffix: str
+    idedata: bool
+    platformio_ini: bool
+
+
+_PLATFORMIO_ARTIFACTS = ToolchainArtifacts(".json", idedata=True, platformio_ini=True)
+_TOOLCHAIN_ARTIFACTS = {
+    TOOLCHAIN_ESP_IDF: ToolchainArtifacts(".json", idedata=False, platformio_ini=False),
+    TOOLCHAIN_SDK_NRF: ToolchainArtifacts(".json", idedata=False, platformio_ini=False),
+    TOOLCHAIN_ARDUINO: ToolchainArtifacts(".arduino.json", idedata=True, platformio_ini=False),
+}
+IDEDATA_SUFFIXES = frozenset(
+    artifacts.idedata_suffix
+    for artifacts in (_PLATFORMIO_ARTIFACTS, *_TOOLCHAIN_ARTIFACTS.values())
+)
+
+
+def toolchain_artifacts(toolchain: str | None) -> ToolchainArtifacts:
+    """Return what the build for *toolchain* writes; PlatformIO for any other value."""
+    if toolchain is None:
+        return _PLATFORMIO_ARTIFACTS
+    return _TOOLCHAIN_ARTIFACTS.get(toolchain, _PLATFORMIO_ARTIFACTS)
 
 
 class DecodeUnavailable(StrEnum):

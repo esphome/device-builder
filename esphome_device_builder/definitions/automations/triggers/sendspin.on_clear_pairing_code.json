@@ -1,0 +1,1 @@
+{"id":"sendspin.on_clear_pairing_code","name":"Sendspin → On Clear Pairing Code","description":"An automation to perform when the dynamic pairing code is no longer needed.","docs_url":"https://esphome.io/components/sendspin/#automations","applies_to":["sendspin"],"is_device_level":false,"supports_list":true,"config_entries":[]}

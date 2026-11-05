@@ -536,3 +536,76 @@ async def test_config_only_rename_records_the_name_even_if_the_migration_fails(
     )
 
     assert controller._metadata_store.get("livingroom.yaml")["deployed_name"] == "kitchen"
+
+
+async def test_config_only_rename_lands_new_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Both leaves land in the renamed file in one write."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+
+    await controller.rename_device(
+        configuration="kitchen.yaml",
+        new_name="livingroom",
+        config_only=True,
+        new_friendly_name="Living Room",
+    )
+
+    new_content = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
+    assert read_yaml_scalar(new_content, ("esphome", "name")) == "livingroom"
+    assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Living Room"
+
+
+async def test_in_place_rename_lands_new_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    config = tmp_path / "test-1.yaml"
+    config.write_text(_UNDERSCORE_YAML, encoding="utf-8")
+
+    await controller.rename_device(
+        configuration="test-1.yaml", new_name="test-1", new_friendly_name="Test One"
+    )
+
+    new_content = config.read_text(encoding="utf-8")
+    assert read_yaml_scalar(new_content, ("esphome", "name")) == "test-1"
+    assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Test One"
+
+
+async def test_config_only_rename_inserts_missing_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n\nesp32:\n  board: esp32dev\n", encoding="utf-8"
+    )
+
+    await controller.rename_device(
+        configuration="kitchen.yaml",
+        new_name="livingroom",
+        config_only=True,
+        new_friendly_name="Living Room",
+    )
+
+    new_content = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
+    assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Living Room"
+
+
+async def test_config_only_rename_retargets_friendly_labelled_ap_ssid_with_new_friendly_name(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A friendly-derived ssid follows the friendly name changed in the same rename."""
+    controller = make_controller(tmp_path)
+    yaml_text = _YAML + "\n" + wifi_ap_block("Kitchen Light Fallback Hotspot")
+    (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
+
+    await controller.rename_device(
+        configuration="kitchen.yaml",
+        new_name="livingroom",
+        config_only=True,
+        new_friendly_name="Living Room",
+    )
+
+    new_content = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
+    assert read_yaml_scalar(new_content, ("wifi", "ap", "ssid")) == "Living Room Fallback Hotspot"

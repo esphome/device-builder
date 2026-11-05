@@ -39,7 +39,9 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
-from esphome_device_builder.helpers.device_yaml._parsing import CONTENT_FINGERPRINT_VERSION
+from esphome_device_builder.helpers.device_yaml._parsing import (
+    CONTENT_FINGERPRINT_VERSION,
+)
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     AdoptableDevice,
@@ -1482,12 +1484,12 @@ async def test_on_scan_change_first_sight_seeds_without_regen(
     assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("first")
 
 
-async def test_on_scan_change_stale_digest_version_reseeds_without_regen(
+async def test_on_scan_change_stale_digest_version_regens_once(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A stored digest from an older algorithm re-seeds silently, no regen (#2612)."""
+    """A stored digest from an older algorithm regens once and re-seeds."""
     controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "d" * 64)
 
     controller._on_scan_change(
@@ -1500,23 +1502,23 @@ async def test_on_scan_change_stale_digest_version_reseeds_without_regen(
         ),
     )
 
-    assert regenerated == []
+    assert regenerated == ["kitchen.yaml"]
     assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
 
 
-async def test_on_scan_change_reloaded_content_change_reseeds_without_regen(
+async def test_on_scan_change_reloaded_content_change_schedules_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Our own requested reload re-seeds the stored value but never schedules."""
+    """A reload whose digest moved regens like any other change, so no edit hides behind one."""
     controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, _fp("old"))
 
     controller._on_scan_change(
         ScanChange.RELOADED, make_device(name="kitchen", content_fingerprint=_fp("new"))
     )
 
-    assert regenerated == []
+    assert regenerated == ["kitchen.yaml"]
     assert controller._metadata_store.get("kitchen.yaml")["content_fingerprint"] == _fp("new")
 
 
@@ -1851,3 +1853,20 @@ def test_on_scan_change_reloaded_without_mqtt_delta_skips_nudge(
     )
 
     assert controller.mqtt_nudges == 0
+
+
+async def test_on_scan_change_persists_discovered_dependencies(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deep load's list lands in the store; a shallow load with no list writes nothing."""
+    controller, _ = _fingerprint_rig(tmp_path, make_controller, monkeypatch, None)
+
+    controller._on_scan_change(ScanChange.ADDED, make_device(name="kitchen"))
+    assert "dependencies" not in controller._metadata_store.get("kitchen.yaml")
+
+    controller._on_scan_change(
+        ScanChange.RELOADED, make_device(name="kitchen", dependencies=("packages/a.yaml",))
+    )
+    assert controller._metadata_store.get("kitchen.yaml")["dependencies"] == ["packages/a.yaml"]

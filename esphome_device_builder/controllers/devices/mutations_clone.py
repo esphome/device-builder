@@ -11,11 +11,13 @@ from ...helpers.device_yaml import (
     configuration_stem,
     parse_esphome_meta,
     retarget_fallback_ap_ssid,
+    yaml_declares_ota_old_key,
 )
 from ...helpers.yaml import (
     ESPHOME_FRIENDLY_NAME_PATH,
     ESPHOME_NAME_PATH,
     YamlUpsertNotSupportedError,
+    drop_ota_encryption_old_key,
     generate_api_encryption_key,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
@@ -129,6 +131,7 @@ async def clone_device(
         new_content = rewrite_api_encryption_key(new_content, new_key)
         # An own OTA key is sibling-shared material too.
         new_content = rewrite_own_ota_encryption_key(new_content, new_key)
+        new_content = _drop_source_old_key(new_content)
     except YamlUpsertNotSupportedError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
     keys_changed = new_content != before_keys
@@ -175,3 +178,14 @@ async def clone_device(
         board_id=carry_board_id,
     )
     return {"configuration": new_filename}
+
+
+def _drop_source_old_key(yaml_text: str) -> str:
+    """Drop the source's ``old_key`` (meaningless to a serial-flashed clone); unremovable raises."""
+    dropped = drop_ota_encryption_old_key(yaml_text)
+    if "old_key" in dropped and yaml_declares_ota_old_key(dropped) is not False:
+        raise YamlUpsertNotSupportedError(
+            "the OTA encryption old_key sits in a shape the line-based rewrite can't remove "
+            "or verify; delete it from the source before cloning."
+        )
+    return dropped

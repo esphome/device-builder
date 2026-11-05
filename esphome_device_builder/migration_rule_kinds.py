@@ -10,6 +10,7 @@ from __future__ import annotations
 MIGRATION_RULE_EXTRA_FIELDS: dict[str, tuple[str, ...]] = {
     "component_block_field": ("component",),
     "platform_item_field": ("domain", "platform"),
+    "platform_item_list_field": ("domain", "platform", "list_key"),
     "platform_channel_colors": ("domain", "platform"),
     "component_key": (),
 }

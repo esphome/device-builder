@@ -27,3 +27,10 @@ def test_collect_split_default_inside_list_item_schema() -> None:
     }
     out = _collect_platform_defaults(SimpleNamespace(config_schema=schema))
     assert out == {("entries", "mode"): {"esp32": "a", "esp8266": "b"}}
+
+
+def test_collect_split_default_sorts_platforms() -> None:
+    """Platform keys come out sorted whatever order the ``SplitDefault`` declared them in."""
+    schema = {cv.SplitDefault("size", rp2=1, esp32_c61=2, esp32_c2=3): cv.int_}
+    out = _collect_platform_defaults(SimpleNamespace(config_schema=schema))
+    assert list(out[("size",)]) == ["esp32_c2", "esp32_c61", "rp2"]

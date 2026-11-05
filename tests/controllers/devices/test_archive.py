@@ -193,7 +193,7 @@ async def test_archive_clears_volatile_metadata_keeps_identity(
         "kitchen.yaml",
         ip="192.168.1.42",
         expected_config_hash="deadbeef",
-        regen_failed_mtime=1700000000.5,
+        regen_failed_content_fingerprint="2:abc",
         regen_failed_at=1700000005.0,
         build_size_bytes=12345678,
         build_size_dir_mtime=1714900000,

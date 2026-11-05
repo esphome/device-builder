@@ -11,6 +11,7 @@ patch hits 100% coverage.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -71,6 +72,7 @@ from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
     AutomationTree,
+    ChooseBranch,
     ComponentActionFieldLocation,
     ComponentOnLocation,
     ConditionNode,
@@ -332,10 +334,37 @@ def test_decompose_action_list_returns_empty_for_none() -> None:
     assert _decompose_action_list(None) == []
 
 
-def test_decompose_action_list_skips_empty_and_non_dict_items() -> None:
-    """Empty / non-dict list items are skipped without raising."""
-    assert _decompose_action_list([{}, "not-a-dict", {"delay": "1s"}]) == [
-        ActionNode(action_id="delay", params={"id": "1s"}),
+@pytest.mark.parametrize(
+    ("item", "shape"),
+    [
+        pytest.param({}, "empty entry", id="empty-mapping"),
+        pytest.param(None, "empty entry", id="null"),
+        pytest.param(42, "int", id="number"),
+        pytest.param([{"delay": "1s"}], "list", id="nested-list"),
+    ],
+)
+def test_decompose_action_list_refuses_an_item_it_cannot_represent(item: Any, shape: str) -> None:
+    """An entry the tree has no node for makes the automation read-only, not silently dropped."""
+    with pytest.raises(UnsupportedActionError, match=shape):
+        _decompose_action_list([{"delay": "1s"}, item])
+
+
+def test_decompose_action_list_reads_a_bare_string_as_that_action() -> None:
+    """``- script.stop`` is the action with an empty body, as esphome reads it."""
+    assert _decompose_action_list(["script.stop"]) == [ActionNode(action_id="script.stop")]
+
+
+def test_decompose_action_list_tagged_item_is_unsupported() -> None:
+    """``- !include x.yaml`` makes the automation read-only instead of vanishing on save."""
+    tagged = TaggedScalar(value="x.yaml", tag=Tag(suffix="!include"))
+    with pytest.raises(UnsupportedActionError, match="!include tagged value"):
+        _decompose_action_list([tagged])
+
+
+def test_decompose_action_list_bare_unknown_string_is_a_passthrough() -> None:
+    """An uncatalogued bare string item passes through like an uncatalogued mapping."""
+    assert _decompose_action_list(["my_ext.go"]) == [
+        ActionNode(action_id="my_ext.go", unknown=True, raw_body=None)
     ]
 
 
@@ -460,6 +489,8 @@ def test_scalar_shorthand_parses_and_emits_the_same_key() -> None:
     """Every catalog entry's bare scalar emits as a scalar or ``id`` mapping and re-parses."""
     for entry in catalog.all_actions():
         assert catalog.action_by_id(entry.id) is not None, entry.id
+        if entry.has_branches:
+            continue
         node = _decompose_action(entry.id, "v")
         out = emit_action_node(node)
         assert out[entry.id] in ("v", {"id": "v"}), entry.id
@@ -1501,3 +1532,241 @@ def test_remove_inline_handler_walk_skips_blank() -> None:
     new_text, _diff = res
     assert "on_press" not in new_text
     assert "on_release" in new_text
+
+
+# ---------------------------------------------------------------------------
+# Condition gates: ``condition`` / ``all`` / ``any`` / bare
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("gate", ["any", "all"])
+def test_decompose_combinator_gate_is_one_combinator_node(gate: str) -> None:
+    """``any:`` / ``all:`` keep their meaning as a single combinator over the list."""
+    node = _decompose_action("if", {gate: ["api.connected", "wifi.connected"], "then": []})
+    assert [c.condition_id for c in node.conditions] == [gate]
+    assert [c.condition_id for c in node.conditions[0].children] == [
+        "api.connected",
+        "wifi.connected",
+    ]
+
+
+def test_decompose_condition_gate_stays_a_flat_list() -> None:
+    """``condition:`` with a list is the implicit AND list."""
+    node = _decompose_action("if", {"condition": ["api.connected", "wifi.connected"]})
+    assert [c.condition_id for c in node.conditions] == ["api.connected", "wifi.connected"]
+
+
+def test_decompose_two_gate_keys_is_invalid() -> None:
+    """``condition:`` beside ``any:`` is refused rather than letting the last one win."""
+    with pytest.raises(CommandError, match="both"):
+        _decompose_action("if", {"condition": "api.connected", "any": ["wifi.connected"]})
+
+
+def test_decompose_bare_condition_under_if_is_the_gate() -> None:
+    """``if: {lambda: ..., then: [...]}`` lifts the condition id out of the params."""
+    node = _decompose_action("if", {"lambda": "return true;", "then": [{"delay": "1s"}]})
+    assert node.params == {}
+    assert [c.condition_id for c in node.conditions] == ["lambda"]
+    assert node.conditions[0].params == {"lambda": "return true;"}
+    assert [a.action_id for a in node.children["then"]] == ["delay"]
+
+
+def test_decompose_bare_component_condition_under_if() -> None:
+    """A component condition written directly under ``if`` is the gate too."""
+    node = _decompose_action("if", {"binary_sensor.is_on": "door", "then": []})
+    assert [c.condition_id for c in node.conditions] == ["binary_sensor.is_on"]
+    assert node.conditions[0].params == {"id": "door"}
+
+
+def test_decompose_two_bare_conditions_is_invalid() -> None:
+    """Two bare conditions cannot be told apart from params, so the body is refused."""
+    with pytest.raises(CommandError, match="Only one condition"):
+        _decompose_action("if", {"api.connected": None, "wifi.connected": None, "then": []})
+
+
+def test_decompose_bare_condition_leaves_unknown_keys_as_params() -> None:
+    """A key that is not a catalogued condition stays a param."""
+    node = _decompose_action("if", {"not_a_condition": 1, "then": []})
+    assert node.params == {"not_a_condition": 1}
+    assert node.conditions == []
+
+
+@pytest.mark.usefixtures("if_action_with_gate_keys")
+def test_emit_if_any_gate_writes_the_any_key() -> None:
+    """A lone ``any`` combinator on ``if`` is written back as ``any:``, not ``condition:``."""
+    node = _decompose_action("if", {"any": ["api.connected", "wifi.connected"], "then": []})
+    out = dump([emit_action_node(node)])
+    assert "any:" in out
+    assert "condition:" not in out
+
+
+def test_emit_any_gate_nests_under_condition_until_the_catalog_lists_the_key() -> None:
+    """Without ``condition_gate_keys`` the combinator nests under ``condition:``, still OR."""
+    if catalog.action_by_id("if").condition_gate_keys:
+        pytest.skip("the shipped catalog already carries condition_gate_keys")
+    node = _decompose_action("if", {"any": ["api.connected", "wifi.connected"], "then": []})
+    out = dump([emit_action_node(node)])
+    assert "condition:\n        any:\n" in out
+
+
+def test_emit_while_any_gate_nests_under_condition() -> None:
+    """``while`` takes only ``condition:``, so its combinator nests there."""
+    node = _decompose_action(
+        "while", {"condition": {"any": ["api.connected", "wifi.connected"]}, "then": []}
+    )
+    out = dump([emit_action_node(node)])
+    assert "condition:\n" in out
+    assert "  any:" in out
+
+
+def test_emit_bare_condition_is_written_under_condition() -> None:
+    """A single condition is written as ``condition:``, which every esphome accepts."""
+    node = _decompose_action("if", {"lambda": "return true;", "then": []})
+    out = dump([emit_action_node(node)])
+    assert out.startswith("  - if:\n      condition:\n        lambda: return true;\n")
+
+
+# ---------------------------------------------------------------------------
+# ``choose`` branches
+# ---------------------------------------------------------------------------
+
+_CHOOSE_BODY = [
+    {"if": "api.connected", "then": [{"logger.log": "api"}]},
+    {
+        "if": ["wifi.connected", {"binary_sensor.is_on": "door"}],
+        "then": [{"logger.log": "wifi"}],
+    },
+    {"else": [{"logger.log": "neither"}]},
+]
+
+
+@pytest.mark.usefixtures("synthetic_choose_action")
+def test_decompose_choose_into_branches_and_else() -> None:
+    """Each ``{if, then}`` entry is a branch; the trailing ``{else}`` is the else list."""
+    node = _decompose_action("choose", _CHOOSE_BODY)
+    assert node.params == {}
+    assert node.conditions == []
+    assert [[c.condition_id for c in b.conditions] for b in node.branches] == [
+        ["api.connected"],
+        ["wifi.connected", "binary_sensor.is_on"],
+    ]
+    assert [[a.action_id for a in b.actions] for b in node.branches] == [
+        ["logger.log"],
+        ["logger.log"],
+    ]
+    assert [a.params for a in node.children["else"]] == [{"format": "neither"}]
+
+
+@pytest.mark.usefixtures("synthetic_choose_action")
+def test_decompose_choose_single_mapping_is_one_branch() -> None:
+    """``ensure_list`` lets a single ``{if, then}`` mapping stand for the list."""
+    node = _decompose_action("choose", {"if": "api.connected", "then": []})
+    assert len(node.branches) == 1
+    assert "else" not in node.children
+
+
+@pytest.mark.usefixtures("synthetic_choose_action")
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param([{"else": []}, {"if": "api.connected", "then": []}], id="else-not-last"),
+        pytest.param([{"else": [], "then": []}], id="else-with-then"),
+        pytest.param([{"if": "api.connected"}], id="missing-then"),
+        pytest.param([{"then": []}], id="missing-if"),
+        pytest.param([{"if": "api.connected", "then": [], "choice_id": "x"}], id="extra-key"),
+        pytest.param(["api.connected"], id="scalar-entry"),
+    ],
+)
+def test_decompose_choose_malformed_entry_is_unsupported(body: list) -> None:
+    """A choice the tree cannot represent makes the automation read-only, never restructured."""
+    with pytest.raises(UnsupportedActionError):
+        _decompose_action("choose", body)
+
+
+@pytest.mark.usefixtures("synthetic_choose_action")
+def test_emit_choose_writes_the_if_then_else_sequence() -> None:
+    """Branches come back as ``[{if, then}, ..., {else}]`` with ``if`` before ``then``."""
+    node = _decompose_action("choose", _CHOOSE_BODY)
+    out = dump([emit_action_node(node)])
+    assert out == (
+        "  - choose:\n"
+        "      - if:\n"
+        "          api.connected:\n"
+        "        then:\n"
+        "          - logger.log: api\n"
+        "      - if:\n"
+        "          - wifi.connected:\n"
+        "          - binary_sensor.is_on: door\n"
+        "        then:\n"
+        "          - logger.log: wifi\n"
+        "      - else:\n"
+        "          - logger.log: neither\n"
+    )
+
+
+@pytest.mark.usefixtures("synthetic_choose_action")
+@pytest.mark.parametrize(
+    "node",
+    [
+        pytest.param(
+            ActionNode(
+                action_id="choose",
+                params={"id": "x"},
+                branches=[ChooseBranch(conditions=[ConditionNode("api.connected")])],
+            ),
+            id="params",
+        ),
+        pytest.param(
+            ActionNode(
+                action_id="choose",
+                children={"then": []},
+                branches=[ChooseBranch(conditions=[ConditionNode("api.connected")])],
+            ),
+            id="then-child",
+        ),
+    ],
+)
+def test_emit_choose_refuses_a_shape_the_tree_cannot_hold(node: ActionNode) -> None:
+    """Params or a non-``else`` child on a branch-list node is a lossy echo, so it fails loud."""
+    with pytest.raises(CommandError):
+        emit_action_node(node)
+
+
+@pytest.mark.usefixtures("synthetic_choose_action")
+@pytest.mark.parametrize(
+    ("node", "expected"),
+    [
+        pytest.param(ActionNode(action_id="choose"), "  - choose:\n", id="empty"),
+        pytest.param(
+            ActionNode(action_id="choose", branches=[ChooseBranch()]),
+            "  - choose:\n      - if: []\n        then: []\n",
+            id="blank-branch",
+        ),
+        pytest.param(
+            ActionNode(action_id="choose", children={"else": []}),
+            "  - choose:\n      - else: []\n",
+            id="else-only",
+        ),
+    ],
+)
+def test_emit_choose_leaves_incomplete_shapes_to_esphome(node: ActionNode, expected: str) -> None:
+    """A half-built ``choose`` is written as is; esphome's validation reports what is missing."""
+    assert dump([emit_action_node(node)]) == expected
+
+
+def test_emit_branches_on_an_action_without_them_is_refused() -> None:
+    """``branches`` on a plain action is a client echo the writer must not drop silently."""
+    node = ActionNode(
+        action_id="if", branches=[ChooseBranch(conditions=[ConditionNode("api.connected")])]
+    )
+    with pytest.raises(CommandError, match="takes no branches"):
+        emit_action_node(node)
+
+
+def test_choose_without_a_catalog_entry_is_a_passthrough() -> None:
+    """Until the catalog carries ``choose`` it round-trips as an opaque unknown action."""
+    if catalog.is_known_action("choose"):
+        pytest.skip("the shipped catalog already carries choose")
+    node = _decompose_action("choose", _CHOOSE_BODY)
+    assert node.unknown is True
+    assert node.raw_body == _CHOOSE_BODY

@@ -31,18 +31,29 @@ STORE_FIELDS: frozenset[str] = frozenset(
         "deployed_config_hash",
         "deployed_version",
         "deployed_name",
+        "network",
         "queued_update",
         "api_encryption_active",
         "expected_config_hash",
+        "regen_config_hash",
+        "regen_content_fingerprint",
         "content_fingerprint",
+        "dependencies",
         "build_size_bytes",
         "build_size_dir_mtime",
         "build_size_info_mtime",
-        "regen_failed_mtime",
+        "regen_failed_content_fingerprint",
         "regen_failed_at",
         "regen_failed_attempts",
     }
 )
+
+
+def stored_str_tuple(value: object) -> tuple[str, ...] | None:
+    """Return a persisted list of ``str`` as a tuple; ``None`` when absent or malformed."""
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return tuple(value)
+    return None
 
 
 def _own_fields(entry: dict[str, Any]) -> dict[str, Any]:

@@ -8,19 +8,27 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from esphome.const import __version__ as _installed_esphome_version
+
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_config import read_device_config_async
-from ...helpers.device_yaml import config_has_top_level_block
+from ...helpers.device_yaml import (
+    UnreadableDependencyError,
+    config_has_top_level_block,
+    source_fingerprint,
+    yaml_has_top_level_block,
+)
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
+    OldKeyOutcome,
     YamlUpsertNotSupportedError,
     api_key_settled,
     component_block_present,
     is_indirected_scalar,
     read_yaml_scalar,
-    upsert_api_encryption_key,
+    rotate_api_encryption_key,
 )
 from ...models import ErrorCode
 from .encryption_key_lookup import get_resolved_api_and_ota_keys
@@ -59,21 +67,7 @@ async def set_encryption_key(
         _LOGGER.info("Stored pending API encryption key for unadopted device %s", name)
         return {"result": KeyHandoffResult.STORED}
 
-    outcomes: set[KeyHandoffResult] = set()
-    reason = ""
-    for device in devices:
-        try:
-            outcome, why = await _apply_to_device(controller, device, key)
-        except CommandError as err:
-            # A failing sibling (validation rejection, vanished file)
-            # must not unwind the loop: the key-retention policy and
-            # the other devices' outcomes still apply.
-            outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
-            if err.code is ErrorCode.PRECONDITION_FAILED:
-                # The first line only: the diff excerpt is for a caller that can retry.
-                why = f"{why.partition('\n')[0]}{_KEPT_SUFFIX}"
-        outcomes.add(outcome)
-        reason = reason or why
+    outcomes, reason = await _apply_to_devices(controller, devices, key)
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
         # Consume the pending entry only once the key actually landed. Unconditional
         # on purpose: the device is configured now, so an older entry is stale cruft
@@ -96,9 +90,35 @@ async def set_encryption_key(
     # A duplicate-name sibling that refused must not vanish behind the
     # aggregate success — its YAML still carries a competing key.
     if KeyHandoffResult.NOT_WRITABLE in outcomes:
-        response["reason"] = reason
         _LOGGER.info("HA key handoff for %s refused: %s", name, reason)
+    if reason:
+        response["reason"] = reason
     return response
+
+
+async def _apply_to_devices(
+    controller: DevicesController, devices: list[Device], key: str
+) -> tuple[set[KeyHandoffResult], str]:
+    """Splice *key* into every device; returns the outcomes and the first refusal, else advisory."""
+    outcomes: set[KeyHandoffResult] = set()
+    refusal = advisory = ""
+    for device in devices:
+        try:
+            outcome, why = await _apply_to_device(controller, device, key)
+        except CommandError as err:
+            # A failing sibling (validation rejection, vanished file)
+            # must not unwind the loop: the key-retention policy and
+            # the other devices' outcomes still apply.
+            outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
+            if err.code is ErrorCode.PRECONDITION_FAILED:
+                # The first line only: the diff excerpt is for a caller that can retry.
+                why = f"{why.partition('\n')[0]}{_KEPT_SUFFIX}"
+        outcomes.add(outcome)
+        if outcome is KeyHandoffResult.NOT_WRITABLE:
+            refusal = refusal or why
+        else:
+            advisory = advisory or why
+    return outcomes, refusal or advisory
 
 
 def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
@@ -144,8 +164,14 @@ async def _apply_to_device(
             )
             return KeyHandoffResult.NOT_WRITABLE, reason
 
+    keep_previous = _ota_old_key_supported()
     try:
-        new_content = upsert_api_encryption_key(content, key)
+        new_content, old_key_outcome = rotate_api_encryption_key(
+            content,
+            key,
+            record_previous=keep_previous,
+            replace_old_key=await _runs_yaml(controller, device, content),
+        )
     except YamlUpsertNotSupportedError as exc:
         return KeyHandoffResult.NOT_WRITABLE, str(exc)
     if not api_key_settled(new_content, key):
@@ -169,7 +195,79 @@ async def _apply_to_device(
         expected=content,
         message=f"Update API encryption key in {configuration}",
     )
-    return KeyHandoffResult.UPDATED, ""
+    unrecorded = _unrecorded_reason(
+        old_key_outcome,
+        content,
+        keep_previous=keep_previous,
+        required=device.ota_encryption_required,
+    )
+    if unrecorded:
+        _LOGGER.warning(
+            "Replaced the api encryption key of %s without recording the previous one: %s",
+            configuration,
+            unrecorded,
+        )
+    return KeyHandoffResult.UPDATED, unrecorded
+
+
+def _ota_old_key_supported() -> bool:
+    """Whether the installed esphome accepts ``ota: encryption: old_key:``."""
+    from esphome import espota2  # noqa: PLC0415
+
+    return hasattr(espota2, "CONF_OLD_KEY")
+
+
+async def _runs_yaml(controller: DevicesController, device: Device, content: str) -> bool:
+    """Whether the device reports the hash a storage regen produced for this very YAML *content*."""
+    md = controller._metadata_store.get(device.configuration)
+    deployed = device.runtime_state.deployed_config_hash
+    if not (deployed and md.get("regen_config_hash") == deployed) or device.dependencies is None:
+        return False
+    try:
+        current = await run_in_executor(
+            source_fingerprint, controller._db.settings.config_dir, device.dependencies, content
+        )
+    except UnreadableDependencyError:
+        return False
+    return md.get("regen_content_fingerprint") == current
+
+
+def _unrecorded_reason(
+    outcome: OldKeyOutcome, content: str, *, keep_previous: bool, required: bool
+) -> str:
+    """Why the replaced api key did not land as ``old_key``; empty when it did or was not needed."""
+    if outcome is OldKeyOutcome.KEPT_INDIRECTED:
+        return (
+            "old_key is provided via !secret or a substitution and was left as is; make sure "
+            "it resolves to the key the device runs"
+        )
+    if outcome is OldKeyOutcome.KEPT_EXISTING:
+        return (
+            "an earlier old_key was kept because the device is not known to run the replaced "
+            "key; if the next OTA install is refused, set old_key to the key the device runs"
+        )
+    # A block missing from the file only matters when the resolved config requires encryption.
+    if outcome is OldKeyOutcome.NO_ENCRYPTION_BLOCK and not required:
+        return ""
+    if outcome is OldKeyOutcome.NOT_RECORDED or (
+        outcome is OldKeyOutcome.NO_ENCRYPTION_BLOCK and not keep_previous
+    ):
+        return (
+            f"esphome {_installed_esphome_version} predates ota encryption old_key; the next "
+            "OTA install needs esphome 2026.11 or newer, or a serial flash"
+        )
+    if outcome is OldKeyOutcome.NO_ENCRYPTION_BLOCK:
+        where = (
+            "in this file has no encryption: block the line-based rewrite can edit (it comes "
+            "from a package or include, or has an unsupported shape)"
+            if yaml_has_top_level_block(content, "ota")
+            else "is not in this file (packages or !include)"
+        )
+        return (
+            f"the OTA block {where}; add the previous key as old_key where it lives, or the next "
+            "install needs a serial flash"
+        )
+    return ""
 
 
 async def _resolved_config_has_api(

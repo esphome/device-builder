@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -46,7 +46,7 @@ jobs:
         # boards.index.json from the installed esphome, so an unpinned
         # "latest" would red this job on every esphome release until the
         # catalog is re-synced. The sync workflows bump that pin.
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
@@ -63,7 +63,7 @@ jobs:
         # because that action's transitive ``actions/cache@v4``
         # reference isn't SHA-pinned, which the org policy blocks
         # ("all actions must be pinned to a full-length commit SHA").
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit|py${{ steps.python.outputs.python-version }}|${{ hashFiles('.pre-commit-config.yaml') }}
@@ -138,7 +138,7 @@ jobs:
       - name: Upload import-time waterfall
         # Keep the HAR so a regression can be inspected as a waterfall.
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: import-time-waterfall
           path: importtime.har
@@ -166,7 +166,7 @@ jobs:
             python-version: "3.14"
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -178,7 +178,7 @@ jobs:
         # comparable against the historical baseline. The venv is
         # uv-discovered; pytest runs via ``uv run``, cross-platform
         # without per-shell activate scripts.
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: ${{ matrix.python-version }}
           install-args: -c esphome-constraints.txt -e .[esphome,test]
@@ -223,7 +223,7 @@ jobs:
         run: uv run --no-sync pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
+        uses: codecov/codecov-action@v7.1.1
         with:
           files: ./coverage.xml
           flags: py${{ matrix.python-version }}
@@ -268,7 +268,7 @@ jobs:
     continue-on-error: ${{ matrix.allow_failure }}
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -276,7 +276,7 @@ jobs:
         # The channel install below mutates the venv after the
         # composite has already saved it, so the beta/dev esphome
         # never lands in the shared base-key cache.
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: ${{ matrix.python-version }}
           install-args: -c esphome-constraints.txt -e .[esphome,test]
@@ -329,12 +329,12 @@ jobs:
     continue-on-error: ${{ matrix.allow_failure }}
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Python 3.14 + cached venv
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
@@ -356,30 +356,44 @@ jobs:
           --ignore=tests/e2e/slow
 
   e2e-mqtt:
-    name: E2E MQTT discovery (mosquitto)
+    name: E2E MQTT discovery (mosquitto, paho ${{ matrix.paho }})
     runs-on: ubuntu-latest
     # The MQTT discovery e2e (tests/e2e/slow/mqtt/) drives real paho
     # clients against a real mosquitto broker; the test self-skips
     # wherever the broker isn't installed, so this is the one job that
     # installs it. Linux only — the broker path is platform-independent.
+    # ``pin`` is whatever esphome's requirements resolve to; the other
+    # leg overrides paho-mqtt so both majors stay covered while esphome
+    # releases carry either one.
+    strategy:
+      fail-fast: false
+      matrix:
+        paho: [pin, "2.1.0"]
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Python 3.14 + cached venv
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
+
+      - name: Install paho-mqtt ${{ matrix.paho }}
+        if: matrix.paho != 'pin'
+        run: uv pip install paho-mqtt==${{ matrix.paho }}
+
+      - name: Show installed paho-mqtt version
+        run: uv pip show paho-mqtt | grep -E '^(Name|Version):'
 
       - name: Install mosquitto (cached)
         # Cache-hit restores skip ``apt-get update`` entirely, so an apt
         # mirror outage can't hang the job; the timeout bounds the
         # cold-cache install path.
         timeout-minutes: 10
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9  # v1.6.3
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
         with:
           packages: mosquitto
           version: 1.0
@@ -397,12 +411,12 @@ jobs:
     # and the SDK comes from its own extra so no other venv installs it.
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Python 3.14 + cached venv
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test,mcp-interop]
@@ -423,12 +437,12 @@ jobs:
     # the dashboard ships with.
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Python 3.14 + cached venv
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
@@ -439,7 +453,7 @@ jobs:
       - name: Cache PlatformIO core + per-platform toolchains
         # The LibreTiny compile clones the LibreTiny SDK from source on a
         # cold runner. Cache ``~/.platformio`` so the SDK download is reused.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache@v6.1.0
         with:
           path: ~/.platformio
           key: pio-e2e-libretiny-${{ runner.os }}-${{ hashFiles('tests/e2e/slow/libretiny/test_libretiny_compile_download.py') }}
@@ -463,12 +477,12 @@ jobs:
     continue-on-error: true
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Python 3.14 + cached venv
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
@@ -487,7 +501,7 @@ jobs:
         # each run), not by the test file -- so use a rolling ``run_id`` key
         # that saves a fresh cache every run (picking up dev IDF bumps) and
         # ``restore-keys`` to warm from the most recent prior cache.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/esphome-idf
           key: e2e-espidf-${{ runner.os }}-${{ github.run_id }}
@@ -499,7 +513,7 @@ jobs:
         # the newest prior entry on every run, saved fresh each run, so
         # repeat compiles hit across runs. Small (~0.1-0.3 GB) next to
         # the toolchain entry.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/esphome-ccache
           key: e2e-espidf-ccache-${{ runner.os }}-${{ github.run_id }}
@@ -512,7 +526,7 @@ jobs:
         # a pre-set CCACHE_DIR, so the run step below points it at the
         # dedicated cached dir instead of the default inside the prefix.
         timeout-minutes: 10
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9  # v1.6.3
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
         with:
           packages: ccache
           version: 1.0
@@ -534,6 +548,66 @@ jobs:
         if: always()
         run: CCACHE_DIR="$HOME/.cache/esphome-ccache" ccache -s
 
+  e2e-native-esp8266:
+    name: E2E native ESP8266 Arduino (esphome stable)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python 3.14 + cached venv
+        uses: $/.github/actions/restore-or-build-venv
+        with:
+          python-version: "3.14"
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
+
+      - name: Show installed esphome version
+        run: uv pip show esphome | grep -E '^(Name|Version):'
+
+      - name: Cache the native ESP8266 toolchain
+        # The native Arduino build does not use PlatformIO; esphome installs
+        # its core and compiler under ``ESPHOME_ARDUINO8266_PREFIX`` (set on
+        # the run step). The pinned versions live in esphome, so a rolling
+        # ``run_id`` key saves fresh each run and ``restore-keys`` warms from
+        # the newest prior cache.
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/esphome-arduino8266
+          key: e2e-arduino8266-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            e2e-arduino8266-${{ runner.os }}-
+
+      - name: Cache ccache objects
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/esphome-ccache-arduino8266
+          key: e2e-arduino8266-ccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            e2e-arduino8266-ccache-${{ runner.os }}-
+
+      - name: Install ccache (cached)
+        timeout-minutes: 10
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: ccache
+          version: 1.0
+
+      - name: Run native ESP8266 Arduino e2e
+        # A cold run downloads the core and compiler then runs ninja; the
+        # test's own ``@pytest.mark.timeout(900)`` caps it. esphome
+        # ``expanduser()``s ESPHOME_ARDUINO8266_PREFIX, so ``~`` matches the
+        # cache path above; CCACHE_DIR gets no such treatment, hence the shell.
+        timeout-minutes: 25
+        env:
+          ESPHOME_ARDUINO8266_PREFIX: ~/.cache/esphome-arduino8266
+        run: CCACHE_DIR="$HOME/.cache/esphome-ccache-arduino8266" uv run --no-sync pytest -q tests/e2e/slow/esp8266 --durations=10 --timeout=900 --no-cov
+
+      - name: Print ccache statistics
+        if: always()
+        run: CCACHE_DIR="$HOME/.cache/esphome-ccache-arduino8266" ccache -s
+
   e2e-boards:
     name: E2E board create validation (esphome stable)
     runs-on: ubuntu-latest
@@ -543,12 +617,12 @@ jobs:
     # against the version the dashboard ships.
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Python 3.14 + cached venv
-        uses: ./.github/actions/restore-or-build-venv
+        uses: $/.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
@@ -575,17 +649,17 @@ jobs:
     if: github.event_name != 'workflow_call'
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python
         # Stock CPython, held at 3.13: a version bump resets every
         # CodSpeed baseline at once, so it moves deliberately and alone.
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           # Keep in sync with setup-uv-python's uv-version default.
           version: "0.11.29"
@@ -628,7 +702,7 @@ jobs:
         # worst-case (the catalog-load benchmark, which exercises
         # every BoardCatalogEntry's nested dataclass deserialisation)
         # with ~5x headroom over the observed 3-5 minute floor.
-        uses: CodSpeedHQ/action@c4fd08a3a159bd0cc208da1e0edf32b8c47d75e5  # v5.4.0
+        uses: CodSpeedHQ/action@v5.6.1
         with:
           mode: simulation
           # ``--durations 10`` prints the 10 slowest benchmark wall

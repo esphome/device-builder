@@ -29,8 +29,13 @@ from ruamel.yaml.tag import Tag
 
 from ...helpers.api import CommandError
 from ...helpers.automation_keys import (
+    BRANCH_ACTIONS_KEY,
+    BRANCH_CONDITION_KEY,
+    BRANCH_ELSE_KEY,
+    COMBINATOR_GATE_KEYS,
     DURATION_UNIT_KEYS,
     is_scalar_bodied,
+    is_trigger_key,
     scalar_param_key,
     shorthand_key,
 )
@@ -48,15 +53,19 @@ from . import catalog
 from .parsing import make_yaml
 
 
-def render_script_item(tree: AutomationTree, script_id: str) -> str:
-    """Render a single ``- id: ...`` script list item."""
+def render_script_item(
+    tree: AutomationTree, script_id: str, handlers: dict[str, Any], trailing: dict[str, Any]
+) -> str:
+    """Render a ``- id: ...`` script item with its ``on_*`` blocks before and after ``then``."""
     item = CommentedMap()
     item["id"] = script_id
     for key, value in tree.trigger_params.items():
-        if key == "id":
+        if key == "id" or is_trigger_key(str(key)):
             continue
         item[key] = encode_value(value)
+    item.update(handlers)
     item["then"] = emit_action_seq(tree.actions)
+    item.update(trailing)
     return dump([item])
 
 
@@ -123,6 +132,46 @@ def emit_action_seq(actions: list[ActionNode]) -> CommentedSeq:
 
 def emit_action_node(node: ActionNode) -> CommentedMap:
     """Build one ``{<action_id>: <body>}`` mapping for an action node."""
+    if (passthrough := _emit_passthrough(node)) is not None:
+        return passthrough
+    entry = catalog.action_by_id(node.action_id)
+    out = CommentedMap()
+    if entry is not None and entry.has_branches:
+        out[node.action_id] = _emit_branches(node)
+        return out
+    if node.branches:
+        msg = f"Action {node.action_id!r} takes no branches"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    params = _value_slot_params(entry, node.action_id, node.params)
+    body = CommentedMap()
+    # Condition gate leads the body: ``if`` / ``while`` want it before
+    # ``then`` / ``else``, ``wait_until`` before its ``timeout:`` param.
+    if node.conditions:
+        gate_key, gate = _emit_gate(entry, node.conditions)
+        body[gate_key] = gate
+    for key, value in params.items():
+        body[key] = encode_value(value)
+    for child_key in sorted(node.children.keys(), key=lambda k: (k != "then", k)):
+        body[child_key] = emit_action_seq(node.children[child_key])
+    shorthand = shorthand_key(entry)
+    if (
+        not node.children
+        and not node.conditions
+        and len(params) == 1
+        and shorthand is not None
+        and shorthand in params
+    ):
+        out[node.action_id] = encode_value(params[shorthand])
+        return out
+    if not body:
+        out[node.action_id] = None
+        return out
+    out[node.action_id] = body
+    return out
+
+
+def _emit_passthrough(node: ActionNode) -> CommentedMap | None:
+    """Re-emit an uncatalogued passthrough node verbatim; ``None`` for a structured node."""
     if node.unknown:
         if catalog.is_known_action(node.action_id):
             # A passthrough node can only ever be uncatalogued; ``unknown`` on a
@@ -141,33 +190,42 @@ def emit_action_node(node: ActionNode) -> CommentedMap:
         # null / stripped body and wipe the real params. Fail loud instead.
         msg = f"Cannot write uncatalogued action {node.action_id!r} as a structured node"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    entry = catalog.action_by_id(node.action_id)
-    params = _value_slot_params(entry, node.action_id, node.params)
-    body = CommentedMap()
-    # Condition gate leads the body: ``if`` / ``while`` want it before
-    # ``then`` / ``else``, ``wait_until`` before its ``timeout:`` param.
-    if node.conditions:
-        body["condition"] = emit_condition_seq(node.conditions)
-    for key, value in params.items():
-        body[key] = encode_value(value)
-    for child_key in sorted(node.children.keys(), key=lambda k: (k != "then", k)):
-        body[child_key] = emit_action_seq(node.children[child_key])
-    out = CommentedMap()
-    shorthand = shorthand_key(entry)
+    return None
+
+
+def _emit_gate(entry: AutomationAction | None, conditions: list[ConditionNode]) -> tuple[str, Any]:
+    """Return a gate's ``(key, body)``; a lone ``all`` / ``any`` keeps its key where allowed."""
+    gate_keys = entry.condition_gate_keys if entry is not None else []
+    head = conditions[0]
     if (
-        not node.children
-        and not node.conditions
-        and len(params) == 1
-        and shorthand is not None
-        and shorthand in params
+        len(conditions) == 1
+        and head.children
+        and head.condition_id in COMBINATOR_GATE_KEYS
+        and head.condition_id in gate_keys
     ):
-        out[node.action_id] = encode_value(params[shorthand])
-        return out
-    if not body:
-        out[node.action_id] = None
-        return out
-    out[node.action_id] = body
-    return out
+        return head.condition_id, emit_condition_seq(head.children)
+    return "condition", emit_condition_seq(conditions)
+
+
+def _emit_branches(node: ActionNode) -> CommentedSeq | None:
+    """Build a ``choose`` node's ``[{if, then}, ..., {else}]`` sequence; ``None`` when empty."""
+    if node.params or node.conditions:
+        msg = f"Action {node.action_id!r} takes only branches and an {BRANCH_ELSE_KEY!r} list"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if set(node.children) - {BRANCH_ELSE_KEY}:
+        msg = f"Action {node.action_id!r} takes only {BRANCH_ELSE_KEY!r} as a child list"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    seq = CommentedSeq()
+    for branch in node.branches:
+        item = CommentedMap()
+        item[BRANCH_CONDITION_KEY] = emit_condition_seq(branch.conditions)
+        item[BRANCH_ACTIONS_KEY] = emit_action_seq(branch.actions)
+        seq.append(item)
+    if BRANCH_ELSE_KEY in node.children:
+        item = CommentedMap()
+        item[BRANCH_ELSE_KEY] = emit_action_seq(node.children[BRANCH_ELSE_KEY])
+        seq.append(item)
+    return seq or None
 
 
 def emit_condition_seq(conditions: list[ConditionNode]) -> Any:

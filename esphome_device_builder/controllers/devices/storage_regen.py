@@ -6,15 +6,19 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
+from ...helpers.device_yaml import UnreadableDependencyError, read_source_fingerprint
 from ...helpers.subprocess import run_subprocess_capture
+from ._metadata_store import stored_str_tuple
 
 if TYPE_CHECKING:
+    from ._metadata_store import DeviceMetadataStore
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,64 +64,53 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 
 
 async def _run(controller: DevicesController, configuration: str) -> None:
+    spawned = False
     try:
         config_path = controller._db.settings.rel_path(configuration)
         regen = controller.state.regen
-        try:
-            current_mtime = (await run_in_executor(config_path.stat)).st_mtime
-        except FileNotFoundError:
-            _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
-            regen.clear_strikes(configuration)
-            return
-        except OSError:
-            # A transient errno (EACCES, EIO on a network mount) must not
-            # strand the ladder: the firing timer already popped itself.
-            # Without an mtime the stamp can't key the failure, so a RAM
-            # strike escalates the re-arm up to the TTL.
-            strikes = regen.record_strike(configuration)
-            _LOGGER.warning(
-                "Storage regenerate for %s: config unreadable; retrying",
-                configuration,
-                exc_info=True,
-            )
-            _arm_retry(
-                controller, configuration, min(_delay_for(strikes), _REGEN_FAILURE_TTL_SECONDS)
-            )
-            return
-        regen.clear_strikes(configuration)
-        stamp = _fresh_stamp(
-            controller._metadata_store.get(configuration), current_mtime, time.time()
-        )
-        if stamp is not None:
-            attempts, age = stamp
-            if attempts >= _MAX_REGEN_ATTEMPTS:
-                # The give-up warning fired in the session that spent the
-                # budget; without this one a restarted dashboard shows a
-                # hashless device with nothing in the log to explain it.
-                _LOGGER.warning(
-                    "Storage regenerate for %s failed %d times previously; "
-                    "retrying after the YAML changes or the failure stamp expires",
-                    configuration,
-                    attempts,
-                )
-                _arm_ttl_recheck(controller, configuration, age)
-                return
-            remaining = _delay_for(attempts) - age
-            if remaining > 0:
-                # A restart mid-window resumes the remainder, not an early spawn.
-                _arm_retry(controller, configuration, remaining)
-                return
-        # Delegates so tests patching the class intercept.
+        store = controller._metadata_store
+        stored = store.get(configuration).get("content_fingerprint")
+        # One read under the lock keys the stamp and precedes the spawn, so an
+        # edit landing mid-run is never stamped as the content generated from.
         async with controller._regenerate_lock:
+            current = await _current_digest(controller, configuration, config_path)
+            if current is None:
+                return
+            stamp = _fresh_stamp(
+                controller._metadata_store.get(configuration), current, time.time()
+            )
+            if stamp is not None:
+                attempts, age = stamp
+                if attempts >= _MAX_REGEN_ATTEMPTS:
+                    # The give-up warning fired in the session that spent the
+                    # budget; without this one a restarted dashboard shows a
+                    # hashless device with nothing in the log to explain it.
+                    _LOGGER.warning(
+                        "Storage regenerate for %s failed %d times previously; "
+                        "retrying after the YAML changes or the failure stamp expires",
+                        configuration,
+                        attempts,
+                    )
+                    _arm_ttl_recheck(controller, configuration, age)
+                    return
+                remaining = _delay_for(attempts) - age
+                if remaining > 0:
+                    # A restart mid-window resumes the remainder, not an early spawn.
+                    _arm_retry(controller, configuration, remaining)
+                    return
+            # Delegates so tests patching the class intercept.
             failure = await controller._spawn_only_generate(configuration)
+            spawned = True
+        # A scan that stored a moved digest while this run was pending had its
+        # own schedule dropped, so the run that just finished reruns for it.
         if failure is None:
             regen.cancel_retry(configuration)
-            await controller._finalize_regen_success(configuration)
+            await controller._finalize_regen_success(configuration, current)
             await controller._scanner.reload(configuration)
             return
-        # Stamp against the pre-spawn mtime: an edit landing mid-run must
+        # Stamp against the pre-spawn digest: an edit landing mid-run must
         # not have the old content's failure charged to the new file.
-        recorded = controller._stamp_regen_failure(configuration, current_mtime)
+        recorded = controller._stamp_regen_failure(configuration, current)
         if recorded < _MAX_REGEN_ATTEMPTS:
             _arm_retry(controller, configuration, _delay_for(recorded))
             return
@@ -129,8 +122,14 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             failure,
         )
         _arm_ttl_recheck(controller, configuration)
+    except asyncio.CancelledError:
+        spawned = False  # a shutdown must not start another run
+        raise
     finally:
         controller.state.regen.pending.discard(configuration)
+        if spawned and current and _digest_moved(store, configuration, stored, current):
+            controller.state.regen.cancel_retry(configuration)
+            schedule(controller, configuration)
 
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> str | None:
@@ -171,28 +170,32 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     return f"{summary}: {text[-200:]}" if text else summary
 
 
-def stamp_failure(controller: DevicesController, configuration: str, mtime: float) -> int:
+def stamp_failure(controller: DevicesController, configuration: str, fingerprint: str) -> int:
     """
-    Record one more failed attempt against *mtime*.
+    Record one more failed attempt against *fingerprint*.
 
-    Returns the attempt count now on record. An edit or TTL expiry
-    since the prior failure resets the count to 1.
+    Returns the attempt count now on record. A content edit or TTL
+    expiry since the prior failure resets the count to 1.
     """
     now = time.time()
-    prior = _fresh_stamp(controller._metadata_store.get(configuration), mtime, now)
+    prior = _fresh_stamp(controller._metadata_store.get(configuration), fingerprint, now)
     attempts = (prior[0] if prior is not None else 0) + 1
     controller._metadata_store.update(
         configuration,
-        regen_failed_mtime=mtime,
+        regen_failed_content_fingerprint=fingerprint,
         regen_failed_at=now,
         regen_failed_attempts=attempts,
     )
     return attempts
 
 
-async def finalize_success(controller: DevicesController, configuration: str) -> None:
+async def finalize_success(
+    controller: DevicesController, configuration: str, fingerprint: str
+) -> None:
     """
     Read ``config_hash`` from ``build_info.json`` and clear the failure stamp.
+
+    *fingerprint* is the content the regen read; it is stamped beside the hash.
 
     ``read_build_info_hash`` is blocking — runs on the
     executor; the store merge afterwards is in-RAM with a
@@ -201,12 +204,14 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     yaml_path = controller._db.settings.rel_path(configuration)
     new_hash = await run_in_executor(read_build_info_hash, yaml_path)
     fields: dict[str, Any] = {
-        "regen_failed_mtime": 0.0,
+        "regen_failed_content_fingerprint": "",
         "regen_failed_at": 0.0,
         "regen_failed_attempts": 0,
     }
     if new_hash:
         fields["expected_config_hash"] = new_hash
+        fields["regen_config_hash"] = new_hash
+        fields["regen_content_fingerprint"] = fingerprint
     controller._metadata_store.update(configuration, **fields)
     if not new_hash:
         _LOGGER.warning(
@@ -221,22 +226,18 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
 
-def _fresh_stamp(
-    md: Mapping[str, Any], current_mtime: float, now: float
-) -> tuple[int, float] | None:
+def _fresh_stamp(md: Mapping[str, Any], current: str, now: float) -> tuple[int, float] | None:
     """
-    Return ``(attempts, age)`` for an unexpired stamp matching *current_mtime*.
+    Return ``(attempts, age)`` for an unexpired stamp matching the *current* digest.
 
     A missing or unparseable attempt count reads as terminal;
     future-dated stamps clamp to age 0.
     """
-    cached_mtime = md.get("regen_failed_mtime")
+    cached = md.get("regen_failed_content_fingerprint")
     cached_at = md.get("regen_failed_at")
-    if not cached_mtime or not cached_at:
+    if cached != current or not cached_at:
         return None
     try:
-        if float(cached_mtime) != current_mtime:
-            return None
         age = max(0.0, now - float(cached_at))
     except (TypeError, ValueError):
         return None
@@ -250,6 +251,59 @@ def _fresh_stamp(
 def _delay_for(attempts: int) -> float:
     """Backoff delay after failed attempt number *attempts* (1-based)."""
     return _RETRY_BACKOFF_BASE_SECONDS * 2.0 ** (attempts - 1)
+
+
+async def _current_digest(
+    controller: DevicesController, configuration: str, config_path: Path
+) -> str | None:
+    """Return the digest a regen keys on; ``None`` once a bad source was handled."""
+    regen = controller.state.regen
+    # A device not indexed yet keys on its persisted list, else on its file alone, so
+    # esphome still reports the real error.
+    device = controller.get_by_configuration(configuration)
+    dependencies = device.dependencies if device is not None else None
+    if dependencies is None:
+        dependencies = (
+            stored_str_tuple(controller._metadata_store.get(configuration).get("dependencies"))
+            or ()
+        )
+    try:
+        current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
+    except FileNotFoundError:
+        _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
+        regen.clear_strikes(configuration)
+        return None
+    except (OSError, UnicodeDecodeError):
+        _LOGGER.warning(
+            "Storage regenerate for %s: config unreadable; retrying", configuration, exc_info=True
+        )
+        _arm_strike(controller, configuration)
+        return None
+    except UnreadableDependencyError as err:
+        _LOGGER.warning(
+            "Storage regenerate for %s: dependency %s unreadable; retrying", configuration, err
+        )
+        _arm_strike(controller, configuration)
+        return None
+    regen.clear_strikes(configuration)
+    return current
+
+
+def _digest_moved(
+    store: DeviceMetadataStore, configuration: str, before: object, current: str
+) -> bool:
+    """Whether a scan stored a digest other than *current* since *before* was read."""
+    after = store.get(configuration).get("content_fingerprint")
+    return bool(after) and after not in (before, current)
+
+
+def _arm_strike(controller: DevicesController, configuration: str) -> None:
+    """Re-arm after an unreadable source; a RAM strike escalates the delay up to the TTL."""
+    # A transient errno (EACCES, EIO on a network mount) must not strand the
+    # ladder: the firing timer already popped itself, and without a digest the
+    # stamp cannot key the failure.
+    strikes = controller.state.regen.record_strike(configuration)
+    _arm_retry(controller, configuration, min(_delay_for(strikes), _REGEN_FAILURE_TTL_SECONDS))
 
 
 def _arm_ttl_recheck(controller: DevicesController, configuration: str, age: float = 0.0) -> None:

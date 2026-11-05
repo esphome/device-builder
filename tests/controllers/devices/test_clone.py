@@ -49,6 +49,8 @@ wifi:
   password: !secret wifi_password
 """
 
+PREVIOUS_KEY = "PREVIOUSKEYBASE64BASE64BASE64BASE64BASE64A=="
+
 AP_SOURCE_YAML = (
     SOURCE_YAML
     + """
@@ -141,6 +143,149 @@ async def test_clone_device_mints_a_fresh_own_ota_key_without_an_api_key(
     assert len(keys) == 1
     assert "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64==" not in new_yaml
     assert "api:" not in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+@pytest.mark.parametrize(
+    ("source", "kept_key"),
+    [
+        pytest.param(
+            SOURCE_YAML.replace(
+                "  - platform: esphome\n",
+                f'  - platform: esphome\n    encryption:\n      old_key: "{PREVIOUS_KEY}"\n',
+            ),
+            "    encryption:\n",
+            id="literal-api-key",
+        ),
+        pytest.param(
+            "esphome:\n  name: kitchen\n  friendly_name: Kitchen\n"
+            "api:\n  encryption:\n    key: !secret api_key\n"
+            f'ota:\n  - platform: esphome\n    encryption:\n      old_key: "{PREVIOUS_KEY}"\n',
+            "key: !secret api_key",
+            id="secret-api-key",
+        ),
+    ],
+)
+async def test_clone_device_drops_old_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    source: str,
+    kept_key: str,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert "old_key" not in new_yaml
+    assert kept_key in new_yaml
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == source
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+@pytest.mark.parametrize(
+    "ota_tail",
+    [
+        pytest.param("    encryption:  # old_key: gone\n", id="comment"),
+        pytest.param("    on_begin:\n      - logger.log: 'old_key: text'\n", id="string-value"),
+    ],
+)
+async def test_clone_device_ignores_old_key_text_that_is_not_a_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    ota_tail: str,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML.replace("  - platform: esphome\n", "  - platform: esphome\n" + ota_tail)
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert "old_key: " in (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_refuses_an_old_key_inside_an_inline_package(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML + (
+        "\npackages:\n  base:\n    ota:\n      - platform: esphome\n        encryption:\n"
+        f'          old_key: "{PREVIOUS_KEY}"\n'
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "old_key" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_refuses_an_old_key_it_cannot_verify(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML.replace(
+        "  - platform: esphome\n", "  - platform: esphome\n    old_key: [\n"
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "old_key" in excinfo.value.message
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_refuses_an_old_key_it_cannot_remove(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = SOURCE_YAML.replace(
+        "  - platform: esphome\n",
+        f'  - platform: esphome\n    encryption: {{old_key: "{PREVIOUS_KEY}"}}\n',
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    assert excinfo.value.code is ErrorCode.INVALID_ARGS
+    assert "old_key" in excinfo.value.message
+    assert not (tmp_path / "bedroom-bulb.yaml").exists()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_drops_old_key_when_minting_an_own_ota_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    api_start = SOURCE_YAML.index("api:\n")
+    api_end = SOURCE_YAML.index("ota:\n")
+    ota_keys = (
+        '    encryption:\n      key: "OLDKEYBASE64BASE64BASE64BASE64BASE64BASE64=="\n'
+        f'      old_key: "{PREVIOUS_KEY}"\n'
+    )
+    source = (SOURCE_YAML[:api_start] + "mqtt:\n  broker: b\n\n" + SOURCE_YAML[api_end:]).replace(
+        "  - platform: esphome\n", "  - platform: esphome\n" + ota_keys
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert len(re.findall(r'key: "([A-Za-z0-9+/=]+)"', new_yaml)) == 1
+    assert "old_key" not in new_yaml
+    assert PREVIOUS_KEY not in new_yaml
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

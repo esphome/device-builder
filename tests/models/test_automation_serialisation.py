@@ -8,6 +8,7 @@ import pytest
 
 from esphome_device_builder.models import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.automations import (
+    ActionNode,
     AutomationAction,
     AutomationActionIndex,
     AutomationCondition,
@@ -17,6 +18,8 @@ from esphome_device_builder.models.automations import (
     AutomationTriggerIndex,
     AvailableComponentInstance,
     AvailableScript,
+    ChooseBranch,
+    ConditionNode,
     Filter,
     FilterIndex,
     LightEffect,
@@ -120,3 +123,41 @@ def test_form_editable_is_the_only_truthy_default(model: type) -> None:
         or (f.default_factory is not MISSING and f.default_factory())
     }
     assert truthy == ({"form_editable"} if model is AutomationActionIndex else set())
+
+
+def test_gate_keys_and_branches_flags_are_sent_when_set() -> None:
+    action = AutomationAction(
+        **_DOMAIN_ROW, condition_gate_keys=["condition", "any"], has_branches=True
+    )
+
+    wire = action.to_dict()
+
+    assert wire["condition_gate_keys"] == ["condition", "any"]
+    assert wire["has_branches"] is True
+    assert AutomationAction.from_dict(wire) == action
+
+
+def test_an_action_node_without_branches_on_the_wire_has_none() -> None:
+    node = ActionNode.from_dict({"action_id": "delay", "params": {"id": "1s"}})
+
+    assert node.branches == []
+    assert node.to_dict()["branches"] == []
+
+
+def test_a_choose_branch_round_trips() -> None:
+    node = ActionNode(
+        action_id="choose",
+        branches=[
+            ChooseBranch(
+                conditions=[ConditionNode(condition_id="api.connected")],
+                actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+            )
+        ],
+        children={"else": [ActionNode(action_id="logger.log", params={"format": "x"})]},
+    )
+
+    wire = node.to_dict()
+
+    assert wire["branches"][0]["conditions"][0]["condition_id"] == "api.connected"
+    assert wire["branches"][0]["actions"][0]["action_id"] == "delay"
+    assert ActionNode.from_dict(wire) == node

@@ -37,6 +37,7 @@ from esphome_device_builder.controllers._device_scanner import (
     DeviceFileMetadata,
     DeviceScanner,
     ScanChange,
+    _LoadedDevice,
 )
 from esphome_device_builder.controllers.devices import DevicesController, firmware_sync
 from esphome_device_builder.helpers.event_bus import Event
@@ -82,10 +83,12 @@ async def test_reload_rereads_state_and_fires_reloaded(tmp_path: Path) -> None:
     # Seed the scanner with an initial in-memory snapshot — pre-install
     # state where ``has_pending_changes`` was True.
     initial = _device(has_pending_changes=True)
-    scanner._index.set(yaml_path, initial, (0, 0, 0.0, 0))
+    scanner._index.set(yaml_path, initial, (0, 0, 0.0, 0, ()))
 
     refreshed = _device(has_pending_changes=False)
-    scanner._load_devices = MagicMock(return_value={yaml_path: refreshed})  # type: ignore[method-assign]
+    scanner._load_devices = MagicMock(  # type: ignore[method-assign]
+        return_value={yaml_path: _LoadedDevice(refreshed, ())}
+    )
 
     assert await scanner.reload("kitchen.yaml") is True
     assert scanner.by_path[yaml_path] is refreshed

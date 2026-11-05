@@ -20,6 +20,7 @@ import asyncio
 import itertools
 import json
 import logging
+import os
 import re
 import ssl
 import sys
@@ -1136,6 +1137,10 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_config_hash_change", name, config_hash))
         self._flip(name, "deployed_config_hash", config_hash)
 
+    def on_network_change(self, name: str, network: str) -> None:
+        self.calls.append(("on_network_change", name, network))
+        self._flip(name, "network", network)
+
     def on_api_encryption_change(self, name: str, encryption: str) -> None:
         self.calls.append(("on_api_encryption_change", name, encryption))
         self._flip(name, "api_encryption_active", encryption)
@@ -1147,6 +1152,10 @@ class RecordingMonitorCallbacks:
     def on_deployed_identity_live_change(self, name: str, *, live: bool) -> None:
         self.calls.append(("on_deployed_identity_live_change", name, live))
         self._flip(name, "deployed_identity_live", live)
+
+    def on_ota_signed_change(self, name: str, *, signed: bool) -> None:
+        self.calls.append(("on_ota_signed_change", name, signed))
+        self._flip(name, "ota_signed", signed)
 
     def on_persisted_ip_invalidated(self, name: str, stale_ip: str) -> None:
         self.calls.append(("on_persisted_ip_invalidated", name, stale_ip))
@@ -1183,9 +1192,11 @@ def make_state_monitor_with_callbacks(
         on_config_hash_change=callbacks.on_config_hash_change,
         on_api_encryption_change=callbacks.on_api_encryption_change,
         on_mac_address_change=callbacks.on_mac_address_change,
+        on_network_change=callbacks.on_network_change,
         on_persisted_ip_invalidated=callbacks.on_persisted_ip_invalidated,
         on_resolved_addresses_cleared=callbacks.on_resolved_addresses_cleared,
         on_deployed_identity_live_change=callbacks.on_deployed_identity_live_change,
+        on_ota_signed_change=callbacks.on_ota_signed_change,
     )
     return monitor, callbacks
 
@@ -1244,6 +1255,17 @@ def make_job(job_id: str = "job1", **overrides: Any) -> FirmwareJob:
         "status": JobStatus.RUNNING,
     }
     return FirmwareJob(**(base | overrides))
+
+
+_BUMPED_MTIMES: dict[Path, float] = {}
+
+
+def bump_mtime(path: Path) -> None:
+    """Push *path*'s mtime past its current one and past every earlier bump of the same file."""
+    stat = path.stat()
+    mtime = max(stat.st_mtime, _BUMPED_MTIMES.get(path, 0.0)) + 10
+    _BUMPED_MTIMES[path] = mtime
+    os.utime(path, (stat.st_atime, mtime))
 
 
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:
@@ -1412,6 +1434,71 @@ def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
 
 
+@pytest.fixture
+def synthetic_choose_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Catalogue a branch-list ``choose`` action."""
+    from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
+    from esphome_device_builder.models.automations import AutomationAction  # noqa: PLC0415
+
+    entry = AutomationAction(
+        id="choose",
+        name="Choose",
+        description="",
+        docs_url="",
+        domain="core",
+        is_control_flow=True,
+        has_else_branch=True,
+        has_branches=True,
+        accepts_action_list=["else"],
+    )
+    monkeypatch.setattr(catalog, "_ALL_ACTION_IDS", catalog._ALL_ACTION_IDS | {"choose"})
+    monkeypatch.setitem(catalog._ACTION_STORE._cache, "choose", entry)
+
+
+@pytest.fixture
+def if_action_with_gate_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the ``if`` body ``condition_gate_keys`` of ``condition`` / ``all`` / ``any``."""
+    from dataclasses import replace  # noqa: PLC0415
+
+    from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
+
+    body = catalog.action_by_id("if")
+    assert body is not None
+    monkeypatch.setitem(
+        catalog._ACTION_STORE._cache,
+        "if",
+        replace(body, condition_gate_keys=["condition", "all", "any"]),
+    )
+
+
+@pytest.fixture
+def synthetic_script_on_stop_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Catalogue a ``script.on_stop`` trigger scoped to ``script`` items."""
+    from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
+    from esphome_device_builder.models.automations import AutomationTrigger  # noqa: PLC0415
+
+    trigger = AutomationTrigger(
+        id="script.on_stop",
+        name="Script → On Stop",
+        description="",
+        docs_url="",
+        applies_to=["script"],
+    )
+    real_hosts = catalog.hosts_component_triggers
+    real_resolve = catalog.resolve_component_trigger
+
+    def hosts(domain: str, catalog_id: str | None) -> bool:
+        return domain == "script" or real_hosts(domain, catalog_id)
+
+    def resolve(catalog_id: str | None, domain: str, key: str) -> AutomationTrigger | None:
+        if domain == "script" and key == "on_stop":
+            return trigger
+        return real_resolve(catalog_id, domain, key)
+
+    monkeypatch.setattr(catalog, "hosts_component_triggers", hosts)
+    monkeypatch.setattr(catalog, "resolve_component_trigger", resolve)
+
+
 def apply_yaml_diff_like_frontend(text: str, from_line: int, to_line: int, replacement: str) -> str:
     """Apply a YamlDiff splice exactly as the frontend ``applyYamlDiff`` does."""
     lines = text.split("\n")
@@ -1443,3 +1530,28 @@ def make_mcp_app(db: McpStubDeviceBuilder, *, with_auth: bool = False) -> web.Ap
     app["device_builder"] = db
     app.router.add_routes(create_mcp_routes())
     return app
+
+
+@pytest.fixture
+def collect_bleed() -> Callable[[Any, list[tuple[str, Any]]], tuple[dict, dict]]:
+    """Return a ``_collect_bleed_keys`` runner over the merges ``introspect_component`` builds."""
+    from script.sync_components import (  # noqa: PLC0415
+        _collect_bleed_keys,
+        _collect_field_ranges,
+        _collect_refined_types,
+        _upgrade_stamp_only_refinements,
+    )
+
+    def run(hub: Any, platforms: list[tuple[str, Any]]) -> tuple[dict, dict]:
+        manifests = [m for _domain, m in platforms]
+        merged_ranges: dict = {}
+        merged_refined: dict = {}
+        for manifest in [hub, *manifests]:
+            for path, value in _collect_field_ranges(manifest).items():
+                merged_ranges.setdefault(path, value)
+            for path, value in _collect_refined_types(manifest).items():
+                merged_refined.setdefault(path, value)
+        refined = _upgrade_stamp_only_refinements(merged_refined, manifests)
+        return _collect_bleed_keys(merged_ranges, refined, platforms)
+
+    return run

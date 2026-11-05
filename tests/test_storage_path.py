@@ -16,6 +16,7 @@ from esphome.core import CORE
 from esphome_device_builder.helpers.storage_path import (
     resolve_data_dir,
     resolve_idedata_path,
+    resolve_idedata_paths,
     resolve_storage_path,
 )
 
@@ -107,6 +108,21 @@ def test_resolve_idedata_path_local_configuration() -> None:
     assert resolve_idedata_path("kitchen.yaml", name="kitchen") == (
         Path(CORE.data_dir) / "idedata" / "kitchen.json"
     )
+
+
+def test_resolve_idedata_path_native_arduino() -> None:
+    """The native Arduino toolchain's cache is ``<name>.arduino.json``."""
+    assert resolve_idedata_path("kitchen.yaml", name="kitchen", toolchain="arduino") == (
+        Path(CORE.data_dir) / "idedata" / "kitchen.arduino.json"
+    )
+
+
+def test_resolve_idedata_paths_lists_every_toolchain_cache() -> None:
+    """Cleanup sees the PlatformIO and the native Arduino cache names."""
+    assert resolve_idedata_paths("kitchen.yaml", name="kitchen") == [
+        Path(CORE.data_dir) / "idedata" / "kitchen.arduino.json",
+        Path(CORE.data_dir) / "idedata" / "kitchen.json",
+    ]
 
 
 def test_resolve_idedata_path_remote_build(tmp_path: Path) -> None:

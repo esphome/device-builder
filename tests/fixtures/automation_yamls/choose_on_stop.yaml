@@ -1,0 +1,30 @@
+esphome:
+  name: x
+script:
+  - id: self_stop
+    on_stop:
+      - logger.log: stopped
+    then:
+      - delay: 20ms
+      - if:
+          lambda: return true;
+          then:
+            - script.stop
+      - choose:
+          - if:
+              lambda: return id(x) < 10;
+            then:
+              - logger.log: small
+          - if:
+              any:
+                - lambda: return id(x) < 100;
+                - binary_sensor.is_on: heater
+            then:
+              - logger.log: medium
+          - else:
+              - logger.log: large
+  - on_stop:
+      then:
+        - logger.log: idless stopped
+    then:
+      - script.stop:

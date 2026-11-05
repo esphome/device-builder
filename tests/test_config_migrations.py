@@ -549,6 +549,15 @@ _VOC_RULE = MigrationRule(
 _BLOCK_RULE = MigrationRule(
     kind="component_block_field", old="old_key", new="new_key", since="2024.1.0", component="mycomp"
 )
+_COEFFICIENT_RULE = MigrationRule(
+    kind="platform_item_list_field",
+    old="coeffecient",
+    new="coefficient",
+    since="2024.1.0",
+    domain="sensor",
+    platform="combination",
+    list_key="sources",
+)
 
 _SGP4X_YAML = """sensor:
   - platform: sgp4x
@@ -624,6 +633,130 @@ def test_platform_value_tolerates_quotes_and_comment(generated_rules: RuleSetter
 def test_platform_rule_without_domain_block_is_a_noop(generated_rules: RuleSetter) -> None:
     generated_rules(_VOC_RULE)
     assert render_migrations("binary_sensor:\n  - platform: sgp4x\n    voc: x\n") is None
+
+
+_COMBINATION_YAML = """sensor:
+  - platform: combination
+    type: linear
+    name: Combined
+    sources:
+      - source: a
+        coeffecient: 0.5  # half
+      - source: b
+        coeffecient: !lambda return 2.0;
+  - platform: combination
+    type: kalman
+    sources:
+      - source: a
+        error: 1
+  - platform: template
+    sources:
+      - coeffecient: decoy
+"""
+
+
+def test_list_item_rename_respells_every_item_of_the_matching_platform(
+    generated_rules: RuleSetter,
+) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    new_text = _respell(_COMBINATION_YAML)
+    assert "        coefficient: 0.5  # half\n" in new_text
+    assert "        coefficient: !lambda return 2.0;\n" in new_text
+    assert "        error: 1\n" in new_text
+    # The template item's same-named key is not a combination field.
+    assert "      - coeffecient: decoy\n" in new_text
+
+
+def test_list_item_rename_collision_skips_that_item(generated_rules: RuleSetter) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    text = (
+        "sensor:\n  - platform: combination\n    sources:\n"
+        "      - source: a\n        coefficient: 1\n        coeffecient: 2\n"
+        "      - source: b\n        coeffecient: 3\n"
+    )
+    new_text = _respell(text)
+    assert "        coefficient: 1\n        coeffecient: 2\n" in new_text
+    assert "        coefficient: 3\n" in new_text
+
+
+def test_list_item_rename_with_the_list_on_the_dash_line(generated_rules: RuleSetter) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    text = (
+        "sensor:\n  - sources:\n      - coeffecient: 3\n        source: d\n"
+        "    platform: combination\n"
+    )
+    assert "      - coefficient: 3\n" in _respell(text)
+
+
+def test_list_item_rename_singleton_mapping_form(generated_rules: RuleSetter) -> None:
+    """``ensure_list`` also takes one mapping, so the field under a bare ``sources:`` respells."""
+    generated_rules(_COEFFICIENT_RULE)
+    text = (
+        "sensor:\n  - platform: combination\n    sources:\n"
+        "      source: a\n      coeffecient: 0.5  # half\n"
+        "      filters:\n        - coeffecient: nested\n"
+        "    coeffecient: item_level\n"
+    )
+    new_text = _respell(text)
+    assert "      coefficient: 0.5  # half\n" in new_text
+    assert "        - coeffecient: nested\n" in new_text
+    assert "    coeffecient: item_level\n" in new_text
+
+
+def test_list_item_rename_singleton_mapping_on_the_dash_line(generated_rules: RuleSetter) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    text = (
+        "sensor:\n  - sources:\n      coeffecient: 3\n      source: d\n    platform: combination\n"
+    )
+    new_text = _respell(text)
+    assert "      coefficient: 3\n      source: d\n    platform: combination\n" in new_text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources:\n"
+            "      coefficient: 1\n      coeffecient: 2\n",
+            id="singleton_mapping_collision",
+        ),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources:\n"
+            "      - source: a\n        filters:\n          - coeffecient: nested\n"
+            "    coeffecient: item_level\n",
+            id="deeper_decoys",
+        ),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources: [{source: a, coeffecient: 1}]\n",
+            id="flow_style_list",
+        ),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources:\n"
+            "      - source: a\n        coefficient: !lambda |-\n"
+            "          // coeffecient: 1\n          return 1.0;\n",
+            id="block_scalar",
+        ),
+        pytest.param("sensor:\n  - platform: combination\n    coeffecient: 1\n", id="list_absent"),
+        pytest.param(
+            "sensor:\n  - platform: combination\n    sources: |-\n      - coeffecient: 2\n",
+            id="unfinished_block_scalar",
+        ),
+    ],
+)
+def test_list_item_rename_leaves_non_matching_shapes_alone(
+    generated_rules: RuleSetter, text: str
+) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    assert render_migrations(text) is None
+
+
+def test_list_item_rename_reports_one_field_change(generated_rules: RuleSetter) -> None:
+    generated_rules(_COEFFICIENT_RULE)
+    result = render_migrations(_COMBINATION_YAML)
+    assert result is not None
+    assert [(c.kind, c.scope, c.old, c.new) for c in result.changes] == [
+        ("field", "sensor.combination", "coeffecient", "coefficient")
+    ]
 
 
 def test_component_block_field_rename(generated_rules: RuleSetter) -> None:
@@ -955,6 +1088,7 @@ def test_prefilter_covers_every_generated_rule_kind(generated_rules: RuleSetter)
     firing = {
         "component_key": (_RP2_RULE, _RP2040_YAML),
         "platform_item_field": (_VOC_RULE, _SGP4X_YAML),
+        "platform_item_list_field": (_COEFFICIENT_RULE, _COMBINATION_YAML),
         "platform_channel_colors": (_CHANNEL_RULES[0], _LED_STRIP_YAML),
         "component_block_field": (_BLOCK_RULE, "mycomp:\n  old_key: 1\n"),
     }

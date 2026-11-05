@@ -1,14 +1,15 @@
 r"""
 Real-compile e2e: a compiled tree survives migration from the original layout across a restart.
 
-Windows-only. First compiles a small esp8266 config with **no relocation** -- the original
-never-relocated layout, build data under ``<config>/.esphome`` and the toolchain under
-``~/.platformio``. Then it runs the relocation (a restart) so that tree migrates straight to the
-nested ``C:\esphb\<id8>`` and recompiles, proving a real toolchain + build tree survive the
-same-volume move to a new absolute path and still build. esp8266 keeps the compile fast (vs the
-deep ESP-IDF MAX_PATH case in ``test_windows_short_paths``) while still moving a real xtensa
-toolchain, unlike a host/native build. A short fixed config dir keeps the *original* (un-relocated)
-build under MAX_PATH so step one can succeed before relocation is in play.
+Windows-only. First compiles a small esp8266 config on the PlatformIO toolchain (the one that
+installs under ``~/.platformio``) with **no relocation** -- the original never-relocated layout,
+build data under ``<config>/.esphome`` and the toolchain under ``~/.platformio``. Then it runs
+the relocation (a restart) so that tree migrates straight to the nested ``C:\esphb\<id8>`` and
+recompiles, proving a real toolchain + build tree survive the same-volume move to a new absolute
+path and still build. esp8266 keeps the compile fast (vs the deep ESP-IDF MAX_PATH case in
+``test_windows_short_paths``) while still moving a real xtensa toolchain, unlike a host/native
+build. A short fixed config dir keeps the *original* (un-relocated) build under MAX_PATH so step
+one can succeed before relocation is in play.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ _CONFIG = textwrap.dedent(
       name: {_NAME}
     esp8266:
       board: d1_mini
+      toolchain: platformio
     logger:
       baud_rate: 0
     """

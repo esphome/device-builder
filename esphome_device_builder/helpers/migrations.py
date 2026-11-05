@@ -35,10 +35,10 @@ from .yaml import (
     api_actions,
     parse_config_boolean,
 )
+from .yaml.scalar import block_body_is_list
 from .yaml.scan import (
     block_end_index,
     child_block_end,
-    is_list_item_line,
     leading_ws,
     top_level_key_index,
     top_list_item_starts,
@@ -200,6 +200,7 @@ _GENERATED_CHANGE_KINDS = {
     "component_key": "key",
     "component_block_field": "field",
     "platform_item_field": "field",
+    "platform_item_list_field": "field",
     "platform_channel_colors": "fold",
 }
 
@@ -341,7 +342,7 @@ def _group_generated_rules(
             key_rules.append(rule)
         elif rule.kind == "component_block_field":
             block_groups.setdefault(rule.component, []).append(rule)
-        elif rule.kind == "platform_item_field":
+        elif rule.kind in ("platform_item_field", "platform_item_list_field"):
             item_groups.setdefault(rule.domain, {}).setdefault(rule.platform, []).append(rule)
         elif rule.kind == "platform_channel_colors":
             fold_groups.setdefault(rule.domain, {})[rule.platform] = rule
@@ -357,31 +358,7 @@ def _apply_component_block_fields(
 ) -> None:
     """Rename child keys of the top-level block at *header* in place, mapping or list form."""
     end = block_end_index(lines, header)
-    # The block's first content line decides its form; a deeper dash
-    # inside a mapping body is a nested list, not a multi_conf item.
-    list_form = False
-    for idx in range(header + 1, min(end, len(lines))):
-        # A scalar open before the column-0 header ends at it, so a masked
-        # line can't precede the block's first content line.
-        if in_scalar[idx]:  # pragma: no cover
-            continue
-        stripped = lines[idx].strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        list_form = is_list_item_line(stripped)
-        break
-    if not list_form:
-        for rule in rules:
-            hit = _respell_body_field(lines, header, 0, rule.old, rule.new, in_scalar)
-            if hit is not None:
-                lines[hit[0]] = hit[1]
-                fired.append(rule)
-        return
-    for item_start in top_list_item_starts(lines, header, end):
-        keys = _item_child_keys(lines, item_start, end, in_scalar)
-        for rule in rules:
-            if _respell_item_key(lines, keys, rule.old, rule.new):
-                fired.append(rule)  # noqa: PERF401 — the respell is the point, not the append
+    _respell_mapping_or_items(lines, header, 0, end, rules, in_scalar, fired)
 
 
 def _apply_platform_item_fields(
@@ -391,19 +368,72 @@ def _apply_platform_item_fields(
     in_scalar: list[bool],
     fired: list[MigrationRule],
 ) -> None:
-    """Rename child keys of the ``- platform:`` items in the domain block at *header* in place."""
+    """
+    Rename keys of the ``- platform:`` items in the domain block at *header* in place.
+
+    A rule with a ``list_key`` renames on the items of that depth-1 list
+    (or on its singleton mapping form) instead of on the item itself.
+    """
     end = block_end_index(lines, header)
     for item_start in top_list_item_starts(lines, header, end):
         keys = _item_child_keys(lines, item_start, end, in_scalar)
-        platform = next(
-            (_entry_value(lines[idx], col) for idx, col, key in keys if key == "platform"),
-            None,
-        )
+        platform = _item_platform(lines, keys)
         if platform is None:
             continue
         for rule in rules_by_platform.get(platform, ()):
+            if rule.list_key:
+                _respell_list_key_fields(lines, keys, end, rule, in_scalar, fired)
+            elif _respell_item_key(lines, keys, rule.old, rule.new):
+                fired.append(rule)
+
+
+def _respell_list_key_fields(
+    lines: list[str],
+    keys: list[tuple[int, int, str]],
+    end: int,
+    rule: MigrationRule,
+    in_scalar: list[bool],
+    fired: list[MigrationRule],
+) -> None:
+    """Rename *rule*'s field on the items, or the singleton mapping, under its ``list_key``."""
+    listed = next(((idx, col) for idx, col, key in keys if key == rule.list_key), None)
+    if listed is None:
+        return
+    list_end = child_block_end(lines, listed[0], end, " " * listed[1])
+    _respell_mapping_or_items(lines, *listed, list_end, [rule], in_scalar, fired)
+
+
+def _respell_mapping_or_items(
+    lines: list[str],
+    key_idx: int,
+    key_col: int,
+    end: int,
+    rules: list[MigrationRule],
+    in_scalar: list[bool],
+    fired: list[MigrationRule],
+) -> None:
+    """Rename *rules*' fields under the key line at *key_idx*, mapping body or list items."""
+    if not block_body_is_list(lines, key_idx, end):
+        for rule in rules:
+            hit = _respell_body_field(lines, key_idx, key_col, rule.old, rule.new, in_scalar)
+            if hit is not None:
+                lines[hit[0]] = hit[1]
+                fired.append(rule)
+        return
+    for item_start in top_list_item_starts(lines, key_idx, end):
+        if in_scalar[item_start]:
+            continue
+        keys = _item_child_keys(lines, item_start, end, in_scalar)
+        for rule in rules:
             if _respell_item_key(lines, keys, rule.old, rule.new):
                 fired.append(rule)  # noqa: PERF401 — the respell is the point, not the append
+
+
+def _item_platform(lines: list[str], keys: list[tuple[int, int, str]]) -> str | None:
+    """Return the ``platform:`` value among an item's depth-1 *keys*, or ``None``."""
+    return next(
+        (_entry_value(lines[idx], col) for idx, col, key in keys if key == "platform"), None
+    )
 
 
 def _respell_item_key(
@@ -459,14 +489,13 @@ def _fold_channel_colors_items(
         # channel_colors-plus-flag combination upstream rejects.
         if any(not key.isidentifier() for _idx, _col, key in keys):
             continue
-        entries = {key: (idx, col) for idx, col, key in keys}
-        platform = entries.get("platform")
+        platform = _item_platform(lines, keys)
         if platform is None:
             continue
-        rule = platforms.get(_entry_value(lines[platform[0]], platform[1]))
+        rule = platforms.get(platform)
         if rule is None:
             continue
-        folded = _fold_channel_colors(lines, entries)
+        folded = _fold_channel_colors(lines, {key: (idx, col) for idx, col, key in keys})
         if folded is None:
             continue
         (anchor_idx, anchor_col), value, delete = folded

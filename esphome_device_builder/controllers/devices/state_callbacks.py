@@ -115,6 +115,15 @@ def on_deployed_identity_live_change(
         controller._fire_device_updated(device)
 
 
+def on_ota_signed_change(controller: DevicesController, name: str, *, signed: bool) -> None:
+    """Update ``ota_signed`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
+    for device in controller._devices_by_name(name):
+        if device.runtime_state.ota_signed == signed:
+            continue
+        device.runtime_state.ota_signed = signed
+        controller._fire_device_updated(device)
+
+
 def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: list[str]) -> None:
     """Forward IP updates onto the event bus and persist the primary value."""
     new_addresses = list(addresses)
@@ -225,6 +234,11 @@ def on_api_encryption_change(controller: DevicesController, name: str, encryptio
             device.configuration, "api_encryption_active", encryption
         )
         controller._fire_device_updated(device)
+
+
+def on_network_change(controller: DevicesController, name: str, network: str) -> None:
+    """Apply the link (``wifi`` / ``ethernet`` / ``thread``) the device announced over."""
+    _apply_logged_observation(controller, name, "network", network, log_label="network")
 
 
 def on_config_hash_change(controller: DevicesController, name: str, config_hash: str) -> None:

@@ -1412,3 +1412,188 @@ def test_registry_range_lands_only_after_refinement(tmp_path: Path) -> None:
     entry = {e["key"]: e for e in action["config_entries"]}["speed"]
     assert entry["type"] == "float"
     assert entry["range"] == [0.0, 1.0]
+
+
+# ---------------------------------------------------------------------------
+# esphome 2026.11: gate keys, branch-list actions, ``script.on_stop``
+# ---------------------------------------------------------------------------
+
+
+def test_build_automations_records_the_gate_keys_an_action_takes(tmp_path: Path) -> None:
+    """``if`` takes ``condition`` / ``all`` / ``any``; ``while`` only ``condition``."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {
+                    "if": {
+                        "schema": {
+                            "config_vars": {
+                                "all": _CONDITION_VAR,
+                                "any": {"docs": "Any of these conditions."},
+                                "condition": _CONDITION_VAR,
+                                "then": _THEN_VAR,
+                                "else": _THEN_VAR,
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "if docs.",
+                    },
+                    "while": {
+                        "schema": {"config_vars": {"condition": _CONDITION_VAR, "then": _THEN_VAR}},
+                        "type": "schema",
+                        "docs": "while docs.",
+                    },
+                },
+                "condition": {},
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
+    actions = {a["id"]: a for a in result["actions"]}
+    assert actions["if"]["condition_gate_keys"] == ["condition", "all", "any"]
+    assert actions["if"]["has_condition_gate"] is True
+    assert actions["while"]["condition_gate_keys"] == ["condition"]
+    assert {e["key"] for e in actions["if"]["config_entries"]} == set()
+
+
+def test_build_automations_derives_a_branch_list_action(tmp_path: Path) -> None:
+    """A list of ``{if, then}`` choices is ``has_branches`` and binds only its ``else`` list."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {
+                    "choose": {
+                        "is_list": True,
+                        "schema": {
+                            "config_vars": {
+                                "choice_id": {
+                                    "key": "GeneratedID",
+                                    "id_type": {"class": "IfAction"},
+                                },
+                                "if": {
+                                    "key": "Optional",
+                                    "registry": "condition",
+                                    "type": "registry",
+                                },
+                                "then": {"key": "Optional", **_THEN_VAR},
+                                "else": {"key": "Optional", **_THEN_VAR},
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "Run the first choice whose condition is true.",
+                    },
+                },
+                "condition": {},
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
+    choose = next(a for a in result["actions"] if a["id"] == "choose")
+    assert choose["has_branches"] is True
+    assert choose["is_control_flow"] is True
+    assert choose["has_else_branch"] is True
+    assert choose["has_condition_gate"] is False
+    assert choose["condition_gate_keys"] == []
+    assert choose["accepts_action_list"] == ["else"]
+    assert choose["config_entries"] == []
+
+
+def test_build_automations_list_body_without_a_choice_shape_has_no_branches(
+    tmp_path: Path,
+) -> None:
+    """``is_list`` alone is not a branch list; the item must pair a condition with actions."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {
+                    "many": {
+                        "is_list": True,
+                        "schema": {"config_vars": {"then": _THEN_VAR}},
+                        "type": "schema",
+                        "docs": "many docs.",
+                    },
+                },
+                "condition": {},
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+    )
+    many = next(a for a in result["actions"] if a["id"] == "many")
+    assert many["has_branches"] is False
+    assert many["accepts_action_list"] == ["then"]
+
+
+def test_build_automations_fails_on_an_undetected_choice_shape(tmp_path: Path) -> None:
+    """A list action pairing ``if`` with ``then`` that is not a branch list stops the sync."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {
+                    "odd": {
+                        "is_list": True,
+                        "schema": {
+                            "config_vars": {
+                                "if": {"docs": "A condition."},
+                                "then": _THEN_VAR,
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "odd docs.",
+                    },
+                },
+                "condition": {},
+            },
+        },
+    )
+    with pytest.raises(RuntimeError, match="not a branch list"):
+        sync_components.build_automations(
+            restrictive_references=set(), schema_dir=schema_dir, component_ids=set()
+        )
+
+
+def test_build_automations_extracts_script_on_stop_trigger(tmp_path: Path) -> None:
+    """``script.on_stop`` is a component trigger scoped to ``script`` items."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "script.json",
+        {
+            "script": {
+                "action": {},
+                "condition": {},
+                "schemas": {
+                    "CONFIG_SCHEMA": {
+                        "schema": {
+                            "config_vars": {
+                                "id": {"key": "Required", "type": "string"},
+                                "mode": {"key": "Optional", "type": "string"},
+                                "on_stop": {"key": "Optional", "type": "trigger"},
+                                "then": {"type": "trigger"},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        restrictive_references=set(), schema_dir=schema_dir, component_ids={"script"}
+    )
+    triggers = {t["id"]: t for t in result["triggers"]}
+    assert set(triggers) == {"script.on_stop"}
+    assert triggers["script.on_stop"]["applies_to"] == ["script"]
+    assert triggers["script.on_stop"]["is_device_level"] is False
+    assert triggers["script.on_stop"]["config_entries"] == []

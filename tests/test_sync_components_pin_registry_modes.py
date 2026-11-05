@@ -2,7 +2,7 @@
 Tests for the per-provider pin ``mode`` flag derivation.
 
 The long-form pin Mode checkboxes a value supports depend on its pin
-provider: an I2C expander like ``pca9554`` allows only ``input`` /
+provider: an I2C expander like ``pcf8574`` allows only ``input`` /
 ``output``, while a native pin allows all five flags. The sync
 introspects ESPHome's live ``PIN_SCHEMA_REGISTRY`` to emit a global
 ``{provider_key: [allowed_modes]}`` map (excluding native target
@@ -57,9 +57,12 @@ def test_build_derives_external_provider_modes() -> None:
     modes = _build_pin_registry_modes(
         ["esp32", "pca9554", "pcf8574", "mcp23017", "sx1509", "sn74hc595", "sn74hc165"]
     )
-    # Expanders are direction-only.
-    assert modes["pca9554"] == ["input", "output"]
+    # A plain expander is direction-only.
     assert modes["pcf8574"] == ["input", "output"]
+    # pca9554 gains the PCAL parts' pull resistors and input latch in esphome#15449;
+    # ESPHome rejects those flags on the plain parts at validation time.
+    assert {"input", "output"} <= set(modes["pca9554"])
+    assert set(modes["pca9554"]) - {"input", "output"} <= {"pullup", "pulldown", "latch"}
     # mcp23017 registers under the shared ``mcp23xxx`` key and adds pullup.
     assert "pullup" in modes["mcp23xxx"]
     assert "pulldown" not in modes["mcp23xxx"]

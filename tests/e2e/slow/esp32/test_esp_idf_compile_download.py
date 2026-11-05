@@ -11,18 +11,13 @@ install.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from esphome.storage_json import StorageJSON
 
-from esphome_device_builder.controllers.firmware.download import (
-    collect_download_entries,
-    get_binaries,
-)
+from esphome_device_builder.controllers.firmware.download import get_binaries
 
-from ...conftest import PairedInstances, run_offload_compile_round_trip
+from ...conftest import PairedInstances, local_download_set, run_offload_compile_round_trip
 
 _DEVICE = "esp-idf-e2e"
 _CONFIGURATION_FILENAME = f"{_DEVICE}.yaml"
@@ -36,21 +31,6 @@ esp32:
     type: esp-idf
 logger:
 """.encode()
-
-
-def _local_download_set(data_dir: Path) -> set[str]:
-    """Return the download filenames a *local* build of this device offers.
-
-    Runs the production selection (:func:`collect_download_entries`)
-    against the receiver's own storage + build dir, so the parity check
-    shares one source of truth with the offloader side.
-    """
-    # esphome dev writes `<file>.validated.json` beside the sidecar, so a
-    # `*.json` glob can't single out the StorageJSON.
-    storage_path = data_dir / "storage" / f"{_CONFIGURATION_FILENAME}.json"
-    storage = StorageJSON.load(storage_path)
-    assert storage is not None
-    return {entry["file"] for entry in collect_download_entries(storage, storage_path)}
 
 
 @pytest.mark.timeout(900)
@@ -79,7 +59,7 @@ async def test_esp_idf_compile_download_round_trip(
 
     # The set a local build of this device would offer for download. Off the
     # loop: ``collect_download_entries`` stats the build dir (blockbuster).
-    expected = await asyncio.to_thread(_local_download_set, data_dir)
+    expected = await asyncio.to_thread(local_download_set, data_dir, _CONFIGURATION_FILENAME)
     assert expected, "compile produced no downloadable artifacts"
     assert "firmware.factory.bin" in expected, expected
 

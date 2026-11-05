@@ -50,10 +50,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
 
       - name: Set up uv and Python 3.14
-        uses: ./.github/actions/setup-uv-python
+        uses: $/.github/actions/setup-uv-python
         with:
           python-version: "3.14"
 
@@ -116,9 +116,6 @@ jobs:
         # than a degraded catalog proposed for merge.
         run: uv pip install --prerelease=allow "esphome==${{ steps.version.outputs.version }}"
 
-      - name: Run sync_components
-        run: python script/sync_components.py --version "${{ steps.version.outputs.version }}"
-
       - name: Re-stamp board catalog
         # boards.index.json carries an ``esphome_version`` stamp from the
         # installed esphome. The catalog is one logical unit per esphome
@@ -127,8 +124,17 @@ jobs:
         # re-stamps it and the opened PR lands red on every esphome patch.
         # ``--restamp`` because the installed esphome is the freshly-resolved
         # one while the committed stamp is still the previous version — the
-        # one caller for which that mismatch is the point.
+        # one caller for which that mismatch is the point. Runs before
+        # sync_components so its board dropdowns list boards the restamp adds.
         run: python script/sync_boards.py --restamp
+
+      - name: Run sync_components
+        run: python script/sync_components.py --version "${{ steps.version.outputs.version }}"
+
+      - name: Regenerate board catalog
+        # The board bodies read the component catalog (pin and reference
+        # keys), so rebuild them against the one sync_components just wrote.
+        run: python script/sync_boards.py
 
       - name: Validate definitions
         # Re-validate every board (curated + imported) against the JSON Schema
@@ -177,13 +183,15 @@ jobs:
           if git diff --quiet -- \
               esphome_device_builder/definitions/components.index.json \
               esphome_device_builder/definitions/components/ \
+              esphome_device_builder/definitions/automations.index.json \
+              esphome_device_builder/definitions/automations/ \
               esphome_device_builder/definitions/boards.index.json \
               esphome_device_builder/definitions/board_bodies/ \
               esphome_device_builder/definitions/featured_components.index.json \
               esphome_device_builder/definitions/migration_rules.index.json \
               esphome-constraints.txt \
               pyproject.toml \
-            && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/ esphome_device_builder/definitions/board_bodies/)" ]; then
+            && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/ esphome_device_builder/definitions/automations/ esphome_device_builder/definitions/board_bodies/)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -359,7 +367,7 @@ jobs:
 
       - name: Open / update pull request
         if: steps.diff.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
+        uses: peter-evans/create-pull-request@v8.1.1
         with:
           branch: catalog/sync
           base: main

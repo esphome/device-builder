@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from esphome import espota2
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
+from esphome_device_builder.helpers.device_yaml import (
+    EsphomeConfigUnavailableError,
+    read_source_fingerprint,
+)
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
+from esphome_device_builder.helpers.yaml import OldKeyOutcome
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
 
@@ -24,6 +30,9 @@ from .conftest import ESPHOME_CONFIG_STUB_TARGET, VALIDATOR_OUTAGES, MakeControl
 
 KEY = base64.b64encode(b"k" * 32).decode()
 OTHER_KEY = base64.b64encode(b"j" * 32).decode()
+THIRD_KEY = base64.b64encode(b"h" * 32).decode()
+BARE_OTA_YAML = "\nota:\n  - platform: esphome\n    encryption:\n"
+OLD_KEY_LINE = f'      old_key: "{OTHER_KEY}"\n'
 
 API_KEY_YAML = f"""\
 esphome:
@@ -38,6 +47,23 @@ wifi:
 """
 
 
+@pytest.fixture
+def legacy_esphome(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delattr(espota2, "CONF_OLD_KEY", raising=False)
+
+
+@pytest.fixture
+def old_key_esphome(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(espota2, "CONF_OLD_KEY", "old_key", raising=False)
+
+
+def _stamp_regen(ctrl, config_hash: str, fingerprint: str) -> None:
+    """Stamp a storage regen result for kitchen.yaml."""
+    ctrl._metadata_store.update(
+        "kitchen.yaml", regen_config_hash=config_hash, regen_content_fingerprint=fingerprint
+    )
+
+
 def _configure(
     ctrl,
     tmp_path: Path,
@@ -48,6 +74,7 @@ def _configure(
 ):
     """Seed one configured device with *yaml_text* on disk."""
     (tmp_path / f"{name}.yaml").write_text(yaml_text, encoding="utf-8")
+    device_overrides.setdefault("dependencies", ())
     device = make_device(name, **device_overrides)
     ctrl._scanner._devices_by_name[name] = [device]
     ctrl._scanner.devices = [device]
@@ -303,6 +330,7 @@ async def test_set_encryption_key_matching_secret_next_to_an_empty_ota_key_is_un
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
+@pytest.mark.usefixtures("legacy_esphome")
 async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -313,7 +341,8 @@ async def test_set_encryption_key_collapses_explicit_ota_key_to_a_bare_block(
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
-    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    assert result["result"] == "updated"
+    assert "esphome 2026.11 or newer" in result["reason"]
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert new_yaml.count(f'key: "{KEY}"') == 1
     assert new_yaml.endswith("  - platform: esphome\n    encryption:\n")
@@ -369,13 +398,14 @@ async def test_set_encryption_key_never_overwrites_a_devices_own_ota_key(
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
+@pytest.mark.usefixtures("legacy_esphome")
 async def test_set_encryption_key_bare_ota_encryption_is_left_alone(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
     """A bare ``ota: encryption:`` inherits the api key and needs no rewrite."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
-    _configure(ctrl, tmp_path, API_KEY_YAML + "\nota:\n  - platform: esphome\n    encryption:\n")
+    _configure(ctrl, tmp_path, API_KEY_YAML + BARE_OTA_YAML)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
@@ -383,6 +413,249 @@ async def test_set_encryption_key_bare_ota_encryption_is_left_alone(
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert new_yaml.count(KEY) == 1
     assert new_yaml.endswith("    encryption:\n")
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        pytest.param(OTA_KEY_YAML, id="keyed-block"),
+        pytest.param(API_KEY_YAML + BARE_OTA_YAML, id="bare-block"),
+    ],
+)
+async def test_set_encryption_key_records_previous_key_as_old_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    yaml_text: str,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith("  - platform: esphome\n    encryption:\n" + OLD_KEY_LINE)
+    assert new_yaml.count(OTHER_KEY) == 1
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_without_an_encryption_block_writes_no_old_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML + "\nota:\n  - platform: esphome\n")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "old_key" not in new_yaml
+    assert OTHER_KEY not in new_yaml
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_re_push_after_old_key_is_unchanged(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = API_KEY_YAML.replace(OTHER_KEY, KEY) + BARE_OTA_YAML + OLD_KEY_LINE
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "unchanged", "configurations": ["kitchen.yaml"]}
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+@pytest.mark.parametrize(
+    ("deployed_hash", "stamped_fingerprint", "expected_old_key"),
+    [
+        pytest.param("h1", "current", OTHER_KEY, id="device-runs-the-yaml"),
+        pytest.param("h0", "current", THIRD_KEY, id="device-behind-the-yaml"),
+        pytest.param("", "current", THIRD_KEY, id="device-hash-unknown"),
+        pytest.param("h1", "v1:stale", THIRD_KEY, id="regen-read-older-content"),
+        pytest.param("h1", "", THIRD_KEY, id="no-regen-stamp"),
+    ],
+)
+async def test_set_encryption_key_second_rekey_replaces_old_key_only_when_the_device_runs_the_yaml(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+    deployed_hash: str,
+    stamped_fingerprint: str,
+    expected_old_key: str,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
+    _configure(
+        ctrl, tmp_path, yaml_text, deployed_config_hash=deployed_hash, ota_encryption_required=True
+    )
+    if stamped_fingerprint == "current":
+        stamped_fingerprint = await asyncio.to_thread(
+            read_source_fingerprint, tmp_path / "kitchen.yaml", ()
+        )
+    if stamped_fingerprint:
+        _stamp_regen(ctrl, "h1", stamped_fingerprint)
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(f'key: "{KEY}"') == 1
+    assert new_yaml.endswith(f'    encryption:\n      old_key: "{expected_old_key}"\n')
+    assert new_yaml.count(OTHER_KEY) + new_yaml.count(THIRD_KEY) == 1
+    kept = expected_old_key == THIRD_KEY
+    assert ("an earlier old_key was kept" in caplog.text) is kept
+    assert ("reason" in result) is kept
+    assert OTHER_KEY not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_indirected_old_key_is_left_as_is_and_named(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + "      old_key: !secret previous_key\n"
+    # The scanned flag is stale on purpose: the old_key in the file is proof enough.
+    _configure(ctrl, tmp_path, yaml_text, deployed_config_hash="h1")
+    _stamp_regen(
+        ctrl, "h1", await asyncio.to_thread(read_source_fingerprint, tmp_path / "kitchen.yaml", ())
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert "via !secret or a substitution" in result["reason"]
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.endswith("    encryption:\n      old_key: !secret previous_key\n")
+    assert OTHER_KEY not in new_yaml
+    assert "an earlier old_key was kept" not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_drops_old_key_equal_to_pushed_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = OTA_KEY_YAML.replace(OTHER_KEY, KEY, 1) + f'      old_key: "{KEY}"\n'
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(KEY) == 1
+    assert new_yaml.endswith("    encryption:\n")
+
+
+@pytest.mark.usefixtures("legacy_esphome")
+async def test_set_encryption_key_legacy_esphome_skips_old_key_and_warns(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML, ota_encryption_required=True)
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert "esphome 2026.11 or newer" in result["reason"]
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "old_key" not in new_yaml
+    assert new_yaml.endswith("    encryption:\n")
+    assert "esphome 2026.11 or newer" in caplog.text
+    assert OTHER_KEY not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+@pytest.mark.parametrize(
+    ("ota_text", "required", "expected"),
+    [
+        pytest.param("", True, "is not in this file", id="packaged-ota"),
+        pytest.param(
+            "\nota: !include common/ota.yaml\n", True, "no encryption: block", id="included"
+        ),
+        pytest.param(
+            "\nota:\n  - platform: esphome\n", True, "no encryption: block", id="packaged-enc"
+        ),
+        pytest.param("\nota: {platform: esphome}\n", True, "no encryption: block", id="flow-style"),
+        pytest.param("", False, None, id="no-ota-encryption"),
+    ],
+)
+async def test_set_encryption_key_warns_when_a_required_ota_block_cannot_take_old_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+    ota_text: str,
+    required: bool,
+    expected: str | None,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML + ota_text, ota_encryption_required=required)
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert ("reason" in result) is (expected is not None)
+    if expected is not None:
+        assert expected in result["reason"]
+        assert expected in caplog.text
+    assert OTHER_KEY not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_first_key_on_a_required_ota_block_has_nothing_to_record(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n" + BARE_OTA_YAML
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=True, ota_encryption_required=True)
+
+    with caplog.at_level(logging.WARNING):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.count(KEY) == 1
+    assert "old_key" not in new_yaml
+    assert "previous one" not in caplog.text
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_validator_rejecting_old_key_keeps_the_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, OTA_KEY_YAML)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "[old_key] is an invalid option for [encryption]"}],
+        }
+    )
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "old_key" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == OTA_KEY_YAML
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
 async def test_set_encryption_key_unchanged_with_matching_api_and_indirected_ota_key(
@@ -497,6 +770,33 @@ async def test_set_encryption_key_partial_refusal_keeps_reason(
     # The sibling's update consumed the key, so the refusal must not claim it was kept.
     assert "kept for a later attempt" not in result["reason"]
     assert ctrl._pending_keys.get("kitchen") is None
+
+
+@pytest.mark.usefixtures("legacy_esphome")
+async def test_set_encryption_key_refusal_outranks_an_advisory_on_duplicate_names(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(OTA_KEY_YAML, encoding="utf-8")
+    (tmp_path / "kitchen (1).yaml").write_text(
+        "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n",
+        encoding="utf-8",
+    )
+    advised = make_device("kitchen", ota_encryption_required=True)
+    refused = make_device("kitchen", configuration="kitchen (1).yaml")
+    ctrl._scanner._devices_by_name["kitchen"] = [advised, refused]
+    ctrl._scanner.devices = [advised, refused]
+
+    with caplog.at_level(logging.INFO):
+        result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert "!secret" in result["reason"]
+    assert "2026.11" not in result["reason"]
+    assert "refused: the key is provided via !secret" in caplog.text
+    assert "esphome 2026.11 or newer" in caplog.text
 
 
 async def test_set_encryption_key_stores_pending_for_unadopted_device(
@@ -769,8 +1069,11 @@ async def test_set_encryption_key_round_trip_guard_refuses_and_keeps_key(
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _configure(ctrl, tmp_path, API_KEY_YAML)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.encryption_key.upsert_api_encryption_key",
-        lambda content, key: content + "# garbage\n",
+        "esphome_device_builder.controllers.devices.encryption_key.rotate_api_encryption_key",
+        lambda content, key, **_kwargs: (
+            content + "# garbage\n",
+            OldKeyOutcome.NOT_NEEDED,
+        ),
     )
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
@@ -827,3 +1130,63 @@ async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:
     store.set("a", OTHER_KEY, "AA:BB:CC:DD:EE:FF")
     assert store.pop("a") == {"key": OTHER_KEY, "mac": "AA:BB:CC:DD:EE:FF"}
     assert store.pop("a") is None
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+async def test_set_encryption_key_old_key_vouch_refuses_an_unreadable_dependency(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A dependency that cannot be read leaves the previous key in place."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").mkdir()
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
+    _configure(
+        ctrl,
+        tmp_path,
+        yaml_text,
+        deployed_config_hash="h1",
+        ota_encryption_required=True,
+        dependencies=("packages/common.yaml",),
+    )
+    _stamp_regen(ctrl, "h1", "2:anything")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert new_yaml.endswith(f'    encryption:\n      old_key: "{THIRD_KEY}"\n')
+
+
+@pytest.mark.usefixtures("old_key_esphome")
+@pytest.mark.parametrize("stamp", ["match", "stale"])
+async def test_set_encryption_key_old_key_vouch_covers_dependencies(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    stamp: str,
+) -> None:
+    """The regen stamp vouches for the previous key only while the dependency content holds."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "common.yaml").write_text("logger:\n", encoding="utf-8")
+    yaml_text = API_KEY_YAML + BARE_OTA_YAML + f'      old_key: "{THIRD_KEY}"\n'
+    _configure(
+        ctrl,
+        tmp_path,
+        yaml_text,
+        deployed_config_hash="h1",
+        ota_encryption_required=True,
+        dependencies=("packages/common.yaml",),
+    )
+    stamped = await asyncio.to_thread(
+        read_source_fingerprint, tmp_path / "kitchen.yaml", ("packages/common.yaml",)
+    )
+    _stamp_regen(ctrl, "h1", stamped if stamp == "match" else "2:stale")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    expected_old_key = OTHER_KEY if stamp == "match" else THIRD_KEY
+    assert new_yaml.endswith(f'    encryption:\n      old_key: "{expected_old_key}"\n')

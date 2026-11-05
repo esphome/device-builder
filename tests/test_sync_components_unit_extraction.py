@@ -26,6 +26,8 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
     _SUFFIX_UNIT_RE,
     _audit_catalog_for_unit_mismatches,
+    _automation_registries,
+    _collect_automation_field_ranges,
     _collect_automation_refined_types,
     _collect_refined_types,
     _delegated_schema,
@@ -544,6 +546,28 @@ def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
     action = refined["action"]["http_request.send"]
     assert action[("max_response_buffer_size",)].type == "float_with_unit"
     assert action[("max_response_buffer_size",)].unit_options == ["B", "kB", "MB", "GB"]
+
+
+def test_light_effect_registry_is_refined(loader) -> None:
+    """Light effects get the same live refinement and ranges as actions."""
+    loader.get_component("light")
+    effects = _collect_automation_refined_types()["light_effect"]
+    assert effects["strobe"][("colors", "color_temperature")].unit_options == ["mireds", "K"]
+    assert effects["lambda"][("lambda",)].type == "lambda"
+    width = _collect_automation_field_ranges()["light_effect"]["addressable_rainbow"][("width",)]
+    assert width == (1, 65535)
+
+
+def test_filter_registries_are_refined_per_domain(loader) -> None:
+    """Each domain's filter registry gets live ranges, keyed by domain."""
+    loader.get_component("sensor")
+    ranges = _collect_automation_field_ranges()
+    assert ranges["sensor.filter"]["median"][("window_size",)] == (1, 65535)
+    assert {"sensor.filter", "binary_sensor.filter", "text_sensor.filter"} <= (
+        _automation_registries().keys()
+    )
+    ntc = _collect_automation_refined_types()["sensor.filter"]["to_ntc_resistance"]
+    assert ntc[("calibration",)].type == "unknown"
 
 
 def test_shipped_automations_http_request_carries_byte_units() -> None:

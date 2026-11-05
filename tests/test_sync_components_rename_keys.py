@@ -10,6 +10,7 @@ from typing import Any
 
 import orjson
 import pytest
+import voluptuous as vol
 
 from esphome_device_builder import definitions
 from script import sync_components
@@ -27,6 +28,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _emit_migration_rules_index,
     _fail_on_unhandled_renames,
     _note_unhandled_rename_keys,
+    _rename_walk_children,
     _sweep_component_aliases,
     introspect_component,
 )
@@ -61,36 +63,356 @@ def _manifest(schema) -> SimpleNamespace:
     return SimpleNamespace(config_schema=schema)
 
 
+def _renamed_item(cv: ModuleType, new: str = "new_name") -> Any:
+    """Return a mapping schema carrying ``old_name`` -> *new* on its own validator chain."""
+    return cv.All(
+        cv.Schema({cv.Optional(new): cv.string}),
+        cv.rename_key("old_name", new),
+    )
+
+
+_COMBINATION_RULE_ROW = MigrationRuleRow(
+    "platform_item_list_field",
+    "coeffecient",
+    "coefficient",
+    domain="sensor",
+    platform="combination",
+    list_key="sources",
+)
+
+
 def test_top_level_rename_is_discovered_direct(cv: ModuleType) -> None:
     schema = cv.All(
         cv.Schema({cv.Optional("new_name"): cv.string}),
         cv.rename_key("old_name", "new_name"),
     )
-    assert _collect_rename_keys(_manifest(schema)) == {
-        ("old_name", "new_name"): SchemaHit(direct=True)
-    }
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
 
 
-def test_nested_list_item_rename_is_discovered_non_direct(cv: ModuleType) -> None:
+def test_nested_list_item_rename_carries_its_list_key(cv: ModuleType) -> None:
     item = cv.All(
         cv.Schema({cv.Optional("action"): cv.string}),
         cv.rename_key("service", "action"),
     )
     schema = cv.Schema({cv.Optional("actions"): cv.ensure_list(item)})
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("service", "action"): SchemaHit(direct=False)
+        ("service", "action"): SchemaHit(("actions", "[]"))
     }
 
 
-def test_typed_schema_branch_rename_is_discovered_non_direct(cv: ModuleType) -> None:
+def test_typed_schema_variant_rename_is_direct(cv: ModuleType) -> None:
     branch = cv.All(
         cv.Schema({cv.Optional("new_name"): cv.string}),
         cv.rename_key("old_name", "new_name"),
     )
     schema = cv.typed_schema({"MODELA": branch})
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
+def test_typed_schema_variant_list_item_rename_carries_its_list_key(cv: ModuleType) -> None:
+    """The combination shape: a rename on the items of one variant's depth-1 list."""
+    item = cv.All(
+        cv.rename_key("coeffecient", "coefficient", removed_in="2026.12.0"),
+        cv.Schema({cv.Required("coefficient"): cv.float_}),
+    )
+    schema = cv.typed_schema(
+        {
+            "linear": cv.Schema({cv.Required("sources"): cv.ensure_list(item)}),
+            "kalman": cv.Schema({cv.Required("sources"): cv.ensure_list(cv.Schema({}))}),
+        }
+    )
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("old_name", "new_name"): SchemaHit(direct=False)
+        ("coeffecient", "coefficient"): SchemaHit(("sources", "[]"), removed_in="2026.12.0")
     }
+
+
+def test_nested_mapping_rename_keeps_its_key_placement(cv: ModuleType) -> None:
+    item = _renamed_item(cv)
+    schema = cv.Schema({cv.Optional("inner"): item})
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(("inner",))
+    }
+
+
+def test_legacy_key_declared_beside_its_rename_stays_direct(cv: ModuleType) -> None:
+    """The api shape: the legacy key is still declared on the mapping the rename sits on."""
+    schema = cv.All(
+        cv.Schema({cv.Optional("new_name"): cv.string, cv.Optional("old_name"): cv.string}),
+        cv.rename_key("old_name", "new_name"),
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
+def test_sibling_variant_owning_the_legacy_key_is_inexpressible(cv: ModuleType) -> None:
+    """A rule can't carry the variant, so a variant still using ``old_name`` blocks it."""
+    schema = cv.typed_schema(
+        {
+            "renamed": _renamed_item(cv),
+            "owner": cv.Schema({cv.Optional("old_name"): cv.string}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_owning_the_legacy_list_item_key_is_inexpressible(
+    cv: ModuleType,
+) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema(
+                {cv.Optional("items"): cv.ensure_list({cv.Optional("old_name"): cv.string})}
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_owning_the_legacy_key_as_a_singleton_mapping_is_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """The engine also respells the list's singleton mapping form, so that sibling counts."""
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema(
+                {cv.Optional("items"): cv.Schema({cv.Optional("old_name"): cv.string})}
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_open_sibling_variant_covers_a_list_item_rename(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "open": cv.Schema({}, extra=cv.ALLOW_EXTRA),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_with_an_unreadable_list_key_value_is_inexpressible(
+    cv: ModuleType,
+) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema({cv.Optional("items"): cv.string}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_with_an_opaque_chain_list_key_value_is_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """A chain of plain validators under the list key may accept any mapping."""
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema({cv.Optional("items"): cv.All(lambda value: value)}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_wrapper_yielding_nothing_owns_every_key(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema(
+                {cv.Optional("items"): _wrapper_holding("ensure_list.<locals>.validator", 42)}
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_conflicting_target_in_the_singleton_mapping_form_voids_both(cv: ModuleType) -> None:
+    """The list rule also respells the singleton form, so a rename there conflicts."""
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "other": cv.Schema({cv.Optional("items"): _renamed_item(cv, "other_name")}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("old_name", "other_name"): SchemaHit(None),
+    }
+
+
+def test_conflicting_target_on_a_demoted_pair_still_voids(cv: ModuleType) -> None:
+    """A pair already inexpressible for mixed placement keeps blocking its rival."""
+    other = _renamed_item(cv, "other_name")
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "other": cv.Schema(
+                {
+                    cv.Optional("items"): cv.ensure_list(other),
+                    cv.Optional("deeper"): cv.Schema({cv.Optional("items"): cv.ensure_list(other)}),
+                }
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("old_name", "other_name"): SchemaHit(None),
+    }
+
+
+def test_any_alternative_declaring_the_legacy_key_is_inexpressible(cv: ModuleType) -> None:
+    """A ``cv.Any`` alternative is a sibling the rule can't tell apart either."""
+    schema = cv.Any(_renamed_item(cv), cv.Schema({cv.Optional("old_name"): cv.string}))
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_scalar_any_alternative_is_inexpressible(cv: ModuleType) -> None:
+    schema = cv.Any(_renamed_item(cv), cv.string)
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_any_alternatives_sharing_one_rename_stay_direct(cv: ModuleType) -> None:
+    item = _renamed_item(cv)
+    schema = cv.Any(item, cv.All(item))
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
+def test_validator_keyed_sibling_variant_is_inexpressible(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {"renamed": _renamed_item(cv), "open": cv.Schema({cv.string: cv.string})}
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_sibling_variant_with_unreadable_list_items_is_inexpressible(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema({cv.Optional("items"): cv.ensure_list(cv.string)}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+_DEPTH_CAPPED = "<schema past the depth cap>"
+
+
+def test_depth_capped_sibling_variant_owns_every_key_and_fails_the_sync(cv: ModuleType) -> None:
+    """A variant the walk gave up on may hide the legacy key, so the sentinel reaches the canary."""
+    deep: Any = cv.Schema({cv.Optional("old_name"): cv.string})
+    for _level in range(40):
+        deep = cv.All(deep)
+    schema = cv.typed_schema({"renamed": _renamed_item(cv), "deep": deep})
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        (_DEPTH_CAPPED, _DEPTH_CAPPED): SchemaHit(()),
+    }
+
+
+def test_depth_capped_content_beyond_the_rewrite_scope_keeps_the_rule(cv: ModuleType) -> None:
+    deep: Any = cv.Schema({cv.Optional("old_name"): cv.string})
+    for level in range(40):
+        deep = cv.Schema({cv.Optional(f"level{level}"): deep})
+    schema = cv.typed_schema({"renamed": _renamed_item(cv), "deep": deep})
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(()),
+        (_DEPTH_CAPPED, _DEPTH_CAPPED): SchemaHit(None),
+    }
+
+
+def test_sibling_variant_using_the_legacy_key_elsewhere_stays_expressible(
+    cv: ModuleType,
+) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": cv.Schema({cv.Optional("items"): cv.ensure_list(_renamed_item(cv))}),
+            "owner": cv.Schema({cv.Optional("old_name"): cv.string}),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(("items", "[]"))
+    }
+
+
+def test_variants_renaming_one_legacy_key_to_different_targets_are_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """No rule carries the variant, so the first rule would respell the other's items wrongly."""
+    schema = cv.typed_schema(
+        {
+            "renamed": _renamed_item(cv),
+            "other": _renamed_item(cv, "other_name"),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("old_name", "other_name"): SchemaHit(None),
+    }
+
+
+def test_bare_rename_sibling_variant_owns_every_key(cv: ModuleType) -> None:
+    """A variant that is only a rename validator passes every other key through."""
+    schema = cv.typed_schema({"renamed": _renamed_item(cv), "bare": cv.rename_key("x", "y")})
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(None),
+        ("x", "y"): SchemaHit(()),
+    }
+
+
+def test_variants_under_an_unconditional_rename_stay_direct(cv: ModuleType) -> None:
+    """A rename on the chain above the variants applies to every one of them."""
+    schema = cv.All(
+        cv.rename_key("old_name", "new_name"),
+        cv.typed_schema(
+            {
+                "both": cv.Schema(
+                    {cv.Optional("old_name"): cv.string, cv.Optional("new_name"): cv.string}
+                ),
+                "open": cv.Schema({}, extra=cv.ALLOW_EXTRA),
+            }
+        ),
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
+def test_variants_sharing_one_rename_stay_direct(cv: ModuleType) -> None:
+    schema = cv.typed_schema({"a": _renamed_item(cv), "b": _renamed_item(cv)})
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
+def test_different_targets_at_different_placements_keep_their_own(cv: ModuleType) -> None:
+    schema = cv.typed_schema(
+        {
+            "renamed": _renamed_item(cv),
+            "other": cv.Schema(
+                {cv.Optional("items"): cv.ensure_list(_renamed_item(cv, "other_name"))}
+            ),
+        }
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {
+        ("old_name", "new_name"): SchemaHit(()),
+        ("old_name", "other_name"): SchemaHit(("items", "[]")),
+    }
+
+
+def test_deeper_list_item_rename_stays_inexpressible(cv: ModuleType) -> None:
+    item = _renamed_item(cv)
+    schema = cv.Schema(
+        {cv.Optional("outer"): cv.Schema({cv.Optional("inner"): cv.ensure_list(item)})}
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_list_item_rename_under_two_keys_stays_inexpressible(cv: ModuleType) -> None:
+    item = _renamed_item(cv)
+    schema = cv.Schema(
+        {cv.Optional("first"): cv.ensure_list(item), cv.Optional("second"): cv.ensure_list(item)}
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
 
 
 def test_codegen_enum_values_terminate(cv: ModuleType) -> None:
@@ -112,8 +434,8 @@ def test_live_api_pairs_are_discovered_and_handled(cv: ModuleType) -> None:
 
     manifest = _get_esphome_loader().get_component("api")
     assert _collect_rename_keys(manifest) == {
-        ("services", "actions"): SchemaHit(direct=True),
-        ("service", "action"): SchemaHit(direct=False),
+        ("services", "actions"): SchemaHit(()),
+        ("service", "action"): SchemaHit(None),
     }
     introspect_component("api")
     assert set() == _UNHANDLED_RENAME_KEYS
@@ -152,6 +474,17 @@ def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: Modu
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
+def test_live_combination_sources_pair_ships_data_driven(cv: ModuleType) -> None:
+    """The combination ``coeffecient`` rename emits a list-item rule, not a canary hit."""
+    from esphome.components.combination import sensor as combination_sensor  # noqa: PLC0415
+
+    if "rename_key" not in inspect.getsource(combination_sensor):
+        pytest.skip("installed esphome predates the combination coeffecient rename")
+    introspect_component("combination")
+    assert set() == _UNHANDLED_RENAME_KEYS
+    assert {_COMBINATION_RULE_ROW: "2026.12.0"} == _MIGRATION_RULES
+
+
 def test_handled_list_matches_the_writer_constants() -> None:
     """Every _HANDLED_RENAME_KEYS entry must have a writer/canonicalizer counterpart."""
     from esphome_device_builder.helpers.migrations import (  # noqa: PLC0415
@@ -173,7 +506,7 @@ def test_handled_list_matches_the_writer_constants() -> None:
 
 
 def test_direct_component_pair_routes_to_the_artifact() -> None:
-    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=True)})
+    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(())})
     assert {
         MigrationRuleRow("component_block_field", "voc", "voc_index", component="sgp4x")
     } == _MIGRATION_RULES.keys()
@@ -181,7 +514,7 @@ def test_direct_component_pair_routes_to_the_artifact() -> None:
 
 
 def test_direct_platform_pair_routes_to_the_artifact() -> None:
-    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=True)}, domain="sensor")
+    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(())}, domain="sensor")
     assert {
         MigrationRuleRow(
             "platform_item_field", "voc", "voc_index", domain="sensor", platform="sgp4x"
@@ -200,9 +533,7 @@ def test_mixed_direct_and_nested_pair_classifies_nested(cv: ModuleType) -> None:
         cv.Schema({cv.Optional("actions"): cv.ensure_list(item)}),
         cv.rename_key("service", "action"),
     )
-    assert _collect_rename_keys(_manifest(schema)) == {
-        ("service", "action"): SchemaHit(direct=False)
-    }
+    assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): SchemaHit(None)}
 
 
 def test_shared_closure_reachable_both_ways_classifies_nested(cv: ModuleType) -> None:
@@ -210,23 +541,148 @@ def test_shared_closure_reachable_both_ways_classifies_nested(cv: ModuleType) ->
     rename = cv.rename_key("service", "action")
     item = cv.All(cv.Schema({cv.Optional("action"): cv.string}), rename)
     schema = cv.All(cv.Schema({cv.Optional("actions"): cv.ensure_list(item)}), rename)
-    assert _collect_rename_keys(_manifest(schema)) == {
-        ("service", "action"): SchemaHit(direct=False)
-    }
+    assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): SchemaHit(None)}
+
+
+def test_list_item_platform_pair_routes_to_the_artifact() -> None:
+    _classify_rename_pairs(
+        "combination",
+        {("coeffecient", "coefficient"): SchemaHit(("sources", "[]"))},
+        domain="sensor",
+    )
+    assert {_COMBINATION_RULE_ROW} == _MIGRATION_RULES.keys()
+    assert set() == _UNHANDLED_RENAME_KEYS
+
+
+def _unbound_closure(qualname: str) -> Callable[[Any], Any]:
+    """Return a closure whose only free variable was never bound, named as a *qualname* wrapper."""
+
+    def outer() -> Callable[[Any], Any]:
+        def validator(value: Any) -> Any:
+            return schemas
+
+        if value_never_set := False:  # pragma: no cover
+            schemas = value_never_set
+        return validator
+
+    validator = outer()
+    validator.__qualname__ = qualname
+    return validator
+
+
+def test_unreadable_wrapper_closures_yield_no_children(cv: ModuleType) -> None:
+    for qualname in ("typed_schema.<locals>.validator", "validate_automation.<locals>.validator"):
+        assert list(_rename_walk_children(_unbound_closure(qualname))) == []
+    assert (
+        sync_components._typed_schema_variants(_unbound_closure("typed_schema.<locals>.validator"))
+        is None
+    )
+
+
+def test_unreadable_wrapper_closure_reaches_the_canary(cv: ModuleType) -> None:
+    """The pairs beneath an unreadable wrapper can't be seen, so the sync must not pass clean."""
+    sentinel = "<unreadable wrapper closure>"
+    for qualname in ("ensure_list.<locals>.validator", "typed_schema.<locals>.validator"):
+        schema = cv.Schema({cv.Optional("items"): _unbound_closure(qualname)})
+        assert _collect_rename_keys(_manifest(schema)) == {
+            (sentinel, sentinel): SchemaHit(("items",))
+        }, qualname
+
+
+def test_closure_less_ensure_list_wrapper_yields_no_children() -> None:
+    def validator(value: Any) -> Any:
+        return value
+
+    validator.__qualname__ = "ensure_list.<locals>.validator"
+    assert list(_rename_walk_children(validator)) == []
+
+
+def _wrapper_holding(qualname: str, held: Any) -> Callable[[Any], Any]:
+    """Return a closure named as a *qualname* wrapper whose only freevar is misnamed ``held``."""
+
+    def validator(value: Any) -> Any:
+        return held
+
+    validator.__qualname__ = qualname
+    return validator
+
+
+def test_wrapper_with_a_renamed_freevar_still_reaches_the_canary(cv: ModuleType) -> None:
+    """A misnamed closure variable degrades to inexpressible instead of vanishing."""
+    for qualname in ("ensure_list.<locals>.validator", "typed_schema.<locals>.validator"):
+        wrapper = _wrapper_holding(qualname, _renamed_item(cv))
+        schema = cv.Schema({cv.Optional("items"): wrapper})
+        assert _collect_rename_keys(_manifest(schema)) == {
+            ("old_name", "new_name"): SchemaHit(None)
+        }, qualname
+
+
+def test_wrapper_with_a_renamed_freevar_holding_a_bare_rename_reaches_the_canary(
+    cv: ModuleType,
+) -> None:
+    """The generic closure scan must not drop a validator held outside any schema."""
+    wrapper = _wrapper_holding(
+        "ensure_list.<locals>.validator", cv.rename_key("old_name", "new_name")
+    )
+    schema = cv.Schema({cv.Optional("items"): wrapper})
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_wrapper_with_a_renamed_freevar_holding_a_bare_fold_is_nested(cv: ModuleType) -> None:
+    wrapper = _wrapper_holding("ensure_list.<locals>.validator", _fold_validator())
+    schema = cv.Schema({cv.Optional("strips"): wrapper})
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
+
+
+def test_variant_without_a_mapping_makes_its_siblings_renames_inexpressible(
+    cv: ModuleType,
+) -> None:
+    """A variant whose keys the walk never enumerates may accept the legacy key."""
+    for plain in (cv.string, cv.All(cv.string)):
+        schema = cv.typed_schema({"renamed": _renamed_item(cv), "plain": plain})
+        assert _collect_rename_keys(_manifest(schema)) == {
+            ("old_name", "new_name"): SchemaHit(None)
+        }
+
+
+@pytest.mark.parametrize("extra", [vol.ALLOW_EXTRA, vol.REMOVE_EXTRA])
+def test_open_sibling_variant_makes_the_rename_inexpressible(cv: ModuleType, extra: int) -> None:
+    """A mapping that keeps or drops undeclared keys accepts the legacy one without error."""
+    schema = cv.typed_schema({"renamed": _renamed_item(cv), "open": cv.Schema({}, extra=extra)})
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(None)}
+
+
+def test_open_mapping_carrying_its_own_rename_stays_direct(cv: ModuleType) -> None:
+    schema = cv.All(
+        cv.Schema({cv.Optional("new_name"): cv.string}, extra=cv.ALLOW_EXTRA),
+        cv.rename_key("old_name", "new_name"),
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("old_name", "new_name"): SchemaHit(())}
+
+
+def test_nested_mapping_pair_routes_to_the_canary() -> None:
+    _classify_rename_pairs("sgp4x", {("old", "new"): SchemaHit(("inner",))}, domain="sensor")
+    assert _MIGRATION_RULES == {}
+    assert {("sgp4x", "old", "new")} == _UNHANDLED_RENAME_KEYS
+
+
+def test_list_item_component_pair_routes_to_the_canary() -> None:
+    """The block rule has no list-item leg, so a component block's list pair stays bespoke."""
+    _classify_rename_pairs("mycomp", {("old", "new"): SchemaHit(("items", "[]"))})
+    assert _MIGRATION_RULES == {}
+    assert {("mycomp", "old", "new")} == _UNHANDLED_RENAME_KEYS
 
 
 def test_platform_domain_pair_routes_to_the_canary() -> None:
     """A platform-domain block's ``- platform:`` items the block rule can't address."""
-    _classify_rename_pairs("sensor", {("old", "new"): SchemaHit(direct=True)}, platform_domain=True)
+    _classify_rename_pairs("sensor", {("old", "new"): SchemaHit(())}, platform_domain=True)
     assert _MIGRATION_RULES == {}
     assert {("sensor", "old", "new")} == _UNHANDLED_RENAME_KEYS
 
 
 def test_multi_conf_component_pair_ships_data_driven() -> None:
     """The block rule handles the list form, so multi_conf pairs emit as rules."""
-    _classify_rename_pairs(
-        "xiaomi_rtcgq02lm", {("esp32_ble_id", "ble_hub_id"): SchemaHit(direct=True)}
-    )
+    _classify_rename_pairs("xiaomi_rtcgq02lm", {("esp32_ble_id", "ble_hub_id"): SchemaHit(())})
     assert {
         MigrationRuleRow(
             "component_block_field", "esp32_ble_id", "ble_hub_id", component="xiaomi_rtcgq02lm"
@@ -236,20 +692,20 @@ def test_multi_conf_component_pair_ships_data_driven() -> None:
 
 
 def test_non_direct_pair_routes_to_the_canary() -> None:
-    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(direct=False)})
+    _classify_rename_pairs("sgp4x", {("voc", "voc_index"): SchemaHit(None)})
     assert _MIGRATION_RULES == {}
     assert {("sgp4x", "voc", "voc_index")} == _UNHANDLED_RENAME_KEYS
 
 
 def test_handled_pair_routes_nowhere_even_when_direct() -> None:
-    _classify_rename_pairs("api", {("services", "actions"): SchemaHit(direct=True)})
+    _classify_rename_pairs("api", {("services", "actions"): SchemaHit(())})
     assert _MIGRATION_RULES == {}
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
 def test_sentinel_pair_routes_to_the_canary_despite_direct() -> None:
     sentinel = "<unreadable rename_key>"
-    _classify_rename_pairs("broken", {(sentinel, sentinel): SchemaHit(direct=True)})
+    _classify_rename_pairs("broken", {(sentinel, sentinel): SchemaHit(())})
     assert _MIGRATION_RULES == {}
     assert {("broken", sentinel, sentinel)} == _UNHANDLED_RENAME_KEYS
 
@@ -275,6 +731,7 @@ def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         MigrationRuleRow("component_block_field", "old", "new", component="ethernet")
     ] = None
     _MIGRATION_RULES[MigrationRuleRow("component_key", "rp2040", "rp2")] = "2027.7.0"
+    _MIGRATION_RULES[_COMBINATION_RULE_ROW] = "2026.12.0"
     _emit_migration_rules_index("2026.8.0b5")
     payload = orjson.loads(out_path.read_bytes())
     assert payload == {
@@ -301,6 +758,16 @@ def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPa
                 "old": "voc",
                 "platform": "sgp4x",
                 "removed_in": "2027.2.0",
+                "since": "2026.8.0b5",
+            },
+            {
+                "domain": "sensor",
+                "kind": "platform_item_list_field",
+                "list_key": "sources",
+                "new": "coefficient",
+                "old": "coeffecient",
+                "platform": "combination",
+                "removed_in": "2026.12.0",
                 "since": "2026.8.0b5",
             },
         ]
@@ -480,9 +947,7 @@ def _fold_validator(removed_in: str | None = "2027.3.0") -> Callable[[Any], Any]
 
 def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType) -> None:
     schema = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
-    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
-        direct=True, removed_in="2027.3.0"
-    )
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit((), removed_in="2027.3.0")
     assert _collect_channel_colors_fold(_manifest(cv.Schema({}))) is None
     assert _collect_channel_colors_fold(SimpleNamespace(config_schema=None)) is None
 
@@ -490,9 +955,20 @@ def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType
 def test_channel_colors_fold_under_a_wrapper_is_nested(cv: ModuleType) -> None:
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
     schema = cv.Schema({cv.Optional("strips"): cv.ensure_list(item)})
-    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
-        direct=False, removed_in="2027.3.0"
-    )
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
+
+
+def test_channel_colors_fold_under_a_typed_variant_is_nested(cv: ModuleType) -> None:
+    """The fold has no sibling-variant guard, so a variant-scoped fold stays on the canary."""
+    item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
+    schema = cv.typed_schema({"strip": item})
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
+
+
+def test_unreadable_wrapper_closure_makes_the_fold_nested(cv: ModuleType) -> None:
+    """A fold beneath a wrapper the walk can't read must reach the canary, not vanish."""
+    schema = cv.Schema({cv.Optional("items"): _unbound_closure("ensure_list.<locals>.validator")})
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None)
 
 
 def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
@@ -500,9 +976,7 @@ def test_channel_colors_fold_shared_both_ways_is_nested(cv: ModuleType) -> None:
     fold = _fold_validator()
     item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), fold)
     schema = cv.All(cv.Schema({cv.Optional("strips"): cv.ensure_list(item)}), fold)
-    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
-        direct=False, removed_in="2027.3.0"
-    )
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(None, removed_in="2027.3.0")
 
 
 def test_channel_colors_fold_carrier_reachable_both_ways_is_nested(cv: ModuleType) -> None:
@@ -513,7 +987,7 @@ def test_channel_colors_fold_carrier_reachable_both_ways_is_nested(cv: ModuleTyp
     for schema in (cv.All(carrier, listed), cv.All(listed, carrier)):
         sync_components._CHANNEL_COLORS_MEMO.clear()
         assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
-            direct=False, removed_in="2027.3.0"
+            None, removed_in="2027.3.0"
         )
 
 
@@ -523,9 +997,7 @@ def test_rename_carrier_reachable_both_ways_is_nested_in_either_order(cv: Module
     carrier = cv.All(cv.Schema({cv.Optional("action"): cv.string}), rename)
     listed = cv.Schema({cv.Optional("actions"): cv.ensure_list(carrier)})
     for schema in (cv.All(carrier, listed), cv.All(listed, carrier)):
-        assert _collect_rename_keys(_manifest(schema)) == {
-            ("service", "action"): SchemaHit(direct=False)
-        }
+        assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): SchemaHit(None)}
 
 
 def test_nested_platform_fold_routes_to_the_canary(cv: ModuleType) -> None:
@@ -724,7 +1196,7 @@ def test_rename_key_removed_in_is_read_off_the_closure(cv: ModuleType) -> None:
         cv.rename_key("old_name", "new_name", removed_in="2027.1.0", component="x"),
     )
     assert _collect_rename_keys(_manifest(schema)) == {
-        ("old_name", "new_name"): SchemaHit(direct=True, removed_in="2027.1.0")
+        ("old_name", "new_name"): SchemaHit((), removed_in="2027.1.0")
     }
     _classify_rename_pairs("x", _collect_rename_keys(_manifest(schema)))
     assert {
@@ -738,9 +1210,7 @@ def test_channel_colors_fold_removed_in_is_read_off_the_closure(cv: ModuleType) 
         pytest.skip("installed esphome predates channel_colors")
     fold = light.migrate_channel_colors(removed_in="2027.3.0", component="x")
     schema = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), fold)
-    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit(
-        direct=True, removed_in="2027.3.0"
-    )
+    assert _collect_channel_colors_fold(_manifest(schema)) == SchemaHit((), removed_in="2027.3.0")
 
 
 def test_conflicting_removed_in_across_paths_fails_the_sync(cv: ModuleType) -> None:

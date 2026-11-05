@@ -16,7 +16,14 @@ from __future__ import annotations
 
 from esphome.storage_json import StorageJSON
 
+from ._bootloader import resolve_nrf52_bootloader
 from ._chip import resolve_chip_mcu
+from ._dependencies import (
+    LoadBatch,
+    UnreadableDependencyError,
+    read_source_fingerprint,
+    source_fingerprint,
+)
 from ._generation import (
     CAPTIVE_PORTAL_PLATFORMS,
     NETWORK_PROVIDER_COMPONENT_IDS,
@@ -37,11 +44,8 @@ from ._loading import (
     pending_changes_via_hash,
     resolution_incomplete,
 )
-from ._mqtt_block import (
-    SecretRef,
-    build_mqtt_extract,
-    extract_mqtt_block,
-)
+from ._mqtt_block import build_mqtt_extract, extract_mqtt_block
+from ._ota_old_key import yaml_declares_ota_old_key
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
     DEFAULT_API_PORT,
@@ -52,12 +56,12 @@ from ._parsing import (
     config_has_top_level_block,
     configuration_filename,
     configuration_stem,
-    content_fingerprint_is_current,
     detect_platform_from_yaml,
     device_ap_label,
     device_uses_mqtt,
     extract_component_ids,
     extract_component_source_fingerprint,
+    extract_config_content_fingerprint,
     extract_directly_referenced_integrations,
     extract_esphome_meta_from_config,
     get_api_encryption_block,
@@ -78,6 +82,7 @@ from ._parsing import (
     yaml_has_top_level_block,
 )
 from ._resolve import ESPHOME_CONFIG_TIMEOUT, EsphomeConfigUnavailableError, run_esphome_config
+from ._tolerant_yaml import SecretRef
 
 __all__ = [
     "CAPTIVE_PORTAL_PLATFORMS",
@@ -88,8 +93,10 @@ __all__ = [
     "_UNRESOLVED_SUBSTITUTION_RE",
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",
+    "LoadBatch",
     "SecretRef",
     "StorageJSON",
+    "UnreadableDependencyError",
     "_extract_resolved_substitutions",
     "_has_native_wifi",
     "_infer_native_wifi",
@@ -102,13 +109,13 @@ __all__ = [
     "config_has_top_level_block",
     "configuration_filename",
     "configuration_stem",
-    "content_fingerprint_is_current",
     "detect_platform_from_yaml",
     "device_ap_label",
     "device_uses_mqtt",
     "dotted_loaded_platforms",
     "extract_component_ids",
     "extract_component_source_fingerprint",
+    "extract_config_content_fingerprint",
     "extract_directly_referenced_integrations",
     "extract_esphome_meta_from_config",
     "extract_mqtt_block",
@@ -129,12 +136,16 @@ __all__ = [
     "parse_esphome_meta",
     "parse_platform_from_yaml",
     "pending_changes_via_hash",
+    "read_source_fingerprint",
     "resolution_incomplete",
     "resolve_chip_mcu",
+    "resolve_nrf52_bootloader",
     "resolved_device_name",
     "retarget_fallback_ap_ssid",
     "run_esphome_config",
     "safe_stat_key",
+    "source_fingerprint",
+    "yaml_declares_ota_old_key",
     "yaml_has_api_encryption",
     "yaml_has_top_level_block",
 ]

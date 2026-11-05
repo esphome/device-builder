@@ -94,3 +94,47 @@ def test_clean_caches_removes_schemas_and_docs_caches(cache_root: Path) -> None:
 def test_clean_caches_tolerates_a_missing_cache_root(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(sync_components, "_CACHE_ROOT", tmp_path / "absent")
     sync_components._clean_caches()
+
+
+def test_badge_rows_map_to_the_generated_badge_svg(cache_root: Path) -> None:
+    """A ``badge:<Name>`` row resolves to the site's lowercased ``images/badges/<name>.svg``."""
+    _write_index(cache_root, b'["ESP32", "/components/esp32/", "badge:ESP32"],\n' + _INDEX_ROW)
+
+    image_map = sync_components.load_image_map()
+
+    assert image_map["esp32"] == "https://esphome.io/images/badges/esp32.svg"
+    assert image_map["sensor.dht"].endswith("dht.svg")
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        pytest.param(
+            b'["ILI9341", "/components/display/ili9xxx/", "badge:ILI9341"],\n'
+            b'["ILI9xxx", "/components/display/ili9xxx/", "ili9341.jpg"]',
+            id="badge_first",
+        ),
+        pytest.param(
+            b'["ILI9xxx", "/components/display/ili9xxx/", "ili9341.jpg"],\n'
+            b'["ILI9341", "/components/display/ili9xxx/", "badge:ILI9341"]',
+            id="file_first",
+        ),
+    ],
+)
+def test_image_file_outranks_a_badge_for_the_same_id(cache_root: Path, rows: bytes) -> None:
+    _write_index(cache_root, rows)
+
+    image_map = sync_components.load_image_map()
+
+    assert image_map["display.ili9xxx"] == "https://esphome.io/images/ili9341.jpg"
+    assert image_map["ili9xxx"] == "https://esphome.io/images/ili9341.jpg"
+
+
+def test_first_image_file_wins_for_the_same_id(cache_root: Path) -> None:
+    _write_index(
+        cache_root,
+        b'["A", "/components/display/ili9xxx/", "first.jpg"],\n'
+        b'["B", "/components/display/ili9xxx/", "second.jpg"]',
+    )
+
+    assert sync_components.load_image_map()["display.ili9xxx"].endswith("first.jpg")

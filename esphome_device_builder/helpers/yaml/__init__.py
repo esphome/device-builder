@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 
@@ -46,10 +47,12 @@ from .ap_ssid import fallback_ap_psk as fallback_ap_psk
 from .ap_ssid import fallback_ap_ssid as fallback_ap_ssid
 from .ap_ssid import rewrite_fallback_ap_ssid as rewrite_fallback_ap_ssid
 from .api_encryption import API_ENCRYPTION_KEY_PATH as API_ENCRYPTION_KEY_PATH
+from .api_encryption import OldKeyOutcome as OldKeyOutcome
 from .api_encryption import api_key_settled as api_key_settled
 from .api_encryption import generate_api_encryption_key as generate_api_encryption_key
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
 from .api_encryption import rewrite_own_ota_encryption_key as rewrite_own_ota_encryption_key
+from .api_encryption import rotate_api_encryption_key as rotate_api_encryption_key
 from .api_encryption import upsert_api_encryption_key as upsert_api_encryption_key
 from .component import _mapping_body_to_list_item as _mapping_body_to_list_item
 from .component import _normalize_multi_conf_block as _normalize_multi_conf_block
@@ -69,7 +72,9 @@ from .inline import synthetic_instance_index as synthetic_instance_index
 from .inline import upsert_inline_handler as upsert_inline_handler
 from .inline import upsert_nested_handler as upsert_nested_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
+from .ota_encryption import drop_ota_encryption_old_key as drop_ota_encryption_old_key
 from .ota_encryption import read_ota_encryption_key as read_ota_encryption_key
+from .ota_encryption import read_ota_encryption_old_key as read_ota_encryption_old_key
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
 from .scalar import ESPHOME_NAME_ADD_MAC_SUFFIX_PATH as ESPHOME_NAME_ADD_MAC_SUFFIX_PATH
 from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH
@@ -83,6 +88,7 @@ from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
 from .scalar import is_indirected_scalar as is_indirected_scalar
 from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
 from .scalar import parse_config_boolean as parse_config_boolean
+from .scalar import plain_literal_value as plain_literal_value
 from .scalar import read_yaml_scalar as read_yaml_scalar
 from .scalar import rewrite_yaml_scalar as rewrite_yaml_scalar
 from .scan import child_block_end as child_block_end
@@ -110,6 +116,14 @@ def load_yaml_fast_then_esphome(path: Path) -> Any:
             return yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
     except yaml.YAMLError:
         return yaml_util.load_yaml(path)
+
+
+def parse_yaml_fast_then_esphome(path: Path, text: str) -> Any:
+    """Parse *text*, read from *path*, with the fast C loader, retrying with ESPHome's loader."""
+    try:
+        return yaml.load(text, Loader=FastestSafeLoader)  # noqa: S506
+    except yaml.YAMLError:
+        return yaml_util.parse_yaml(path, io.StringIO(text))
 
 
 def write_user_yaml(path: Path, content: str | bytes) -> None:

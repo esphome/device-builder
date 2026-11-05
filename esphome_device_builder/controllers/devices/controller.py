@@ -230,6 +230,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_config_hash_change=self._on_config_hash_change,
             on_api_encryption_change=self._on_api_encryption_change,
             on_mac_address_change=self._on_mac_address_change,
+            on_network_change=self._on_network_change,
             on_importable_added=self._on_importable_added,
             on_importable_removed=self._on_importable_removed,
             is_ignored=self.state.ignored_devices.__contains__,
@@ -238,6 +239,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_persisted_ip_invalidated=self._on_persisted_ip_invalidated,
             on_resolved_addresses_cleared=self._on_resolved_addresses_cleared,
             on_deployed_identity_live_change=self._on_deployed_identity_live_change,
+            on_ota_signed_change=self._on_ota_signed_change,
         )
         # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
         # ping RTT) feeding the device drawer's Reachability section.
@@ -603,18 +605,24 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         configuration: str,
         new_name: str,
         config_only: bool = False,
+        new_friendly_name: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
         Rename a device configuration.
 
-        Default path delegates to ``esphome rename`` (compile + OTA).
+        Default path queues a COMPILE + OTA rename chain (see ``rename_chain``).
         ``config_only`` rewrites the YAML + ``esphome.name`` without
         flashing; the caller uses it after the user confirms renaming
-        an offline device.
+        an offline device. ``new_friendly_name`` retargets
+        ``esphome.friendly_name`` in the same write.
         """
         return await mutations_simple.rename_device(
-            self, configuration=configuration, new_name=new_name, config_only=config_only
+            self,
+            configuration=configuration,
+            new_name=new_name,
+            config_only=config_only,
+            new_friendly_name=new_friendly_name,
         )
 
     @api_command("devices/clone")
@@ -937,11 +945,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _spawn_only_generate(self, configuration: str) -> str | None:
         return await storage_regen.spawn_only_generate(self, configuration)
 
-    def _stamp_regen_failure(self, configuration: str, mtime: float) -> int:
-        return storage_regen.stamp_failure(self, configuration, mtime)
+    def _stamp_regen_failure(self, configuration: str, fingerprint: str) -> int:
+        return storage_regen.stamp_failure(self, configuration, fingerprint)
 
-    async def _finalize_regen_success(self, configuration: str) -> None:
-        await storage_regen.finalize_success(self, configuration)
+    async def _finalize_regen_success(self, configuration: str, fingerprint: str) -> None:
+        await storage_regen.finalize_success(self, configuration, fingerprint)
 
     @api_command("devices/get_encryption_key")
     async def get_encryption_key(self, *, configuration: str, **kwargs: Any) -> dict[str, str]:
@@ -1289,6 +1297,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     def _on_deployed_identity_live_change(self, name: str, *, live: bool) -> None:
         state_callbacks.on_deployed_identity_live_change(self, name, live=live)
 
+    def _on_ota_signed_change(self, name: str, *, signed: bool) -> None:
+        state_callbacks.on_ota_signed_change(self, name, signed=signed)
+
     def _on_version_change(self, name: str, version: str) -> None:
         state_callbacks.on_version_change(self, name, version)
 
@@ -1300,6 +1311,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _on_config_hash_change(self, name: str, config_hash: str) -> None:
         state_callbacks.on_config_hash_change(self, name, config_hash)
+
+    def _on_network_change(self, name: str, network: str) -> None:
+        state_callbacks.on_network_change(self, name, network)
 
     def _on_importable_added(self, device: AdoptableDevice) -> None:
         importable.on_importable_added(self, device)

@@ -215,4 +215,6 @@ class ImportableDiscovery:
             network=discovered.network,
             ignored=monitor._is_ignored(discovered.device_name),
             web_url=monitor.state.http_urls.get(discovered.device_name, ""),
+            # TODO: plain attribute once the CI esphome pin reaches 2026.10.
+            ota_signed=getattr(discovered, "ota_signed", False),
         )

@@ -70,6 +70,7 @@ from _catalog_split import (  # noqa: E402
     swap_split_catalog_in,
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
+from _expander_pins import expander_hub_ref  # noqa: E402
 from _manifest import ManifestError, load_manifest_dict  # noqa: E402
 
 from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
@@ -589,6 +590,26 @@ def _esp32_board_pins(generic: list[BoardPin], board_pins: dict[str, int] | None
     return out
 
 
+def canonical_board_id(platform: str, board_id: str) -> str:
+    """Return esphome's id for *board_id*, ignoring case and ``-`` / ``_``, else *board_id*."""
+    return _folded_board_ids(platform).get(_fold_board_id(board_id), board_id)
+
+
+# Device-page SoC family -> esphome component that owns its board table
+_BOARD_TABLE_COMPONENT = {"rp2040": "rp2"}
+
+
+@cache
+def _folded_board_ids(platform: str) -> dict[str, str]:
+    component = _BOARD_TABLE_COMPONENT.get(platform, platform)
+    module = importlib.import_module(f"esphome.components.{component}.boards")
+    return {_fold_board_id(board): board for board in module.BOARDS}
+
+
+def _fold_board_id(board_id: str) -> str:
+    return board_id.lower().replace("-", "_")
+
+
 def esp32_variant_for_board(board_id: str) -> str | None:
     """Variant name for a PIO board id from esphome's authoritative ``BOARDS`` map."""
     module = importlib.import_module(_ESP32_BOARDS_MODULE)
@@ -833,7 +854,7 @@ def _derive_nrf52_pins(adc_gpios: set[int]) -> list[BoardPin]:
 
 def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     """
-    Add catalog entries for nRF52 boards no manifest id covers.
+    Fill manifested nRF52 boards' empty pins and add the boards no manifest id covers.
 
     nRF52 ships no per-board pin aliases, so every board gets the same ADC-tagged
     full-GPIO matrix from the chip-level ``AIN_TO_GPIO``. A ``BOARDS_ZEPHYR`` name
@@ -850,6 +871,9 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     boards_module = importlib.import_module("esphome.components.nrf52.boards")
     const_module = importlib.import_module("esphome.components.nrf52.const")
     adc_gpios = set(const_module.AIN_TO_GPIO.values())
+    for board in boards:
+        if board.esphome.platform is Platform.NRF52 and not board.pins:
+            board.pins = _derive_nrf52_pins(adc_gpios)
     generated_from: dict[str, str] = {}
     for name in boards_module.BOARDS_ZEPHYR:
         catalog_id = name.replace("/", "_")
@@ -1007,7 +1031,7 @@ def _canonical_pin(value: Any) -> int | str | None:
 
     A board GPIO is an int; a pin on an I/O expander
     (``{number: 0, pcf8574: hub}``) is the namespaced token
-    ``"<provider>:<hub_id>:<channel>"`` so an expander channel never aliases a
+    ``"<provider>:<hub_ref>:<channel>"`` so an expander channel never aliases a
     board GPIO of the same number. ``None`` when no concrete pin is present.
     """
     if isinstance(value, dict):
@@ -1016,8 +1040,13 @@ def _canonical_pin(value: Any) -> int | str | None:
             provider = min(expander)
             hub = value.get(provider)
             channel = value.get("number")
-            if isinstance(hub, str) and isinstance(channel, int) and not isinstance(channel, bool):
-                return f"{provider}:{hub}:{channel}"
+            hub_ref = expander_hub_ref(hub)
+            if hub_ref and isinstance(channel, int) and not isinstance(channel, bool):
+                return f"{provider}:{hub_ref}:{channel}"
+            if hub_ref is None:
+                _LOGGER.warning(
+                    "Unresolvable %s hub %r; pin left out of locked_pins", provider, hub
+                )
             return None
     return _canonical_gpio(value)
 

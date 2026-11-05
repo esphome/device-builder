@@ -77,8 +77,17 @@ from script._board_import import (  # noqa: E402
     read_manifest_dict,
     safe_load_yaml,
 )
+from script._expander_pins import (  # noqa: E402
+    catalog_address_default,
+    expander_hub_ref,
+    is_address_ref,
+    lock_hub_identity,
+    match_address_block,
+    merge_alias_refs,
+)
 from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
+from script.sync_boards import canonical_board_id, esp32_variant_for_board  # noqa: E402
 
 # Hoisted to ``script/_board_import.py``; private aliases keep this module's
 # call sites and test imports stable.
@@ -138,9 +147,9 @@ _ESP32_BOARD_VARIANT_RE = re.compile(
 
 # Top-level platform-list keys in ESPHome configs. Each list item
 # carries a ``platform: <stem>`` and we project to ``<domain>.<stem>``
-# in our component catalog. Mirrors the ``ComponentCategory`` entity
-# domains in the catalog so we don't reject hardware that's actually
-# representable (speakers, microphones, touchscreens, alarm panels).
+# in our component catalog. Covers the catalog's entity domains so we
+# don't reject hardware that's actually representable (speakers,
+# microphones, touchscreens, alarm panels).
 _PLATFORM_LIST_DOMAINS: frozenset[str] = frozenset(
     {
         "alarm_control_panel",
@@ -528,11 +537,16 @@ def _expander_keys(pin_value: Any) -> set[str]:
     """Return provider keys in a long-form pin dict that reference an I/O-expander hub.
 
     A provider key is any key beyond the standard board-GPIO ``BOARD_PIN_KEYS``
-    whose value is a hub instance id.
+    whose value is a hub instance id or an ``{address: ...}`` hub selector.
     """
     if not isinstance(pin_value, dict):
         return set()
-    return {k for k in pin_value.keys() - BOARD_PIN_KEYS if isinstance(pin_value[k], str)}
+    return {
+        k
+        for k in pin_value.keys() - BOARD_PIN_KEYS
+        if isinstance(pin_value[k], str)
+        or (isinstance(pin_value[k], dict) and pin_value[k].keys() == {"address"})
+    }
 
 
 def _resolve_soc(
@@ -563,6 +577,18 @@ def _resolve_soc(
     return (candidates[0] if candidates else None), None
 
 
+def _clean_board_id(soc: str, raw_board: Any) -> str | None:
+    """Return the page's ``board:`` in esphome's spelling; ``None`` when absent or a placeholder."""
+    if not isinstance(raw_board, str):
+        return None
+    # Upstream pages occasionally ship a ``<REPLACEME>`` placeholder
+    # where a real PlatformIO board id should be — those configs would
+    # never compile, so treat them the same as a missing board.
+    if _is_placeholder_value(raw_board):
+        return None
+    return canonical_board_id(soc, raw_board)
+
+
 def _resolve_board_and_variant(
     soc: str, soc_block: dict[str, Any] | None
 ) -> tuple[str | None, str | None, str | None]:
@@ -580,12 +606,7 @@ def _resolve_board_and_variant(
     raw_variant = soc_block.get("variant")
     raw_framework = soc_block.get("framework")
 
-    board = raw_board if isinstance(raw_board, str) else None
-    # Upstream pages occasionally ship a ``<REPLACEME>`` placeholder
-    # where a real PlatformIO board id should be — those configs would
-    # never compile, so treat them the same as a missing board.
-    if board is not None and _is_placeholder_value(board):
-        board = None
+    board = _clean_board_id(soc, raw_board)
     # Upstream pages sometimes write the variant in uppercase or with
     # separators (``ESP32-C3``) — fold onto the catalog spelling.
     variant = normalize_chip_variant(raw_variant) if isinstance(raw_variant, str) else None
@@ -606,8 +627,6 @@ def _resolve_board_and_variant(
                 # resolve through esphome's authoritative board map — the
                 # manifest must carry the variant or the generated ``esp32:``
                 # block reads as an unknown board.
-                from script.sync_boards import esp32_variant_for_board
-
                 variant = esp32_variant_for_board(board)
         elif not board and variant:
             board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
@@ -1560,11 +1579,14 @@ def _block_mappings(raw: Any) -> list[dict[str, Any]]:
     return [block for block in _as_block_list(raw) if isinstance(block, dict)]
 
 
-def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
+def _find_hub_block(
+    raw: Any, instance_id: str, default_address: Any = None
+) -> dict[str, Any] | None:
     """
     Return the top-level hub block (``pcf8574:``) a pin's expander ref resolves to.
 
-    Prefers an exact ``id`` match. Falls back to the sole block when the
+    An address ref (``@0x44``) matches the sole block at that address (else *default_address*).
+    Otherwise prefers an exact ``id`` match. Falls back to the sole block when the
     provider has exactly one and it carries no ``id`` — the source left the
     single hub's id implicit (ESPHome auto-generates one), so the pin's
     referenced id is adopted as the hub id at materialization. A mismatch
@@ -1572,6 +1594,8 @@ def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
     yields ``None`` rather than guessing.
     """
     blocks = _block_mappings(raw)
+    if is_address_ref(instance_id):
+        return match_address_block(blocks, instance_id, default_address)
     for block in blocks:
         if block.get("id") == instance_id:
             return block
@@ -1582,23 +1606,27 @@ def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
 
 def _collect_expander_refs(
     featured: list[dict[str, Any]], components_index: dict[str, dict[str, Any]]
-) -> tuple[list[tuple[dict[str, Any], list[tuple[str, str]]]], list[tuple[str, str]]]:
+) -> tuple[list[tuple[dict[str, Any], list[tuple[str, str | None]]]], list[tuple[str, str | None]]]:
     """Find expander ``(hub_component_id, instance_id)`` refs in featured pin presets.
 
     Returns the consumers paired with their refs, plus the de-duplicated refs in
-    first-seen order.
+    first-seen order; an unresolvable hub has a ``None`` instance id.
     """
-    consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]] = []
-    ordered_refs: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = []
+    ordered_refs: list[tuple[str, str | None]] = []
+    seen: set[tuple[str, str | None]] = set()
     for entry in featured:
-        refs: list[tuple[str, str]] = []
+        refs: list[tuple[str, str | None]] = []
         for preset in entry.get("fields", {}).values():
             value = preset.get("value") if isinstance(preset, dict) else None
             for key in _expander_keys(value):
                 if key not in components_index:
                     continue
-                ref = (key, value[key])
+                if (hub_ref := expander_hub_ref(value[key])) is None:
+                    _LOGGER.warning(
+                        "%s: unresolvable %s hub %r", entry.get("component_id"), key, value[key]
+                    )
+                ref = (key, hub_ref)
                 refs.append(ref)
                 if ref not in seen:
                     seen.add(ref)
@@ -1766,8 +1794,8 @@ def _wire_consumer_requires(
 
 def _drop_unresolved_consumers(
     featured: list[dict[str, Any]],
-    consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]],
-    hub_prereqs: dict[tuple[str, str], list[str]],
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
+    hub_prereqs: dict[tuple[str, str | None], list[str]],
 ) -> None:
     """
     Drop (in place) consumers whose hub couldn't be materialized.
@@ -1782,6 +1810,14 @@ def _drop_unresolved_consumers(
     }
     if not dropped:
         return
+    for entry, refs in consumers:
+        if id(entry) in dropped:
+            _LOGGER.info(
+                "Dropping %s (%s): expander hub %s could not be lifted",
+                entry.get("id"),
+                entry.get("component_id"),
+                [ref for ref in refs if ref not in hub_prereqs],
+            )
     featured[:] = [entry for entry in featured if id(entry) not in dropped]
     consumers[:] = [(entry, refs) for entry, refs in consumers if id(entry) not in dropped]
 
@@ -1909,7 +1945,13 @@ def _extract_expander_hubs(
         components_index,
         consumers,
         ordered_refs,
-        resolve_block=lambda cid, instance_id: _find_hub_block(config.get(cid), instance_id),
+        resolve_block=lambda cid, instance_id: (
+            None
+            if instance_id is None
+            else _find_hub_block(
+                config.get(cid), instance_id, catalog_address_default(components_index.get(cid))
+            )
+        ),
         driver=False,
     )
 
@@ -1942,10 +1984,18 @@ def _materialize_hubs(
     # ids it needs — the ordered prerequisite chain a consumer references.
     hub_prereqs: dict[tuple[str, str | None], list[str]] = {}
 
+    # A block reached through two refs (by id and by address) lifts once.
+    lifted: dict[int, tuple[str, str | None]] = {}
+    aliases: dict[tuple[str, str | None], tuple[str, str | None]] = {}
+    lifted_hubs: dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any]]] = {}
     for hub_cid, instance_id in ordered_refs:
         hub_component = components_index.get(hub_cid)
         block = resolve_block(hub_cid, instance_id)
         if hub_component is None or block is None:
+            continue
+        ref = (hub_cid, instance_id)
+        if (first := lifted.setdefault(id(block), ref)) != ref:
+            aliases[ref] = first
             continue
         # A platform-carrying block (``time: platform: homeassistant``) is a
         # platform-style hub: the schema and the emitted component id live at
@@ -1971,13 +2021,10 @@ def _materialize_hubs(
             continue
         state.occupancy.update(hub_occ)
         bus_ids, bus_refs = _ensure_buses(hub_component, block, state)
-        base = _sanitize_local_id(instance_id) if instance_id else ""
+        upstream_id = lock_hub_identity(fields, instance_id, block)
+        base = _sanitize_local_id(upstream_id) if upstream_id else ""
         hub_id = _unique_local_id(base, used_ids, f"{hub_cid}{'_hub' if driver else ''}")
         used_ids.add(hub_id)
-        # Lock the hub's id to the upstream value an expander pin ref points at;
-        # a sole driver hub with no upstream id keeps its generated local id.
-        if instance_id:
-            fields["id"] = {"value": instance_id, "locked": True}
         # Lock the hub onto the bus it was lifted from (multi-bus boards), so it
         # doesn't fall back to esphome's default i2c pins.
         for ref_field, bus_inst in bus_refs.items():
@@ -1986,8 +2033,10 @@ def _materialize_hubs(
         if bus_ids:
             hub_entry["requires"] = bus_ids
         state.extra.append(hub_entry)
-        hub_prereqs[(hub_cid, instance_id)] = [*bus_ids, hub_id]
+        hub_prereqs[ref] = [*bus_ids, hub_id]
+        lifted_hubs[ref] = (fields, block)
 
+    merge_alias_refs(aliases, hub_prereqs, lifted_hubs)
     if not driver:
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)

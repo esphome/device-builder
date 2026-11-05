@@ -25,6 +25,11 @@ from esphome_device_builder.controllers.automations.parsing import (
     resolve_component_target,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models.automations import (
+    ComponentOnLocation,
+    ParsedAutomation,
+    ScriptLocation,
+)
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "automation_yamls"
 
@@ -1193,3 +1198,77 @@ def test_parse_mapping_form_interval_and_script_as_one_entry_each() -> None:
     assert script.location.id == "s1"
     assert (script.from_line, script.to_line) == (7, 10)
     assert interval.raw_yaml.lstrip().startswith("- interval: 60s")
+
+
+# ---------------------------------------------------------------------------
+# esphome 2026.11: ``script.on_stop``, ``choose``, bare ``script.stop``
+# ---------------------------------------------------------------------------
+
+
+def test_parse_script_on_stop_is_not_a_trigger_param() -> None:
+    """A script's ``on_stop`` is its own automation, so it leaves the script's params."""
+    scripts = _choose_on_stop_scripts()
+    assert set(scripts) == {"self_stop", "script_1"}
+    assert scripts["self_stop"].automation.trigger_params == {"id": "self_stop"}
+    assert scripts["script_1"].automation.trigger_params == {}
+    assert scripts["self_stop"].error is None
+
+
+def test_parse_bare_script_stop_is_an_action() -> None:
+    """``- script.stop`` and ``- script.stop:`` both parse to the id-less action."""
+    scripts = _choose_on_stop_scripts()
+    if_node = scripts["self_stop"].automation.actions[1]
+    assert [c.condition_id for c in if_node.conditions] == ["lambda"]
+    assert [a.action_id for a in if_node.children["then"]] == ["script.stop"]
+    assert if_node.children["then"][0].params == {}
+    assert [a.action_id for a in scripts["script_1"].automation.actions] == ["script.stop"]
+
+
+def test_parse_script_on_stop_is_invisible_without_its_trigger() -> None:
+    """Before the catalog carries ``script.on_stop`` the handler is preserved but not listed."""
+    from esphome_device_builder.controllers.automations import catalog  # noqa: PLC0415
+
+    if catalog.resolve_component_trigger(None, "script", "on_stop") is not None:
+        pytest.skip("the shipped catalog already carries script.on_stop")
+    rows = parse_device_yaml(_load("choose_on_stop.yaml"))
+    assert not [p for p in rows if isinstance(p.location, ComponentOnLocation)]
+
+
+@pytest.mark.usefixtures("synthetic_script_on_stop_trigger")
+def test_parse_lists_script_on_stop_as_a_component_on_automation() -> None:
+    """With the trigger catalogued, each script's ``on_stop`` is a ``component_on`` row."""
+    rows = parse_device_yaml(_load("choose_on_stop.yaml"))
+    handlers = {
+        p.location.component_id: p for p in rows if isinstance(p.location, ComponentOnLocation)
+    }
+    assert set(handlers) == {"self_stop", "script_1"}
+    assert handlers["self_stop"].location.trigger == "on_stop"
+    assert handlers["self_stop"].automation.trigger_id == "script.on_stop"
+    assert [a.action_id for a in handlers["self_stop"].automation.actions] == ["logger.log"]
+    assert [a.params for a in handlers["script_1"].automation.actions] == [
+        {"format": "idless stopped"}
+    ]
+    assert handlers["self_stop"].label == "self_stop → On Stop"
+
+
+@pytest.mark.usefixtures("synthetic_choose_action")
+def test_parse_choose_yields_branches() -> None:
+    """A catalogued ``choose`` decomposes into branches with the ``else`` list on children."""
+    choose = _choose_on_stop_scripts()["self_stop"].automation.actions[2]
+    assert choose.action_id == "choose"
+    assert choose.unknown is False
+    assert [[c.condition_id for c in b.conditions] for b in choose.branches] == [
+        ["lambda"],
+        ["any"],
+    ]
+    assert [c.condition_id for c in choose.branches[1].conditions[0].children] == [
+        "lambda",
+        "binary_sensor.is_on",
+    ]
+    assert [a.params for a in choose.children["else"]] == [{"format": "large"}]
+
+
+def _choose_on_stop_scripts() -> dict[str, ParsedAutomation]:
+    """Parse ``choose_on_stop.yaml`` and key its script rows by id."""
+    rows = parse_device_yaml(_load("choose_on_stop.yaml"))
+    return {p.location.id: p for p in rows if isinstance(p.location, ScriptLocation)}

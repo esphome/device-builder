@@ -194,8 +194,8 @@ class FeaturedComponent(DashboardModel):
     # config-entry path to the pin: flat for a top-level pin (``mdc_pin``), dotted
     # for one nested under a composite field (ethernet ``clk.pin``). A board GPIO is
     # an int (``{"scl": 0, "sda": 1}``); an I/O-expander channel is a namespaced
-    # token ``"<provider>:<hub_id>:<channel>"`` so it never aliases a board GPIO of
-    # the same number. Lets the catalog hide this card when an existing same-domain
+    # token ``"<provider>:<hub_id | @0xNN>:<channel>"`` so it never aliases a board
+    # GPIO of the same number. Lets the catalog hide this card when an existing same-domain
     # instance already occupies these exact pins. Empty (omitted) for non-pin
     # components.
     locked_pins: dict[str, int | str] = field(default_factory=dict)

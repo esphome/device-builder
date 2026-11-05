@@ -15,7 +15,6 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _is_own_id_field,
     _mark_platform_domains_multi_conf,
     _multi_instance_targets,
-    _require_component_categories,
     _require_image_map,
     _resolve_auto_load,
     load_index,
@@ -227,25 +226,11 @@ def test_shipped_platform_entries_are_multi_conf() -> None:
     assert _load_body("sensor.dht")["multi_conf"] is True
 
 
-def test_platform_domains_have_component_categories() -> None:
-    """Every platform domain needs a ``ComponentCategory`` member, else it loads as MISC."""
-    # A domain in the set but missing from the enum is silently coerced to MISC at
-    # load time, breaking the category filter — the exact bug #1832 fixed.
-    assert _PLATFORM_DOMAINS
-    _require_component_categories(_PLATFORM_DOMAINS)
-
-
 def test_platform_domains_exclude_camera() -> None:
     """``camera`` is not a platform domain upstream; the old hand list carried it."""
     # No IS_PLATFORM_COMPONENT marker, no camera.json in the schema bundle, no
     # ``camera.*`` catalog entry — the derived set dropping it is intentional.
     assert "camera" not in _PLATFORM_DOMAINS
-
-
-def test_require_component_categories_fails_loud_on_unknown_domain() -> None:
-    """A new upstream domain without an enum member kills the sync, naming it."""
-    with pytest.raises(SystemExit, match="brand_new_domain"):
-        _require_component_categories(frozenset({"sensor", "brand_new_domain"}))
 
 
 def test_require_image_map_passes_with_sentinels_present() -> None:
@@ -283,6 +268,21 @@ def test_load_index_warns_on_dropped_domain(
         sync_components.load_index(tmp_path)
     assert "switch" in caplog.text
     assert frozenset({"sensor"}) == sync_components._PLATFORM_DOMAINS
+
+
+def test_load_index_warns_on_new_domain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A domain in the fresh bundle but not the shipped set logs a warning and syncs."""
+    from script import sync_components  # noqa: PLC0415
+
+    monkeypatch.setattr(sync_components, "_PLATFORM_DOMAINS", frozenset({"sensor"}))
+    platforms = {"sensor": {}, "packet_interface": {}}
+    (tmp_path / "esphome.json").write_text(json.dumps({"core": {"platforms": platforms}}))
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        sync_components.load_index(tmp_path)
+    assert "New upstream platform domain(s): ['packet_interface']" in caplog.text
+    assert frozenset(platforms) == sync_components._PLATFORM_DOMAINS
 
 
 def test_resolve_auto_load_handles_callable() -> None:

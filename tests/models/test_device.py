@@ -21,3 +21,10 @@ def test_mcu_is_always_on_the_wire() -> None:
     assert make_device("kitchen").to_dict()["mcu"] is None
     device = make_device("bw15", mcu="rtl8720c")
     assert device.to_dict()["mcu"] == "rtl8720c"
+
+
+def test_bootloader_is_always_on_the_wire() -> None:
+    """``null`` off nRF52, or without a readable ``nrf52:`` block."""
+    assert make_device("kitchen").to_dict()["bootloader"] is None
+    device = make_device("dongle", bootloader="nrf")
+    assert device.to_dict()["bootloader"] == "nrf"

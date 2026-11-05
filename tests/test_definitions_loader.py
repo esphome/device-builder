@@ -403,6 +403,16 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
                         "since": "2026.7.0",
                         "removed_in": "2027.7.0",
                     },
+                    {
+                        "kind": "platform_item_list_field",
+                        "domain": "sensor",
+                        "platform": "combination",
+                        "list_key": "sources",
+                        "old": "coeffecient",
+                        "new": "coefficient",
+                        "since": "2026.10.0b5",
+                        "removed_in": "2026.12.0",
+                    },
                 ]
             }
         )
@@ -421,6 +431,16 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
         ),
         MigrationRule(
             kind="component_key", old="rp2040", new="rp2", since="2026.7.0", removed_in="2027.7.0"
+        ),
+        MigrationRule(
+            kind="platform_item_list_field",
+            old="coeffecient",
+            new="coefficient",
+            domain="sensor",
+            platform="combination",
+            list_key="sources",
+            since="2026.10.0b5",
+            removed_in="2026.12.0",
         ),
     )
 
@@ -443,6 +463,17 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
         pytest.param(
             {"kind": "platform_item_field", "domain": 5, "platform": "x", "old": "a", "new": "b"},
             id="non_string_domain",
+        ),
+        pytest.param(
+            {
+                "kind": "platform_item_list_field",
+                "domain": "sensor",
+                "platform": "combination",
+                "old": "a",
+                "new": "b",
+                "since": "2026.10.0b5",
+            },
+            id="no_list_key",
         ),
         pytest.param({"kind": "component_key", "old": "rp2040"}, id="component_key_no_new"),
         pytest.param(

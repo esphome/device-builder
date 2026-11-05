@@ -20,15 +20,20 @@ import pytest
 import yaml
 from esphome import yaml_util
 from esphome.const import ALLOWED_NAME_CHARS
+from esphome.core import CORE, EsphomeError
 
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
+    load_platform_capabilities_index,
 )
 from esphome_device_builder.helpers import device_yaml
+from esphome_device_builder.helpers.atomic_io import read_text_with_stat
 from esphome_device_builder.helpers.device_yaml import (
+    LoadBatch,
     _has_native_wifi,
     _parse_inline_value,
+    _parsing,
     board_provides_network,
     board_requires_wifi,
     compute_has_pending_changes,
@@ -42,13 +47,22 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_platform_from_yaml,
     pending_changes_via_hash,
     resolve_chip_mcu,
+    resolve_nrf52_bootloader,
 )
-from esphome_device_builder.helpers.device_yaml._loading import _snapshot_source_files
+from esphome_device_builder.helpers.device_yaml._dependencies import (
+    UnreadableDependencyError,
+    normalize_dependencies,
+    read_dependency_sources,
+)
+from esphome_device_builder.helpers.device_yaml._loading import (
+    _snapshot_source_files,
+    load_device_yaml_tracked,
+)
 from esphome_device_builder.helpers.device_yaml._parsing import (
     CONTENT_FINGERPRINT_VERSION,
+    _digest_lines,
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
-    content_fingerprint_is_current,
     device_ap_label,
     extract_component_source_fingerprint,
     extract_config_content_fingerprint,
@@ -56,6 +70,8 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     extract_logger_interface,
     extract_ota_partition_access,
     resolve_esp32_variant,
+    resolve_nrf52_variant,
+    safe_stat_key,
     yaml_has_name_add_mac_suffix,
 )
 from esphome_device_builder.helpers.yaml import generate_api_encryption_key
@@ -74,6 +90,7 @@ from esphome_device_builder.models import (
     ReachabilitySource,
 )
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import bump_mtime
 
 
 def _make_esp32_board(
@@ -857,13 +874,13 @@ def test_extract_meta_from_config_no_esphome_block(config: Any) -> None:
 def test_extract_config_content_fingerprint_tracks_any_content_edit() -> None:
     """Every non-cosmetic edit moves the digest, address-relevant or not."""
     base = "esphome:\n  name: dev\nwifi:\n  ssid: s\n  use_address: 10.0.0.9\napi:\n"
-    fingerprint = extract_config_content_fingerprint(base)
+    fingerprint = extract_config_content_fingerprint(base, ())
     assert fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
     assert fingerprint != extract_config_content_fingerprint(
-        base.replace("  use_address: 10.0.0.9\n", "")
+        base.replace("  use_address: 10.0.0.9\n", ""), ()
     )
     assert fingerprint != extract_config_content_fingerprint(
-        base.replace("api:\n", "api:\n  encryption:\n    key: k\n")
+        base.replace("api:\n", "api:\n  encryption:\n    key: k\n"), ()
     )
 
 
@@ -871,20 +888,25 @@ def test_extract_config_content_fingerprint_ignores_comments_blanks_and_trailing
     """Blank lines, full-line comments, and trailing whitespace don't move the digest."""
     plain = "wifi:\n  ssid: s\nota:\n"
     cosmetic = "# header\nwifi:\n# a comment\n\n  ssid: s  \nota:\n"
-    assert extract_config_content_fingerprint(plain) == extract_config_content_fingerprint(cosmetic)
+    assert extract_config_content_fingerprint(plain, ()) == extract_config_content_fingerprint(
+        cosmetic, ()
+    )
 
 
 def test_extract_config_content_fingerprint_without_content() -> None:
-    """Empty or comments-only YAML yields the empty fingerprint."""
-    assert extract_config_content_fingerprint("") == ""
-    assert extract_config_content_fingerprint("# only a comment\n\n") == ""
+    """Empty or comments-only YAML digests to one versioned value, never the empty string."""
+    empty = extract_config_content_fingerprint("", ())
+    assert empty.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert extract_config_content_fingerprint("# only a comment\n\n", ()) == empty
 
 
-def test_content_fingerprint_is_current() -> None:
-    """Only a digest carrying the current version prefix is current."""
-    assert content_fingerprint_is_current(extract_config_content_fingerprint("wifi:\n"))
-    assert not content_fingerprint_is_current("d" * 64)
-    assert not content_fingerprint_is_current(None)
+def test_extract_config_content_fingerprint_covers_dependency_paths_and_lines() -> None:
+    """A dependency's path and its lines both move the digest."""
+    base = extract_config_content_fingerprint("wifi:\n", ())
+    with_a = extract_config_content_fingerprint("wifi:\n", [("a.yaml", "d1")])
+    assert with_a != base
+    assert with_a != extract_config_content_fingerprint("wifi:\n", [("b.yaml", "d1")])
+    assert with_a != extract_config_content_fingerprint("wifi:\n", [("a.yaml", "d2")])
 
 
 _EXTERNAL_COMPONENTS_YAML = (
@@ -1077,6 +1099,36 @@ def test_extract_logger_interface_board_snapshot_fallback() -> None:
     assert extract_logger_interface(config, "esp32") == "USB_SERIAL_JTAG"
 
 
+@pytest.fixture
+def nrf54l15_caps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch in an nRF54L15 board and its own logger default."""
+    caps = load_platform_capabilities_index()
+    patched = caps._replace(
+        nrf52_board_variants={"nrf54l15dk": "NRF54L15", "xiao_ble": "NRF52840"},
+        logger_interface_defaults={**caps.logger_interface_defaults, "nrf54l15": "UART0"},
+    )
+    monkeypatch.setattr(_parsing, "load_platform_capabilities_index", lambda: patched)
+
+
+@pytest.mark.usefixtures("nrf54l15_caps")
+def test_extract_logger_interface_nrf52_variant_from_board() -> None:
+    """An nRF52 chip with its own default wins; the rest take the platform default."""
+    for board, expected in (
+        ("nrf54l15dk", "UART0"),
+        ("xiao_ble", "USB_CDC"),
+        ("custom", "USB_CDC"),
+    ):
+        config = {"logger": {}, "nrf52": {"board": board}}
+        assert extract_logger_interface(config, "nrf52") == expected
+
+
+@pytest.mark.usefixtures("nrf54l15_caps")
+def test_resolve_nrf52_variant() -> None:
+    assert resolve_nrf52_variant({"nrf52": {"board": "${b}"}}, {"b": "nrf54l15dk"}) == "nrf54l15"
+    assert resolve_nrf52_variant({"nrf52": {"board": "custom"}}) is None
+    assert resolve_nrf52_variant({}) is None
+
+
 @pytest.mark.parametrize(
     ("config", "platform"),
     [
@@ -1177,6 +1229,72 @@ def test_load_device_from_storage_resolves_mcu(tmp_path: Path) -> None:
     bw15.write_text("esphome:\n  name: bw15\nrtl87xx:\n  board: bw15\n", encoding="utf-8")
     assert load_device_from_storage(bw15).mcu == "rtl8720c"
     assert load_device_from_storage(bw15, shallow=True).mcu == "rtl8720c"
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        # The YAML's own choice wins, as ESPHome spells it.
+        ({"nrf52": {"board": "nrf52840dongle", "bootloader": "nrf"}}, "nrf"),
+        ({"nrf52": {"board": "xiao_ble", "bootloader": "MCUboot"}}, "mcuboot"),
+        # ESPHome's board lookup is case-sensitive; only ``bootloader:`` folds.
+        ({"nrf52": {"board": "XIAO_BLE"}}, "mcuboot"),
+        # A board the snapshot lists takes its first bootloader.
+        ({"nrf52": {"board": "xiao_ble"}}, "adafruit_nrf52_sd140_v7"),
+        ({"nrf52": {"board": "adafruit_itsybitsy_nrf52840"}}, "adafruit_nrf52_sd140_v6"),
+        # One it does not takes ESPHome's fallback.
+        ({"nrf52": {"board": "custom"}}, "mcuboot"),
+        ({"nrf52": {}}, "mcuboot"),
+        ({"nrf52": {"board": 7}}, "mcuboot"),
+    ],
+)
+def test_resolve_nrf52_bootloader_resolves(config: dict, expected: str) -> None:
+    assert resolve_nrf52_bootloader(config, "", "nrf52") == expected
+
+
+@pytest.mark.parametrize(
+    ("config", "platform"),
+    [
+        # Not nRF52.
+        ({"esp32": {"board": "esp32dev"}}, "esp32"),
+        # No ``nrf52:`` block to read.
+        ({"esphome": {"name": "x"}}, "nrf52"),
+        (None, "nrf52"),
+    ],
+)
+def test_resolve_nrf52_bootloader_none(config: Any, platform: str) -> None:
+    assert resolve_nrf52_bootloader(config, "", platform) is None
+
+
+def test_resolve_nrf52_bootloader_resolves_substitutions() -> None:
+    subs = {"the_board": "xiao_ble", "bl": "nrf"}
+    config = {"nrf52": {"board": "${the_board}"}}
+    assert resolve_nrf52_bootloader(config, "", "nrf52", subs) == "adafruit_nrf52_sd140_v7"
+    config = {"nrf52": {"board": "custom", "bootloader": "$bl"}}
+    assert resolve_nrf52_bootloader(config, "", "nrf52", subs) == "nrf"
+
+
+def test_resolve_nrf52_bootloader_reads_the_raw_text_without_a_resolved_config() -> None:
+    """A shallow scan has no resolved config; the raw text carries the same fields."""
+    raw = "nrf52:\n  board: nrf52840dongle\n  bootloader: nrf  # factory\n"
+    assert resolve_nrf52_bootloader(None, raw, "nrf52") == "nrf"
+    raw = "nrf52:\n  board: xiao_ble\n"
+    assert resolve_nrf52_bootloader(None, raw, "nrf52") == "adafruit_nrf52_sd140_v7"
+    # The text names another platform than the device's: nothing to read.
+    assert resolve_nrf52_bootloader(None, "esp32:\n  board: esp32dev\n", "nrf52") is None
+
+
+def test_load_device_from_storage_resolves_bootloader(tmp_path: Path) -> None:
+    dongle = tmp_path / "dongle.yaml"
+    dongle.write_text(
+        "esphome:\n  name: dongle\nnrf52:\n  board: nrf52840dongle\n  bootloader: nrf\n",
+        encoding="utf-8",
+    )
+    assert load_device_from_storage(dongle).bootloader == "nrf"
+    assert load_device_from_storage(dongle, shallow=True).bootloader == "nrf"
+    plug = tmp_path / "bw15.yaml"
+    plug.write_text("esphome:\n  name: bw15\nrtl87xx:\n  board: bw15\n", encoding="utf-8")
+    assert load_device_from_storage(plug).bootloader is None
 
 
 def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> None:
@@ -1363,7 +1481,7 @@ rp2:
 
 
 def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Path) -> None:
-    """The scan path reuses the merged config: ``load_device_yaml`` runs once, not twice."""
+    """The scan path reuses the merged config: the YAML loads once, not twice."""
     (tmp_path / "board.yaml").write_text("esp32:\n  board: esp32dev\n", encoding="utf-8")
     yaml_file = tmp_path / "ble.yaml"
     yaml_file.write_text(
@@ -1415,8 +1533,8 @@ def test_load_device_from_storage_shallow_matches_deep_for_inline_meta(tmp_path:
         "  use_address: 192.168.1.50\n",
         encoding="utf-8",
     )
-    shallow = load_device_from_storage(yaml_file, shallow=True)
     deep = load_device_from_storage(yaml_file)
+    shallow = load_device_from_storage(yaml_file, shallow=True, dependencies=deep.dependencies)
     assert shallow.name == deep.name == "kitchen"
     assert shallow.friendly_name == deep.friendly_name == "Kitchen Sensor"
     assert shallow.comment == deep.comment == "window sill"
@@ -2160,6 +2278,19 @@ def test_generate_yaml_no_wifi_board_emits_network_todo_comment() -> None:
     assert "network" in yaml
 
 
+def test_generate_yaml_nrf52_emits_mcumgr_ota_todo_comment() -> None:
+    """nRF52 gets the ``zephyr_mcumgr`` OTA hint, not the ESP32 network options."""
+    board = _make_board(platform=Platform.NRF52, pio_board="xiao_ble")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+    lines = yaml.splitlines()
+    assert "api:" not in lines
+    assert "ota:" not in lines
+    assert "#   - platform: zephyr_mcumgr" in lines
+    assert "openthread:" in yaml
+    assert "esp32_hosted" not in yaml
+    assert "no native Wi-Fi" not in yaml
+
+
 def test_generate_yaml_keeps_api_and_ota_for_wifi_board() -> None:
     """Wi-Fi board → ``api:`` and ``ota:`` blocks both still emitted.
 
@@ -2575,9 +2706,9 @@ def test_snapshot_degrades_to_a_bare_stat_when_open_fails(
         return real_open(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", _denied)
-    yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(path)
+    yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(path, LoadBatch(path.parent))
 
-    assert yaml_content == ""
+    assert yaml_content is None
     assert yaml_stat is not None
     assert yaml_stat.st_mtime_ns == expected_mtime_ns
 
@@ -3301,6 +3432,7 @@ def test_load_device_carries_runtime_state_from_previous(tmp_path: Path) -> None
         ip_addresses=["192.168.1.42"],
         deployed_version="2025.1.0",
         deployed_config_hash="deadbeef",
+        network="ethernet",
         queued_update=True,
         api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
         deployed_identity_live=True,
@@ -3409,8 +3541,8 @@ async def test_nested_list_field_presets_render_as_yaml_lists(
     """Nested-list field presets survive default resolution into parseable YAML.
 
     ``seeed-xiao-w5500-zwave-proxy`` is the first board presetting
-    list-of-mapping fields (``usb_host.devices``, ``usb_uart.channels``,
-    ``mdns.services``); pins that the generation path renders them intact.
+    list-of-mapping fields (``usb_uart.channels``, ``mdns.services``);
+    pins that the generation path renders them intact.
     """
     board = await session_component_catalog._db.boards.get_board(
         board_id="seeed-xiao-w5500-zwave-proxy"
@@ -3419,7 +3551,8 @@ async def test_nested_list_field_presets_render_as_yaml_lists(
     defaults = await session_component_catalog.resolve_default_components(board)
     out = generate_device_yaml("zw", "Zw", board, ssid="", psk="", defaults=defaults)
     config = yaml.safe_load(out)
-    assert config["usb_host"]["devices"] == [{"id": "device_0", "vid": "0x303A", "pid": "0x4001"}]
+    assert "usb_host" in config
+    assert not (config["usb_host"] or {}).get("devices")
     assert config["usb_uart"]["channels"] == [
         {"id": "uch_1", "baud_rate": 115200, "buffer_size": 4096}
     ]
@@ -3528,9 +3661,7 @@ def test_board_provides_network_for_package_boards() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_component(
-    entry_id: str, category: ComponentCategory = ComponentCategory.CORE
-) -> ComponentCatalogEntry:
+def _make_component(entry_id: str, category: str = ComponentCategory.CORE) -> ComponentCatalogEntry:
     """Minimal ``ComponentCatalogEntry`` for the network-default tests."""
     return ComponentCatalogEntry(id=entry_id, name=entry_id, description="", category=category)
 
@@ -3909,9 +4040,11 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "offline_seconds": None,
         "deployed_version": "",
         "deployed_config_hash": "",
+        "network": "",
         "queued_update": False,
         "api_encryption_active": None,
         "deployed_identity_live": False,
+        "ota_signed": False,
     }
 
 
@@ -3967,3 +4100,442 @@ def test_resolution_incomplete(tmp_path: Path, yaml_text: str, expected: bool) -
     (tmp_path / "api.yaml").write_text("encryption:\n  key: x\n", encoding="utf-8")
     config = device_yaml.load_device_yaml(tmp_path / "k.yaml")
     assert device_yaml.resolution_incomplete(config) is expected
+
+
+# ---------------------------------------------------------------------------
+# Dependencies: !include / packages / secrets
+# ---------------------------------------------------------------------------
+
+
+def _load_tracked(
+    yaml_file: Path, known: tuple[str, ...] | None = None
+) -> tuple[dict | None, tuple[str, ...] | None, bool]:
+    return load_device_yaml_tracked(
+        yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(yaml_file.parent), known
+    )
+
+
+def _write_include_fleet(config_dir: Path) -> Path:
+    """Device YAML pulling in a package, a deferred include and a secret."""
+    (config_dir / "packages").mkdir()
+    (config_dir / "packages" / "common.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n  encryption:\n    key: !secret api_key\n",
+        encoding="utf-8",
+    )
+    (config_dir / "packages" / "filters.yaml").write_text("- multiply: 2\n", encoding="utf-8")
+    (config_dir / "secrets.yaml").write_text("api_key: abc\nunrelated: zzz\n", encoding="utf-8")
+    yaml_file = config_dir / "kitchen.yaml"
+    yaml_file.write_text(
+        "packages:\n  common: !include packages/common.yaml\n"
+        "sensor:\n  - platform: template\n    name: x\n"
+        "    filters: !include packages/filters.yaml\n",
+        encoding="utf-8",
+    )
+    return yaml_file
+
+
+# esphome probes ``secrets.yaml`` beside the including file before falling
+# back to the config dir, so the package's (absent) sibling is tracked too.
+_FLEET_DEPENDENCIES = (
+    "packages/common.yaml",
+    "packages/filters.yaml",
+    "packages/secrets.yaml",
+    "secrets.yaml",
+)
+
+
+def test_load_device_yaml_tracked_reports_dependencies(tmp_path: Path) -> None:
+    """Packages, deferred includes and the secrets lookup chain all land in the list."""
+    config, dependencies, _complete = _load_tracked(_write_include_fleet(tmp_path))
+
+    assert config is not None
+    assert dependencies == _FLEET_DEPENDENCIES
+
+
+def test_load_device_yaml_tracked_resolves_a_templated_include_to_one_file(
+    tmp_path: Path,
+) -> None:
+    """A templated include records the file the substitution selects, not every candidate."""
+    (tmp_path / "sensors").mkdir()
+    (tmp_path / "sensors" / "dht.yaml").write_text("- platform: dht\n", encoding="utf-8")
+    (tmp_path / "sensors" / "bme.yaml").write_text("- platform: bme280\n", encoding="utf-8")
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text(
+        "substitutions:\n  kind: dht\nsensor: !include sensors/${kind}.yaml\n", encoding="utf-8"
+    )
+
+    _, dependencies, complete = _load_tracked(yaml_file)
+
+    assert dependencies == ("sensors/dht.yaml",)
+    assert complete
+
+
+def test_load_device_yaml_tracked_reports_no_list_on_a_first_parse_failure(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A broken file with no list known yet reports no list, and says so in the log."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text("esphome: [\n", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        assert _load_tracked(yaml_file) == (None, None, False)
+
+    assert any("Could not parse kitchen.yaml" in r.getMessage() for r in caplog.records)
+
+
+def test_normalize_dependencies_drops_self_and_data_dir_and_sorts(tmp_path: Path) -> None:
+    """Drop the device file and the package cache; relativise inside the dir, dedupe and sort."""
+    config_dir = tmp_path / "configs"
+    outside = tmp_path / "outside.yaml"
+
+    dependencies = normalize_dependencies(
+        config_dir / "kitchen.yaml",
+        [
+            config_dir / "kitchen.yaml",
+            config_dir / "b.yaml",
+            config_dir / "packages" / ".." / "packages" / "a.yaml",
+            Path(CORE.data_dir) / "packages" / "abcd1234" / "remote.yaml",
+            config_dir / ".." / "outside.yaml",
+            config_dir / "b.yaml",
+        ],
+        LoadBatch(tmp_path).data_dir_prefix(),
+    )
+
+    assert dependencies == tuple(
+        sorted((os.path.normcase(str(outside)), "b.yaml", "packages/a.yaml"))
+    )
+
+
+def test_read_dependency_sources_secrets_contribute_referenced_keys_only(tmp_path: Path) -> None:
+    """Only the ``!secret`` names in play digest; secrets never move ``newest_mtime``."""
+    yaml_file = _write_include_fleet(tmp_path)
+    far_future = time.time() + 10_000
+    os.utime(tmp_path / "secrets.yaml", (far_future, far_future))
+
+    sources = read_dependency_sources(
+        _FLEET_DEPENDENCIES, yaml_file.read_text(encoding="utf-8"), LoadBatch(tmp_path)
+    )
+
+    lines = dict(sources.lines)
+    assert lines["secrets.yaml"] == _digest_lines(['api_key: "abc"'])
+    assert lines["packages/secrets.yaml"] == ""
+    assert lines["packages/filters.yaml"] == _digest_lines(["- multiply: 2"])
+    assert sources.newest_mtime is not None
+    assert sources.newest_mtime < far_future
+
+
+def test_load_device_from_storage_unreadable_file_has_no_digest(tmp_path: Path) -> None:
+    """A device file that exists but cannot be read yields no digest, not a digest of nothing."""
+    (tmp_path / "kitchen.yaml").mkdir()
+
+    device = load_device_from_storage(tmp_path / "kitchen.yaml", shallow=True, dependencies=())
+
+    assert device.content_fingerprint == ""
+
+
+def test_load_device_yaml_tracked_keeps_the_known_list_when_an_include_fails(
+    tmp_path: Path,
+) -> None:
+    """A templated include that cannot resolve keeps the last known list's files watched."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text(
+        "substitutions:\n  kind: dht\nsensor: !include sensors/${kind}.yaml\n", encoding="utf-8"
+    )
+
+    _, dependencies, complete = load_device_yaml_tracked(
+        yaml_file, yaml_file.read_text(encoding="utf-8"), LoadBatch(tmp_path), ("sensors/dht.yaml",)
+    )
+
+    assert dependencies == ("sensors/dht.yaml",)
+    assert not complete
+
+
+def test_load_device_yaml_tracked_keeps_the_files_opened_when_an_include_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a list known, a failed deferred include pass keeps every file opened before it."""
+    yaml_file = _write_include_fleet(tmp_path)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.device_yaml._loading.do_substitution_pass",
+        mock.Mock(side_effect=EsphomeError("boom")),
+    )
+
+    config, dependencies, _complete = _load_tracked(yaml_file, ())
+
+    assert config is not None
+    assert dependencies == tuple(d for d in _FLEET_DEPENDENCIES if d != "packages/filters.yaml")
+
+
+def test_load_device_yaml_tracked_keeps_the_files_opened_when_a_package_merge_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed package merge yields the unmerged config, the opened files and the known list."""
+    yaml_file = _write_include_fleet(tmp_path)
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.device_yaml._loading.resolve_packages",
+        mock.Mock(side_effect=RuntimeError("boom")),
+    )
+
+    config, dependencies, _complete = _load_tracked(yaml_file, ("packages/nested.yaml",))
+
+    assert config is not None
+    assert dependencies == tuple(sorted((*_FLEET_DEPENDENCIES, "packages/nested.yaml")))
+
+
+def test_load_batch_stat_key_uses_the_read_or_a_fresh_stat(tmp_path: Path) -> None:
+    """A file read this batch keys on its read; an absent one on ``(0, 0)``; an unread on a stat."""
+    (tmp_path / "a.yaml").write_text("x: 1\n", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("y: 2\n", encoding="utf-8")
+    batch = LoadBatch(tmp_path)
+
+    read_dependency_sources(("a.yaml", "missing.yaml"), "", batch)
+
+    assert batch.stat_key("a.yaml") == safe_stat_key(tmp_path / "a.yaml")
+    assert batch.stat_key("missing.yaml") == (0, 0)
+    assert batch.stat_key("b.yaml") == safe_stat_key(tmp_path / "b.yaml")
+
+
+def test_read_dependency_sources_treats_a_prestatted_absent_secrets_file_as_absent(
+    tmp_path: Path,
+) -> None:
+    """A pre-statted absent secrets file (key ``(0, 0)``) reads nothing and digests empty."""
+    batch = LoadBatch(tmp_path)
+    assert batch.stat_key("packages/secrets.yaml") == (0, 0)
+
+    sources = read_dependency_sources(("packages/secrets.yaml",), "a: !secret x\n", batch)
+
+    assert sources.lines == [("packages/secrets.yaml", "")]
+    assert batch.sources["packages/secrets.yaml"] is None
+
+
+def test_read_dependency_sources_ignores_commented_and_quoted_secret_references(
+    tmp_path: Path,
+) -> None:
+    """A ``!secret`` in a comment or inside a quoted literal is not a live reference."""
+    (tmp_path / "secrets.yaml").write_text("live: a\nunused: b\nquoted: c\n", encoding="utf-8")
+    content = 'ssid: !secret live\n# password: !secret unused\nliteral: "!secret quoted"\n'
+
+    sources = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
+
+    assert dict(sources.lines)["secrets.yaml"] == _digest_lines(['live: "a"'])
+
+
+def test_read_dependency_sources_matches_quoted_and_flow_style_secret_references(
+    tmp_path: Path,
+) -> None:
+    """``!secret "name"``, ``{key: !secret name}`` and a quoted name with spaces all resolve."""
+    (tmp_path / "secrets.yaml").write_text(
+        '"quoted": 1\nflow: 2\nwifi password: 3\nunused: 4\n', encoding="utf-8"
+    )
+    content = "a: !secret \"quoted\"\nb: {x: !secret flow}\nc: !secret 'wifi password'\n"
+
+    sources = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
+
+    assert dict(sources.lines)["secrets.yaml"] == _digest_lines(
+        ["flow: 2", "quoted: 1", "wifi password: 3"]
+    )
+
+
+@pytest.mark.parametrize(
+    "secrets_text",
+    ["shared: &pw old\nwifi_password: *pw\n", "{wifi_password: old}\n"],
+    ids=["alias", "flow-mapping"],
+)
+def test_read_dependency_sources_digests_resolved_secret_values(
+    tmp_path: Path, secrets_text: str
+) -> None:
+    """An alias target or a flow-style secrets mapping digests the value esphome resolves."""
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text(secrets_text, encoding="utf-8")
+    content = "p: !secret wifi_password\n"
+
+    before = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
+    secrets.write_text(secrets_text.replace("old", "new"), encoding="utf-8")
+    bump_mtime(secrets)
+    after = read_dependency_sources(("secrets.yaml",), content, LoadBatch(tmp_path))
+
+    assert dict(before.lines)["secrets.yaml"] == _digest_lines(['wifi_password: "old"'])
+    assert dict(after.lines)["secrets.yaml"] == _digest_lines(['wifi_password: "new"'])
+
+
+@pytest.mark.parametrize(
+    ("secrets_text", "digests"),
+    [
+        pytest.param("- a\n- b\n", False, id="not-a-mapping"),
+        pytest.param("wifi_password: !lambda 'return 1;'\n", True, id="esphome-tag"),
+    ],
+)
+def test_read_dependency_sources_secrets_parse_edge_cases(
+    tmp_path: Path, secrets_text: str, digests: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-mapping secrets file warns and has no keys; an esphome tag uses esphome's loader."""
+    (tmp_path / "secrets.yaml").write_text(secrets_text, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        sources = read_dependency_sources(
+            ("secrets.yaml",), "p: !secret wifi_password\n", LoadBatch(tmp_path)
+        )
+
+    assert bool(dict(sources.lines)["secrets.yaml"]) is digests
+    assert any("is not a mapping" in r.getMessage() for r in caplog.records) is not digests
+
+
+def test_load_device_yaml_tracked_keeps_a_parent_directory_include_absolute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a relative config dir, an include outside it is tracked by its absolute path."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "filters.yaml").write_text("- multiply: 2\n", encoding="utf-8")
+    (tmp_path / "configs").mkdir()
+    yaml_file = Path("configs") / "kitchen.yaml"
+    yaml_file.write_text(
+        "sensor:\n  - platform: template\n    name: x\n"
+        "    filters: !include ../shared/filters.yaml\n",
+        encoding="utf-8",
+    )
+
+    _config, dependencies, _complete = _load_tracked(yaml_file)
+    sources = read_dependency_sources(
+        dependencies, yaml_file.read_text(encoding="utf-8"), LoadBatch(Path("configs"))
+    )
+
+    shared = os.path.normcase(os.path.abspath("shared/filters.yaml"))  # noqa: PTH100
+    assert dependencies == (shared,)
+    assert dict(sources.lines) == {shared: _digest_lines(["- multiply: 2"])}
+
+
+def test_unreadable_dependency_withholds_the_digest_and_warns_once_per_batch(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unreadable dependency keeps its stat key but yields no digest; the batch warns once."""
+    yaml_file = _write_include_fleet(tmp_path)
+    content = yaml_file.read_text(encoding="utf-8")
+    filters = tmp_path / "packages" / "filters.yaml"
+    filters.unlink()
+    filters.mkdir()
+    batch = LoadBatch(tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(2):
+            with pytest.raises(UnreadableDependencyError, match=r"packages/filters\.yaml"):
+                read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
+
+    assert (
+        sum("Could not read packages/filters.yaml" in r.getMessage() for r in caplog.records) == 1
+    )
+    assert batch.stat_key("packages/filters.yaml") == safe_stat_key(filters)
+    device = load_device_from_storage(yaml_file, shallow=True, dependencies=_FLEET_DEPENDENCIES)
+    assert device.dependencies == _FLEET_DEPENDENCIES
+    assert device.content_fingerprint == ""
+
+
+def test_read_dependency_sources_memo_reads_each_file_once(tmp_path: Path) -> None:
+    """A batch memo serves a second device's read of the same file without touching disk."""
+    content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")
+    batch = LoadBatch(tmp_path)
+
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat",
+        wraps=read_text_with_stat,
+    ) as read:
+        first = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
+        second = read_dependency_sources(_FLEET_DEPENDENCIES, content, batch)
+
+    assert read.call_count == len(_FLEET_DEPENDENCIES)
+    assert second == first
+
+
+def test_read_dependency_sources_serves_an_unchanged_secrets_file_from_the_cache(
+    tmp_path: Path,
+) -> None:
+    """A later batch stats an unchanged secrets file instead of reading it; an edit re-reads."""
+    content = _write_include_fleet(tmp_path).read_text(encoding="utf-8")
+    secrets = tmp_path / "secrets.yaml"
+    first = read_dependency_sources(_FLEET_DEPENDENCIES, content, LoadBatch(tmp_path))
+
+    with mock.patch(
+        "esphome_device_builder.helpers.device_yaml._dependencies.read_text_with_stat",
+        wraps=read_text_with_stat,
+    ) as read:
+        cached = read_dependency_sources(_FLEET_DEPENDENCIES, content, LoadBatch(tmp_path))
+        secrets.write_text("api_key: abcdef\nunrelated: zzz\n", encoding="utf-8")
+        edited = read_dependency_sources(_FLEET_DEPENDENCIES, content, LoadBatch(tmp_path))
+
+    assert cached == first
+    assert [c.args[0] for c in read.call_args_list].count(secrets) == 1
+    assert dict(edited.lines)["secrets.yaml"] == _digest_lines(['api_key: "abcdef"'])
+
+
+def test_load_device_from_storage_digest_agrees_between_shallow_and_deep(
+    tmp_path: Path,
+) -> None:
+    """A shallow load fed the persisted list digests exactly what the deep load discovers."""
+    yaml_file = _write_include_fleet(tmp_path)
+
+    deep = load_device_from_storage(yaml_file)
+    shallow = load_device_from_storage(yaml_file, shallow=True, dependencies=deep.dependencies)
+    unknown = load_device_from_storage(yaml_file, shallow=True)
+
+    assert deep.dependencies == _FLEET_DEPENDENCIES
+    assert deep.content_fingerprint.startswith(CONTENT_FINGERPRINT_VERSION)
+    assert shallow.content_fingerprint == deep.content_fingerprint
+    assert unknown.dependencies is None
+    assert unknown.content_fingerprint == ""
+
+
+def test_load_device_from_storage_keeps_known_dependencies_when_parse_fails(
+    tmp_path: Path,
+) -> None:
+    """A mid-edit syntax error keeps the last known list watched and withholds the digest."""
+    _write_include_fleet(tmp_path)
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text("esphome: [\n", encoding="utf-8")
+
+    device = load_device_from_storage(yaml_file, dependencies=("packages/common.yaml",))
+
+    assert device.dependencies == ("packages/common.yaml",)
+    assert device.content_fingerprint == ""
+
+
+def test_digest_moves_only_on_content_in_play(tmp_path: Path) -> None:
+    """Comments and unrelated secrets leave it alone; package and used-secret edits move it."""
+    yaml_file = _write_include_fleet(tmp_path)
+    filters = tmp_path / "packages" / "filters.yaml"
+    secrets = tmp_path / "secrets.yaml"
+    baseline = load_device_from_storage(yaml_file).content_fingerprint
+
+    filters.write_text("# a note\n- multiply: 2\n", encoding="utf-8")
+    assert load_device_from_storage(yaml_file).content_fingerprint == baseline
+
+    secrets.write_text("api_key: abc\nunrelated: yyy\n", encoding="utf-8")
+    bump_mtime(secrets)
+    assert load_device_from_storage(yaml_file).content_fingerprint == baseline
+
+    secrets.write_text("api_key: abz\nunrelated: yyy\n", encoding="utf-8")
+    bump_mtime(secrets)
+    rotated = load_device_from_storage(yaml_file).content_fingerprint
+    assert rotated != baseline
+
+    filters.write_text("- multiply: 3\n", encoding="utf-8")
+    assert load_device_from_storage(yaml_file).content_fingerprint not in (baseline, rotated)
+
+
+def test_load_device_from_storage_pending_changes_sees_a_newer_package(tmp_path: Path) -> None:
+    """Without hashes, a package edited after the last compile counts as pending."""
+    yaml_file = _write_include_fleet(tmp_path)
+    build_path = tmp_path / ".esphome" / "build" / "kitchen"
+    firmware = build_path / ".pioenvs" / "firmware.bin"
+    firmware.parent.mkdir(parents=True)
+    firmware.write_bytes(b"")
+    write_storage_json(tmp_path, "kitchen.yaml", firmware_bin_path=firmware, build_path=build_path)
+    package = tmp_path / "packages" / "common.yaml"
+    os.utime(yaml_file, (1000, 1000))
+    os.utime(firmware, (2000, 2000))
+    os.utime(tmp_path / "packages" / "filters.yaml", (1500, 1500))
+
+    os.utime(package, (1500, 1500))
+    assert load_device_from_storage(yaml_file).has_pending_changes is False
+
+    os.utime(package, (3000, 3000))
+    assert load_device_from_storage(yaml_file).has_pending_changes is True

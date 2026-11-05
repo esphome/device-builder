@@ -155,9 +155,11 @@ Home Assistant add-on.
 
 ## Workflow conventions
 
-- All GitHub Actions are SHA-pinned with the version as a trailing
-  comment (`uses: actions/checkout@<sha>  # v4`) so dependabot can bump
-  while preserving traceability. Org policy.
+- GitHub Actions are written with version tags (`uses: actions/checkout@v7.0.1`);
+  the commit SHAs live in `.github/workflows/actions.lock`, managed by
+  `gh actions-lock` and checked by the `verify-lockfile` workflow. After
+  adding or changing any `uses:`, run `gh actions-lock` and commit the
+  regenerated lockfile. Org policy.
 - Release flow lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ci--release-pipeline).
 - **CI runs the test matrix on Windows too.** PowerShell is the default
   shell on `windows-latest` and **does not accept bash-style `\` line
@@ -247,6 +249,21 @@ against legacy behaviour before assuming the simpler version suffices.
 - **WS-first API.** Real-time updates are the default — clients
   `subscribe_events` once and get pushes. REST is only kept for HA
   backward compat in `api/legacy.py`.
+- **Automation condition gates and `choose` branches are catalog-driven.**
+  The parser (`controllers/automations/_decompose.py`) reads every gate
+  spelling: `condition:` is the AND list, `all:` / `any:` become one
+  combinator `ConditionNode`, and a single catalogued condition id written
+  directly under a `has_condition_gate` action is the gate. The emitter
+  writes `condition:` unless the lone combinator's key is in the entry's
+  `condition_gate_keys` (bundle-derived; only `if` takes `all` / `any`).
+  A `has_branches` action (`choose`) carries `ActionNode.branches`
+  (`{conditions, actions}` per choice) with its `else` list in
+  `children`; the sync derives the flag from a list-bodied action whose
+  item schema pairs an `if` condition with a `then` action list, never
+  from the id. A bare string action item (`- script.stop`) is that action
+  with an empty body. A script item's `on_*` keys (`on_stop`) are not its
+  `trigger_params`: they are `component_on` automations of the script
+  instance, and `_upsert_script` carries the existing ones over verbatim.
 - **Stateful lists ship through subscribe_events, not a `list_*` WS
   command.** Any per-session list whose contents mutate over a connected
   client's lifetime (devices, importable devices, offloader pairings,
@@ -391,17 +408,40 @@ against legacy behaviour before assuming the simpler version suffices.
 - **esphome key renames are data-driven where expressible, bespoke
   otherwise — guarded by the sync either way.** The sync classifies
   every discovered `cv.rename_key`: a *direct* pair (the validator sits
-  on a component or platform schema's own mapping) is emitted to the
+  on a component or platform schema's own mapping; a `typed_schema`
+  variant counts as the mapping itself) is emitted to the
   generated `definitions/migration_rules.index.json`, which
   `editor/migrate_config` (`helpers/migrations.py`) folds as
   data-driven rules — a plain upstream rename ships with zero
-  hand-written code. Data-driven pairs get the migration leg *only*:
+  hand-written code. A pair on the items of a platform item's depth-1
+  list (`combination`'s `sources[].coeffecient`→`coefficient`,
+  esphome/esphome#20159) ships the same way as a
+  `platform_item_list_field` rule carrying the `list_key`; the walk
+  reduces each validator's placements to `()`, `(key, "[]")` or
+  inexpressible, and the engine respells the list's items and its
+  singleton-mapping form alike (`ensure_list` takes one mapping); a
+  pair reachable along two placements stays inexpressible, and so does
+  one whose legacy key a sibling `typed_schema` variant or `cv.Any`
+  alternative still declares anywhere the engine rewrites (the list
+  items or the list's singleton mapping form), or may accept because
+  a placement at or above that scope owns every key: a mapping that
+  keeps or drops undeclared keys (`ALLOW_EXTRA`, `REMOVE_EXTRA`) or
+  has a validator key, or one the walk reached without
+  ever enumerating its keys (an opaque value, an empty wrapper); so
+  does a legacy key renamed to a different target
+  anywhere in that rewrite scope, even by a pair that is itself
+  inexpressible (no rule carries the `type:` discriminator, so it
+  would respell a valid config). A legacy key declared on the mapping
+  the rename sits on (api's `cv.Exclusive(services)`) is fine, and so
+  is one a variant or alternative beneath the rename's own chain
+  declares, since the rename applies to all of them. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
   respell (those remain bespoke-only). The block rule handles both the
   mapping and the list form of a component block, so `multi_conf`
   pairs ship data-driven too; platform-domain blocks (`- platform:`
-  lists) stay canary-guarded. Anything else (wrapper-nested pairs like api's
+  lists) and a component block's own list-item fields stay
+  canary-guarded. Anything else (wrapper-nested pairs like api's
   item discriminator, registry-node renames needing the id alias) needs
   bespoke handling: hard-coded read support, a canonical respell on any
   write touching the legacy-spelled block (per the pass-through
@@ -432,8 +472,14 @@ against legacy behaviour before assuming the simpler version suffices.
   validators on platform schemas and emits `platform_channel_colors`
   rules, so the fold stays dormant until the catalog syncs against a
   `channel_colors`-aware esphome and new adopting platforms join
-  without a code change; a fold validator outside a platform schema
-  fails the sync. **Every rule is version-gated.** One catalog serves
+  without a code change; a fold validator outside a platform schema,
+  or inside one `typed_schema` variant (the fold has no sibling-variant
+  guard), fails the sync. A rename wrapper whose named closure variable
+  moved upstream degrades to a generic closure scan, so the pairs under
+  it reach the canary as inexpressible instead of vanishing, and one
+  whose closure can't be read at all fails the sync in both walks: a
+  sentinel pair like an unreadable `rename_key`, and a nested fold; a
+  schema nested past the rename walk's depth cap fails it the same way. **Every rule is version-gated.** One catalog serves
   every installed esphome, so a rule carries `since` (the first esphome
   the sync saw it against — stamped on first sight and carried over
   from the committed artifact on every re-sync, never re-derived) and
@@ -674,15 +720,29 @@ against legacy behaviour before assuming the simpler version suffices.
     cache still returns literal loopback verbatim, keeping SSH-tunnel
     OTA workflows working. Out-of-band edits (git pull, external
     editor) that change the config text schedule a StorageJSON
-    regen via the `content_fingerprint` digest — compared against the
+    regen via the `content_fingerprint` digest, compared against the
     metadata store, so edits made while the dashboard was down are
-    caught on the cold-start ADDED (API-path writes already regen on
-    every save; RELOADED only re-seeds the stored value). The digest
-    is version-prefixed; a stored value from an older algorithm
-    re-seeds silently instead of regenerating, so an upgrade can't
-    spawn fleet-wide regens (#2612). An edit to a
-    referenced package or `!include`d *file* stays uncovered — it
-    changes no device YAML, so no scan event fires.
+    caught on the cold-start ADDED (a reload whose digest moved regens
+    too; a schedule while one is pending is dropped, so an API write's
+    own regen is not doubled). The digest
+    covers the device file and every file it pulls in (`!include`,
+    `packages:`, the `!secret` lookup chain): the deep load records
+    them through esphome's YAML load-listener hook
+    (`helpers/device_yaml/_dependencies.py`, thread filtered because
+    the hook is process-global), persists the sorted list as
+    `dependencies` in the metadata store, and folds their stat keys
+    into the scanner's change key, so a package edit surfaces as
+    `UPDATED` on every dependent and regens only when the digest
+    moved. A secrets file contributes only the referenced keys'
+    resolved values. The regen failure stamp and the `old_key`
+    handoff vouch carry the same digest. The digest is empty while
+    the list is unknown, so a shallow load digests the persisted list
+    and the cold start loads a device without one deep. It is
+    version-prefixed; a version bump regens every device once on its
+    next scan. Two edits stay uncovered: adding a file to an
+    `!include_dir_*` directory (the loader reports files, not
+    directories) and rotating a `!secret` referenced only from inside
+    a git package (files under the data dir are not tracked).
   - **`_http._tcp` identity fallback** (`MdnsSource._on_http_service_state_change`,
     for a configured device without `api:`). Such a device never publishes
     `_esphomelib._tcp` (behind `USE_API`); its broadcast is the `_http._tcp`

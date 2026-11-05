@@ -96,8 +96,8 @@ def test_split_artefacts_match_manifests() -> None:
     Scoped to the manifest-derived backbone. Two platform sets matter:
     ``generated`` platforms add disk-only boards from esphome's tables (allowed
     to appear without a manifest); ``esphome_filled`` is the subset whose
-    *manifested* pins come from esphome (LibreTiny ships ``pins: []`` and gets
-    filled), which are version-dependent (CI runs beta/dev) so they're excluded
+    *manifested* pins come from esphome (LibreTiny and nRF52 ship ``pins: []``
+    and get filled), which are version-dependent (CI runs beta/dev) so they're excluded
     from the pin compare. RP2040 manifests keep their hand-curated pins, so those
     stay checked; only its disk-only generated boards are exempt. esp8266 is a
     mix: curated manifests stay checked, empty product manifests get filled.
@@ -129,7 +129,7 @@ def test_split_artefacts_match_manifests() -> None:
         "esp32",
         "esp8266",
     }
-    esphome_filled = set(_LIBRETINY_FAMILIES)
+    esphome_filled = set(_LIBRETINY_FAMILIES) | {_NRF52_PLATFORM}
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}
 

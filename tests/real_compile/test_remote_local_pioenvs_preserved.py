@@ -1,7 +1,8 @@
-"""Real-compile pin: a remote-build round-trip must not invalidate SCons's per-object cache."""
+"""Real-compile pin: a remote-build round-trip must not invalidate the per-object cache."""
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -22,7 +23,16 @@ esphome:
   name: kitchen
 esp8266:
   board: esp01_1m
+  toolchain: {toolchain}
 """
+
+# One compile line per object: SCons prints ``Compiling <path>.o`` (PlatformIO;
+# esphome's own "Compiling with ccache" notes must not count), ninja prints
+# ``[n/m] CXX ...`` (native Arduino).
+_COMPILE_LINE = {
+    "platformio": re.compile(r"Compiling \S+\.o\b"),
+    "arduino": re.compile(r"^\[\d+/\d+\] (CC|CXX|AS) "),
+}
 
 # Conservative floor against the "no .o files at all" failure mode
 # (locally observed: 106 .o on a minimal esp01_1m). If esphome ever
@@ -47,23 +57,28 @@ def _snapshot_object_ns_mtimes(pioenvs: Path) -> dict[Path, int]:
     return {p.relative_to(pioenvs): p.stat().st_mtime_ns for p in pioenvs.rglob("*.o")}
 
 
-def _compiling_lines(stdout: str) -> list[str]:
-    r"""Return SCons ``Compiling ...`` log lines from *stdout*.
+def _compiling_lines(stdout: str, toolchain: str) -> list[str]:
+    r"""Return the per-object compile log lines from *stdout*.
 
     PlatformIO emits an ANSI reset (``\x1b[0m``) at the start of
-    each line on Linux even off a TTY, so ``startswith`` misses
-    them — match the substring instead.
+    each line on Linux even off a TTY, so its pattern is searched,
+    not anchored.
     """
-    return [line for line in stdout.splitlines() if "Compiling " in line]
+    pattern = _COMPILE_LINE[toolchain]
+    return [line for line in stdout.splitlines() if pattern.search(line)]
 
 
 @pytest.mark.timeout(600)
-def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache(tmp_path: Path) -> None:
+@pytest.mark.parametrize("toolchain", ["platformio", "arduino"])
+def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache(
+    tmp_path: Path, toolchain: str
+) -> None:
     """A pack → materialise round-trip leaves the offloader's per-object cache valid."""
+    yaml_text = _MINIMAL_YAML.format(toolchain=toolchain)
     receiver_dir = tmp_path / "receiver"
     receiver_dir.mkdir()
     receiver_yaml = receiver_dir / "kitchen.yaml"
-    receiver_yaml.write_text(_MINIMAL_YAML)
+    receiver_yaml.write_text(yaml_text)
 
     first = _run_esphome_compile(receiver_yaml)
     assert first.returncode == 0, (
@@ -82,7 +97,7 @@ def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache(tmp_path: Pat
         f"(expected >= {_MIN_EXPECTED_OBJECT_FILES}); compile likely bailed early.\n"
         f"Last 2000 chars of stdout:\n{first.stdout[-2000:]}"
     )
-    first_compiling = _compiling_lines(first.stdout)
+    first_compiling = _compiling_lines(first.stdout, toolchain)
     assert len(first_compiling) >= _MIN_EXPECTED_OBJECT_FILES, (
         f"receiver compile only printed {len(first_compiling)} 'Compiling ...' "
         f"lines (expected >= {_MIN_EXPECTED_OBJECT_FILES}).\n"
@@ -96,7 +111,7 @@ def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache(tmp_path: Pat
     offloader_dir = tmp_path / "offloader"
     offloader_dir.mkdir()
     offloader_yaml = offloader_dir / "kitchen.yaml"
-    offloader_yaml.write_text(_MINIMAL_YAML)
+    offloader_yaml.write_text(yaml_text)
 
     cold_local = _run_esphome_compile(offloader_yaml)
     assert cold_local.returncode == 0, (
@@ -119,14 +134,14 @@ def test_remote_local_round_trip_does_not_invalidate_pioenvs_cache(tmp_path: Pat
         f"stderr:\n{warm_local.stderr[-4000:]}"
     )
 
-    recompiled = _compiling_lines(warm_local.stdout)
+    recompiled = _compiling_lines(warm_local.stdout, toolchain)
     assert recompiled == [], (
         f"warm compile recompiled {len(recompiled)} object(s). "
         f"First few:\n  " + "\n  ".join(recompiled[:5])
     )
 
     # mtime cross-check catches a partial rebuild the log scrape would miss
-    # (e.g. PIO changes its log format).
+    # (e.g. a build tool changes its log format).
     second_objects_ns = _snapshot_object_ns_mtimes(offloader_pioenvs)
     missing = sorted(set(first_objects_ns) - set(second_objects_ns))
     assert not missing, f"warm compile dropped {len(missing)} object(s): {missing[:5]}"

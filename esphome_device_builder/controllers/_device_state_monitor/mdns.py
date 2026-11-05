@@ -591,9 +591,10 @@ class MdnsSource:
         self._apply_txt_properties(device_name, info.decoded_properties)
 
     def _apply_txt_properties(self, device_name: str, props: Mapping[str, str | None]) -> None:
-        """Apply version / config_hash / mac / api_encryption from decoded TXT properties."""
+        """Apply identity, network, and api_encryption keys from decoded TXT properties."""
         monitor = self._monitor
         self._apply_identity_txt(device_name, props)
+        self._apply_network_txt(device_name, props)
         # api_encryption tri-state semantics on this announce:
         #
         # * Key present with truthy value: encryption confirmed
@@ -615,6 +616,8 @@ class MdnsSource:
             monitor.apply_api_encryption(device_name, value if isinstance(value, str) else "")
         elif props:
             monitor.apply_api_encryption(device_name, "")
+        if props:
+            monitor._apply_ota_signed(device_name, signed=props.get("ota_signed") == "1")
 
     def _apply_identity_txt(self, device_name: str, props: Mapping[str, str | None]) -> None:
         """Apply the version / config_hash / mac identity TXT keys, tolerating absence."""
@@ -622,6 +625,12 @@ class MdnsSource:
         for key, apply in _IDENTITY_TXT_APPLIERS:
             if value := props.get(key):
                 apply(monitor, device_name, value)
+
+    def _apply_network_txt(self, device_name: str, props: Mapping[str, str | None]) -> None:
+        """Apply the ``network`` TXT key; absent or empty never blanks a known value."""
+        # Kept out of _IDENTITY_TXT_APPLIERS so it never stamps deployed_identity_live.
+        if network := props.get("network"):
+            self._monitor._apply_network(device_name, network)
 
     def _on_http_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -676,6 +685,7 @@ class MdnsSource:
     def _apply_http_identity_props(self, device_name: str, props: Mapping[str, str | None]) -> None:
         """Apply ``_http._tcp`` identity keys and stamp freshness when any are present."""
         self._apply_identity_txt(device_name, props)
+        self._apply_network_txt(device_name, props)
         if _has_identity_keys(props):
             self._monitor.apply_deployed_identity_live(device_name, live=True)
 

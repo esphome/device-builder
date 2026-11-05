@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ...helpers.device_yaml import content_fingerprint_is_current
 from ...models import Device, DeviceEventData, EventType
 from .._device_scanner import ScanChange
 
@@ -201,21 +200,26 @@ def _nudge_mqtt(
 def _sync_content_fingerprint(
     controller: DevicesController, kind: ScanChange, device: Device
 ) -> None:
-    """Seed the stored fingerprint; regen when an out-of-band edit moved it."""
+    """Seed the stored dependency list and digest; regen when an out-of-band edit moved it."""
+    store = controller._metadata_store
+    if device.dependencies is not None:
+        dependencies = list(device.dependencies)
+        if store.get_field(device.configuration, "dependencies") != dependencies:
+            store.set_field(device.configuration, "dependencies", dependencies)
     if not device.content_fingerprint:
-        # Empty means the YAML was unreadable (or empty) this sweep: no
-        # information, so neither compare nor overwrite the stored digest.
+        # Empty means the YAML was unreadable (or the dependency list unknown) this
+        # sweep: no information, so neither compare nor overwrite the stored digest.
         return
-    stored = controller._metadata_store.get(device.configuration).get("content_fingerprint")
+    stored = store.get(device.configuration).get("content_fingerprint")
     if stored == device.content_fingerprint:
         return
     # An out-of-band edit (git pull, external editor — live as UPDATED,
     # or across a restart as ADDED) regens so ``StorageJSON.address``
-    # (#2486) and ``expected_config_hash`` track the YAML. RELOADED (our
-    # own write), first sight, and a stale-algorithm digest only re-seed
-    # (#2612).
-    if content_fingerprint_is_current(stored) and kind is not ScanChange.RELOADED:
+    # (#2486) and ``expected_config_hash`` track the YAML. A RELOADED
+    # whose digest moved (an edit landing before a metadata-only reload)
+    # regens too; a schedule while one is pending is dropped, so an API
+    # write's own regen is not doubled. First sight only re-seeds, and a
+    # digest from an older algorithm regens once.
+    if stored is not None:
         controller._schedule_storage_regenerate(device.configuration)
-    controller._metadata_store.set_field(
-        device.configuration, "content_fingerprint", device.content_fingerprint
-    )
+    store.set_field(device.configuration, "content_fingerprint", device.content_fingerprint)

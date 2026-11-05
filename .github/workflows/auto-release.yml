@@ -22,13 +22,13 @@ jobs:
       should-release: ${{ steps.commits.outputs.go }}
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
       - name: Resolve next prerelease version
         id: resolve
-        uses: ./.github/actions/resolve-release-versions
+        uses: $/.github/actions/resolve-release-versions
 
       - name: Count commits since last release
         id: commits
@@ -71,7 +71,7 @@ jobs:
       # The default GITHUB_TOKEN can't trigger workflows, so use the app.
       - name: Mint GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        uses: actions/create-github-app-token@v3.3.0
         with:
           client-id: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.ESPHOME_GITHUB_APP_PRIVATE_KEY }}

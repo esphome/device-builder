@@ -126,6 +126,23 @@ async def test_delete_wipes_idedata_when_no_build_path(
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
+async def test_delete_wipes_every_toolchain_idedata_cache(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A device that switched toolchains loses both its PlatformIO and Arduino caches."""
+    controller = make_controller(tmp_path)
+    _seed_device(tmp_path, "kitchen.yaml")
+    idedata, _, _ = _cache_paths(tmp_path, "kitchen.yaml")
+    arduino_idedata = idedata.with_name("kitchen.arduino.json")
+    arduino_idedata.write_text("{}", encoding="utf-8")
+
+    await controller._delete_single("kitchen.yaml")
+
+    assert not idedata.exists()
+    assert not arduino_idedata.exists()
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_delete_tolerates_idedata_unlink_failure(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

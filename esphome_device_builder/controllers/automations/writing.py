@@ -17,8 +17,10 @@ value re-emits its tag (see :func:`emitter.encode_value`).
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from ...helpers.api import CommandError
+from ...helpers.automation_keys import is_trigger_key
 from ...helpers.yaml import (
     SubEntityRef,
     YamlUpsertNotSupportedError,
@@ -156,9 +158,28 @@ def _upsert_script(
     tree: AutomationTree,
     location: ScriptLocation,
 ) -> tuple[str, YamlDiff]:
-    """Splice or replace a top-level ``script:`` list item."""
-    rendered = render_script_item(tree, location.id)
+    """Splice or replace a top-level ``script:`` list item, keeping its ``on_*`` handlers."""
+    rendered = render_script_item(tree, location.id, *_script_item_handlers(yaml_text, location.id))
     return _upsert_top_level_list(yaml_text, "script", rendered, location.id)
+
+
+def _script_item_handlers(yaml_text: str, script_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the script item's ``on_*`` entries as ``(before then, after then)``."""
+    data = make_yaml().load(yaml_text) or {}
+    block = data.get("script") if isinstance(data, dict) else None
+    items = block if isinstance(block, list) else [block] if isinstance(block, dict) else []
+    idx = _item_index_in({"script": items}, "script", script_id)
+    if idx is None:
+        return {}, {}
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    target = before
+    for key, value in items[idx].items():
+        if key == "then":
+            target = after
+        elif is_trigger_key(str(key)):
+            target[str(key)] = value
+    return before, after
 
 
 def _upsert_interval(
@@ -488,7 +509,11 @@ def _upsert_top_level_list(
 
 def _top_level_item_index(yaml_text: str, domain: str, item_id: str) -> int | None:
     """Index of the ``<domain>:`` item declaring *item_id*, else the id-less one listed as it."""
-    data = make_yaml().load(yaml_text) or {}
+    return _item_index_in(make_yaml().load(yaml_text) or {}, domain, item_id)
+
+
+def _item_index_in(data: Any, domain: str, item_id: str) -> int | None:
+    """:func:`_top_level_item_index` over an already-loaded document."""
     items = data.get(domain) if isinstance(data, dict) else None
     if not isinstance(items, list):
         return None

@@ -8,7 +8,9 @@ and discovered devices are pushed into the supplied callbacks.
 
 paho-mqtt is an optional runtime dependency — it ships with the
 ``[esphome]`` extra. When it isn't importable the monitor logs once and
-disables itself; mDNS / ping discovery keeps working.
+disables itself; mDNS / ping discovery keeps working. Both paho 1.x and
+2.x are supported: the client is built with callback API v2 when the
+installed paho offers it.
 """
 
 from __future__ import annotations
@@ -68,7 +70,7 @@ class PublishInfo(Protocol):
 class SubscribeClient(Protocol):
     """The slice of paho's ``Client`` the CONNACK callback drives."""
 
-    def subscribe(self, topic: str) -> tuple[int, int]: ...
+    def subscribe(self, topic: str) -> tuple[int, int | None]: ...
 
 
 class PublishClient(Protocol):
@@ -195,16 +197,17 @@ class DeviceMqttMonitor:
         self._task: asyncio.Task[None] | None = None
         # device name → monotonic timestamp of the last MQTT response
         self._last_seen: dict[str, float] = {}
-        # Set by ``_connect_and_listen`` the moment CONNACK succeeds.
-        # Read+cleared in ``_log_reconnect_failure`` so the loud-log
-        # gates below re-arm only when we actually managed to connect
-        # this session — not when ``_connect_and_listen`` returns
-        # cleanly (which production rarely does, since the inner
-        # TaskGroup parks until cancelled or raises). Bug #324.
-        self._connected_this_session = False
+        # Set by ``_connect_and_listen`` once the broker grants the
+        # discovery subscription. Read+cleared in
+        # ``_log_reconnect_failure`` so the loud-log gates below re-arm
+        # only when this session reached working discovery — not on a
+        # bare CONNACK, and not on a clean ``_connect_and_listen``
+        # return (production rarely sees one, since the inner TaskGroup
+        # parks until cancelled or raises). Bug #324.
+        self._subscribed_this_session = False
         # Per-category log gates. Each flips True after a loud log
         # and back to False on the next failure that observed a
-        # successful CONNACK. Tracked separately so a TimeoutError
+        # granted SUBACK. Tracked separately so a TimeoutError
         # loop doesn't suppress the first appearance of a different
         # unexpected exception class.
         self._connect_error_logged = False
@@ -284,15 +287,15 @@ class DeviceMqttMonitor:
         ``expected`` (TimeoutError / OSError / ConnectionError) and
         unexpected exceptions track separate gates so a TimeoutError
         loop doesn't suppress the first appearance of a different
-        exception class. A successful CONNACK during the failed
+        exception class. A granted SUBACK during the failed
         iteration re-arms both gates so the next outage logs loudly
-        again — tracked via ``self._connected_this_session``.
+        again — tracked via ``self._subscribed_this_session``.
         """
         delay = int(_RECONNECT_DELAY)
-        if self._connected_this_session:
+        if self._subscribed_this_session:
             self._connect_error_logged = False
             self._unexpected_error_logged = False
-            self._connected_this_session = False
+            self._subscribed_this_session = False
 
         if expected:
             # A failed TLS handshake (wrong CA for this broker, CN
@@ -343,14 +346,21 @@ class DeviceMqttMonitor:
         assert paho_mqtt is not None  # type narrowing — checked in start()
         loop = asyncio.get_running_loop()
 
+        # paho 2's callback API v2 appends ``properties`` to on_connect
+        # and on_subscribe; the ``*_`` keeps one callback per event
+        # valid for both majors.
         def on_connect(
-            connected_client: SubscribeClient, _userdata: object, _flags: object, rc: int
+            connected_client: SubscribeClient,
+            _userdata: object,
+            _flags: object,
+            rc: object,
+            *_: object,
         ) -> None:
             # Runs on paho's thread, which swallows callback raises —
             # every path must record its error and reach the set in the
             # finally, or the awaiting side times out with no cause.
             try:
-                if rc != 0:
+                if _code_value(rc) != 0:
                     signals.errors.append(f"broker rejected connection (rc={rc})")
                     return
                 # Subscribe from paho's own thread: its auto-reconnect
@@ -366,12 +376,12 @@ class DeviceMqttMonitor:
                 loop.call_soon_threadsafe(signals.record_verdict)
 
         def on_subscribe(
-            _client: Any, _userdata: object, _mid: int, granted_qos: tuple[int, ...]
+            _client: Any, _userdata: object, _mid: int, granted_qos: Any, *_: object
         ) -> None:
             # A broker ACL denies the subscription via SUBACK 0x80 —
             # ``subscribe()``'s rc cannot see it, and without this the
             # monitor sits connected with discovery permanently dark.
-            if any(qos == 0x80 for qos in granted_qos):
+            if any(_code_value(qos) >= 0x80 for qos in granted_qos):
                 signals.errors.append(f"subscription denied (granted qos={list(granted_qos)})")
                 loop.call_soon_threadsafe(signals.record_verdict)
             else:
@@ -380,7 +390,13 @@ class DeviceMqttMonitor:
         def on_message(_client: Any, _userdata: Any, msg: Any) -> None:
             loop.call_soon_threadsafe(signals.messages.put_nowait, msg)
 
-        client = paho_mqtt.Client(client_id=client_id, clean_session=True)
+        # Read per session, not at import: tests swap the module in.
+        api_version = getattr(paho_mqtt, "CallbackAPIVersion", None)
+        client: Any = (
+            paho_mqtt.Client(api_version.VERSION2, client_id=client_id, clean_session=True)
+            if api_version is not None
+            else paho_mqtt.Client(client_id=client_id, clean_session=True)
+        )
         client.on_connect = on_connect
         client.on_subscribe = on_subscribe
         client.on_message = on_message
@@ -406,14 +422,6 @@ class DeviceMqttMonitor:
                 raise ConnectionError(signals.errors[0])
 
             _LOGGER.info("MQTT connected to %s:%s", self._broker.host, self._broker.port)
-            # Signal to ``_run`` that this iteration achieved a real
-            # connection — read+cleared in its except branches to
-            # re-arm the loud-log gates. Set here rather than relying
-            # on a clean ``_connect_and_listen`` return because the
-            # inner TaskGroup parks until cancelled or raises, so the
-            # ``else`` branch on the caller's ``try`` rarely runs in
-            # production.
-            self._connected_this_session = True
             self._set_connected(value=True)
 
             async def raise_when_session_failed() -> None:
@@ -434,6 +442,9 @@ class DeviceMqttMonitor:
                     except TimeoutError:
                         msg = "no SUBACK for the discovery subscription"
                         raise ConnectionError(msg) from None
+                    # Re-arms ``_run``'s loud-log gates: only a granted
+                    # SUBACK proves the session reached working discovery.
+                    self._subscribed_this_session = True
 
             try:
                 async with asyncio.TaskGroup() as tg:
@@ -557,8 +568,8 @@ class DeviceMqttMonitor:
             return
         client.tls_set_context(_build_tls_context(self._broker))
         if self._broker.skip_cert_cn_check:
-            # Never flip ``check_hostname`` directly: paho 1.6.1 then
-            # calls ``ssl.match_hostname``, removed in Python 3.12.
+            # Never flip ``check_hostname`` directly: both paho majors
+            # then call ``ssl.match_hostname``, removed in Python 3.12.
             # ``tls_insecure_set`` is the supported switch and keeps
             # chain verification on.
             client.tls_insecure_set(True)  # noqa: FBT003 — paho's positional signature
@@ -645,6 +656,12 @@ def _build_tls_context(broker: MqttBrokerConfig) -> ssl.SSLContext:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.load_verify_locations(cadata=broker.certificate_authority)
     return context
+
+
+def _code_value(code: Any) -> int:
+    """Numeric value of a paho 1 int result or a paho 2 ``ReasonCode``."""
+    value: Any = getattr(code, "value", code)
+    return int(value)
 
 
 def _unwrap_session_error(eg: BaseExceptionGroup) -> BaseException:

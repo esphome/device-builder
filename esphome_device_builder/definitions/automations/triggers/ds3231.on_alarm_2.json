@@ -1,0 +1,1 @@
+{"id":"ds3231.on_alarm_2","name":"Ds3231 → On Alarm 2","description":"Actions to run when alarm 2 fires.","docs_url":"https://esphome.io/components/ds3231/#configuration-variables","applies_to":["ds3231"],"is_device_level":false,"supports_list":false,"config_entries":[]}

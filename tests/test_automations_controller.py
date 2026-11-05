@@ -199,9 +199,11 @@ async def test_get_bodies_endpoint_returns_full_bodies() -> None:
             {"type": "actions", "id": "delay"},
         ]
     )
-    assert "triggers/on_boot" in result
-    assert "actions/delay" in result
-    assert result["actions/delay"]["value_type"] == "time_period"
+    assert result["remaining"] == []
+    bodies = result["bodies"]
+    assert "triggers/on_boot" in bodies
+    assert "actions/delay" in bodies
+    assert bodies["actions/delay"]["value_type"] == "time_period"
 
 
 async def test_get_filters_returns_full_catalog() -> None:

@@ -36,6 +36,11 @@ def test_reference_namespace_maps_qualified_class() -> None:
     assert _reference_namespace("voltage_sampler::VoltageSampler") == "voltage_sampler"
 
 
+def test_reference_namespace_ignores_esphome_prefix() -> None:
+    """A class qualified from the ``esphome::`` root maps to its component namespace."""
+    assert _reference_namespace("esphome::espectre::ESPectreComponent") == "espectre"
+
+
 def test_reference_namespace_applies_cpp_naming_override() -> None:
     """The ``switch_`` C++ namespace maps to the ``switch`` catalog domain."""
     assert _reference_namespace("switch_::Switch") == "switch"

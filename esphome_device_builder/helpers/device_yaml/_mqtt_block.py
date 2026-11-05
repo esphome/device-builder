@@ -3,43 +3,22 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from typing import Any
 
-import yaml
-
 from ...models.devices import DeviceMqttExtract
-from ..yaml import FastestSafeLoader
 from ._parsing import _extract_resolved_substitutions
-
-
-@dataclass(frozen=True, slots=True)
-class SecretRef:
-    """Marker for an unresolved ``!secret <name>`` reference.
-
-    Value equality matters: identity eq would defeat the reload event
-    suppression and the mqtt nudge gate for ``!secret`` blocks.
-    """
-
-    name: str
+from ._tolerant_yaml import load_yaml_tolerant
 
 
 def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[str, str]]:
     """
     Tolerant-parse *yaml_content*; return its ``mqtt:`` dict and substitutions.
 
-    ``!secret`` values stay as :class:`SecretRef` markers; other custom
+    ``!secret`` values stay as ``SecretRef`` markers; other custom
     tags load as ``None``. Returns ``(None, {})`` when the YAML fails to
     parse or has no ``mqtt:`` mapping.
     """
-    try:
-        # _TolerantYamlLoader subclasses FastestSafeLoader (libyaml's
-        # CSafeLoader when available, the pure-Python SafeLoader
-        # otherwise — both are safe). The custom !secret constructor
-        # only emits a marker class, never instantiates arbitrary types.
-        data = yaml.load(yaml_content, Loader=_TolerantYamlLoader)  # noqa: S506
-    except yaml.YAMLError:
-        return None, {}
+    data = load_yaml_tolerant(yaml_content)
     if not isinstance(data, dict):
         return None, {}
     mqtt = data.get("mqtt")
@@ -73,19 +52,3 @@ def build_mqtt_extract(
         resolved_substitutions=resolved_substitutions,
         from_shallow_load=shallow,
     )
-
-
-class _TolerantYamlLoader(FastestSafeLoader):
-    """SafeLoader that captures ``!secret`` and ignores other custom tags."""
-
-
-def _construct_secret(loader: yaml.Loader, node: yaml.ScalarNode) -> SecretRef:
-    return SecretRef(loader.construct_scalar(node))
-
-
-def _ignore_unknown_tag(_loader: yaml.Loader, _tag_suffix: str, _node: yaml.Node) -> None:
-    return None
-
-
-_TolerantYamlLoader.add_constructor("!secret", _construct_secret)
-_TolerantYamlLoader.add_multi_constructor("!", _ignore_unknown_tag)

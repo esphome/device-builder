@@ -123,18 +123,10 @@ class AutomationsController:
         *,
         refs: list[AutomationBodyRef],
         **_kwargs: Any,
-    ) -> dict[str, dict]:
-        """Hydrate full automation bodies in one batched round trip.
-
-        ``refs`` is a list of ``{"type": str, "id": str}`` entries
-        where ``type`` is one of ``triggers`` / ``actions`` /
-        ``conditions`` / ``light_effects`` / ``filters``. The
-        response is keyed by ``"<type>/<id>"`` and carries the
-        full body (config_entries tree included). Unknown or
-        missing ids are absent. Mirrors
-        ``components/get_component_bodies`` from #424.
-        """
-        return await catalog.get_bodies(refs)
+    ) -> dict[str, Any]:
+        """Hydrate bodies as ``{bodies, remaining}``; re-request ``remaining`` for the rest."""
+        bodies, remaining = await catalog.get_bodies(refs, catalog.GET_BODIES_MAX_BYTES)
+        return {"bodies": bodies, "remaining": remaining}
 
     # ------------------------------------------------------------------
     # Device-scoped helpers

@@ -4245,3 +4245,169 @@ def test_an_alias_inside_a_flow_value_is_named_in_the_refusal() -> None:
     assert err.value.message == (
         "interval: holds an alias inside a flow value; rewrite it as a block first"
     )
+
+
+# ---------------------------------------------------------------------------
+# Condition-gate spelling + bare items (esphome 2026.11 ``if`` / ``script.stop``)
+# ---------------------------------------------------------------------------
+
+_IF_ANY = (
+    "esphome:\n  name: x\n  on_boot:\n    then:\n      - if:\n          any:\n"
+    "            - switch.is_on: r1\n            - switch.is_on: r2\n          then:\n"
+    "            - logger.log: up\n"
+)
+
+
+@pytest.mark.usefixtures("if_action_with_gate_keys")
+@pytest.mark.parametrize("gate", ["any", "all"])
+def test_if_combinator_gate_round_trips_byte_stable(gate: str) -> None:
+    """``any:`` stays ``any:`` on save."""
+    text = _IF_ANY.replace("any:", f"{gate}:")
+    parsed = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == text
+
+
+def test_while_combinator_stays_under_condition() -> None:
+    """``while`` accepts only ``condition:``, so its ``any`` nests there on save."""
+    text = (
+        "esphome:\n  name: x\n  on_boot:\n    then:\n      - while:\n          condition:\n"
+        "            any:\n              - switch.is_on: r1\n              - switch.is_on: r2\n"
+        "          then:\n            - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == text
+
+
+def test_bare_if_condition_is_respelled_to_condition_on_save() -> None:
+    """A condition written directly under ``if:`` is the gate and is saved as ``condition:``."""
+    text = (
+        "esphome:\n  name: x\n  on_boot:\n    then:\n      - if:\n"
+        "          lambda: return true;\n          then:\n            - logger.log: yes\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    assert [c.condition_id for c in parsed.automation.actions[0].conditions] == ["lambda"]
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == text.replace(
+        "          lambda: return true;\n",
+        "          condition:\n            lambda: return true;\n",
+    )
+
+
+def test_bare_script_stop_item_survives_a_save() -> None:
+    """``- script.stop`` is kept (as ``script.stop:``) instead of vanishing on the next save."""
+    text = "esphome:\n  name: x\nscript:\n  - id: s\n    then:\n      - script.stop\n"
+    text += "      - delay: 1s\n"
+    parsed = parse_device_yaml(text)[0]
+    assert [a.action_id for a in parsed.automation.actions] == ["script.stop", "delay"]
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == text.replace("- script.stop\n", "- script.stop:\n")
+
+
+@pytest.mark.usefixtures("synthetic_choose_action", "if_action_with_gate_keys")
+def test_choose_round_trips_byte_stable() -> None:
+    """A ``choose`` with two branches and an ``else`` saves unchanged (bar the legacy respells)."""
+    text = _load("choose_on_stop.yaml")
+    parsed = next(
+        p for p in parse_device_yaml(text) if p.location == ScriptLocation(id="self_stop")
+    )
+    choose = parsed.automation.actions[2]
+    assert choose.action_id == "choose"
+    assert len(choose.branches) == 2
+    assert [c.condition_id for c in choose.branches[1].conditions] == ["any"]
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    expected = text.replace("            - script.stop\n", "            - script.stop:\n")
+    expected = expected.replace(
+        "      - if:\n          lambda: return true;\n",
+        "      - if:\n          condition:\n            lambda: return true;\n",
+    )
+    assert new_text == expected
+
+
+# ---------------------------------------------------------------------------
+# ``script.on_stop``
+# ---------------------------------------------------------------------------
+
+_SCRIPT_WITH_ON_STOP = (
+    "esphome:\n  name: x\nscript:\n  - id: alarm\n    mode: restart\n    on_stop:\n"
+    "      - switch.turn_off: relay\n    then:\n      - delay: 1s\n"
+)
+
+
+def test_upsert_script_keeps_its_on_stop_handler() -> None:
+    """Editing a script's ``then`` leaves its ``on_stop`` automation in place."""
+    parsed = parse_device_yaml(_SCRIPT_WITH_ON_STOP)[0]
+    assert parsed.location == ScriptLocation(id="alarm")
+    assert "on_stop" not in parsed.automation.trigger_params
+    parsed.automation.actions.append(ActionNode(action_id="logger.log", params={"format": "x"}))
+    new_text, _diff = render_upsert(
+        _SCRIPT_WITH_ON_STOP, tree=parsed.automation, location=parsed.location
+    )
+    assert new_text == (
+        "esphome:\n  name: x\nscript:\n  - id: alarm\n    mode: restart\n    on_stop:\n"
+        "      - switch.turn_off: relay\n    then:\n      - delay: 1s\n      - logger.log: x\n"
+    )
+
+
+def test_upsert_script_drops_a_stale_on_stop_echoed_in_trigger_params() -> None:
+    """An ``on_stop`` a stale client echoes in ``trigger_params`` never overrides the file's."""
+    tree = AutomationTree(
+        trigger_params={"mode": "restart", "on_stop": [{"logger.log": "stale"}]},
+        actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+    )
+    new_text, _diff = render_upsert(
+        _SCRIPT_WITH_ON_STOP, tree=tree, location=ScriptLocation(id="alarm")
+    )
+    assert new_text.count("on_stop:") == 1
+    assert "stale" not in new_text
+    assert "switch.turn_off: relay" in new_text
+
+
+def test_upsert_script_keeps_an_on_stop_written_after_then_in_place() -> None:
+    """An ``on_stop`` block below ``then`` stays below it, so the save diff stays small."""
+    text = (
+        "esphome:\n  name: x\nscript:\n  - id: alarm\n    then:\n      - delay: 1s\n"
+        "    on_stop:\n      - switch.turn_off: relay\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == text
+
+
+def test_upsert_mapping_form_script_keeps_its_on_stop_handler() -> None:
+    """A mapping-form ``script:`` block keeps ``on_stop`` through the listifying write."""
+    text = (
+        "esphome:\n  name: x\nscript:\n  id: alarm\n  on_stop:\n"
+        "    - switch.turn_off: relay\n  then:\n    - delay: 1s\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    assert parsed.location == ScriptLocation(id="alarm")
+    new_text, _diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
+    assert new_text == (
+        "esphome:\n  name: x\nscript:\n  - id: alarm\n    on_stop:\n"
+        "      - switch.turn_off: relay\n    then:\n      - delay: 1s\n"
+    )
+
+
+@pytest.mark.usefixtures("synthetic_script_on_stop_trigger")
+def test_upsert_component_on_splices_on_stop_under_the_script_item() -> None:
+    """With the trigger catalogued, ``on_stop`` is written through the component_on path."""
+    text = "esphome:\n  name: x\nscript:\n  - id: alarm\n    then:\n      - delay: 1s\n"
+    tree = AutomationTree(
+        trigger_id="script.on_stop",
+        actions=[ActionNode(action_id="logger.log", params={"format": "stopped"})],
+    )
+    new_text, diff = render_upsert(
+        text, tree=tree, location=ComponentOnLocation(component_id="alarm", trigger="on_stop")
+    )
+    assert _apply_diff(text, diff) == new_text
+    assert new_text == (
+        "esphome:\n  name: x\nscript:\n  - id: alarm\n    then:\n      - delay: 1s\n"
+        "    on_stop:\n      then:\n        - logger.log: stopped\n"
+    )
+    rows = parse_device_yaml(new_text)
+    assert [p.location for p in rows] == [
+        ScriptLocation(id="alarm"),
+        ComponentOnLocation(component_id="alarm", trigger="on_stop"),
+    ]

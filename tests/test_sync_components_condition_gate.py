@@ -22,3 +22,16 @@ def test_gated_body_matches_its_index_row() -> None:
         body = catalog.action_by_id(action_id)
         assert body is not None
         assert body.has_condition_gate is True
+
+
+def test_a_shipped_branch_list_action_binds_only_its_else_list() -> None:
+    """A ``has_branches`` action (``choose``) is ungated and lists only ``else``."""
+    for action in catalog.all_actions():
+        if not action.has_branches:
+            continue
+        assert action.has_condition_gate is False
+        assert action.accepts_action_list == ["else"]
+        assert action.is_control_flow is True
+        body = catalog.action_by_id(action.id)
+        assert body is not None
+        assert body.config_entries == []

@@ -490,3 +490,25 @@ def test_corrupt_build_size_bytes_falls_back_to_zero(
     metadata = controller._resolve_device_metadata(config_dir, filename)
 
     assert metadata.build_size_bytes == 0
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        pytest.param(["packages/a.yaml"], ("packages/a.yaml",), id="list"),
+        pytest.param(["packages/a.yaml", 3], None, id="malformed-item"),
+        pytest.param("packages/a.yaml", None, id="not-a-list"),
+        pytest.param(None, None, id="absent"),
+    ],
+)
+def test_resolve_device_metadata_coerces_dependencies(
+    tmp_path: Path, monkeypatch: Any, stored: Any, expected: tuple[str, ...] | None
+) -> None:
+    """Only a list of strings reads as a known dependency list."""
+    controller = _make_controller(monkeypatch, tmp_path)
+    payload: dict[str, Any] = {"board_id": ""}
+    if stored is not None:
+        payload["dependencies"] = stored
+    _seed_metadata(monkeypatch, controller, "kitchen.yaml", payload)
+
+    assert controller._resolve_device_metadata(tmp_path, "kitchen.yaml").dependencies == expected

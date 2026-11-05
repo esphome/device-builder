@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
 from esphome import const, yaml_util
 from esphome.components.packages import resolve_packages
+from esphome.components.substitutions import do_substitution_pass
 from esphome.config_helpers import Extend, Remove
 from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
-from ...constants import SECRETS_FILENAME
+from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..atomic_io import read_text_with_stat
@@ -24,7 +26,16 @@ from ..mac_addresses import derive_interface_macs
 from ..migrations import has_pending_migrations
 from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
+from ._bootloader import resolve_nrf52_bootloader
 from ._chip import resolve_chip_mcu
+from ._dependencies import (
+    DependencySources,
+    LoadBatch,
+    UnreadableDependencyError,
+    normalize_dependencies,
+    read_dependency_sources,
+    track_loaded_files,
+)
 from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
@@ -48,7 +59,6 @@ from ._parsing import (
     name_add_mac_suffix_enabled,
     ota_encryption_declared,
     parse_esphome_meta,
-    safe_stat_key,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
@@ -78,12 +88,15 @@ def load_device_from_storage(
     *,
     deployed_config_hash: str = "",
     deployed_version: str = "",
+    network: str = "",
     queued_update: bool = False,
     api_encryption_active: str | None = None,
     deployed_name: str = "",
     offline_since: float | None = None,
     previous: Device | None = None,
     shallow: bool = False,
+    dependencies: tuple[str, ...] | None = None,
+    batch: LoadBatch | None = None,
 ) -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
@@ -133,18 +146,32 @@ def load_device_from_storage(
     *shallow* skips the resolved-config parse and the validated-config
     read; resolved-only fields degrade to their raw-text / StorageJSON
     fallbacks.
+
+    *dependencies* is the last known list of files the YAML pulls in,
+    used when the parse is skipped (shallow) or fails; a deep load
+    discovers the current list itself. *batch* carries the state the
+    devices of one scan batch share.
     """
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
 
-    yaml_stat, yaml_content, secrets_key = _snapshot_source_files(path)
+    batch = batch or LoadBatch(path.parent)
+    yaml_stat, yaml_text, secrets_key = _snapshot_source_files(path, batch)
+    yaml_content = yaml_text or ""
     yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
     # YAML would miss configs that pull the api block in via include
     # or split it across packages. ``None`` on parse failure is fine;
     # ``api_encrypted`` falls back to False.
-    resolved_config = None if shallow else load_device_yaml(path)
+    resolved_config, dependencies, complete = (
+        load_device_yaml_tracked(path, yaml_content, batch, dependencies)
+        if not shallow
+        else (None, dependencies, True)
+    )
+    sources = _read_sources(dependencies, yaml_content, batch) if complete else None
+    if sources is not None and sources.newest_mtime is not None:
+        yaml_mtime = max(yaml_mtime or 0.0, sources.newest_mtime)
     # Feed the merged ``substitutions:`` from the resolved config back
     # into the meta readers so ``esphome.friendly_name: $room`` resolves
     # against substitutions contributed by ``packages:`` / ``!include``
@@ -205,6 +232,7 @@ def load_device_from_storage(
         else DeviceRuntimeState(
             deployed_config_hash=deployed_config_hash,
             deployed_version=deployed_version,
+            network=network,
             api_encryption_active=api_encryption_active,
             queued_update=queued_update,
             offline_since=offline_since,
@@ -272,6 +300,9 @@ def load_device_from_storage(
     )
 
     mcu = resolve_chip_mcu(resolved_config, yaml_content, target_platform, extra_subs)
+    bootloader = resolve_nrf52_bootloader(
+        resolved_config, yaml_content, target_platform, extra_subs
+    )
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
     loaded_platforms = dotted_loaded_platforms(storage.loaded_platforms) if storage else []
@@ -357,7 +388,13 @@ def load_device_from_storage(
         # this on the next compile if the device picks a different
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
-        content_fingerprint=extract_config_content_fingerprint(yaml_content),
+        # Empty means no information: a source unreadable or discovery incomplete.
+        content_fingerprint=(
+            extract_config_content_fingerprint(yaml_content, sources.lines)
+            if yaml_text is not None and sources is not None
+            else ""
+        ),
+        dependencies=dependencies,
         ip=ip,
         deployed_name=deployed_name,
         web_port=storage.web_port if storage else None,
@@ -392,6 +429,7 @@ def load_device_from_storage(
         logger_baud_rate=logger_baud_rate,
         logger_interface=logger_interface,
         mcu=mcu,
+        bootloader=bootloader,
         # Gates the install dialog's OTA bootloader-update action; esp32-only
         # (the esphome schema rejects the flag elsewhere). Union of two
         # signals: the in-process resolved YAML (immediate on edit) and the
@@ -405,25 +443,45 @@ def load_device_from_storage(
             extract_ota_partition_access(resolved_config)
             or compiled_config_has_ota_partition_access(filename)
         ),
+        ota_signing_key=target_platform == "esp32"
+        and not shallow
+        and (
+            _has_ota_signing_key(resolved_config) or compiled_config_has_ota_signing_key(filename)
+        ),
     )
 
 
-def _snapshot_source_files(path: Path) -> tuple[os.stat_result | None, str, tuple[int, int]]:
+def _read_sources(
+    dependencies: tuple[str, ...] | None, yaml_content: str, batch: LoadBatch
+) -> DependencySources | None:
+    """``read_dependency_sources`` of a known list; ``None`` when unknown or one is unreadable."""
+    if dependencies is None:
+        return None
+    try:
+        return read_dependency_sources(dependencies, yaml_content, batch)
+    except UnreadableDependencyError:
+        return None
+
+
+def _snapshot_source_files(
+    path: Path, batch: LoadBatch
+) -> tuple[os.stat_result | None, str | None, tuple[int, int]]:
     """
     Read the YAML off one handle and stamp the secrets mtime before the esphome parse.
 
-    An open failure degrades to a bare ``stat`` with empty content.
+    An open failure degrades to a bare ``stat`` with ``None`` content.
     """
     yaml_stat: os.stat_result | None
+    yaml_content: str | None
     try:
         yaml_stat, yaml_content = read_text_with_stat(path)
     except OSError:
-        yaml_content = ""
+        yaml_content = None
         try:
             yaml_stat = path.stat()
         except OSError:
             yaml_stat = None
-    return yaml_stat, yaml_content, safe_stat_key(path.parent / SECRETS_FILENAME)
+    return yaml_stat, yaml_content, batch.stat_key(SECRETS_FILENAME)
 
 
 def compute_has_pending_changes(
@@ -479,6 +537,42 @@ def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: st
         and deployed_config_hash
         and expected_config_hash != deployed_config_hash
     )
+
+
+def load_device_yaml_tracked(
+    path: Path,
+    yaml_content: str,
+    batch: LoadBatch,
+    known: tuple[str, ...] | None = None,
+) -> tuple[dict | None, tuple[str, ...] | None, bool]:
+    """
+    ``load_device_yaml`` plus the files it pulled in, and whether that discovery completed.
+
+    A parse that failed part way keeps *known*, the last complete list, in the result so
+    the files it missed stay watched; with no list known yet it reports ``None``.
+    """
+    with track_loaded_files() as loaded:
+        config = load_device_yaml(path)
+        if config is None:
+            _LOGGER.warning(
+                "Could not parse %s; edits will not refresh it until it parses", path.name
+            )
+        complete = config is not None and _load_deferred_includes(
+            path, config, yaml_content, loaded
+        )
+        if config is not None and complete and _has_packages_block(config):
+            # A surviving ``packages:`` block means the merge failed part way.
+            _LOGGER.warning(
+                "Could not merge the packages of %s; edits will not refresh it until the merge "
+                "succeeds",
+                path.name,
+            )
+            complete = False
+    if not complete:
+        if known is None:
+            return config, None, False
+        loaded.extend(batch.path_of(dependency) for dependency in known)
+    return config, normalize_dependencies(path, loaded, batch.data_dir_prefix()), complete
 
 
 def load_device_yaml(path: Path) -> dict | None:
@@ -562,6 +656,28 @@ def resolution_incomplete(config: dict | None) -> bool:
     )
 
 
+def _load_deferred_includes(path: Path, config: dict, yaml_content: str, loaded: list[str]) -> bool:
+    """Load the ``!include`` nodes still pending after the package merge; False when that failed."""
+    # A deferred node needs an ``!include`` tag in the device file or in a non-secrets file
+    # it pulled in; checking the text first spares most devices the tree walk.
+    own = os.fspath(path)
+    if "!include" not in yaml_content and all(
+        name == own or is_secrets_file(name) for name in set(loaded)
+    ):
+        return True
+    if not _holds_deferred_marker(config, yaml_util.IncludeFile):
+        return True
+    # The substitution pass resolves a templated path (``!include dev/${name}.yaml``)
+    # to the one file esphome would load; a force-load would glob every candidate.
+    # The shallow copy keeps the pass's ``substitutions:`` pop off *config*.
+    try:
+        do_substitution_pass(copy.copy(config))
+    except Exception as err:  # noqa: BLE001 — esphome raises its own hierarchy plus yaml errors
+        _LOGGER.warning("Could not resolve the deferred includes of %s: %s", path.name, err)
+        return False
+    return True
+
+
 def _has_packages_block(config: dict) -> bool:
     """Whether *config* carries a ``packages:`` block the loader would try to merge."""
     return isinstance(config.get(CONF_PACKAGES), (dict, list))
@@ -580,14 +696,16 @@ def _has_substituted_block(config: dict) -> bool:
     return False
 
 
-def _holds_deferred_marker(value: object) -> bool:
+def _holds_deferred_marker(
+    value: object, markers: type | tuple[type, ...] = _DEFERRED_MARKERS
+) -> bool:
     """Whether an ``!include`` / ``!remove`` / ``!extend`` marker survives anywhere in *value*."""
-    if isinstance(value, _DEFERRED_MARKERS):
+    if isinstance(value, markers):
         return True
     if isinstance(value, dict):
-        return any(_holds_deferred_marker(v) for v in value.values())
+        return any(_holds_deferred_marker(v, markers) for v in value.values())
     if isinstance(value, list):
-        return any(_holds_deferred_marker(v) for v in value)
+        return any(_holds_deferred_marker(v, markers) for v in value)
     return False
 
 
@@ -602,6 +720,30 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
     config, materially larger than the source YAML, and this runs per
     device reload.
     """
+    return _compiled_config_matches(
+        configuration, _CONF_ALLOW_PARTITION_ACCESS, extract_ota_partition_access
+    )
+
+
+def compiled_config_has_ota_signing_key(configuration: str) -> bool:
+    """Report whether the last compile's validated-config cache sets an OTA ``signing_key``."""
+    return _compiled_config_matches(configuration, "signing_key", _has_ota_signing_key)
+
+
+def _has_ota_signing_key(config: dict | None) -> bool:
+    """Report whether the esp32 ``signed_ota_verification`` block sets ``signing_key``."""
+    node: object = config
+    for key in ("esp32", "framework", "advanced", "signed_ota_verification"):
+        if not isinstance(node, dict):
+            return False
+        node = node.get(key)
+    return isinstance(node, dict) and "signing_key" in node
+
+
+def _compiled_config_matches(
+    configuration: str, marker: str, predicate: Callable[[dict], bool]
+) -> bool:
+    """Apply *predicate* to the validated-config cache; skip the parse when *marker* is absent."""
     path = find_validated_cache(configuration)
     if path is None:
         return False
@@ -609,7 +751,7 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return False
-    if _CONF_ALLOW_PARTITION_ACCESS not in text:
+    if marker not in text:
         return False
     config = parse_validated_cache(path, text)
-    return config is not None and extract_ota_partition_access(config)
+    return config is not None and predicate(config)

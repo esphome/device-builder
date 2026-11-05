@@ -19,7 +19,15 @@ from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
-from ...helpers.automation_keys import CONDITION_GATE_KEYS, is_scalar_bodied, scalar_param_key
+from ...helpers.automation_keys import (
+    BRANCH_ACTIONS_KEY,
+    BRANCH_CONDITION_KEY,
+    BRANCH_ELSE_KEY,
+    COMBINATOR_GATE_KEYS,
+    CONDITION_GATE_KEYS,
+    is_scalar_bodied,
+    scalar_param_key,
+)
 from ...helpers.yaml.scalar import is_custom_yaml_tag
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -27,6 +35,7 @@ from ...models.automations import (
     AutomationAction,
     AutomationCondition,
     AutomationTree,
+    ChooseBranch,
     ConditionNode,
 )
 from . import catalog
@@ -129,9 +138,13 @@ def _decompose_action_list(body: Any) -> list[ActionNode]:
         return []
     items = body if isinstance(body, list) else [body]
     out: list[ActionNode] = []
-    for item in items:
-        if not isinstance(item, dict) or not item:
-            continue
+    for raw_item in items:
+        # ``- script.stop``: a bare string is that action with an empty body.
+        item = {raw_item: None} if isinstance(raw_item, str) else raw_item
+        if not isinstance(item, dict) or not item or isinstance(item, TaggedScalar):
+            # Anything else (a tag, a number, an empty entry) would vanish on save.
+            msg = f"Action list item the editor cannot represent: {_describe_item(raw_item)}"
+            raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
         # A registry-shape action is a single-key ``{id: params}`` mapping. A
         # multi-key item is a misrouted / malformed body (a typo'd trigger
         # entry that fell through to the action-list path), so an uncatalogued
@@ -140,6 +153,15 @@ def _decompose_action_list(body: Any) -> list[ActionNode]:
         for action_id, params in item.items():
             out.append(_decompose_action(str(action_id), params, multi_key=multi_key))
     return out
+
+
+def _describe_item(raw: Any) -> str:
+    """Name an action-list item's shape for an error message."""
+    if isinstance(raw, TaggedScalar):
+        return f"{raw.tag.value} tagged value"
+    if raw is None or raw == {}:
+        return "empty entry"
+    return type(raw).__name__
 
 
 def _uncatalogued_action(action_id: str, raw_params: Any, *, multi_key: bool) -> ActionNode:
@@ -173,29 +195,20 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
         return _uncatalogued_action(action_id, raw_params, multi_key=multi_key)
     children: dict[str, list[ActionNode]] = {}
     conditions: list[ConditionNode] = []
+    branches: list[ChooseBranch] = []
 
     if raw_params is None:
         params: dict[str, Any] = {}
+    elif action.has_branches:
+        params = {}
+        branches, else_actions = _decompose_branches(action_id, raw_params)
+        if else_actions is not None:
+            children[BRANCH_ELSE_KEY] = else_actions
     elif isinstance(raw_params, dict) and is_scalar_bodied(action):
         # ``delay: {seconds: 2}``: the mapping is the value's dict form, not fields.
         params = {scalar_param_key(action): _render_value(raw_params)}
     elif isinstance(raw_params, dict):
-        params = {}
-        if _is_dict_shorthand_condition(action, raw_params):
-            # ``wait_until: {api.connected:}`` — the ``condition:`` wrapper is
-            # optional (ESPHome ``maybe_simple_value``); the whole mapping is
-            # the condition. Without this the condition id lands in ``params``
-            # and the gate renders empty.
-            conditions = _decompose_condition_list(raw_params)
-        else:
-            for key, value in raw_params.items():
-                if key in action.accepts_action_list:
-                    children[key] = _decompose_action_list(value)
-                    continue
-                if key in CONDITION_GATE_KEYS:
-                    conditions = _decompose_condition_list(value)
-                    continue
-                params[key] = _render_value(value)
+        params, children, conditions = _decompose_mapping_body(action, raw_params)
     elif (
         isinstance(raw_params, str)
         and action.scalar_shorthand_key in CONDITION_GATE_KEYS
@@ -216,7 +229,92 @@ def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = Fals
         params=params,
         children=children,
         conditions=conditions,
+        branches=branches,
     )
+
+
+def _decompose_mapping_body(
+    action: AutomationAction, body: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, list[ActionNode]], list[ConditionNode]]:
+    """Split a mapping body into ``(params, children, conditions)``."""
+    if _is_dict_shorthand_condition(action, body):
+        # ``wait_until: {api.connected:}`` — the ``condition:`` wrapper is
+        # optional (ESPHome ``maybe_simple_value``); the whole mapping is
+        # the condition. Without this the condition id lands in ``params``
+        # and the gate renders empty.
+        return {}, {}, _decompose_condition_list(body)
+    params: dict[str, Any] = {}
+    children: dict[str, list[ActionNode]] = {}
+    conditions: list[ConditionNode] = []
+    gate_key: str | None = None
+    for key, value in body.items():
+        if key in action.accepts_action_list:
+            children[key] = _decompose_action_list(value)
+            continue
+        if key in CONDITION_GATE_KEYS:
+            if gate_key is not None:
+                msg = f"{action.id!r} carries both {gate_key!r} and {key!r}"
+                raise CommandError(ErrorCode.INVALID_ARGS, msg)
+            gate_key = key
+            conditions = _decompose_gate(key, value)
+            continue
+        params[key] = _render_value(value)
+    if gate_key is None and action.has_condition_gate:
+        conditions = _pop_bare_condition(action, body, params)
+    return params, children, conditions
+
+
+def _decompose_gate(key: str, value: Any) -> list[ConditionNode]:
+    """Turn a ``condition`` / ``all`` / ``any`` gate body into the node's conditions."""
+    if key in COMBINATOR_GATE_KEYS:
+        return [ConditionNode(condition_id=key, children=_decompose_condition_list(value))]
+    return _decompose_condition_list(value)
+
+
+def _pop_bare_condition(
+    action: AutomationAction, body: dict[str, Any], params: dict[str, Any]
+) -> list[ConditionNode]:
+    """Lift a condition id written directly under a gated action (``if: {lambda: ...}``)."""
+    known = {e.key for e in action.config_entries}
+    bare = [k for k in params if k not in known and catalog.is_known_condition(str(k))]
+    if not bare:
+        return []
+    if len(bare) > 1:
+        msg = f"Only one condition may be given directly under {action.id!r}, found {bare}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    key = bare[0]
+    del params[key]
+    return _decompose_condition_list({key: body[key]})
+
+
+def _decompose_branches(
+    action_id: str, raw: Any
+) -> tuple[list[ChooseBranch], list[ActionNode] | None]:
+    """Turn a ``choose`` body into its ordered branches plus the trailing ``else`` list."""
+    items = raw if isinstance(raw, list) else [raw]
+    branches: list[ChooseBranch] = []
+    else_actions: list[ActionNode] | None = None
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            msg = f"{action_id!r} entry {idx} must be a mapping"
+            raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
+        if BRANCH_ELSE_KEY in item:
+            if idx != len(items) - 1 or len(item) != 1:
+                msg = f"{action_id!r} takes {BRANCH_ELSE_KEY!r} only as its last entry, alone"
+                raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
+            else_actions = _decompose_action_list(item[BRANCH_ELSE_KEY])
+            continue
+        if set(item) != {BRANCH_CONDITION_KEY, BRANCH_ACTIONS_KEY}:
+            needed = f"{BRANCH_CONDITION_KEY!r} and {BRANCH_ACTIONS_KEY!r}"
+            msg = f"{action_id!r} entry {idx} takes exactly {needed}"
+            raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
+        branches.append(
+            ChooseBranch(
+                conditions=_decompose_condition_list(item[BRANCH_CONDITION_KEY]),
+                actions=_decompose_action_list(item[BRANCH_ACTIONS_KEY]),
+            )
+        )
+    return branches, else_actions
 
 
 def _is_dict_shorthand_condition(action: AutomationAction, body: dict[str, Any]) -> bool:

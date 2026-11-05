@@ -6,11 +6,17 @@ import base64
 import re
 import secrets
 from collections.abc import Callable
+from enum import Enum, auto
 
 from .ota_encryption import (
+    _has_encryption_block,
     drop_ota_encryption_key,
+    drop_ota_encryption_old_key,
     read_ota_encryption_key,
+    read_ota_encryption_keys,
+    read_ota_encryption_old_key,
     rewrite_ota_encryption_key,
+    set_ota_encryption_old_key,
 )
 from .scalar import (
     ESPHOME_YAML_INDENT,
@@ -18,7 +24,7 @@ from .scalar import (
     _quote,
     _strip_yaml_quotes,
     is_indirected_scalar,
-    is_plain_literal_scalar,
+    plain_literal_value,
     read_yaml_scalar,
     rewrite_yaml_scalar,
 )
@@ -29,6 +35,17 @@ from .top_block import _insert_top_block_after, _locate_top_block
 _API_BLOCK_ANCHORS = ("esphome", "packages", "substitutions")
 
 API_ENCRYPTION_KEY_PATH = ("api", "encryption", "key")
+
+
+class OldKeyOutcome(Enum):
+    """What became of the api key a rotation replaced, as the OTA ``old_key``."""
+
+    NOT_NEEDED = auto()
+    RECORDED = auto()
+    NOT_RECORDED = auto()
+    KEPT_EXISTING = auto()
+    KEPT_INDIRECTED = auto()
+    NO_ENCRYPTION_BLOCK = auto()
 
 
 def api_key_settled(yaml_text: str, key: str) -> bool:
@@ -44,29 +61,25 @@ def generate_api_encryption_key() -> str:
 
 
 def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
-    """Replace the literal ``api.encryption.key``; an explicit OTA key is dropped or refused."""
-    rewritten = rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
-    return _follow_ota_key(rewritten, new_key)
+    """Replace the literal ``api.encryption.key`` and reconcile the OTA block beneath it."""
+    return _rewrite(yaml_text, new_key, None, record=False, replace=False)[0]
 
 
 def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
     """Set ``api.encryption.key``, inserting missing structure; unsafe shapes raise."""
-    existing = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
-    if existing is not None and _strip_yaml_quotes(existing):
-        return rewrite_api_encryption_key(yaml_text, new_key)
-    # An empty ``key:`` is a runtime-provisioned shape like a bare ``encryption:``;
-    # the device then requires the OTA platform's own key, which must not change.
-    if _ota_key_competes(yaml_text, new_key):
-        raise YamlUpsertNotSupportedError(
-            "the config gives the OTA platform its own encryption key, which the "
-            "device requires, so no api key was written."
-        )
-    inserted = (
-        rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
-        if existing is not None
-        else _insert_api_encryption_key(yaml_text, new_key)
-    )
-    return _follow_ota_key(inserted, new_key)
+    return _upsert(yaml_text, new_key, record=False, replace=False)[0]
+
+
+def rotate_api_encryption_key(
+    yaml_text: str, new_key: str, *, record_previous: bool, replace_old_key: bool
+) -> tuple[str, OldKeyOutcome]:
+    """
+    ``upsert_api_encryption_key`` that also settles the replaced key as the OTA ``old_key``.
+
+    *record_previous* writes it; an ``old_key`` already there is overwritten only with
+    *replace_old_key*. The outcome says what became of the replaced key.
+    """
+    return _upsert(yaml_text, new_key, record=record_previous, replace=replace_old_key)
 
 
 def _insert_api_encryption_key(yaml_text: str, new_key: str) -> str:
@@ -114,21 +127,82 @@ def _literal_swap(new_key: str) -> Callable[[str], str | None]:
     return _swap
 
 
-def _follow_ota_key(yaml_text: str, new_key: str) -> str:
-    """Drop an explicit OTA key next to a literal api key of *new_key*; an indirected one raises."""
+def _upsert(
+    yaml_text: str, new_key: str, *, record: bool, replace: bool
+) -> tuple[str, OldKeyOutcome]:
+    existing = read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH)
+    if existing is not None and _strip_yaml_quotes(existing):
+        return _rewrite(
+            yaml_text, new_key, plain_literal_value(existing), record=record, replace=replace
+        )
+    # An empty ``key:`` is a runtime-provisioned shape like a bare ``encryption:``;
+    # the device then requires the OTA platform's own key, which must not change.
+    if _ota_key_competes(yaml_text, new_key):
+        raise YamlUpsertNotSupportedError(
+            "the config gives the OTA platform its own encryption key, which the "
+            "device requires, so no api key was written."
+        )
+    inserted = (
+        rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
+        if existing is not None
+        else _insert_api_encryption_key(yaml_text, new_key)
+    )
+    return _follow_ota_key(inserted, new_key, None, record=record, replace=replace)
+
+
+def _rewrite(
+    yaml_text: str, new_key: str, previous_key: str | None, *, record: bool, replace: bool
+) -> tuple[str, OldKeyOutcome]:
+    rewritten = rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _literal_swap(new_key))
+    return _follow_ota_key(rewritten, new_key, previous_key, record=record, replace=replace)
+
+
+def _follow_ota_key(
+    yaml_text: str, new_key: str, previous_key: str | None, *, record: bool, replace: bool
+) -> tuple[str, OldKeyOutcome]:
+    """Reconcile the OTA block with a literal api key of *new_key*; an indirected OTA key raises."""
     if not _literal_key_matches(read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH), new_key):
-        return yaml_text
+        return yaml_text, OldKeyOutcome.NOT_NEEDED
     ota_key = read_ota_encryption_key(yaml_text)
-    if ota_key is None:
-        return yaml_text
-    if is_indirected_scalar(ota_key):
+    if ota_key is not None and is_indirected_scalar(ota_key):
         raise YamlUpsertNotSupportedError(
             "the OTA encryption key is provided via !secret, !include, or a substitution "
             "and must match the api encryption key."
         )
+    # Before the key drop so the new line takes its indent from the existing one.
+    yaml_text, outcome = _settle_old_key(
+        yaml_text, new_key, previous_key, record=record, replace=replace
+    )
+    if ota_key is None:
+        return yaml_text, outcome
     # Dropped, not copied: with a static api key the firmware encrypts OTA with
     # that key, and the bare block is the documented shape.
-    return drop_ota_encryption_key(yaml_text)
+    return drop_ota_encryption_key(yaml_text), outcome
+
+
+def _settle_old_key(
+    yaml_text: str, new_key: str, previous_key: str | None, *, record: bool, replace: bool
+) -> tuple[str, OldKeyOutcome]:
+    """Record *previous_key* as ``old_key:``; one equal to *new_key* is dropped."""
+    old_key = read_ota_encryption_old_key(yaml_text)
+    if old_key is not None and _literal_key_matches(old_key, new_key):
+        yaml_text, old_key = drop_ota_encryption_old_key(yaml_text), None
+    if previous_key is None or previous_key == new_key:
+        outcome = OldKeyOutcome.NOT_NEEDED
+    elif old_key is not None and is_indirected_scalar(old_key):
+        outcome = OldKeyOutcome.KEPT_INDIRECTED
+    elif old_key is not None and _literal_key_matches(old_key, previous_key):
+        outcome = OldKeyOutcome.RECORDED
+    elif old_key is not None and not replace:
+        # The device may still run the key already recorded there.
+        outcome = OldKeyOutcome.KEPT_EXISTING
+    elif not _has_encryption_block(yaml_text):
+        outcome = OldKeyOutcome.NO_ENCRYPTION_BLOCK
+    elif not record:
+        outcome = OldKeyOutcome.NOT_RECORDED
+    else:
+        return set_ota_encryption_old_key(yaml_text, previous_key), OldKeyOutcome.RECORDED
+    return yaml_text, outcome
 
 
 def _literal_key_matches(raw: str | None, key: str) -> bool:
@@ -138,17 +212,14 @@ def _literal_key_matches(raw: str | None, key: str) -> bool:
 
 def _ota_key_competes(yaml_text: str, key: str) -> bool:
     """Whether a non-empty literal OTA key differs from *key*; empty and indirected ones don't."""
-    ota_key = read_ota_encryption_key(yaml_text)
-    return (
-        ota_key is not None
-        and is_plain_literal_scalar(ota_key)
-        and not _literal_key_matches(ota_key, key)
-    )
+    return plain_literal_value(read_ota_encryption_key(yaml_text)) not in (None, key)
 
 
 def _ota_key_matches(yaml_text: str, key: str) -> bool:
-    """Whether an explicit OTA key, if any, is *key*; an indirected one is left to esphome."""
-    ota_key = read_ota_encryption_key(yaml_text)
+    """Whether an explicit OTA key, if any, is *key* and no literal ``old_key`` equals it."""
+    ota_key, old_key = read_ota_encryption_keys(yaml_text)
+    if old_key is not None and _literal_key_matches(old_key, key):
+        return False
     return ota_key is None or _literal_key_matches(ota_key, key) or is_indirected_scalar(ota_key)
 
 

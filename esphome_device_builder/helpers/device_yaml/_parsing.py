@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -193,19 +194,19 @@ def device_uses_mqtt(yaml_content: str) -> bool:
     return yaml_has_top_level_block(yaml_content, "mqtt")
 
 
-# Prefix on every stored digest; bump when the algorithm changes.
-CONTENT_FINGERPRINT_VERSION = "1:"
+# Prefix on every stored digest; a bump regens every device once on its next scan.
+CONTENT_FINGERPRINT_VERSION = "2:"
 
 
-def extract_config_content_fingerprint(yaml_content: str) -> str:
-    """Versioned digest of the YAML's significant lines; empty when there are none."""
-    digest = _digest_lines(_significant_lines(yaml_content))
-    return f"{CONTENT_FINGERPRINT_VERSION}{digest}" if digest else ""
-
-
-def content_fingerprint_is_current(stored: object) -> bool:
-    """Return True when *stored* is a digest the current algorithm produced."""
-    return isinstance(stored, str) and stored.startswith(CONTENT_FINGERPRINT_VERSION)
+def extract_config_content_fingerprint(
+    yaml_content: str, dependencies: Iterable[tuple[str, str]]
+) -> str:
+    """Versioned digest of the YAML's significant lines plus each dependency's path and digest."""
+    lines = _significant_lines(yaml_content)
+    for dependency, digest in dependencies:
+        lines.append(dependency)
+        lines.append(digest)
+    return f"{CONTENT_FINGERPRINT_VERSION}{hashlib.sha256('\n'.join(lines).encode()).hexdigest()}"
 
 
 # The blocks that decide *which* component modules esphome loads:
@@ -595,7 +596,8 @@ def extract_logger_interface(
     Resolve the ``logger:`` output interface, or ``None`` when unknowable.
 
     Explicit ``hardware_uart`` wins; otherwise the snapshotted per-platform
-    default, with esp32 keyed by :func:`resolve_esp32_variant`.
+    default, with esp32 keyed by :func:`resolve_esp32_variant` and nrf52 by
+    :func:`resolve_nrf52_variant` when its chip has a row of its own.
     """
     if not isinstance(config, dict) or const.CONF_LOGGER not in config:
         return None
@@ -609,11 +611,13 @@ def extract_logger_interface(
         value = value.strip().upper()
         return value if value in caps.logger_interface_values else None
     platform = normalize_platform(target_platform.strip().lower())
-    key = (
-        resolve_esp32_variant(config, extra_substitutions, storage_variant)
-        if platform == "esp32"
-        else platform
-    )
+    key: str | None = platform
+    if platform == "esp32":
+        key = resolve_esp32_variant(config, extra_substitutions, storage_variant)
+    elif platform == "nrf52":
+        variant = resolve_nrf52_variant(config, extra_substitutions)
+        if variant in caps.logger_interface_defaults:
+            key = variant
     # The falsy guard is for mypy (resolve may return None); dict.get(None)
     # would behave identically.
     return caps.logger_interface_defaults.get(key) if key else None
@@ -651,6 +655,21 @@ def resolve_esp32_variant(
     # Post-compile classic chips legitimately store the bare ``esp32``; with
     # no board to disambiguate the seeded-family case, stay unknowable.
     return None
+
+
+def resolve_nrf52_variant(
+    config: dict | None, extra_substitutions: dict[str, str] | None = None
+) -> str | None:
+    """Canonical nRF52 chip (``nrf54l15``) from the board snapshot, or ``None`` when unknowable."""
+    nrf52 = config.get("nrf52") if isinstance(config, dict) else None
+    nrf52 = nrf52 if isinstance(nrf52, dict) else {}
+    board = _resolve_substitutions(
+        _str_or_none(nrf52.get(const.CONF_BOARD)), extra_substitutions or {}
+    )
+    if not isinstance(board, str):
+        return None
+    snapshot = load_platform_capabilities_index().nrf52_board_variants.get(board.strip())
+    return normalize_chip_variant(snapshot) if snapshot else None
 
 
 def get_ota_encryption_key(config: dict | None) -> str:
@@ -969,10 +988,10 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
     return value
 
 
-def safe_stat_key(path: Path) -> tuple[int, int]:
+def safe_stat_key(path: Path | str) -> tuple[int, int]:
     """Return *path*'s ``(mtime_ns, size)``, or ``(0, 0)`` when the file is missing."""
     try:
-        st = path.stat()
+        st = os.stat(path)  # noqa: PTH116
     except OSError:
         return (0, 0)
     return (st.st_mtime_ns, st.st_size)

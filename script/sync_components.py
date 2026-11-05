@@ -103,6 +103,10 @@ _DOCS_INDEX_CACHE_NAME = "esphome.io-index.mdx"
 # the version-keyed schema bundles which cache immutably.
 _DOCS_INDEX_MAX_AGE = 24 * 3600.0
 _IMAGE_BASE_URL = "https://esphome.io/images/"
+# A ``badge:<Name>`` docs-index image is an SVG the site generates at
+# ``images/badges/<name>.svg`` (esphome.io's src/lib/badges.mjs).
+_DOCS_BADGE_IMAGE_PREFIX = "badge:"
+_DOCS_BADGE_IMAGE_DIR = "badges/"
 
 # CDN at schema.esphome.io rejects requests without a recognisable
 # User-Agent. Use the project name + repo URL so any traffic is easy
@@ -127,6 +131,12 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
 )
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    BRANCH_ACTIONS_KEY as _BRANCH_ACTIONS_KEY,
+)
+from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
+    BRANCH_CONDITION_KEY as _BRANCH_CONDITION_KEY,
+)
 from esphome_device_builder.helpers.automation_keys import (  # noqa: E402
     CONDITION_GATE_KEYS as _CONDITION_GATE_KEYS,
 )
@@ -172,17 +182,6 @@ def _platform_domains_from_shipped_index() -> frozenset[str]:
     """Platform domains present in the checked-in catalog."""
     payload = orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())
     return _domains_from_ids(c["id"] for c in payload["components"])
-
-
-def _require_component_categories(domains: frozenset[str]) -> None:
-    """Fail the sync loudly when a platform domain has no ``ComponentCategory`` member."""
-    missing = sorted(domains - {c.value for c in ComponentCategory})
-    if missing:
-        raise SystemExit(
-            f"New upstream platform domain(s) without a ComponentCategory member: {missing}. "
-            "Add the enum member(s) in esphome_device_builder/models/components.py and "
-            "coordinate the frontend category UI, then re-run."
-        )
 
 
 # Top-level platform domains in the schema. Components are keyed as
@@ -296,7 +295,7 @@ _DATA_TYPE_HEX: frozenset[str] = frozenset(
     }
 )
 
-# ``use_id_type`` is shaped ``"<namespace>::<ClassName>"``. Map the
+# ``use_id_type`` is shaped ``"[esphome::]<namespace>::<ClassName>"``. Map the
 # namespace to the catalog's component domain. ``switch_`` has a
 # trailing underscore (the C++ namespace can't be ``switch``); we strip
 # it. Everything else is identity.
@@ -983,13 +982,8 @@ def main() -> int:
     # the tree untouched; ``build_catalog``'s import sweep has already
     # filled the live registries.
     registry_refined = {} if args.limit_component else _collect_automation_refined_types()
-    if not args.limit_component and not registry_refined:
-        # SystemExit so a partially-imported esphome can't rewrite
-        # every action body de-refined and still exit 0.
-        raise SystemExit(
-            "automation registries yielded no refinements after a full "
-            "import sweep — the automations catalog would be de-refined."
-        )
+    if not args.limit_component:
+        _fail_on_unrefined_registries(registry_refined)
 
     _audit_catalog_for_unit_mismatches(catalog)
     _audit_catalog_for_pin_metadata(catalog)
@@ -1174,10 +1168,9 @@ def load_index(schema_dir: Path) -> SchemaIndex:
 
     Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
     ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set):
-    a bundle with no ``core.platforms`` fails loud, and a shipped
-    domain missing from the fresh bundle logs a warning.
+    a bundle with no ``core.platforms`` fails loud, and an added or
+    dropped domain logs a warning.
     """
-    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
 
     # 1. esphome.json — core.components and core.platforms.
@@ -1196,16 +1189,7 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             f"Schema bundle at {schema_dir} has no core.platforms (esphome.json missing or "
             "empty); refusing to sync against the stale shipped domain set."
         )
-    fresh_domains = frozenset(platforms)
-    _require_component_categories(fresh_domains)
-    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
-        _LOGGER.warning(
-            "Platform domain(s) in the shipped catalog but absent from the fresh "
-            "schema bundle: %s. Expected for a genuine upstream removal; check the "
-            "catalog diff if not.",
-            dropped,
-        )
-    _PLATFORM_DOMAINS = fresh_domains
+    _refresh_platform_domains(frozenset(platforms))
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -1227,6 +1211,24 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             metadata.setdefault(cid, meta or {})
 
     return SchemaIndex(metadata=metadata)
+
+
+def _refresh_platform_domains(fresh_domains: frozenset[str]) -> None:
+    """Replace ``_PLATFORM_DOMAINS``, warning on each added or dropped domain."""
+    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
+    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
+        _LOGGER.warning(
+            "Platform domain(s) in the shipped catalog but absent from the fresh "
+            "schema bundle: %s. Expected for a genuine upstream removal; check the "
+            "catalog diff if not.",
+            dropped,
+        )
+    if added := sorted(fresh_domains - _PLATFORM_DOMAINS):
+        _LOGGER.warning(
+            "New upstream platform domain(s): %s",
+            added,
+        )
+    _PLATFORM_DOMAINS = fresh_domains
 
 
 def iter_schema_files(schema_dir: Path) -> Iterable[Path]:
@@ -3090,7 +3092,9 @@ def load_image_map() -> dict[str, str]:
 
     We match those rows and produce a ``component_id -> image_url`` map
     where ``component_id`` matches our catalog ids (qualified with
-    ``<domain>.<id>`` for platform-providing components).
+    ``<domain>.<id>`` for platform-providing components). A ``badge:<Name>``
+    image maps to the site's generated badge SVG; an image file listed for
+    the same id outranks it.
 
     Cached under ``.cache/`` for ``_DOCS_INDEX_MAX_AGE`` — the index gains
     rows between releases, so a bare exists() cache silently dropped
@@ -3121,6 +3125,7 @@ def load_image_map() -> dict[str, str]:
         r'\["([^"]+)",\s*"(/components/[^"]+)",\s*"([^"]+)"',
     )
     out: dict[str, str] = {}
+    badge_keys: set[str] = set()
     for _name, path, image in pattern.findall(text):
         # Path examples:
         #   /components/wifi/         -> "wifi"
@@ -3130,11 +3135,12 @@ def load_image_map() -> dict[str, str]:
         if not parts:
             continue
         component_id = f"{parts[0]}.{parts[1]}" if len(parts) >= 2 else parts[0]
-        out.setdefault(component_id, _IMAGE_BASE_URL + image)
+        url, is_badge = _docs_image_url(image)
+        _record_docs_image(out, badge_keys, component_id, url, is_badge)
         # Also store under the bare stem when only one platform exists,
         # so lookups by either id work.
         if len(parts) >= 2:
-            out.setdefault(parts[1], _IMAGE_BASE_URL + image)
+            _record_docs_image(out, badge_keys, parts[1], url, is_badge)
     _LOGGER.info("Image map built: %d components", len(out))
     return out
 
@@ -3144,6 +3150,27 @@ def load_image_map() -> dict[str, str]:
 # drifted, not an upstream image removal — emitting anyway strips
 # ``image_url`` catalog-wide (#1911 shipped that way).
 _IMAGE_MAP_SENTINELS = ("wifi", "i2c", "sensor.dht")
+
+
+def _docs_image_url(image: str) -> tuple[str, bool]:
+    """Public URL of a docs-index image value, and whether it is a badge."""
+    if image.startswith(_DOCS_BADGE_IMAGE_PREFIX):
+        name = image.removeprefix(_DOCS_BADGE_IMAGE_PREFIX).lower()
+        return f"{_IMAGE_BASE_URL}{_DOCS_BADGE_IMAGE_DIR}{name}.svg", True
+    return _IMAGE_BASE_URL + image, False
+
+
+def _record_docs_image(
+    out: dict[str, str], badge_keys: set[str], key: str, url: str, is_badge: bool
+) -> None:
+    """Keep the first image for *key*; a badge yields to a later image file."""
+    if key in out and (is_badge or key not in badge_keys):
+        return
+    out[key] = url
+    if is_badge:
+        badge_keys.add(key)
+    else:
+        badge_keys.discard(key)
 
 
 def _require_image_map(image_map: dict[str, str]) -> None:
@@ -3309,7 +3336,7 @@ def build_component_entry(
         refined_types = _shed_refined_bleed(refined_types, refined_bleed)
     # Refined types first: the range gate reads the entry's final type,
     # and a field promoted to float_with_unit must keep its bounds.
-    _apply_refined_types(config_entries, refined_types)
+    _apply_refined_types(config_entries, refined_types, component_id)
     _apply_field_ranges(config_entries, field_ranges, component_id)
     _apply_component_gates(config_entries, introspection.get("component_gates") or {})
     _apply_model_variance(
@@ -3564,12 +3591,7 @@ def _merge_extends_config_vars(
         origin_ref.update(dict.fromkeys(resolved, ref))
     merged: dict[str, Any] = {}
     for key in {*extended, *config_vars}:
-        base = extended.get(key)
-        local = config_vars.get(key)
-        if isinstance(base, dict) and isinstance(local, dict):
-            merged[key] = {**base, **local}
-        else:
-            merged[key] = local if local is not None else base or {}
+        merged[key] = _overlay_field(extended.get(key), config_vars.get(key))
     return merged, {key: ref for key, ref in origin_ref.items() if key not in config_vars}
 
 
@@ -3710,21 +3732,29 @@ def _lookup_schema_ref(ref: str, schema_dir: Path) -> dict | None:
     return None
 
 
-def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
-    """Look up an ``extends`` reference and return its config_vars.
+def _overlay_field(base: Any, local: Any) -> Any:
+    """Merge a local field over its inherited one key by key; a missing side yields the other."""
+    if isinstance(base, dict) and isinstance(local, dict):
+        return {**base, **local}
+    return local if local is not None else base or {}
 
-    For schemas that themselves carry ``extends`` we recurse so the full
-    ancestry is flattened into one config_vars dict.
-    """
+
+def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
+    """Return *ref*'s config_vars with its whole ancestry merged per field."""
     target = _lookup_schema_ref(ref, schema_dir)
     if target is None:
         return {}
     schema_node = target.get("schema") or {}
-    inner = dict(schema_node.get("config_vars") or {})
-    # Recurse into nested extends so the merged map carries everything.
+    inherited: dict[str, dict] = {}
     for sub in schema_node.get("extends") or []:
         for k, v in _resolve_extends(sub, schema_dir).items():
-            inner.setdefault(k, v)
+            inherited.setdefault(k, v)
+    inner: dict[str, dict] = {}
+    for k, v in (schema_node.get("config_vars") or {}).items():
+        base = inherited.get(k)
+        inner[k] = _overlay_field(base, v)
+    for k, v in inherited.items():
+        inner.setdefault(k, v)
     return inner
 
 
@@ -3750,6 +3780,26 @@ def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
         if inherited is not None:
             return inherited
     return None
+
+
+def _is_list_only_wrapper(inner_schema: Any, schema_dir: Path) -> bool:
+    """Return whether an extends-only wrapper's bases carry no fields and mark a list."""
+    if not isinstance(inner_schema, dict) or inner_schema.get("config_vars"):
+        return False
+    is_list = False
+    for ref in inner_schema.get("extends") or []:
+        if _scalar_type_for_extends_ref(ref) is not None:
+            return False
+        target = _lookup_schema_ref(ref, schema_dir)
+        if (
+            not isinstance(target, dict)
+            or "key_type" in target
+            or _is_typed_node(target.get("schema"))
+            or _resolve_extends(ref, schema_dir)
+        ):
+            return False
+        is_list = is_list or bool(target.get("is_list"))
+    return is_list
 
 
 def _extends_map_schema(inner_schema: Any, schema_dir: Path) -> dict | None:
@@ -3944,6 +3994,9 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
 
     schema_type = raw.get("type")
     inner_schema = raw.get("schema")
+    if schema_type == "schema" and _is_list_only_wrapper(inner_schema, schema_dir):
+        raw = raw | {"is_list": True}
+        schema_type = inner_schema = None
     data_type = raw.get("data_type")
 
     # Own-id fields ⇒ always rendered as a free-form id input. The
@@ -4024,15 +4077,17 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
                 duration_min_unit = _duration_min_unit_for_extends_ref(ref)
                 break
 
+    # Default-value hints — bare time strings like ``"60s"``, ``"5min"``.
+    # The default comes off the validator; it outranks a hand-written
+    # docs marker that calls the same field an int.
+    if entry_type is None and _looks_like_time_period_default(raw.get("default")):
+        entry_type = "time_period"
+
     # Docs-prefix hints — fields without explicit type lead with
     # ``**type**:`` markers we can parse out.
     if entry_type is None:
         prefix = _docs_type_marker(docs_text)
         entry_type = _DOC_PREFIX_TYPES.get(prefix)
-
-    # Default-value hints — bare time strings like ``"60s"``, ``"5min"``.
-    if entry_type is None and _looks_like_time_period_default(raw.get("default")):
-        entry_type = "time_period"
 
     # Key-name fallback — ``icon`` / ``mac_address`` are usually
     # untyped strings in the schema.
@@ -4097,6 +4152,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
+    options = _build_options(raw)
+    default_value = _boolean_default_as_option(default_value, options)
     if (
         key in _PLATFORM_DEFAULTED_ADVANCED_KEYS
         and default_value is not None
@@ -4111,7 +4168,7 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "description": docs.text or None,
         "required": required,
         "default_value": default_value,
-        "options": _build_options(raw),
+        "options": options,
         # ``allow_custom`` lets an options field also accept a free-typed
         # value (e.g. a font ``weight`` is a named weight *or* a raw int).
         "allow_custom_value": bool(raw.get("allow_custom")),
@@ -4542,6 +4599,9 @@ def _emit_platform_capabilities_index() -> None:
         },
         # The dashboard resolves a device's chip from its YAML ``board:``.
         "board_mcus": board_mcus(),
+        # And an nRF52's bootloader, when its YAML names only the board.
+        "nrf52_board_bootloaders": _nrf52_board_bootloaders(),
+        "nrf52_board_variants": _nrf52_board_variants(),
         "libretiny_families": list(_libretiny_families()),
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
@@ -4555,6 +4615,49 @@ def _emit_platform_capabilities_index() -> None:
         orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
     )
     next_path.replace(_PLATFORM_CAPABILITIES_INDEX_FILE)
+
+
+def _nrf52_board_bootloaders() -> dict[str, str]:
+    """``{pio_board: bootloader}``: the first of each nRF52 board's list, ESPHome's default."""
+    from esphome.components.nrf52.boards import BOARDS_ZEPHYR
+    from esphome.components.zephyr.const import KEY_BOOTLOADER
+
+    return {
+        board: info[KEY_BOOTLOADER][0]
+        for board, info in sorted(BOARDS_ZEPHYR.items())
+        if info.get(KEY_BOOTLOADER)
+    }
+
+
+def _nrf52_variants() -> set[str]:
+    """Return the nRF52 chips ESPHome knows (``NRF54L15``); empty before it named them."""
+    from esphome.components.nrf52 import const
+
+    return set(getattr(const, "VARIANT_PORT_PINS", {}))
+
+
+def _nrf52_board_variants() -> dict[str, str]:
+    """``{board: variant}`` for the nRF52 boards ESPHome names, by its own board rule."""
+    from esphome.components import nrf52
+    from esphome.components.nrf52 import boards
+
+    board_variant = getattr(nrf52, "_board_variant", None)
+    if board_variant is None:
+        if _nrf52_variants():
+            raise RuntimeError(
+                "esphome names nRF52 chips but has no nrf52._board_variant to map boards"
+            )
+        return {}
+    aliases = getattr(boards, "BOARD_ALIASES", {})
+    names = {*boards.BOARDS_ZEPHYR, *aliases, *aliases.values()}
+    return {board: board_variant(board) for board in sorted(names)}
+
+
+def _logger_default_key(key: str) -> str:
+    """Canonical spelling of a ``SplitDefault`` key; ``nrf52_54l15`` is the ``NRF54L15``."""
+    if key.startswith("nrf52_"):
+        key = "nrf" + key.removeprefix("nrf52_")
+    return normalize_chip_variant(key)
 
 
 def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
@@ -4576,12 +4679,16 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     # esp32 variants, spelled through the same normalizers the runtime
     # uses, so a brand-new chip syncs the day it lands; only a genuinely
     # unknown platform key fails the sync loudly.
-    known_keys = {p.value for p in Platform} | {normalize_chip_variant(v) for v in VARIANTS}
+    known_keys = (
+        {p.value for p in Platform}
+        | {normalize_chip_variant(v) for v in VARIANTS}
+        | {normalize_chip_variant(v) for v in _nrf52_variants()}
+    )
     defaults: dict[str, str] = {}
     for key, value in sorted(raw.items()):
         if value == "DEFAULT":
             continue
-        canonical = normalize_chip_variant(key)
+        canonical = _logger_default_key(key)
         if canonical not in known_keys:
             raise RuntimeError(
                 f"logger hardware_uart default key {key!r} does not map onto a "
@@ -4729,6 +4836,21 @@ def _is_sentence_docs(docs: str) -> bool:
     return len(docs) > _MAX_OPTION_LABEL_LENGTH or docs.endswith((".", "!", "?"))
 
 
+def _boolean_default_as_option(default: Any, options: list[dict] | None) -> Any:
+    """Return the option esphome reads as boolean *default* (``True`` -> ``ON``), else *default*."""
+    if not isinstance(default, bool) or not options:
+        return default
+    from esphome import config_validation as cv
+
+    for option in options:
+        try:
+            if cv.boolean(option["value"]) is default:
+                return option["value"]
+        except cv.Invalid:
+            continue
+    return default
+
+
 def _enum_default(raw: dict) -> str | None:
     """Resolve the schema-marked default among an enum's values."""
     values = raw.get("values")
@@ -4828,7 +4950,10 @@ def _reference_namespace(qualified: str) -> str | None:
     """Catalog reference domain for a ``'ns::Class'``; None if unqualified."""
     # Shared by the reference side (use_id_type) and provider side (id
     # parents) so the two always map a namespace the same way.
-    if not isinstance(qualified, str) or "::" not in qualified:
+    if not isinstance(qualified, str):
+        return None
+    qualified = qualified.removeprefix("esphome::")
+    if "::" not in qualified:
         return None
     namespace = qualified.split("::", 1)[0]
     return _USE_ID_NAMESPACE_OVERRIDES.get(namespace, namespace)
@@ -5466,73 +5591,69 @@ def _resolve_name(component_id: str, stem: str, doc_name: str | None) -> str:
 # external_components, ...). The frontend's "Add core configuration"
 # dialog is a thin filter on category=core, so this list defines what
 # the user sees there.
-_CATEGORY_OVERRIDES: dict[str, str] = {
+_CATEGORY_OVERRIDES: dict[str, ComponentCategory] = {
     # Core ESPHome infrastructure
-    "esphome": "core",
-    "wifi": "core",
-    "api": "core",
-    "ota": "core",
-    "logger": "core",
-    "mqtt": "core",
-    "web_server": "core",
-    "captive_portal": "core",
-    "safe_mode": "core",
-    "time": "core",
-    "network": "core",
-    "ethernet": "core",
-    "mdns": "core",
-    "improv_serial": "core",
-    "debug": "core",
-    "preferences": "core",
+    "esphome": ComponentCategory.CORE,
+    "wifi": ComponentCategory.CORE,
+    "api": ComponentCategory.CORE,
+    "ota": ComponentCategory.CORE,
+    "logger": ComponentCategory.CORE,
+    "mqtt": ComponentCategory.CORE,
+    "web_server": ComponentCategory.CORE,
+    "captive_portal": ComponentCategory.CORE,
+    "safe_mode": ComponentCategory.CORE,
+    "time": ComponentCategory.CORE,
+    "network": ComponentCategory.CORE,
+    "ethernet": ComponentCategory.CORE,
+    "mdns": ComponentCategory.CORE,
+    "improv_serial": ComponentCategory.CORE,
+    "debug": ComponentCategory.CORE,
+    "preferences": ComponentCategory.CORE,
     # Networking / web infrastructure that's auto-pulled by other
     # core components (ota.http_request → http_request,
     # web_server → web_server_base, etc.). Keeping them tagged
     # `core` lets the dependency-satisfaction filter on the core
     # dialog pass the parent OTA / web entries that depend on them.
-    "http_request": "core",
-    "web_server_base": "core",
-    "web_server_idf": "core",
-    "socket": "core",
-    "async_tcp": "core",
+    "http_request": ComponentCategory.CORE,
+    "web_server_base": ComponentCategory.CORE,
+    "web_server_idf": ComponentCategory.CORE,
+    "socket": ComponentCategory.CORE,
+    "async_tcp": ComponentCategory.CORE,
     # Target platform components (esp32, esp8266, ...) — these are
     # also tagged via `is_target_platform` introspection, but listing
     # them explicitly here makes the override authoritative.
-    "esp32": "core",
-    "esp8266": "core",
-    RP2_CANONICAL_PLATFORM: "core",
-    "bk72xx": "core",
-    "rtl87xx": "core",
-    "ln882x": "core",
-    "nrf52": "core",
-    "host": "core",
+    "esp32": ComponentCategory.CORE,
+    "esp8266": ComponentCategory.CORE,
+    RP2_CANONICAL_PLATFORM: ComponentCategory.CORE,
+    "bk72xx": ComponentCategory.CORE,
+    "rtl87xx": ComponentCategory.CORE,
+    "ln882x": ComponentCategory.CORE,
+    "nrf52": ComponentCategory.CORE,
+    "host": ComponentCategory.CORE,
     # Device-wide config keys (not really "components" — they don't
     # have C++ implementations — but they live at the top level of
     # YAML alongside real components).
-    "substitutions": "core",
-    "packages": "core",
-    "external_components": "core",
-    "dashboard_import": "core",
-    "globals": "core",
+    "substitutions": ComponentCategory.CORE,
+    "packages": ComponentCategory.CORE,
+    "external_components": ComponentCategory.CORE,
+    "dashboard_import": ComponentCategory.CORE,
+    "globals": ComponentCategory.CORE,
     # Bus / transport components
-    "i2c": "bus",
-    "spi": "bus",
-    "uart": "bus",
-    "one_wire": "bus",
-    "modbus": "bus",
-    "canbus": "bus",
+    "i2c": ComponentCategory.BUS,
+    "spi": ComponentCategory.BUS,
+    "uart": ComponentCategory.BUS,
+    "one_wire": ComponentCategory.BUS,
+    "modbus": ComponentCategory.BUS,
+    "canbus": ComponentCategory.BUS,
     # Automation primitives
-    "script": "automation",
-    "interval": "automation",
+    "script": ComponentCategory.AUTOMATION,
+    "interval": ComponentCategory.AUTOMATION,
 }
 
 
-def _infer_misc_category(top_key: str) -> str:
-    """Best-effort category for non-platform components.
-
-    Looks up ``_CATEGORY_OVERRIDES`` first (curated list mirroring the
-    legacy catalog), falls through to ``misc`` for everything else.
-    """
-    return _CATEGORY_OVERRIDES.get(top_key, "misc")
+def _infer_misc_category(top_key: str) -> ComponentCategory:
+    """Category for a non-platform component: its override, else ``misc``."""
+    return _CATEGORY_OVERRIDES.get(top_key, ComponentCategory.MISC)
 
 
 # ---------------------------------------------------------------------------
@@ -5681,26 +5802,14 @@ def _upgrade_stamp_only_refinements(
 
 
 def _collect_bleed_keys(
-    manifest: Any,
+    merged_ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
+    merged_refined: dict[tuple[str, ...], RefinedType],
     platform_manifests_by_domain: list[tuple[str, Any]],
 ) -> tuple[
     dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]],
     dict[str, dict[tuple[str, ...], RefinedType | None]],
 ]:
-    """Per-domain hub signals a platform schema redefines, for platform builds to shed.
-
-    Both signals shed when the platform's own value differs (the
-    modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
-    item's plain ``cv.positive_int``), each shed path mapping to the
-    platform's own range / refinement (``None`` when it has none) so the
-    build substitutes rather than dropping. Keyed per platform domain, not
-    aggregated: one platform's redefinition must not spare a sibling
-    platform from the shed. Hub builds keep every signal. Covers
-    hub-to-platform bleed only; a sibling platform's contribution rides
-    ``merge_from_platforms`` unguarded.
-    """
-    hub_ranges = _collect_field_ranges(manifest)
-    hub_refined = _collect_refined_types(manifest)
+    """Per-domain paths whose platform range / refinement differs from the merge, mapped to its own."""
     range_bleed: dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]] = {}
     refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
@@ -5708,16 +5817,16 @@ def _collect_bleed_keys(
         platform_ranges = _collect_field_ranges(platform_manifest)
         bled = {
             path: platform_ranges.get(path)
-            for path in hub_ranges
-            if path in keys and platform_ranges.get(path) != hub_ranges[path]
+            for path in merged_ranges
+            if path in keys and platform_ranges.get(path) != merged_ranges[path]
         }
         if bled:
             range_bleed[domain] = bled
         platform_refined = _collect_refined_types(platform_manifest)
         refined_bled = {
             path: platform_refined.get(path)
-            for path in hub_refined
-            if path in keys and platform_refined.get(path) != hub_refined[path]
+            for path in merged_refined
+            if path in keys and platform_refined.get(path) != merged_refined[path]
         }
         if refined_bled:
             refined_bleed[domain] = refined_bled
@@ -5805,24 +5914,23 @@ def introspect_component(component_id: str) -> dict[str, Any]:
                 merged.setdefault(path, value)
         return merged
 
+    merged_ranges = merge_from_platforms(_collect_field_ranges)
     refined_types = _upgrade_stamp_only_refinements(
         merge_from_platforms(_collect_refined_types), platform_manifests
     )
     component_gates = merge_from_platforms(_collect_component_gates)
     platform_constraints = merge_from_platforms(_collect_platform_constraints)
-    field_ranges = _drop_machine_derived_ranges(
-        component_id, merge_from_platforms(_collect_field_ranges)
-    )
+    field_ranges = _drop_machine_derived_ranges(component_id, dict(merged_ranges))
     inclusive_groups = merge_from_platforms(_collect_inclusive_groups)
     required_groups = merge_from_platforms(_collect_required_groups)
     list_fields = merge_from_platforms(_collect_list_fields)
     registry_members = merge_from_platforms(_collect_registry_members)
     typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
-    # Hub signals must not bleed onto platform fields the domain
-    # redefines; platform builds shed them (``build_component_entry``).
+    # Merged hub and sibling signals must not bleed onto fields a platform
+    # domain types differently; platform builds shed them (``build_component_entry``).
     field_range_bleed_keys, refined_bleed_keys = _collect_bleed_keys(
-        manifest, platform_manifests_by_domain
+        merged_ranges, refined_types, platform_manifests_by_domain
     )
 
     model_variance = _collect_model_variance_by_domain(
@@ -6603,7 +6711,8 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
             # resolver never matches (see models/boards.py).
             per_platform[normalize_platform(str(plat))] = value
         if per_platform:
-            out[path] = per_platform
+            # Sorted: upstream builds some SplitDefaults from a set of variants.
+            out[path] = dict(sorted(per_platform.items()))
 
     _walk_schema_keys(schema, visit)
     return out
@@ -6622,11 +6731,16 @@ class RefinedType(NamedTuple):
     display_format: str | None = None
     templatable: bool = False
     duration_min_unit: str | None = None
+    drop_options: bool = False
 
 
 # Stamp-only refinement: the union is templatable but no plain branch
 # classifies, so the bundle's typing stands.
 _TEMPLATABLE_ONLY = RefinedType("")
+
+# The bundle's enum values are schema-extractor placeholders the validator
+# itself rejects (light ``color``'s "CSS color name"); drop them as options.
+_PLACEHOLDER_OPTIONS = RefinedType("", drop_options=True)
 
 
 # IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
@@ -6861,6 +6975,24 @@ def _is_dict_list_union(validator: Any) -> bool:
     return _validator_branches_dict_and_list(src)
 
 
+def _rejects_own_placeholders(validator: Any) -> bool:
+    """Return whether *validator*'s schema-extract values all fail its own validation."""
+    placeholders = _hidden_schema(validator)
+    if not isinstance(placeholders, (list, tuple)) or not placeholders:
+        return False
+    if not all(isinstance(value, str) for value in placeholders):
+        return False
+    for value in placeholders:
+        try:
+            validator(value)
+        except vol.Invalid:
+            continue
+        except Exception:
+            return False
+        return False
+    return True
+
+
 def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, RefinedType]]:
     """Map runtime validator identities / names to refined types.
 
@@ -6979,6 +7111,27 @@ def _duration_min_unit_of(validator: Any) -> str | None:
     return _duration_precision_of(validator) or None
 
 
+def _refined_type_by_name(
+    validator: Any, qualname: str, by_name: dict[str, RefinedType]
+) -> RefinedType | None:
+    """Match a closure or partial to the longest table name its own name contains."""
+    lowered = (getattr(validator, "__name__", None) or qualname).lower()
+    key = max((k for k in by_name if k in lowered), key=len, default=None)
+    refined = by_name[key] if key is not None else None
+    if refined is None or refined.type != "float_with_unit" or not refined.unit_options:
+        return refined
+    # A unit picker named like a unit-coerced validator (cv.temperature_unit)
+    # accepts a bare unit; a coercer rejects one, so any raise keeps the refinement.
+    try:
+        validator(refined.unit_options[0])
+    except Exception:
+        return refined
+    _LOGGER.debug(
+        "%s accepts bare unit %r; treating it as a unit picker", lowered, refined.unit_options[0]
+    )
+    return None
+
+
 def _with_duration_min_unit(refined: RefinedType | None, validator: Any) -> RefinedType | None:
     """Return *refined* carrying *validator*'s time-period precision, when it has one."""
     unit = _duration_min_unit_of(validator)
@@ -7053,7 +7206,11 @@ def _refined_types_in_schema(  # noqa: C901
         # the keys so the entry lands ``string`` and every select pick
         # re-serializes quoted (#2272). String-keyed enums (cc1101's
         # ``cv.enum({"8": ...})`` rejects a bare ``8``) stay unrefined.
-        refined = by_identity.get(id(validator)) or _int_enum_refined_type(validator)
+        refined = (
+            by_identity.get(id(validator))
+            or _int_enum_refined_type(validator)
+            or (_PLACEHOLDER_OPTIONS if _rejects_own_placeholders(validator) else None)
+        )
         if refined is not None:
             return refined
         # Some validators are wrapped (vol.All chains, partials, or
@@ -7085,12 +7242,8 @@ def _refined_types_in_schema(  # noqa: C901
             units = _extract_validator_units(validator)
             if units:
                 return RefinedType("float_with_unit", unit_options=units)
-        # Fall back to name-based matching for closures and partials
-        # that lose identity but keep the name.
-        name = (getattr(validator, "__name__", None) or qualname).lower()
-        for k, t in by_name.items():
-            if k in name:
-                return t
+        if (t := _refined_type_by_name(validator, qualname, by_name)) is not None:
+            return t
         # Last resort: component-local suffix strippers (stepper's
         # ``validate_speed``) that no table can bind (#2056).
         units = _derive_suffix_units(validator)
@@ -7438,17 +7591,18 @@ def _typed_branch_schemas(node: Any) -> dict[str, Any] | None:
     ``cv.typed_schema(schemas, ...)`` captures — off the first reachable
     typed_schema closure.
     """
+    return _search_validator_graph(node, _typed_schema_variants)
 
-    def _branches(current: Any) -> dict[str, Any] | None:
-        if not (callable(current) and getattr(current, "__closure__", None)):
-            return None
-        try:
-            schemas = _closure_nonlocals(current).get("schemas")
-        except (TypeError, ValueError):
-            return None
-        return schemas if isinstance(schemas, dict) and schemas else None
 
-    return _search_validator_graph(node, _branches)
+def _typed_schema_variants(node: Any) -> dict[str, Any] | None:
+    """Return the ``{type_name: sub_schema}`` dict a ``cv.typed_schema`` closure captures, or None."""
+    if not (callable(node) and getattr(node, "__closure__", None)):
+        return None
+    try:
+        schemas = _closure_nonlocals(node).get("schemas")
+    except (TypeError, ValueError):
+        return None
+    return schemas if isinstance(schemas, dict) and schemas else None
 
 
 def _typed_default_of(node: Any) -> tuple[str, Any] | None:
@@ -7942,6 +8096,7 @@ def _case_widened_gate_values(values: Iterable[str]) -> list[str]:
 def _apply_refined_types(
     entries: list[dict],
     refined: dict[tuple[str, ...], RefinedType],
+    owner: str = "",
 ) -> None:
     """Promote entry types from string → boolean/float/... where known.
 
@@ -7971,6 +8126,8 @@ def _apply_refined_types(
         # plain input; additive only, a bundle-set flag is never cleared.
         if new_type.templatable:
             entry["templatable"] = True
+        if new_type.drop_options and entry.pop("options", None):
+            _LOGGER.info("Dropping placeholder options on %s %s", owner, ".".join(path))
         if new_type.type:
             _apply_refined_entry_type(entry, new_type)
         if new_type.duration_min_unit and entry.get("type") == "time_period":
@@ -8032,14 +8189,8 @@ def _merge_boolean_union_options(entry: dict) -> None:
         if literal not in present
     ] + options
     if isinstance(entry.get("default_value"), bool):
-        literal = "true" if entry["default_value"] else "false"
-        entry["default_value"] = next(
-            (
-                option["value"]
-                for option in entry["options"]
-                if str(option.get("value")).lower() == literal
-            ),
-            literal,
+        entry["default_value"] = _boolean_default_as_option(
+            entry["default_value"], entry["options"]
         )
 
 
@@ -8109,10 +8260,8 @@ def _load_board_index() -> list[dict]:
     """
     Load the committed ``boards.index.json`` (each board carries esphome.platform/board).
 
-    Read as committed: the board sync (``sync_boards.py``) and this component
-    sync are independent workflows, so board options can trail a board
-    add/remove by one component-sync cycle. ``allow_custom_value`` covers the
-    gap — the user can still type any board id.
+    Read from disk, so the catalog-sync workflow re-stamps boards before
+    this sync; ``allow_custom_value`` covers any board id not listed.
     """
     data = orjson.loads((_DEFINITIONS_DIR / "boards.index.json").read_bytes())
     boards = data.get("boards") if isinstance(data, dict) else data
@@ -8174,6 +8323,18 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     add("esp8266", _logger.UART_SELECTION_ESP8266)
     add(RP2_CANONICAL_PLATFORM, _logger.UART_SELECTION_RP2040)
     add("nrf52", _logger.UART_SELECTION_NRF52)
+    # A per-chip default row (``nrf52_54l15``) needs its own choices, matching upstream's uart_selection
+    from esphome import loader
+    from esphome.components.nrf52 import const as nrf52_const
+
+    without_usb = getattr(nrf52_const, "VARIANTS_WITHOUT_USB", frozenset())
+    defaults = _collect_platform_defaults(loader.get_component("logger")).get(
+        ("hardware_uart",), {}
+    )
+    for key in defaults:
+        if key.startswith("nrf52_"):
+            variant = _logger_default_key(key).upper()
+            add(key, [_logger.UART0] if variant in without_usb else _logger.UART_SELECTION_NRF52)
     return out
 
 
@@ -8895,9 +9056,39 @@ def _collect_required_groups(
     return out
 
 
+# Registries beyond esphome.automation's, imported one by one so a failure
+# loses only that kind. Filter ids repeat across domains, hence one per domain.
+_OPTIONAL_AUTOMATION_REGISTRIES: dict[str, tuple[str, str]] = {
+    "light_effect": ("esphome.components.light.effects", "EFFECTS_REGISTRY"),
+    "sensor.filter": ("esphome.components.sensor", "FILTER_REGISTRY"),
+    "binary_sensor.filter": ("esphome.components.binary_sensor", "FILTER_REGISTRY"),
+    "text_sensor.filter": ("esphome.components.text_sensor", "FILTER_REGISTRY"),
+}
+
+# Kinds a full sync must refine; text_sensor filters have nothing to refine.
+_MUST_REFINE_KINDS = frozenset({"action", "condition", "light_effect", "sensor.filter"})
+
+# Kinds that carry a ``required_groups`` field.
+_REQUIRED_GROUP_KINDS = frozenset({"action", "condition"})
+
+
+def _fail_on_unrefined_registries(registry_refined: dict[str, Any]) -> None:
+    """Abort a full sync when a registry failed to import or a must-refine kind came back empty."""
+    # SystemExit so a partially-imported esphome can't rewrite every
+    # automation body de-refined and still exit 0.
+    expected = {"action", "condition", *_OPTIONAL_AUTOMATION_REGISTRIES}
+    if unavailable := expected - _automation_registries().keys():
+        raise SystemExit(f"automation registries {sorted(unavailable)} failed to import.")
+    if unrefined := _MUST_REFINE_KINDS - registry_refined.keys():
+        raise SystemExit(
+            f"automation registries {sorted(unrefined)} yielded no refinements after a "
+            "full import sweep — the automations catalog would be de-refined."
+        )
+
+
 def _automation_registries() -> dict[str, Any]:
     """
-    Return the live ``{"action": ..., "condition": ...}`` registry map.
+    Return the live registry map keyed by automation kind.
 
     The registries fill during :func:`build_catalog`'s import sweep, so read
     them after it; ``--limit-component`` runs yield partial data. Empty when
@@ -8908,10 +9099,16 @@ def _automation_registries() -> dict[str, Any]:
     except Exception:
         _LOGGER.debug("automation registries unavailable", exc_info=True)
         return {}
-    return {
+    registries = {
         "action": automation.ACTION_REGISTRY,
         "condition": automation.CONDITION_REGISTRY,
     }
+    for kind, (module_name, attr) in _OPTIONAL_AUTOMATION_REGISTRIES.items():
+        try:
+            registries[kind] = getattr(importlib.import_module(module_name), attr)
+        except Exception:
+            _LOGGER.warning("%s registry unavailable", kind, exc_info=True)
+    return registries
 
 
 def _iter_automation_registry_entries() -> Iterator[tuple[str, str, Any]]:
@@ -9416,21 +9613,6 @@ def _apply_list_fields(entries: list[dict], list_fields: dict[tuple[str, ...], b
     _walk_catalog_entries(entries, visit)
 
 
-#: Schema-factory wrappers whose closures hold nested schemas worth
-#: walking for ``cv.rename_key`` validators. Matched against
-#: ``__qualname__`` prefixes. Descent is limited to these because a
-#: generic function-closure walk reaches the global automation registry
-#: and from there every loaded component's schema graph; every probe is
-#: also type-strict, because a codegen ``MockObj`` answers any getattr
-#: with a fresh truthy object (msa3xx's ``typed_schema`` enum hung an
-#: unrestricted walk).
-_RENAME_WRAPPER_PREFIXES = (
-    "validate_automation.",
-    "ensure_list.",
-    "typed_schema.",
-    "maybe_simple_value.",
-)
-
 #: Node types the rename walk descends into beyond functions.
 _RENAME_SCHEMA_TYPES = (dict, vol.Schema)
 
@@ -9492,11 +9674,20 @@ class MigrationRuleRow(NamedTuple):
     component: str = ""
     domain: str = ""
     platform: str = ""
+    list_key: str = ""
 
     @property
     def artifact_order(self) -> tuple[str, ...]:
         """Sort key of the emitted artifact: kind, then placement, then the pair."""
-        return (self.kind, self.component, self.domain, self.platform, self.old, self.new)
+        return (
+            self.kind,
+            self.component,
+            self.domain,
+            self.platform,
+            self.list_key,
+            self.old,
+            self.new,
+        )
 
 
 #: Rows bound for the migration-rules artifact, each mapped to upstream's
@@ -9504,15 +9695,44 @@ class MigrationRuleRow(NamedTuple):
 _MIGRATION_RULES: dict[MigrationRuleRow, str | None] = {}
 
 
+#: A migration validator's placement under the schema root: ``()`` on the
+#: root's own chain, ``(key,)`` under a mapping key, ``(key, "[]")`` on
+#: the items of that key's list, ``None`` anywhere else or mixed.
+RenamePath = tuple[str, ...] | None
+
+#: Path segment of a step that adds no placement (a validator chain
+#: entry or a ``typed_schema`` variant), and of an ``ensure_list`` item.
+_TRANSPARENT_SEGMENT = ""
+_LIST_ITEM_SEGMENT = "[]"
+#: Declared-key marker for a placement that may accept any key.
+_ANY_KEY = "<any key>"
+#: Nesting depth the rename walk stops at; a schema reaching it fails
+#: the sync through a sentinel pair, like an unreadable validator. Live
+#: schemas walk at most 24 deep.
+_RENAME_WALK_DEPTH = 32
+_DEPTH_CAPPED = "<schema past the depth cap>"
+
+#: The ``typed_schema`` variants and ``cv.Any`` alternatives a placement
+#: was reached through, as ``"<node id>:<type or index>"`` tags; a
+#: sibling's mapping shares the path but not the lineage.
+Lineage = tuple[str, ...]
+
+
 class SchemaHit(NamedTuple):
-    """A discovered migration validator's placement and upstream removal version.
+    """A discovered migration validator's placement and upstream removal version."""
 
-    *direct* means it sits on the schema's own validator chain (only
-    ``cv.All`` / ``.extend`` between it and the root).
-    """
-
-    direct: bool
+    path: RenamePath
     removed_in: str | None = None
+
+    @property
+    def direct(self) -> bool:
+        """Whether it sits on the schema's own validator chain."""
+        return self.path == ()
+
+    @property
+    def list_key(self) -> str | None:
+        """The depth-1 list whose items carry it, else ``None``."""
+        return self.path[0] if self.path is not None and len(self.path) == 2 else None
 
 
 #: Manifests the rename sweep actually walked; zero at check time means
@@ -9558,24 +9778,45 @@ def _classify_rename_pairs(
 
     A *direct* pair (the validator sits on the schema's own mapping, no
     wrapper descent) is a plain child-key rename the generic migration
-    engine applies; anything else needs bespoke handling. *platform_domain*
-    marks a platform-domain block, whose ``- platform:`` items
+    engine applies; a pair on the items of a platform item's depth-1
+    list (``SchemaHit.list_key``) is a list-item field rename; anything
+    else needs bespoke handling. *platform_domain* marks a
+    platform-domain block, whose ``- platform:`` items
     ``component_block_field`` can't address, so its pairs fall to the
     canary.
     """
     for (old, new), hit in pairs.items():
         if (component_id, old, new) in _HANDLED_RENAME_KEYS:
             continue
-        if hit.direct and not platform_domain and old != new:
-            if domain is None:
-                row = MigrationRuleRow("component_block_field", old, new, component=component_id)
-            else:
-                row = MigrationRuleRow(
-                    "platform_item_field", old, new, domain=domain, platform=component_id
-                )
-            _MIGRATION_RULES[row] = hit.removed_in
-        else:
+        row = None if platform_domain else _rename_rule_row(component_id, old, new, hit, domain)
+        if row is None:
             _UNHANDLED_RENAME_KEYS.add((component_id, old, new))
+        else:
+            _MIGRATION_RULES[row] = hit.removed_in
+
+
+def _rename_rule_row(
+    component_id: str, old: str, new: str, hit: SchemaHit, domain: str | None
+) -> MigrationRuleRow | None:
+    """Return the artifact row expressing *hit*'s placement, or ``None`` when no rule kind can."""
+    if old == new:
+        return None
+    if hit.direct:
+        if domain is None:
+            return MigrationRuleRow("component_block_field", old, new, component=component_id)
+        return MigrationRuleRow(
+            "platform_item_field", old, new, domain=domain, platform=component_id
+        )
+    if domain is not None and hit.list_key:
+        return MigrationRuleRow(
+            "platform_item_list_field",
+            old,
+            new,
+            domain=domain,
+            platform=component_id,
+            list_key=hit.list_key,
+        )
+    return None
 
 
 def _sweep_component_aliases() -> None:
@@ -9849,47 +10090,192 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], SchemaHit]:
     memoised = _RENAME_KEYS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]
-    out: dict[tuple[str, str], SchemaHit] = {}
-    visited: set[tuple[int, bool]] = set()
-    capped = False
-    stack: list[tuple[Any, int, bool]] = [(schema, 0, True)]
+    found: dict[tuple[str, str], set[tuple[RenamePath, Lineage]]] = {}
+    removed: dict[tuple[str, str], str | None] = {}
+    declared: dict[tuple[RenamePath, Lineage], set[str]] = {}
+    enumerated: set[tuple[RenamePath, Lineage]] = set()
+    visited: set[tuple[int, RenamePath, Lineage]] = set()
+    stack: list[tuple[Any, int, RenamePath, Lineage]] = [(schema, 0, (), ())]
     while stack:
-        node, depth, direct = stack.pop()
+        node, depth, path, lineage = stack.pop()
         if node is None:
             continue
-        if depth > 10:
-            capped = True
-            continue
-        found = _rename_key_pair(node)
-        if found is not None:
-            old_key, new_key, removed_in = found
+        if depth > _RENAME_WALK_DEPTH:
+            hit: tuple[str, str, str | None] | None = (_DEPTH_CAPPED, _DEPTH_CAPPED, None)
+        else:
+            hit = _rename_key_pair(node) or _unreadable_wrapper_pair(node)
+        if hit is not None:
+            old_key, new_key, removed_in = hit
             pair = (old_key, new_key)
-            # ``and`` so a pair also reachable nested stays inexpressible
-            # (fail-loud): the generic rule would cover only the direct
-            # occurrence. Rename validators bypass the visited gate so a
-            # shared closure lets every path vote.
-            prior = out.get(pair, SchemaHit(direct=True))
-            if None not in (prior.removed_in, removed_in) and prior.removed_in != removed_in:
-                raise SystemExit(
-                    f"rename_key {pair}: conflicting removed_in "
-                    f"{prior.removed_in!r} vs {removed_in!r} across paths"
-                )
-            out[pair] = SchemaHit(prior.direct and direct, prior.removed_in or removed_in)
+            # Rename validators bypass the visited gate so a shared
+            # closure lets every path vote; the placement still counts
+            # as reached, so a bare rename alone leaves it open.
+            found.setdefault(pair, set()).add((path, lineage))
+            removed[pair] = _merge_removed_in(pair, removed.get(pair), removed_in)
+            if path is not None:
+                declared.setdefault((path, lineage), set())
             continue
-        # Keyed on placement too, so a node reachable both directly and
-        # nested votes on both paths instead of by pop order.
-        if (id(node), direct) in visited:
+        # Keyed on placement too, so a node reachable along two paths
+        # votes on both instead of by pop order.
+        if (id(node), path, lineage) in visited:
             continue
-        visited.add((id(node), direct))
+        visited.add((id(node), path, lineage))
+        children = list(_rename_walk_children(node))
+        if path is not None:
+            _declare_keys(declared, enumerated, node, path, lineage, children)
         stack.extend(
-            (child, depth + 1, direct and stays_direct)
-            for child, stays_direct in _rename_walk_children(node)
+            (child, depth + 1, child_path, child_lineage)
+            for child, child_path, child_lineage in _child_placements(path, lineage, children)
         )
-    if capped:
-        _LOGGER.warning("rename_key walk hit the depth cap; coverage may be incomplete")
+    _open_unenumerated(declared, enumerated)
+    paths = _sole_placements(found, declared)
+    out = {pair: SchemaHit(paths[pair], removed[pair]) for pair in found}
     _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
+
+
+def _open_unenumerated(
+    declared: dict[tuple[RenamePath, Lineage], set[str]],
+    enumerated: set[tuple[RenamePath, Lineage]],
+) -> None:
+    """Mark every placement the walk reached without enumerating its keys as accepting any."""
+    for placement in declared.keys() - enumerated:
+        declared[placement].add(_ANY_KEY)
+
+
+def _child_placements(
+    path: RenamePath, lineage: Lineage, children: list[tuple[Any, str | None, str | None]]
+) -> Iterator[tuple[Any, RenamePath, Lineage]]:
+    """Yield each child with its placement and lineage; the lineage is dropped with the placement."""
+    for child, segment, variant in children:
+        child_path = _extend_rename_path(path, segment)
+        if child_path is None:
+            yield child, None, ()
+        elif variant:
+            yield child, child_path, (*lineage, variant)
+        else:
+            yield child, child_path, lineage
+
+
+def _declare_keys(
+    declared: dict[tuple[RenamePath, Lineage], set[str]],
+    enumerated: set[tuple[RenamePath, Lineage]],
+    node: Any,
+    path: RenamePath,
+    lineage: Lineage,
+    children: list[tuple[Any, str | None, str | None]],
+) -> None:
+    """Record the keys *node* declares at its placement, and whether it enumerated them there."""
+    keys = declared.setdefault((path, lineage), set())
+    keys.update(
+        segment
+        for _child, segment, _variant in children
+        if segment and segment != _LIST_ITEM_SEGMENT
+    )
+    if (isinstance(node, vol.Schema) and node.extra != vol.PREVENT_EXTRA) or any(
+        segment is None for _child, segment, _variant in children
+    ):
+        keys.add(_ANY_KEY)
+    # A mapping enumerates its placement, and so does a node dispatching
+    # to children placed elsewhere (a wrapper, variants, alternatives); a
+    # chain step leaves that to the children sharing its placement.
+    if (
+        isinstance(node, dict)
+        or isinstance(getattr(node, "schema", None), dict)
+        or any(segment != _TRANSPARENT_SEGMENT or variant for _c, segment, variant in children)
+    ):
+        enumerated.add((path, lineage))
+
+
+def _merge_removed_in(pair: tuple[str, str], prior: str | None, seen: str | None) -> str | None:
+    """Reconcile two sightings' ``removed_in``; ``SystemExit`` when both declare and disagree."""
+    if None not in (prior, seen) and prior != seen:
+        raise SystemExit(
+            f"rename_key {pair}: conflicting removed_in {prior!r} vs {seen!r} across paths"
+        )
+    return prior or seen
+
+
+def _sole_placements(
+    found: dict[tuple[str, str], set[tuple[RenamePath, Lineage]]],
+    declared: dict[tuple[RenamePath, Lineage], set[str]],
+) -> dict[tuple[str, str], RenamePath]:
+    """
+    Return each pair's one placement, or ``None`` when no rule may respell it.
+
+    Two pairs renaming one legacy key to different targets anywhere in
+    one rewrite scope (sibling ``typed_schema`` variants) both become
+    ``None``, whatever either pair's own placement resolves to: no rule
+    carries the discriminator, so the first would respell the other
+    variant's config to the wrong field.
+    """
+    targets: dict[tuple[str, tuple[str, ...]], set[str]] = {}
+    for (old_key, new_key), placements in found.items():
+        for path, _lineage in placements:
+            for scope in _rewrite_scope(path):
+                targets.setdefault((old_key, scope), set()).add(new_key)
+    paths = {
+        pair: _sole_placement(pair[0], placements, declared) for pair, placements in found.items()
+    }
+    return {
+        pair: None
+        if any(len(targets[(pair[0], scope)]) > 1 for scope in _rewrite_scope(path))
+        else path
+        for pair, path in paths.items()
+    }
+
+
+def _sole_placement(
+    old_key: str,
+    placements: set[tuple[RenamePath, Lineage]],
+    declared: dict[tuple[RenamePath, Lineage], set[str]],
+) -> RenamePath:
+    """
+    Return the one placement a rename sits at, or ``None`` when no rule may respell it.
+
+    Mixed placement is inexpressible (a rule would cover only one
+    occurrence), and so is a placement where a sibling ``typed_schema``
+    variant still declares *old_key* anywhere the engine rewrites (the
+    list items or the list's singleton mapping form), or accepts any
+    key at or above it (a rule would respell a valid config). A
+    declaration beneath the rename's own lineage is covered by it.
+    """
+    paths = {path for path, _lineage in placements}
+    if len(paths) != 1:
+        return None
+    (path,) = paths
+    if path is None:
+        return None
+    lineages = {lineage for _path, lineage in placements}
+    rewritten = _rewrite_scope(path)
+    prefixes = {path[:depth] for depth in range(len(path) + 1)}
+    for (declared_path, lineage), keys in declared.items():
+        if any(lineage[: len(own)] == own for own in lineages):
+            continue
+        if (declared_path in rewritten and old_key in keys) or (
+            declared_path in prefixes and _ANY_KEY in keys
+        ):
+            return None
+    return path
+
+
+def _rewrite_scope(path: RenamePath) -> set[tuple[str, ...]]:
+    """Every placement the engine respells for a rule at *path*; empty when inexpressible."""
+    if path is None:
+        return set()
+    return {path[:1], path} if len(path) == 2 else {path}
+
+
+def _extend_rename_path(path: RenamePath, segment: str | None) -> RenamePath:
+    """Return the placement one *segment* below *path*; ``None`` once it leaves the expressible shapes."""
+    if path is None or segment is None:
+        return None
+    if segment == _TRANSPARENT_SEGMENT:
+        return path
+    if segment == _LIST_ITEM_SEGMENT:
+        return (*path, segment) if len(path) == 1 else None
+    return (segment,) if path == () else None
 
 
 def _classify_channel_colors_folds(
@@ -9957,17 +10343,24 @@ def _schema_has_channel_colors_fold(schema: Any) -> SchemaHit | None:
         ):
             removed_in = _closure_removed_in(node, required=True)
             if not direct:
-                found = SchemaHit(direct=False, removed_in=removed_in)
+                found = SchemaHit(None, removed_in)
                 break
-            found = SchemaHit(direct=True, removed_in=removed_in)
+            found = SchemaHit((), removed_in)
             continue
+        # A fold beneath a wrapper the walk can't read would vanish.
+        if _unreadable_wrapper_pair(node) is not None:
+            found = SchemaHit(None)
+            break
         # Keyed on placement too, so a node reachable both directly and
         # nested votes on both paths instead of by pop order.
         if (id(node), direct) in visited:
             continue
         visited.add((id(node), direct))
+        # The fold has no sibling-variant guard, so a variant-scoped
+        # fold stays nested rather than folding every variant's items.
         stack.extend(
-            (child, direct and stays_direct) for child, stays_direct in _rename_walk_children(node)
+            (child, direct and segment == _TRANSPARENT_SEGMENT and not variant)
+            for child, segment, variant in _rename_walk_children(node)
         )
     _CHANNEL_COLORS_MEMO[id(schema)] = (schema, found)
     return found
@@ -9992,6 +10385,17 @@ def _rename_key_pair(node: Any) -> tuple[str, str, str | None] | None:
     return "<unreadable rename_key>", "<unreadable rename_key>", None
 
 
+def _unreadable_wrapper_pair(node: Any) -> tuple[str, str, None] | None:
+    """Sentinel pair for a rename wrapper whose closure can't be read, so its subtree fails loud."""
+    if not _is_rename_wrapper(node):
+        return None
+    try:
+        _closure_nonlocals(node)
+    except ValueError:
+        return "<unreadable wrapper closure>", "<unreadable wrapper closure>", None
+    return None
+
+
 def _closure_removed_in(node: Any, *, required: bool = False) -> str | None:
     """
     Read a validator's ``removed_in`` closure var; ``None`` when it declares none.
@@ -10012,27 +10416,12 @@ def _closure_removed_in(node: Any, *, required: bool = False) -> str | None:
     return None
 
 
-def _is_rename_wrapper(node: Any) -> bool:
-    """Report whether *node* is a schema-factory wrapper worth descending into."""
-    return isinstance(node, FunctionType) and node.__qualname__.startswith(_RENAME_WRAPPER_PREFIXES)
+#: ``__qualname__`` prefixes of the migration validators the walks hunt.
+_MIGRATION_VALIDATOR_PREFIXES = ("rename_key.", "migrate_channel_colors.")
 
 
-def _rename_walk_children(node: Any) -> Iterator[tuple[Any, bool]]:
-    """Yield ``(child, stays_direct)`` pairs worth visiting when hunting rename validators.
-
-    Only a validator-chain step (``cv.All`` / ``.extend``) keeps a child
-    direct; mapping values and wrapper closures are nested schemas.
-    """
-    validators = getattr(node, "validators", None)
-    if isinstance(validators, (list, tuple)):
-        for child in validators:
-            yield child, True
-    schema = node if isinstance(node, dict) else getattr(node, "schema", None)
-    if isinstance(schema, dict):
-        for value in schema.values():
-            yield value, False
-    if not _is_rename_wrapper(node):
-        return
+def _closure_schemas(node: Any) -> Iterator[tuple[Any, None]]:
+    """Yield the schema-shaped values and bare migration validators a wrapper closure holds."""
     try:
         nonlocals = _closure_nonlocals(node)
     except ValueError:
@@ -10042,8 +10431,104 @@ def _rename_walk_children(node: Any) -> Iterator[tuple[Any, bool]]:
             isinstance(value, _RENAME_SCHEMA_TYPES)
             or isinstance(getattr(value, "validators", None), (list, tuple))
             or _is_rename_wrapper(value)
+            or (
+                isinstance(value, FunctionType)
+                and value.__qualname__.startswith(_MIGRATION_VALIDATOR_PREFIXES)
+            )
         ):
-            yield value, False
+            yield value, None
+
+
+def _typed_variant_schemas(node: Any) -> Iterator[tuple[Any, str]]:
+    """Yield a ``typed_schema`` closure's variant schemas, each with its lineage tag."""
+    for name, value in (_typed_schema_variants(node) or {}).items():
+        yield value, f"{id(node)}:{name}"
+
+
+def _ensure_list_items(node: Any) -> Iterator[tuple[Any, None]]:
+    """Yield an ``ensure_list`` closure's item validator."""
+    item = _ensure_list_item_validator(node)
+    if item is not None:
+        yield item, None
+
+
+#: Schema-factory wrappers whose closures hold nested schemas worth
+#: walking for migration validators, keyed on ``__qualname__`` prefix:
+#: the path segment the step adds (``None`` for a placement the
+#: migration engine can't address) and the reader yielding the
+#: children with their ``typed_schema`` variant tag. Descent is limited
+#: to these because a generic function-closure walk reaches the global
+#: automation registry and from there every loaded component's schema
+#: graph; every probe is also type-strict, because a codegen ``MockObj``
+#: answers any getattr with a fresh truthy object (msa3xx's
+#: ``typed_schema`` enum hung an unrestricted walk).
+_RenameWrapperSpec = tuple[str | None, Callable[[Any], Iterator[tuple[Any, str | None]]]]
+
+_RENAME_WRAPPERS: dict[str, _RenameWrapperSpec] = {
+    "validate_automation.": (None, _closure_schemas),
+    "ensure_list.": (_LIST_ITEM_SEGMENT, _ensure_list_items),
+    "typed_schema.": (_TRANSPARENT_SEGMENT, _typed_variant_schemas),
+    "maybe_simple_value.": (None, _closure_schemas),
+}
+
+
+_RENAME_WRAPPER_PREFIXES = tuple(_RENAME_WRAPPERS)
+
+
+def _rename_wrapper_spec(node: Any) -> _RenameWrapperSpec | None:
+    """Return the ``_RENAME_WRAPPERS`` entry *node* is an instance of, else ``None``."""
+    if not isinstance(node, FunctionType):
+        return None
+    qualname = node.__qualname__
+    if not qualname.startswith(_RENAME_WRAPPER_PREFIXES):
+        return None
+    return next(spec for prefix, spec in _RENAME_WRAPPERS.items() if qualname.startswith(prefix))
+
+
+def _is_rename_wrapper(node: Any) -> bool:
+    """Report whether *node* is a schema-factory wrapper worth descending into."""
+    return _rename_wrapper_spec(node) is not None
+
+
+def _rename_walk_children(node: Any) -> Iterator[tuple[Any, str | None, str | None]]:
+    """
+    Yield ``(child, segment, variant)`` triples worth visiting when hunting migration validators.
+
+    *segment* is the path segment the step adds: a mapping key, the
+    list-item marker, the empty transparent segment, or ``None`` for a
+    placement the migration engine can't address. *variant* tags a
+    ``typed_schema`` variant's or ``cv.Any`` alternative's lineage,
+    ``None`` elsewhere.
+    """
+    validators = getattr(node, "validators", None)
+    if isinstance(validators, (list, tuple)):
+        alternatives = isinstance(node, (vol.Any, vol.Union))
+        for index, child in enumerate(validators):
+            yield child, _TRANSPARENT_SEGMENT, f"{id(node)}:{index}" if alternatives else None
+    schema = node if isinstance(node, dict) else getattr(node, "schema", None)
+    if isinstance(schema, dict):
+        for marker, value in schema.items():
+            key = getattr(marker, "schema", marker)
+            yield value, key if isinstance(key, str) and key else None, None
+    spec = _rename_wrapper_spec(node)
+    if spec is not None:
+        yield from _rename_wrapper_children(node, spec)
+
+
+def _rename_wrapper_children(
+    node: Any, spec: _RenameWrapperSpec
+) -> Iterator[tuple[Any, str | None, str | None]]:
+    """Yield a wrapper's children; an empty named read falls back to the generic closure scan."""
+    segment, children = spec
+    named = list(children(node))
+    if named:
+        for child, variant in named:
+            yield child, segment, variant
+        return
+    # The named freevar moved upstream: scan the closure generically so
+    # the pairs beneath still reach the canary as inexpressible.
+    for child, variant in _closure_schemas(node):
+        yield child, None, variant
 
 
 def _collect_registry_members(manifest: Any) -> dict[str, bool]:
@@ -10322,7 +10807,7 @@ def build_automations(  # noqa: C901
     actions: list[dict] = []
     conditions: list[dict] = []
     effects: list[dict] = []
-    filters: list[dict] = []
+    filters_by_domain: dict[str, list[dict]] = {}
 
     # Domains that host platform components (``sensor`` from
     # ``sensor.template``, ``display`` from ``display.ssd1306``, …);
@@ -10394,7 +10879,7 @@ def build_automations(  # noqa: C901
                     schema_dir=schema_dir,
                 )
                 if entry is not None:
-                    filters.append(entry)
+                    filters_by_domain.setdefault(top_key, []).append(entry)
             # Triggers — surfaced through CONFIG_SCHEMA's config_vars
             # (and any other ``_SCHEMA`` the file declares).
             triggers.extend(
@@ -10408,25 +10893,44 @@ def build_automations(  # noqa: C901
 
     actions = _dedupe_by_id(actions)
     conditions = _dedupe_by_id(conditions)
-    refined_by_type = registry_refined or {}
-    _apply_automation_refined_types(actions, refined_by_type.get("action"))
-    _apply_automation_refined_types(conditions, refined_by_type.get("condition"))
-    # After refinement: the range gate reads the entry's final type.
-    ranges_by_type = registry_ranges or {}
-    _apply_automation_field_ranges(actions, ranges_by_type.get("action"))
-    _apply_automation_field_ranges(conditions, ranges_by_type.get("condition"))
-    groups_by_type = registry_groups or {}
-    _apply_automation_required_groups(actions, groups_by_type.get("action"))
-    _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
+    effects = _dedupe_by_id(effects)
+    _apply_registry_signals(
+        {
+            "action": actions,
+            "condition": conditions,
+            "light_effect": effects,
+            # Per domain, before _dedupe_filters merges ids across domains.
+            **{f"{domain}.filter": items for domain, items in filters_by_domain.items()},
+        },
+        registry_refined or {},
+        registry_ranges or {},
+        registry_groups or {},
+    )
     automations = {
         "triggers": _drop_platform_trigger_twins(_dedupe_by_id(triggers)),
         "actions": actions,
         "conditions": conditions,
-        "light_effects": _dedupe_by_id(effects),
-        "filters": _dedupe_filters(filters),
+        "light_effects": effects,
+        # Schema files iterate sorted, so binary_sensor's body wins a shared id.
+        "filters": _dedupe_filters([f for items in filters_by_domain.values() for f in items]),
     }
     _prune_automation_reference_classes(automations, restrictive_references)
     return automations
+
+
+def _apply_registry_signals(
+    entries_by_kind: dict[str, list[dict]],
+    refined: dict[str, Any],
+    ranges: dict[str, Any],
+    groups: dict[str, Any],
+) -> None:
+    """Overlay live registry types, ranges and required groups onto each automation kind."""
+    for kind, entries in entries_by_kind.items():
+        _apply_automation_refined_types(entries, refined.get(kind))
+        # After refinement: the range gate reads the entry's final type.
+        _apply_automation_field_ranges(entries, ranges.get(kind))
+        if kind in _REQUIRED_GROUP_KINDS:
+            _apply_automation_required_groups(entries, groups.get(kind))
 
 
 def _automation_domain(top_key: str, *, component_ids: set[str]) -> str:
@@ -10523,20 +11027,20 @@ def _apply_automation_refined_types(
     entries: list[dict],
     refined_index: dict[str, dict[tuple[str, ...], RefinedType]] | None,
 ) -> None:
-    """Promote action / condition entry types from the live registry schemas."""
+    """Promote automation entry types from the live registry schemas."""
     if not refined_index:
         return
     for entry in entries:
         refined = refined_index.get(entry["id"])
         if refined:
-            _apply_refined_types(entry["config_entries"], refined)
+            _apply_refined_types(entry["config_entries"], refined, entry["id"])
 
 
 def _apply_automation_field_ranges(
     entries: list[dict],
     ranges_index: dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]] | None,
 ) -> None:
-    """Overlay live registry ``vol.Range`` bounds onto action / condition entries."""
+    """Overlay live registry ``vol.Range`` bounds onto automation entries."""
     if not ranges_index:
         return
     for entry in entries:
@@ -10559,16 +11063,29 @@ def _convert_automation_action(
         return None
     docs = clean_docs(body.get("docs"))
     schema = body.get("schema") if isinstance(body.get("schema"), dict) else None
-    config_entries, accepts_action_list, has_condition_gate = _extract_automation_param_schema(
+    config_entries, accepts_action_list, condition_gate_keys = _extract_automation_param_schema(
         schema, schema_dir
     )
+    has_branches = bool(body.get("is_list")) and _is_branch_item_schema(schema, schema_dir)
+    if body.get("is_list") and not has_branches and _has_choice_keys(schema, schema_dir):
+        msg = f"{top_key}.{name}: list item pairs 'if' with 'then' but is not a branch list"
+        raise RuntimeError(msg)
+    if has_branches:
+        # The item keys are the branch shape, not fields; only ``else`` is an action list.
+        config_entries = []
+        accepts_action_list = [k for k in accepts_action_list if k != _BRANCH_ACTIONS_KEY]
     # Stabilise the ordering — ``then`` always precedes ``else`` so
     # the wire shape doesn't churn across syncs.
     accepts_action_list = sorted(
         accepts_action_list,
         key=lambda k: (k != "then", k),
     )
-    is_control_flow = any(k in _ACTION_LIST_KEYS for k in accepts_action_list) or has_condition_gate
+    has_condition_gate = bool(condition_gate_keys)
+    is_control_flow = (
+        any(k in _ACTION_LIST_KEYS for k in accepts_action_list)
+        or has_condition_gate
+        or has_branches
+    )
     has_else_branch = "else" in (accepts_action_list or [])
     qualified = f"{wire_prefix}.{name}" if top_key != "core" else name
     config_entries, scalar_shorthand_key = _resolve_automation_lambda(
@@ -10590,10 +11107,38 @@ def _convert_automation_action(
         "is_control_flow": is_control_flow,
         "has_else_branch": has_else_branch,
         "has_condition_gate": has_condition_gate,
+        "condition_gate_keys": condition_gate_keys,
+        "has_branches": has_branches,
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
         **_scalar_body_fields(schema, body),
     }
+
+
+def _is_branch_item_schema(schema: dict | None, schema_dir: Path) -> bool:
+    """Whether a list item schema is a ``{if: <condition>, then: <actions>}`` choice."""
+    if not schema:
+        return False
+    merged = _merge_extends_config_vars(schema, schema_dir)[0]
+    cond = merged.get(_BRANCH_CONDITION_KEY)
+    then = merged.get(_BRANCH_ACTIONS_KEY)
+    if not isinstance(cond, dict) or not isinstance(then, dict):
+        return False
+    return cond.get("registry") == "condition" and _is_action_list_var(then)
+
+
+def _has_choice_keys(schema: dict | None, schema_dir: Path) -> bool:
+    """Whether a list item schema carries both ``if`` and ``then`` keys, whatever their types."""
+    if not schema:
+        return False
+    merged = _merge_extends_config_vars(schema, schema_dir)[0]
+    return _BRANCH_CONDITION_KEY in merged and _BRANCH_ACTIONS_KEY in merged
+
+
+def _is_action_list_var(raw: dict) -> bool:
+    """Whether a config var takes an action list (a trigger or the action registry)."""
+    rtype = raw.get("type")
+    return rtype == "trigger" or (rtype == "registry" and raw.get("registry") == "action")
 
 
 def _convert_automation_condition(
@@ -10811,40 +11356,19 @@ def _filter_value_type_live(domain: str, name: str) -> str | None:
     The bundle dumps templatable scalar filters (``multiply`` / ``offset``)
     type-less, so introspect the registered validator. None if not a scalar.
     """
+    if (registry_ref := _OPTIONAL_AUTOMATION_REGISTRIES.get(f"{domain}.filter")) is None:
+        raise SystemExit(
+            f"{domain} has a filter registry missing from _OPTIONAL_AUTOMATION_REGISTRIES"
+        )
+    module_name, attr = registry_ref
     try:
-        module = importlib.import_module(f"esphome.components.{domain}")
-        registry = getattr(module, "FILTER_REGISTRY", None)
+        registry = getattr(importlib.import_module(module_name), attr, None)
         if registry is None or name not in registry:
             return None
         schema = getattr(registry[name], "schema", None)
     except Exception:
         return None
     return _classify_scalar_validator(schema)
-
-
-# Per-filter field overrides for shapes the upstream schema bundle
-# can't surface because the validator is a custom callable (e.g.
-# ``ntc_process_calibration``) instead of a structural cv.*
-# combinator the bundle dumper can introspect. Each entry promotes
-# the field to ``multi_value: True`` so the frontend renders an
-# add/remove list editor rather than a single text input that loses
-# the YAML list on save. Add new entries here as they surface; the
-# fix lives upstream when the bundle dumper grows support for the
-# custom validators.
-_REGISTRY_FIELD_OVERRIDES: dict[tuple[str, str], dict] = {
-    ("to_ntc_resistance", "calibration"): {"multi_value": True},
-    ("to_ntc_temperature", "calibration"): {"multi_value": True},
-}
-
-
-def _apply_field_overrides(entry_id: str, config_entries: list[dict]) -> list[dict]:
-    """Apply ``_REGISTRY_FIELD_OVERRIDES`` to entries keyed by id."""
-    return [
-        {**e, **_REGISTRY_FIELD_OVERRIDES[(entry_id, e["key"])]}
-        if (entry_id, e["key"]) in _REGISTRY_FIELD_OVERRIDES
-        else e
-        for e in config_entries
-    ]
 
 
 def _convert_registry_entry(
@@ -10871,7 +11395,6 @@ def _convert_registry_entry(
     value_type = _scalar_value_type_for_schema(name, schema) or live_value_type
     # A pure scalar (``delayed_on: 50ms``) has no mapping side, so no entries.
     config_entries, _alist, _hcg = _extract_automation_param_schema(schema, schema_dir)
-    config_entries = _apply_field_overrides(name, config_entries)
     # ``templatable`` lets the frontend offer a lambda toggle on the scalar
     # value (``multiply: !lambda``). Omitted when false.
     return {
@@ -10911,6 +11434,9 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
     """
     Merge filters sharing an ``id`` across domains; union ``applies_to``.
 
+    The body with ``config_entries`` wins and takes the other's missing
+    scalar value typing (sensor ``timeout`` vs binary_sensor's scalar).
+
     Multi-domain merges strip the ``"<Domain> → "`` prefix from the
     display name since it would otherwise read wrong in whichever
     domain the user is editing (``lambda`` under ``sensor:`` would
@@ -10923,6 +11449,18 @@ def _dedupe_filters(filters: list[dict]) -> list[dict]:
             by_id[f["id"]] = f
             continue
         merged_applies_to = sorted({*existing.get("applies_to", []), *f.get("applies_to", [])})
+        other = f
+        if f.get("config_entries") and not existing.get("config_entries"):
+            existing, other = f, existing
+            by_id[existing["id"]] = existing
+        elif f.get("config_entries") and f["config_entries"] != existing["config_entries"]:
+            _LOGGER.warning("filter %s has different fields per domain; keeping the first", f["id"])
+        for key in ("value_type", "duration_min_unit"):
+            if other.get(key) and not existing.get(key):
+                existing[key] = other[key]
+        # A lambda is only offered when every merged domain's scalar takes one.
+        if not other.get("templatable"):
+            existing.pop("templatable", None)
         existing["applies_to"] = merged_applies_to
         # Multi-domain entry: strip the "<Domain> → " prefix so the
         # bare name reads correctly regardless of editing context.
@@ -11248,19 +11786,20 @@ def _extract_triggers_from_section(
 def _extract_automation_param_schema(
     schema: dict | None,
     schema_dir: Path,
-) -> tuple[list[dict], list[str], bool]:
+) -> tuple[list[dict], list[str], list[str]]:
     """
-    Convert a parameter ``schema`` to ``(config_entries, accepts_action_list, has_condition_gate)``.
+    Convert a parameter ``schema`` to ``(config_entries, accepts_action_list, condition_gate_keys)``.
 
-    ``accepts_action_list`` and ``has_condition_gate`` are stripped
-    from ``config_entries`` so the editor renders them as recursive
-    sub-trees instead of plain form fields.
+    Action-list keys and condition-gate keys are stripped from
+    ``config_entries`` so the editor renders them as recursive sub-trees
+    instead of plain form fields; the gate keys come back ordered
+    ``condition`` first.
     """
     if not schema:
-        return [], [], False
+        return [], [], []
     raw_entries = _convert_config_vars(schema, schema_dir)
     accepts_action_list: list[str] = []
-    has_condition_gate = False
+    condition_gate_keys: list[str] = []
     # ``_convert_config_vars`` skips ``on_*`` triggers and keeps ``then`` /
     # ``else`` as plain fields; walk the merged config_vars (``extends``
     # resolved, so ``http_request.get`` sees its inherited triggers) to
@@ -11272,18 +11811,18 @@ def _extract_automation_param_schema(
             continue
         if _drop_opaque_key("", key, raw):
             continue
-        rtype = raw.get("type")
-        if rtype == "trigger" or (rtype == "registry" and raw.get("registry") == "action"):
+        if _is_action_list_var(raw):
             accepts_action_list.append(key)
             stripped.add(key)
         elif key in _CONDITION_GATE_KEYS:
             # ``condition`` / ``all`` / ``any`` are boolean gates, never
             # user-typed values; strip by name since the schema tags them
             # inconsistently (``registry: condition`` or just a ``docs`` string).
-            has_condition_gate = True
+            condition_gate_keys.append(key)
             stripped.add(key)
     config_entries = [e for e in raw_entries if e.get("key") not in stripped]
-    return config_entries, accepts_action_list, has_condition_gate
+    condition_gate_keys.sort(key=lambda k: (k != "condition", k))
+    return config_entries, accepts_action_list, condition_gate_keys
 
 
 def _automation_label(domain: str, name: str, docs_name: str | None) -> str:

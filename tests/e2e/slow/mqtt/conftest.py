@@ -62,6 +62,14 @@ async def stop_broker(broker: asyncio.subprocess.Process) -> None:
         await broker.wait()
 
 
+def _new_client(client_id: str) -> Any:
+    """Build a paho client on callback API v2 when the installed paho has it."""
+    api_version = getattr(paho, "CallbackAPIVersion", None)
+    if api_version is not None:
+        return paho.Client(api_version.VERSION2, client_id=client_id)
+    return paho.Client(client_id=client_id)
+
+
 class FakeMqttDevice:
     """Threaded paho client that answers each discover broadcast."""
 
@@ -69,9 +77,9 @@ class FakeMqttDevice:
         self.name = name
         self.answering = True
         self._payload = json.dumps({"name": name, "ip": ip})
-        self._client = paho.Client(client_id=f"fake-{name}")
+        self._client = _new_client(f"fake-{name}")
         self._client.username_pw_set(username, password)
-        self._client.on_connect = lambda c, _u, _f, _rc: c.subscribe("esphome/discover")
+        self._client.on_connect = lambda c, *_: c.subscribe("esphome/discover")
         self._client.on_message = self._on_message
         self._client.connect_async("127.0.0.1", port)
         self._client.loop_start()
@@ -90,8 +98,8 @@ class BroadcastProbe:
 
     def __init__(self, port: int) -> None:
         self._seen: list[float] = []
-        self._client = paho.Client(client_id="probe")
-        self._client.on_connect = lambda c, _u, _f, _rc: c.subscribe("esphome/discover")
+        self._client = _new_client("probe")
+        self._client.on_connect = lambda c, *_: c.subscribe("esphome/discover")
         self._client.on_message = lambda _c, _u, _m: self._seen.append(0.0)
         self._client.connect_async("127.0.0.1", port)
         self._client.loop_start()

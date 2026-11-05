@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
+from ...constants import SECRET_REF_RE, secret_ref_name
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
@@ -14,7 +15,12 @@ from ...helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
-from ...helpers.secrets_state import secrets_problem, secrets_unparsable_message
+from ...helpers.secrets_state import (
+    WIFI_PASSWORD_SECRET_REF,
+    WIFI_SSID_SECRET_REF,
+    secrets_problem,
+    secrets_unparsable_message,
+)
 from ...helpers.text import summarise
 from ...helpers.yaml import generate_api_encryption_key
 from ...helpers.yaml.marks import marked_paths, trim_marks
@@ -29,6 +35,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 _INHERIT_ERROR_MARK = "encryption key to inherit"
+# The only refs generated YAML emits; any other name is the generator's bug.
+_GENERATED_SECRET_NAMES = frozenset(
+    ref.removeprefix("!secret ") for ref in (WIFI_SSID_SECRET_REF, WIFI_PASSWORD_SECRET_REF)
+)
 
 # Provenance tag for ``yaml_content_for_create``'s return tuple.
 # ``"user"`` -> caller-supplied ``file_content`` (validation
@@ -178,7 +188,9 @@ async def validate_rewritten_yaml_or_raise(
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
     sentence. An error marked inside *secrets_path* (the config dir's
-    ``secrets.yaml``) refuses as ``INVALID_ARGS`` naming that file.
+    ``secrets.yaml``), or, for generator output (``INTERNAL_ERROR``), one
+    pinned to a ``!secret`` value of *content*, refuses as ``INVALID_ARGS``
+    naming that file.
     """
     if editor is None:
         return ValidationVerdict()
@@ -211,12 +223,17 @@ async def validate_rewritten_yaml_or_raise(
     )
     if warning is not None:
         return ValidationVerdict(warning=warning)
+    secrets_clause = _secrets_file_problem(errors, secrets_path)
+    if secrets_clause is None and on_failure is ErrorCode.INTERNAL_ERROR:
+        # Generator output only: the dashboard placed the ``!secret`` ref, so
+        # the rejected value is the user's.
+        secrets_clause = _secret_value_problem(result, content)
     raise _validation_failure(
         errors,
         action=action,
         on_failure=on_failure,
         failure_tail=failure_tail,
-        secrets_path=secrets_path,
+        secrets_clause=secrets_clause,
     )
 
 
@@ -226,17 +243,19 @@ def _validation_failure(
     action: str,
     on_failure: ErrorCode,
     failure_tail: str | None,
-    secrets_path: Path | None,
+    secrets_clause: str | None,
 ) -> CommandError:
     """Build the refusal ``CommandError`` for a failed validation."""
-    if (problem := _secrets_file_problem(errors, secrets_path)) is not None:
+    if secrets_clause is not None:
         # The user's secrets.yaml is theirs to fix, whatever ``on_failure`` says.
         if on_failure is ErrorCode.INTERNAL_ERROR:
             # Action only: the clause names keys from the user's secrets file.
             _LOGGER.warning(
                 "Refusing %s: errors sit in the user's secrets.yaml, not the generator", action
             )
-        return CommandError(ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, problem))
+        return CommandError(
+            ErrorCode.INVALID_ARGS, secrets_unparsable_message(action, secrets_clause)
+        )
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
             ". Please report this with a redacted snippet of just the "
@@ -310,6 +329,40 @@ def _secrets_file_problem(errors: list[str], secrets_path: Path | None) -> str |
     if len(errors) == 1 and all(Path(p) == secrets_path for p in marked_paths(errors[0])):
         return secrets_problem(errors[0])
     return f"doesn't parse: {summarise([trim_marks(msg) for msg in errors])}"
+
+
+def _secret_value_problem(result: dict, content: str) -> str | None:
+    """Return the ``secrets.yaml <problem>`` clause when every error sits on a ``!secret`` value."""
+    if result.get("yaml_errors"):
+        return None
+    entries = result.get("validation_errors", [])
+    if not entries:
+        return None
+    lines = content.splitlines()
+    parts: list[str] = []
+    for entry in entries:
+        key = _secret_key_at(entry.get("range"), lines)
+        message = str(entry.get("message", "")).removesuffix(".")
+        if key not in _GENERATED_SECRET_NAMES or not message:
+            return None
+        parts.append(f"{key}: {message}")
+    if len(parts) == 1:
+        return f"has an invalid {parts[0]}"
+    return f"has invalid values: {summarise(parts)}"
+
+
+def _secret_key_at(range_: dict | None, lines: list[str]) -> str | None:
+    """Return the secret name when *range_* covers exactly a ``!secret <name>`` token of *lines*."""
+    if not range_ or range_.get("document", "<file>") != "<file>":
+        return None
+    line, start, end = (range_.get(k) for k in ("start_line", "start_col", "end_col"))
+    if not (isinstance(line, int) and isinstance(start, int) and isinstance(end, int)):
+        return None
+    if line != range_.get("end_line") or not 0 <= line < len(lines):
+        return None
+    token = lines[line][start:end]
+    match = SECRET_REF_RE.fullmatch(token.strip())
+    return secret_ref_name(match) if match else None
 
 
 def _entry_confined_to_packages(
