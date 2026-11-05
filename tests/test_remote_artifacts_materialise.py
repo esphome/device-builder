@@ -823,6 +823,27 @@ def test_materialise_native_arduino_round_trip_stages_arduino_idedata(
         assert not resolve_idedata_path("kitchen.yaml", name="kitchen").exists()
 
 
+@pytest.mark.parametrize("with_platformio_ini", [False, True])
+def test_materialise_sdk_nrf_round_trip_without_pio_metadata(
+    paired_roots: tuple[Path, Path], with_platformio_ini: bool
+) -> None:
+    """An sdk-nrf build round-trips without an idedata cache, with or without platformio.ini."""
+    receiver_root, offloader_root = paired_roots
+    tarball = _pack_in_tmp(
+        receiver_root,
+        target_platform="NRF52",
+        toolchain="sdk-nrf",
+        platformio_ini=with_platformio_ini,
+    )
+    build_path = _materialise_in_tmp(tarball, offloader_root)
+
+    assert (build_path / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
+    assert (build_path / "platformio.ini").exists() is with_platformio_ini
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        assert not resolve_idedata_path("kitchen.yaml", name="kitchen").exists()
+
+
 def test_materialise_native_idf_round_trip_without_pio_metadata(
     paired_roots: tuple[Path, Path],
 ) -> None:

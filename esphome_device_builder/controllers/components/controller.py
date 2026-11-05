@@ -357,8 +357,8 @@ class ComponentCatalog:
         self,
         *,
         query: str | None = None,
-        category: ComponentCategory | str | list[str] | None = None,
-        exclude_category: ComponentCategory | str | list[str] | None = None,
+        category: str | list[str] | None = None,
+        exclude_category: str | list[str] | None = None,
         platform: str | None = None,
         board_id: str | None = None,
         provides: str | None = None,
@@ -740,7 +740,7 @@ class ComponentCatalog:
                 counts[ComponentCategory.FEATURED.value] = featured_count
         return sorted(
             [
-                {"id": str(cat), "name": str(cat).replace("_", " ").title(), "count": count}
+                {"id": cat, "name": cat.replace("_", " ").title(), "count": count}
                 for cat, count in counts.items()
             ],
             key=lambda c: (-int(c["count"]), str(c["name"])),

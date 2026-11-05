@@ -506,7 +506,7 @@ async def test_get_components_mixed_category_unions(
     )
     categories_seen = {c.category for c in page.components}
     assert ComponentCategory.FEATURED in categories_seen
-    assert ComponentCategory.SENSOR in categories_seen
+    assert "sensor" in categories_seen
     first_non_featured = next(
         (i for i, c in enumerate(page.components) if c.category != ComponentCategory.FEATURED),
         len(page.components),

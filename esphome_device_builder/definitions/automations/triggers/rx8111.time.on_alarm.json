@@ -1,0 +1,1 @@
+{"id":"rx8111.time.on_alarm","name":"Time.Rx8111 → On Alarm","description":"Run when an alarm flag is observed during event polling.","docs_url":"https://esphome.io/components/time/rx8111/#alarm-options","applies_to":["time.rx8111"],"is_device_level":false,"supports_list":true,"config_entries":[]}

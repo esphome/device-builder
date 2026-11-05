@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from esphome_device_builder.controllers import _device_mqtt_coordinator as coordinator_module
 from esphome_device_builder.helpers.device_yaml import _loading as loading_module
 from esphome_device_builder.helpers.device_yaml import extract_mqtt_block
 from esphome_device_builder.helpers.device_yaml._loading import load_device_from_storage
@@ -47,6 +48,25 @@ def _seed_package_device(
         configuration="pkg.yaml",
         uses_mqtt=True,
         mqtt_extract=build_test_extract(path, yaml, resolved, resolved_substitutions),
+    )
+
+
+def _main_mqtt_device(
+    tmp_path: Path, mqtt_yaml: str, *, packages: bool = True, shallow: bool = False
+) -> Device:
+    """Build a device with a main-file ``mqtt:`` block and no package-merged seed."""
+    yaml = "esphome:\n  name: main\n\n"
+    if packages:
+        yaml += "packages:\n  core: !include core.yaml\n\n"
+    yaml += mqtt_yaml
+    path = tmp_path / "main.yaml"
+    path.write_text(yaml)
+    return Device(
+        name="main",
+        friendly_name="main",
+        configuration="main.yaml",
+        uses_mqtt=True,
+        mqtt_extract=build_test_extract(path, yaml, shallow=shallow),
     )
 
 
@@ -161,6 +181,141 @@ async def test_seed_deriving_none_warns_without_reload_churn(
     assert reloads == []
     warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
     assert len(warnings) == 1
+
+
+async def test_shallow_package_extract_defers_to_a_reload(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A shallow seed can't see package transport fields; the pass waits for the deep reload."""
+    device = _main_mqtt_device(tmp_path, _BROKER_YAML, shallow=True)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+
+    with caplog.at_level("WARNING"):
+        await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    assert reloads == ["main.yaml"]
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    path = tmp_path / "main.yaml"
+    device.mqtt_extract = build_test_extract(
+        path, path.read_text(), {"mqtt": {"broker": "192.168.1.10", "transport": "wss"}}
+    )
+    await coord.reconcile()
+
+    assert [m.broker.transport for m in stub_monitor.instances] == ["wss"]
+
+
+@pytest.mark.parametrize(
+    ("mqtt_yaml", "packages"),
+    [
+        pytest.param(_BROKER_YAML, False, id="no-packages"),
+        pytest.param(
+            "mqtt:\n  broker: 192.168.1.10\n  port: 1883\n  transport: tcp\n"
+            "  ws_path: /mqtt\n  skip_cert_cn_check: false\n"
+            "  certificate_authority: !secret ca\n",
+            True,
+            id="main-pins-transport",
+        ),
+        pytest.param(
+            "mqtt:\n  broker: 192.168.1.10\n  port: 8883\n  transport: tcp\n"
+            "  certificate_authority: !secret ca\n",
+            True,
+            id="main-pins-tcp-without-path-or-cn",
+        ),
+    ],
+)
+async def test_shallow_extract_connects_when_packages_cannot_shape_transport(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+    mqtt_yaml: str,
+    packages: bool,
+) -> None:
+    """Without packages, or with every transport field pinned in main, shallow resolves now."""
+    monkeypatch.setattr(coordinator_module, "_ca_pem_is_loadable", lambda _ca: True)
+    (tmp_path / "secrets.yaml").write_text("ca: '-----BEGIN CERTIFICATE-----'\n")
+    device = _main_mqtt_device(tmp_path, mqtt_yaml, packages=packages, shallow=True)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+    await coord.reconcile()
+
+    assert [m.broker.host for m in stub_monitor.instances] == ["192.168.1.10"]
+    assert reloads == []
+
+
+async def test_failed_deep_parse_refuses_package_device(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed deep parse can't vouch for package transport fields; warn, no reload loop."""
+    device = _main_mqtt_device(tmp_path, _BROKER_YAML)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("WARNING", logger=target):
+        await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    assert reloads == []
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "packages:" in warnings[0].getMessage()
+
+
+async def test_failed_deep_parse_without_packages_keeps_the_main_block(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A device with no packages resolves from its main block when the deep parse failed."""
+    device = _main_mqtt_device(tmp_path, _BROKER_YAML, packages=False)
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert [m.broker.host for m in stub_monitor.instances] == ["192.168.1.10"]
+
+
+async def test_stale_package_extract_without_seed_requests_a_reload(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """The re-read fallback defers a package device whose extract carries no seed."""
+    device = _main_mqtt_device(tmp_path, _BROKER_YAML)
+    path = tmp_path / "main.yaml"
+    path.write_text(path.read_text().replace("192.168.1.10", "10.0.0.9"))
+    bump_mtime(path)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+    await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    assert reloads == ["main.yaml"]
+
+
+async def test_bad_ws_path_warns_unresolved(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ws_path without a leading slash refuses the broker with the unresolved warning."""
+    device = write_mqtt_device(
+        tmp_path, "kitchen", "mqtt:\n  broker: 10.0.0.5\n  transport: wss\n  ws_path: mqtt\n"
+    )
+    coord = make_mqtt_coordinator(tmp_path, [device])
+
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("WARNING", logger=target):
+        await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "ws_path not starting with '/'" in warnings[0].getMessage()
 
 
 @pytest.mark.parametrize(
@@ -339,3 +494,36 @@ async def test_seed_login_matches_the_main_path(
     await coord.reconcile()
 
     assert len(stub_monitor.instances) == connects
+
+
+async def test_shallow_ws_extract_without_path_defers_to_a_reload(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A main block pinning a WebSocket transport still waits for a package's ws_path."""
+    yaml = "mqtt:\n  broker: 192.168.1.10\n  port: 443\n  transport: ws\n"
+    yaml += "  certificate_authority: ''\n"
+    device = _main_mqtt_device(tmp_path, yaml, shallow=True)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+    await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    assert reloads == ["main.yaml"]
+
+
+async def test_stale_seed_cannot_vouch_for_added_packages(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """An edit adding packages defers to a reload even when the stale seed has nothing to add."""
+    device = _seed_package_device(tmp_path, {"broker": "10.1.1.1"})
+    path = tmp_path / "pkg.yaml"
+    path.write_text(path.read_text() + "\nmqtt:\n  broker: 10.1.1.1\n")
+    bump_mtime(path)
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
+    await coord.reconcile()
+
+    assert stub_monitor.instances == []
+    assert reloads == ["pkg.yaml"]

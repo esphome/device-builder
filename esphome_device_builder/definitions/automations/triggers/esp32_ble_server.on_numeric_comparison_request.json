@@ -1,0 +1,1 @@
+{"id":"esp32_ble_server.on_numeric_comparison_request","name":"Esp32 Ble Server → On Numeric Comparison Request","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["esp32_ble_server"],"is_device_level":false,"supports_list":true,"config_entries":[]}

@@ -687,9 +687,11 @@ class PlatformCapabilities(NamedTuple):
     # ``{pio_board: bootloader}``: an nRF52 board's default (the first of
     # ESPHome's list for it); a board that is absent builds for mcuboot.
     nrf52_board_bootloaders: dict[str, str]
+    # ``{board: variant}`` (``NRF54L15``) for an nRF52 device's chip, like ``esp32_board_variants``.
+    nrf52_board_variants: dict[str, str]
 
 
-EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [], {}, {})
+EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [], {}, {}, {})
 
 
 @cache
@@ -765,6 +767,7 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
         logger_interface_values=_str_list("logger_interface_values"),
         board_mcus=_str_map_of_maps("board_mcus"),
         nrf52_board_bootloaders=_str_map("nrf52_board_bootloaders"),
+        nrf52_board_variants=_str_map("nrf52_board_variants"),
     )
 
 

@@ -1530,3 +1530,28 @@ def make_mcp_app(db: McpStubDeviceBuilder, *, with_auth: bool = False) -> web.Ap
     app["device_builder"] = db
     app.router.add_routes(create_mcp_routes())
     return app
+
+
+@pytest.fixture
+def collect_bleed() -> Callable[[Any, list[tuple[str, Any]]], tuple[dict, dict]]:
+    """Return a ``_collect_bleed_keys`` runner over the merges ``introspect_component`` builds."""
+    from script.sync_components import (  # noqa: PLC0415
+        _collect_bleed_keys,
+        _collect_field_ranges,
+        _collect_refined_types,
+        _upgrade_stamp_only_refinements,
+    )
+
+    def run(hub: Any, platforms: list[tuple[str, Any]]) -> tuple[dict, dict]:
+        manifests = [m for _domain, m in platforms]
+        merged_ranges: dict = {}
+        merged_refined: dict = {}
+        for manifest in [hub, *manifests]:
+            for path, value in _collect_field_ranges(manifest).items():
+                merged_ranges.setdefault(path, value)
+            for path, value in _collect_refined_types(manifest).items():
+                merged_refined.setdefault(path, value)
+        refined = _upgrade_stamp_only_refinements(merged_refined, manifests)
+        return _collect_bleed_keys(merged_ranges, refined, platforms)
+
+    return run
