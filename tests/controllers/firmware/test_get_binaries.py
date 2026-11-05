@@ -612,7 +612,10 @@ async def test_get_binaries_rehashes_a_rebuilt_artifact(
 
 
 async def test_get_binaries_keeps_an_artifact_it_cannot_hash(
-    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: pytest.LogCaptureFixture,
+    firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """A hashing failure drops that entry's ``md5``, not the listing."""
     firmware = {"title": "Firmware", "file": "firmware.bin"}
@@ -631,6 +634,8 @@ async def test_get_binaries_keeps_an_artifact_it_cannot_hash(
     monkeypatch.setattr(download_mod, "_md5_digest", _raise)
     controller = firmware_controller_factory()
 
-    assert await controller.get_binaries(configuration="kitchen.yaml") == [
-        _listed({**firmware, "type": "bin"}, md5=False)
-    ]
+    with caplog.at_level(logging.WARNING):
+        result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [_listed({**firmware, "type": "bin"}, md5=False)]
+    assert "Could not hash firmware.bin" in caplog.text

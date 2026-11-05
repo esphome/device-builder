@@ -182,8 +182,10 @@ def collect_download_entries(
                 path = resolve_under_root(build_dir / entry["file"], build_dir)
                 stat = path.stat()
                 entry["md5"] = _md5_digest(path, stat.st_size, stat.st_mtime_ns)
-            except (OSError, ValueError) as err:
+            except (FileNotFoundError, ValueError) as err:
                 _LOGGER.debug("Could not hash %s: %s", entry["file"], err)
+            except OSError as err:
+                _LOGGER.warning("Could not hash %s: %s", entry["file"], err)
     return downloads
 
 
@@ -286,7 +288,7 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
         msg = f"Binary not found: {file}"
         raise FileNotFoundError(msg)
 
-    download_name = _download_filename(storage.name, path.name)
+    download_name = _download_filename(storage.name, Path(file).name)
     return path, download_name
 
 
