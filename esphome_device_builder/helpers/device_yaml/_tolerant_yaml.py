@@ -42,8 +42,8 @@ def _construct_secret(loader: yaml.Loader, node: yaml.ScalarNode) -> SecretRef:
     return SecretRef(loader.construct_scalar(node))
 
 
-def _construct_remove(_loader: yaml.Loader, _node: yaml.Node) -> Remove:
-    return Remove()
+def _construct_remove(_loader: yaml.Loader, node: yaml.Node) -> Remove:
+    return Remove(str(node.value))
 
 
 def _ignore_unknown_tag(_loader: yaml.Loader, _tag_suffix: str, _node: yaml.Node) -> None:

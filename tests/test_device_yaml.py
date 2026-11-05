@@ -4049,7 +4049,12 @@ def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> No
         ),
         pytest.param("packages:\n  v: github://x/y.yaml\n", True, id="unmerged_package"),
         pytest.param("api: !include api.yaml\n", True, id="include_marker"),
-        pytest.param("packages:\n  v:\n    api: {}\napi: !remove\n", True, id="remove_marker"),
+        pytest.param("packages:\n  v:\n    api: {}\napi: !remove\n", False, id="removed_key"),
+        pytest.param(
+            "packages:\n  v:\n    sensor:\n      - id: a\nsensor:\n  - id: !remove a\n",
+            True,
+            id="removed_list_item",
+        ),
         pytest.param("logger: !extend\n", True, id="extend_marker"),
         pytest.param(
             "ota:\n  - platform: esphome\n    encryption: !include api.yaml\n",
@@ -4508,3 +4513,16 @@ def test_load_device_from_storage_pending_changes_sees_a_newer_package(tmp_path:
 
     os.utime(package, (3000, 3000))
     assert load_device_from_storage(yaml_file).has_pending_changes is True
+
+
+def test_load_device_yaml_drops_removed_keys(tmp_path: Path) -> None:
+    """A ``!remove`` over a package key leaves no key behind, at the top level or nested."""
+    (tmp_path / "k.yaml").write_text(
+        "packages:\n  v:\n    api:\n      encryption:\n        key: x\n    mqtt:\n"
+        "      broker: b\n\napi:\n  encryption: !remove\nmqtt: !remove\n",
+        encoding="utf-8",
+    )
+    config = device_yaml.load_device_yaml(tmp_path / "k.yaml")
+    assert config is not None
+    assert "mqtt" not in config
+    assert config["api"] == {}

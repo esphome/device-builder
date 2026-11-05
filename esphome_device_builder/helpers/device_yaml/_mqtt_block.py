@@ -18,8 +18,7 @@ def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[s
 
     ``!secret`` values stay as ``SecretRef`` markers; other custom
     tags load as ``None``. Returns ``(None, {})`` when the YAML fails to
-    parse, has no ``mqtt:`` mapping, or ``!remove``s a key from it (only
-    the package-merged block describes that broker).
+    parse, has no ``mqtt:`` mapping, or ``!remove``s a key from it.
     """
     data = load_yaml_tolerant(yaml_content)
     if not isinstance(data, dict):
@@ -42,8 +41,8 @@ def build_mqtt_extract(
     """Build the scan-time extraction the MQTT coordinator consumes."""
     main_block, main_subs = extract_mqtt_block(yaml_content)
     resolved_block = resolved_config.get("mqtt") if isinstance(resolved_config, dict) else None
-    # ``resolve_packages`` leaves ``!remove`` markers; esphome drops them in a later pass.
-    resolved_block = _drop_removed(resolved_block) if isinstance(resolved_block, dict) else None
+    if not isinstance(resolved_block, dict):
+        resolved_block = None
     return DeviceMqttExtract(
         yaml_mtime_ns=yaml_stat.st_mtime_ns,
         yaml_size=yaml_stat.st_size,
@@ -55,8 +54,3 @@ def build_mqtt_extract(
         resolved_substitutions=resolved_substitutions,
         from_shallow_load=shallow,
     )
-
-
-def _drop_removed(block: dict[str, Any]) -> dict[str, Any]:
-    """Return *block* without its ``!remove``d keys."""
-    return {k: v for k, v in block.items() if not isinstance(v, Remove)}

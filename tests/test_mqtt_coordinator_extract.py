@@ -313,59 +313,59 @@ def test_scan_populates_and_omits_the_extract(tmp_path: Path) -> None:
     assert plain_device.mqtt_extract is None
 
 
+async def _load_package_device(tmp_path: Path, base_mqtt: str, main_mqtt: str) -> Device:
+    """Load ``pkg.yaml`` including ``base.yaml``, each with its own ``mqtt:`` body."""
+    (tmp_path / "base.yaml").write_text(f"mqtt:\n{base_mqtt}")
+    (tmp_path / "pkg.yaml").write_text(
+        f"esphome:\n  name: pkg\n\npackages:\n  base: !include base.yaml\n\nmqtt:\n{main_mqtt}"
+    )
+    return await asyncio.to_thread(
+        load_device_from_storage, tmp_path / "pkg.yaml", "", "", "", "", 0, ()
+    )
+
+
 @pytest.mark.parametrize(
-    "package_keys",
+    ("base_mqtt", "main_mqtt", "expected"),
     [
-        pytest.param({"port": "8883", "certificate_authority": "not-a-pem"}, id="tls"),
-        pytest.param({"client_certificate": "c", "client_certificate_key": "k"}, id="client-cert"),
+        pytest.param(
+            "  broker: 10.2.2.2\n  port: 8883\n  certificate_authority: not-a-pem\n",
+            "  port: !remove\n  certificate_authority: !remove\n",
+            ("10.2.2.2", 1883, None, None),
+            id="tls",
+        ),
+        pytest.param(
+            "  broker: 10.2.2.2\n  client_certificate: c\n  client_certificate_key: k\n",
+            "  client_certificate: !remove\n  client_certificate_key: !remove\n",
+            ("10.2.2.2", 1883, None, None),
+            id="client-cert",
+        ),
+        pytest.param(
+            "  broker: 10.9.9.9\n  port: 8883\n  username: pkguser\n"
+            "  client_certificate: c\n  client_certificate_key: k\n",
+            "  broker: 10.2.2.2\n"
+            "  client_certificate: !remove\n  client_certificate_key: !remove\n",
+            ("10.2.2.2", 8883, "pkguser", None),
+            id="inline-broker",
+        ),
     ],
 )
 async def test_seed_drops_removed_mqtt_keys(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
     caplog: pytest.LogCaptureFixture,
-    package_keys: dict[str, str],
+    base_mqtt: str,
+    main_mqtt: str,
+    expected: tuple[str, int, str | None, str | None],
 ) -> None:
-    """A ``!remove`` under ``mqtt:`` drops the package's key from the seed."""
-    (tmp_path / "base.yaml").write_text(
-        "mqtt:\n  broker: 10.2.2.2\n" + "".join(f"  {k}: {v}\n" for k, v in package_keys.items())
-    )
-    (tmp_path / "pkg.yaml").write_text(
-        "esphome:\n  name: pkg\n\npackages:\n  base: !include base.yaml\n\nmqtt:\n"
-        + "".join(f"  {k}: !remove\n" for k in package_keys)
-    )
-    device = await asyncio.to_thread(
-        load_device_from_storage, tmp_path / "pkg.yaml", "", "", "", "", 0, ()
-    )
+    """A ``!remove`` under ``mqtt:`` drops the package's key; the rest of the package stays."""
+    device = await _load_package_device(tmp_path, base_mqtt, main_mqtt)
     coord = make_mqtt_coordinator(tmp_path, [device])
 
     with caplog.at_level("WARNING"):
         await coord.reconcile()
 
-    assert [(m.broker.host, m.broker.port) for m in stub_monitor.instances] == [("10.2.2.2", 1883)]
-    assert stub_monitor.instances[0].broker.certificate_authority is None
+    assert [
+        (m.broker.host, m.broker.port, m.broker.username, m.broker.certificate_authority)
+        for m in stub_monitor.instances
+    ] == [expected]
     assert not [r for r in caplog.records if r.levelname == "WARNING"]
-
-
-async def test_inline_broker_with_remove_keeps_package_settings(
-    tmp_path: Path,
-    stub_monitor: type[RecordingMonitor],
-) -> None:
-    """An inline ``broker:`` beside a ``!remove`` still takes the package's other settings."""
-    (tmp_path / "base.yaml").write_text(
-        "mqtt:\n  broker: 10.9.9.9\n  port: 8883\n  username: pkguser\n"
-        "  client_certificate: c\n  client_certificate_key: k\n"
-    )
-    (tmp_path / "pkg.yaml").write_text(
-        "esphome:\n  name: pkg\n\npackages:\n  base: !include base.yaml\n\nmqtt:\n"
-        "  broker: 10.2.2.2\n  client_certificate: !remove\n  client_certificate_key: !remove\n"
-    )
-    device = await asyncio.to_thread(
-        load_device_from_storage, tmp_path / "pkg.yaml", "", "", "", "", 0, ()
-    )
-    coord = make_mqtt_coordinator(tmp_path, [device])
-    await coord.reconcile()
-
-    assert [(m.broker.host, m.broker.port, m.broker.username) for m in stub_monitor.instances] == [
-        ("10.2.2.2", 8883, "pkguser")
-    ]
