@@ -57,7 +57,9 @@ _SOC_CONNECTIVITY: dict[str, list[str]] = {
     "esp8266": ["wifi"],
     "bk72xx": ["wifi"],
     "rp2040": ["wifi"],
+    "rp2": ["wifi"],
     "rtl87xx": ["wifi"],
+    "ln882x": ["wifi"],
 }
 
 # Per-variant overrides for the esp32 family. ``None`` means "no
