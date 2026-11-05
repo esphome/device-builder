@@ -6711,7 +6711,8 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
             # resolver never matches (see models/boards.py).
             per_platform[normalize_platform(str(plat))] = value
         if per_platform:
-            out[path] = per_platform
+            # Sorted: upstream builds some SplitDefaults from a set of variants.
+            out[path] = dict(sorted(per_platform.items()))
 
     _walk_schema_keys(schema, visit)
     return out
@@ -8259,10 +8260,8 @@ def _load_board_index() -> list[dict]:
     """
     Load the committed ``boards.index.json`` (each board carries esphome.platform/board).
 
-    Read as committed: the board sync (``sync_boards.py``) and this component
-    sync are independent workflows, so board options can trail a board
-    add/remove by one component-sync cycle. ``allow_custom_value`` covers the
-    gap — the user can still type any board id.
+    Read from disk, so the catalog-sync workflow re-stamps boards before
+    this sync; ``allow_custom_value`` covers any board id not listed.
     """
     data = orjson.loads((_DEFINITIONS_DIR / "boards.index.json").read_bytes())
     boards = data.get("boards") if isinstance(data, dict) else data
