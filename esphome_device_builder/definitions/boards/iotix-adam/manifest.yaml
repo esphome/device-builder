@@ -24,9 +24,9 @@ hardware:
 tags:
 - relay
 product_url: https://shop.iotix.ro/product/adam/
-docs_url: https://esphome.io/components/pcf8574/
+docs_url: https://devices.esphome.io/devices/IoTiX-Adam/
 images:
-- https://assets.iotix.ro/adam.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/IoTiX-Adam/adam.webp
 full_config: true
 pins:
 - gpio: 0
