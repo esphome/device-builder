@@ -97,7 +97,7 @@ async def main() -> int:
         # that the materialiser just rewrote; resolve the same path it serves.
         await pair.offloader.firmware._validate_configuration_boundary(yaml_path.name)
         path, name = download_mod._resolve_artifact_path(yaml_path.name, args.file)
-        data = path.read_bytes()
+        data = path if isinstance(path, bytes) else path.read_bytes()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(data)
         print(f"Wrote {len(data)} bytes to {out_path} ({name})")

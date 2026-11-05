@@ -77,6 +77,7 @@ _platform_sets()
 # lists the image only for a build with no UF2.
 _MCUBOOT_UPDATE_IMAGE = "zephyr/app_update.bin"
 _MD5_CHUNK_SIZE = 1024 * 1024
+_MD5_SUFFIX = ".md5"
 
 
 def _helper_cmd() -> tuple[str, ...]:
@@ -174,36 +175,36 @@ def collect_download_entries(
         artifact_type = _ARTIFACT_TYPES.get(entry["file"])
         if artifact_type:
             entry["type"] = artifact_type
-    _add_md5_sidecars(build_dir, downloads, device_name=storage.name)
+    _add_md5_sidecars(build_dir, downloads)
     return downloads
 
 
-def _add_md5_sidecars(build_dir: Path, downloads: list[dict], *, device_name: str) -> None:
-    """Generate MD5 sidecars and attach hashes to downloadable firmware artifacts."""
+def _add_md5_sidecars(build_dir: Path, downloads: list[dict]) -> None:
+    """Attach each firmware artifact's ``md5`` and list its served-on-request ``.md5`` file."""
+    listed = {entry["file"] for entry in downloads}
     sidecars = []
     for entry in downloads:
         filename = entry["file"]
-        if filename.endswith((".md5", ".elf")):
+        if not _has_md5_sidecar(filename):
             continue
-        artifact_path = resolve_under_root(build_dir / filename, build_dir)
-        digest = _md5_file(artifact_path)
-        sidecar_name = f"{filename}.md5"
-        sidecar_path = resolve_under_root(build_dir / sidecar_name, build_dir)
-        sidecar_path.write_text(
-            f"{digest}  {_download_filename(device_name, artifact_path.name)}\n",
-            encoding="ascii",
-        )
+        digest = _md5_file(resolve_under_root(build_dir / filename, build_dir))
         entry["md5"] = digest
-        title = entry.get("title") or filename
+        if f"{filename}{_MD5_SUFFIX}" in listed:
+            continue
         sidecars.append(
             {
-                "title": f"MD5 checksum for {title}",
+                "title": f"MD5 checksum for {entry.get('title') or filename}",
                 "description": digest,
-                "file": sidecar_name,
+                "file": f"{filename}{_MD5_SUFFIX}",
                 "type": "md5",
             }
         )
     downloads.extend(sidecars)
+
+
+def _has_md5_sidecar(filename: str) -> bool:
+    """Whether *filename* is a firmware artifact that gets a generated ``.md5``."""
+    return not filename.endswith((_MD5_SUFFIX, ".elf"))
 
 
 def _md5_file(path: Path) -> str:
@@ -287,9 +288,10 @@ def _download_types_for(
     return coerce_download_entries(payload)
 
 
-def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
-    """Resolve a build artifact to ``(path, download_name)``, traversal-safe.
+def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path | bytes, str]:
+    """Resolve a build artifact to ``(path or body, download_name)``, traversal-safe.
 
+    A ``<artifact>.md5`` not on disk is generated as a ``md5sum`` line body.
     Raises ``FileNotFoundError`` when the device isn't built or *file* is
     absent, and ``PathEscapeError`` (a ``ValueError``) when *file* escapes the
     build directory. ``download_name`` is restricted to a filename-safe charset
@@ -302,13 +304,20 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
 
     base_dir = storage.firmware_bin_path.parent.resolve()
     path = resolve_under_root(base_dir / file, base_dir)
-
-    if not path.is_file():
-        msg = f"Binary not found: {file}"
-        raise FileNotFoundError(msg)
-
     download_name = _download_filename(storage.name, path.name)
-    return path, download_name
+    if path.is_file():
+        return path, download_name
+
+    artifact = file.removesuffix(_MD5_SUFFIX)
+    if artifact != file and _has_md5_sidecar(artifact):
+        artifact_path = resolve_under_root(base_dir / artifact, base_dir)
+        if artifact_path.is_file():
+            digest = _md5_file(artifact_path)
+            line = f"{digest}  {_download_filename(storage.name, artifact_path.name)}\n"
+            return line.encode("ascii"), download_name
+
+    msg = f"Binary not found: {file}"
+    raise FileNotFoundError(msg)
 
 
 class DownloadTokens(CapabilityTokens[tuple[str, str]]):
@@ -344,20 +353,20 @@ async def http_download(request: web.Request) -> web.StreamResponse:
     configuration, file = resolved
     try:
         await db.firmware._validate_configuration_boundary(configuration)
-        path, download_name = await run_in_executor(_resolve_artifact_path, configuration, file)
+        artifact, download_name = await run_in_executor(_resolve_artifact_path, configuration, file)
     except (CommandError, FileNotFoundError, ValueError) as err:
         # Collapse "not built" / "missing" / "traversal" to a bare 404 for the
         # caller, but log so an operator debugging a failed download has a
         # server-side signal (the token already authenticated the request).
         _LOGGER.debug("Firmware download rejected for %s/%s: %s", configuration, file, err)
         raise web.HTTPNotFound from None
-    return web.FileResponse(
-        path,
-        headers={
-            "Content-Disposition": f'attachment; filename="{download_name}"',
-            "Content-Type": "application/octet-stream",
-        },
-    )
+    headers = {
+        "Content-Disposition": f'attachment; filename="{download_name}"',
+        "Content-Type": "application/octet-stream",
+    }
+    if isinstance(artifact, bytes):
+        return web.Response(body=artifact, headers=headers)
+    return web.FileResponse(artifact, headers=headers)
 
 
 def _resolve_download_component(target_platform: str | None) -> str:

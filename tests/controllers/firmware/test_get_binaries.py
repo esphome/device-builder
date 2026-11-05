@@ -432,14 +432,13 @@ async def test_get_binaries_filters_to_files_present_on_disk(
     ]
     expected_md5 = hashlib.md5(b"x", usedforsecurity=False).hexdigest()
     assert result[0]["md5"] == expected_md5
-    assert (build_dir / "firmware.factory.bin.md5").read_text(encoding="ascii") == (
-        f"{expected_md5}  kitchen-firmware.factory.bin\n"
-    )
+    assert not list(build_dir.glob("*.md5"))
 
 
 async def test_get_binaries_does_not_generate_checksum_for_md5_entry(
     tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
+    """A platform-listed ``.md5`` gets no checksum of its own."""
     firmware = {"title": "Firmware", "file": "firmware.bin"}
     existing_md5 = {"title": "Existing checksum", "file": "provided.md5", "type": "md5"}
     _stub_download_types(monkeypatch, [firmware, existing_md5])
@@ -642,3 +641,25 @@ async def test_get_binaries_returns_empty_when_no_build_path(
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
     assert result == []
+
+
+async def test_get_binaries_does_not_duplicate_a_listed_sidecar(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A platform-listed ``<file>.md5`` is not listed a second time."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    listed = {"title": "Checksum", "file": "firmware.bin.md5", "type": "md5"}
+    _stub_download_types(monkeypatch, [firmware, listed])
+    build_dir = _make_build(tmp_path, "firmware.bin", "firmware.bin.md5")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+    controller = firmware_controller_factory()
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert [entry["file"] for entry in result] == ["firmware.bin", "firmware.bin.md5"]
+    assert result[0]["md5"] == hashlib.md5(b"x", usedforsecurity=False).hexdigest()

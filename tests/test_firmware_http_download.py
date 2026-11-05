@@ -17,6 +17,7 @@ unbuilt device all ``404``.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -154,6 +155,40 @@ async def test_token_bound_to_traversal_file_is_404(
     resp = await client.get("/api/firmware/download", params={"token": token})
 
     assert resp.status == 404
+
+
+async def test_md5_sidecar_is_generated_on_request(
+    aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """``<artifact>.md5`` serves the ``md5sum`` line without writing it to the build dir."""
+    _seed_build(tmp_path, monkeypatch)
+    build_dir = tmp_path / ".esphome" / "build" / "kitchen" / ".pioenvs" / "kitchen"
+    (build_dir / "firmware.bin").write_bytes(b"BIN")
+    db = _StubDeviceBuilder()
+    token = db.firmware.download_tokens.create("kitchen.yaml", "firmware.bin.md5")
+    client = await aiohttp_client(_make_app(db))
+
+    resp = await client.get("/api/firmware/download", params={"token": token})
+
+    digest = hashlib.md5(b"BIN", usedforsecurity=False).hexdigest()
+    assert resp.status == 200
+    assert await resp.read() == f"{digest}  kitchen-firmware.bin\n".encode()
+    assert resp.headers["Content-Disposition"] == 'attachment; filename="kitchen-firmware.bin.md5"'
+    assert not (build_dir / "firmware.bin.md5").exists()
+
+
+async def test_md5_sidecar_without_artifact_is_404(
+    aiohttp_client: Any, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """No base artifact (or an ELF base) means no generated checksum."""
+    _seed_build(tmp_path, monkeypatch)
+    db = _StubDeviceBuilder()
+    client = await aiohttp_client(_make_app(db))
+
+    for file in ("firmware.bin.md5", "firmware.elf.md5"):
+        token = db.firmware.download_tokens.create("kitchen.yaml", file)
+        resp = await client.get("/api/firmware/download", params={"token": token})
+        assert resp.status == 404, file
 
 
 async def test_unbuilt_device_is_404(aiohttp_client: Any, tmp_path: Path, monkeypatch: Any) -> None:
