@@ -61,6 +61,9 @@ _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")
 # digit / space / punctuation (e.g. ``"Replaces a $40 sensor"``) so a
 # fully-resolved edit carrying a literal ``$`` isn't mistaken for one.
 _UNRESOLVED_SUBSTITUTION_RE = re.compile(r"\$\{|\$[a-zA-Z_]")
+# Strict form for values where a literal ``$`` is legal: any ``${``, or the
+# whole value one ``$identifier``.
+_UNRESOLVED_WHOLE_TOKEN_RE = re.compile(r"\$\{|\A\$[a-zA-Z_]\w*\Z")
 
 # Cap on recursive substitution passes — protects against circular
 # references (``a: ${b}`` / ``b: ${a}``) without bailing on legitimately
@@ -233,6 +236,8 @@ def _nested_key_re(block: str, key: str) -> re.Pattern[str]:
     # Matches a *key* line that's indented under top-level *block*
     # (any depth ≥ 1 space). Used as a draft-time heuristic — once
     # ``load_device_yaml`` succeeds, the resolved-config check wins.
+    # A ``key: !remove`` line doesn't count: it deletes a package's
+    # *key* rather than declaring one.
     #
     # The two body alternatives are exclusive: ``[ \t][^\n]*\n`` matches
     # an indented (non-blank) line; ``\n`` alone matches a literal blank
@@ -240,7 +245,7 @@ def _nested_key_re(block: str, key: str) -> re.Pattern[str]:
     # long run of newlines (the previous ``\s*\n`` alternative could
     # also consume a bare ``\n``, which CodeQL flagged as exponential).
     return re.compile(
-        rf"^{block}:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+{key}:(?:\s|$)",
+        rf"^{block}:[^\n]*\n(?:[ \t][^\n]*\n|\n)*[ \t]+{key}:(?![ \t]*!remove\b)(?:\s|$)",
         re.MULTILINE,
     )
 
