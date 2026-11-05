@@ -4644,7 +4644,8 @@ def _nrf52_board_variants() -> dict[str, str]:
     board_variant = getattr(nrf52, "_board_variant", None)
     if board_variant is None:
         return {}
-    names = {*boards.BOARDS_ZEPHYR, *getattr(boards, "BOARD_ALIASES", {})}
+    aliases = getattr(boards, "BOARD_ALIASES", {})
+    names = {*boards.BOARDS_ZEPHYR, *aliases, *aliases.values()}
     return {board: board_variant(board) for board in sorted(names)}
 
 

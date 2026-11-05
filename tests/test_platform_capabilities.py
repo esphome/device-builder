@@ -19,6 +19,7 @@ import pytest
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
+from esphome.components.nrf52 import boards as nrf52_boards
 from esphome.components.rp2.boards import BOARDS
 from esphome.components.wifi import NO_WIFI_VARIANTS
 
@@ -130,6 +131,13 @@ def test_logger_interface_snapshot_within_installed_esphome() -> None:
         else:
             extra = indexed - installed
             assert not extra, f"committed logger data no installed esphome exposes: {extra}"
+
+
+def test_nrf52_board_variants_cover_alias_targets() -> None:
+    """A board's full Zephyr name resolves like its short alias."""
+    variants = _nrf52_board_variants()
+    for alias, target in getattr(nrf52_boards, "BOARD_ALIASES", {}).items():
+        assert variants[target] == variants[alias]
 
 
 def test_logger_snapshot_keys_nrf52_variant_rows(monkeypatch: pytest.MonkeyPatch) -> None:
