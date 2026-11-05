@@ -8324,6 +8324,18 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     add("esp8266", _logger.UART_SELECTION_ESP8266)
     add(RP2_CANONICAL_PLATFORM, _logger.UART_SELECTION_RP2040)
     add("nrf52", _logger.UART_SELECTION_NRF52)
+    # A per-chip default row (``nrf52_54l15``) needs its own choices, matching upstream's uart_selection
+    from esphome import loader
+    from esphome.components.nrf52 import const as nrf52_const
+
+    without_usb = getattr(nrf52_const, "VARIANTS_WITHOUT_USB", frozenset())
+    defaults = _collect_platform_defaults(loader.get_component("logger")).get(
+        ("hardware_uart",), {}
+    )
+    for key in defaults:
+        if key.startswith("nrf52_"):
+            variant = "NRF" + key.removeprefix("nrf52_").upper()
+            add(key, [_logger.UART0] if variant in without_usb else _logger.UART_SELECTION_NRF52)
     return out
 
 
