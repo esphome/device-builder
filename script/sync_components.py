@@ -4601,6 +4601,7 @@ def _emit_platform_capabilities_index() -> None:
         "board_mcus": board_mcus(),
         # And an nRF52's bootloader, when its YAML names only the board.
         "nrf52_board_bootloaders": _nrf52_board_bootloaders(),
+        "nrf52_board_variants": _nrf52_board_variants(),
         "libretiny_families": list(_libretiny_families()),
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
@@ -4628,6 +4629,37 @@ def _nrf52_board_bootloaders() -> dict[str, str]:
     }
 
 
+def _nrf52_variants() -> set[str]:
+    """Return the nRF52 chips ESPHome knows (``NRF54L15``); empty before it named them."""
+    from esphome.components.nrf52 import const
+
+    return set(getattr(const, "VARIANT_PORT_PINS", {}))
+
+
+def _nrf52_board_variants() -> dict[str, str]:
+    """``{board: variant}`` for the nRF52 boards ESPHome names, by its own board rule."""
+    from esphome.components import nrf52
+    from esphome.components.nrf52 import boards
+
+    board_variant = getattr(nrf52, "_board_variant", None)
+    if board_variant is None:
+        if _nrf52_variants():
+            raise RuntimeError(
+                "esphome names nRF52 chips but has no nrf52._board_variant to map boards"
+            )
+        return {}
+    aliases = getattr(boards, "BOARD_ALIASES", {})
+    names = {*boards.BOARDS_ZEPHYR, *aliases, *aliases.values()}
+    return {board: board_variant(board) for board in sorted(names)}
+
+
+def _logger_default_key(key: str) -> str:
+    """Canonical spelling of a ``SplitDefault`` key; ``nrf52_54l15`` is the ``NRF54L15``."""
+    if key.startswith("nrf52_"):
+        key = "nrf" + key.removeprefix("nrf52_")
+    return normalize_chip_variant(key)
+
+
 def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     """
     Snapshot logger's ``hardware_uart`` defaults and legal values.
@@ -4647,12 +4679,16 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     # esp32 variants, spelled through the same normalizers the runtime
     # uses, so a brand-new chip syncs the day it lands; only a genuinely
     # unknown platform key fails the sync loudly.
-    known_keys = {p.value for p in Platform} | {normalize_chip_variant(v) for v in VARIANTS}
+    known_keys = (
+        {p.value for p in Platform}
+        | {normalize_chip_variant(v) for v in VARIANTS}
+        | {normalize_chip_variant(v) for v in _nrf52_variants()}
+    )
     defaults: dict[str, str] = {}
     for key, value in sorted(raw.items()):
         if value == "DEFAULT":
             continue
-        canonical = normalize_chip_variant(key)
+        canonical = _logger_default_key(key)
         if canonical not in known_keys:
             raise RuntimeError(
                 f"logger hardware_uart default key {key!r} does not map onto a "
@@ -8288,6 +8324,18 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     add("esp8266", _logger.UART_SELECTION_ESP8266)
     add(RP2_CANONICAL_PLATFORM, _logger.UART_SELECTION_RP2040)
     add("nrf52", _logger.UART_SELECTION_NRF52)
+    # A per-chip default row (``nrf52_54l15``) needs its own choices, matching upstream's uart_selection
+    from esphome import loader
+    from esphome.components.nrf52 import const as nrf52_const
+
+    without_usb = getattr(nrf52_const, "VARIANTS_WITHOUT_USB", frozenset())
+    defaults = _collect_platform_defaults(loader.get_component("logger")).get(
+        ("hardware_uart",), {}
+    )
+    for key in defaults:
+        if key.startswith("nrf52_"):
+            variant = _logger_default_key(key).upper()
+            add(key, [_logger.UART0] if variant in without_usb else _logger.UART_SELECTION_NRF52)
     return out
 
 
