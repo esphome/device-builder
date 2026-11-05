@@ -5891,8 +5891,8 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     registry_members = merge_from_platforms(_collect_registry_members)
     typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
-    # Hub signals must not bleed onto platform fields the domain
-    # redefines; platform builds shed them (``build_component_entry``).
+    # Merged hub and sibling signals must not bleed onto fields a platform
+    # domain types differently; platform builds shed them (``build_component_entry``).
     field_range_bleed_keys, refined_bleed_keys = _collect_bleed_keys(
         merged_ranges, refined_types, platform_manifests_by_domain
     )

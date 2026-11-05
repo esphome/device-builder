@@ -15,6 +15,7 @@ to the user as an unreadable form field
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,23 +27,10 @@ from script.sync_components import (  # type: ignore[import-not-found]
     RefinedType,
     _apply_refined_types,
     _collect_bleed_keys,
-    _collect_field_ranges,
     _collect_refined_types,
     _convert_field,
     _refined_type_tables,
 )
-
-
-def _bleed(hub: object, platforms: list[tuple[str, object]]) -> tuple[dict, dict]:
-    """Run ``_collect_bleed_keys`` against the hub-plus-platforms keep-first merges."""
-    merged_ranges: dict = {}
-    merged_refined: dict = {}
-    for manifest in [hub, *(m for _domain, m in platforms)]:
-        for path, value in _collect_field_ranges(manifest).items():
-            merged_ranges.setdefault(path, value)
-        for path, value in _collect_refined_types(manifest).items():
-            merged_refined.setdefault(path, value)
-    return _collect_bleed_keys(merged_ranges, merged_refined, platforms)
 
 
 @pytest.fixture
@@ -294,7 +282,7 @@ def test_integer_branch_suppresses_stamp_on_options_entries() -> None:
     assert entries[0]["display_format"] is None
 
 
-def test_bleed_guard_sees_list_item_paths() -> None:
+def test_bleed_guard_sees_list_item_paths(collect_bleed: Callable[..., tuple[dict, dict]]) -> None:
     """A hub refinement inside a list item mapping is shed when a platform redefines it."""
     hub = SimpleNamespace(
         config_schema=cv.Schema(
@@ -306,26 +294,30 @@ def test_bleed_guard_sees_list_item_paths() -> None:
             {cv.Optional("items"): cv.ensure_list(cv.Schema({cv.Optional("addr"): cv.string}))}
         )
     )
-    _range_bleed, refined_bleed = _bleed(hub, [("sensor", platform)])
+    _range_bleed, refined_bleed = collect_bleed(hub, [("sensor", platform)])
     assert ("items", "addr") in refined_bleed.get("sensor", {})
 
 
-def test_shed_path_substitutes_the_platforms_own_refinement() -> None:
+def test_shed_path_substitutes_the_platforms_own_refinement(
+    collect_bleed: Callable[..., tuple[dict, dict]],
+) -> None:
     """A shed path where the platform refines differently maps to the platform's refinement."""
     hub = SimpleNamespace(config_schema=cv.Schema({cv.Optional("threshold"): cv.hex_int}))
     platform = SimpleNamespace(config_schema=cv.Schema({cv.Optional("threshold"): cv.frequency}))
-    _range_bleed, refined_bleed = _bleed(hub, [("sensor", platform)])
+    _range_bleed, refined_bleed = collect_bleed(hub, [("sensor", platform)])
     substitute = refined_bleed["sensor"][("threshold",)]
     assert substitute is not None
     assert substitute.type == "float_with_unit"
 
 
-def test_sibling_platform_refinement_is_shed_where_a_domain_redefines_the_key() -> None:
+def test_sibling_platform_refinement_is_shed_where_a_domain_redefines_the_key(
+    collect_bleed: Callable[..., tuple[dict, dict]],
+) -> None:
     """A sibling platform's refinement is shed from a domain that types the key plainly."""
     hub = SimpleNamespace(config_schema=cv.Schema({}))
     climate = SimpleNamespace(config_schema=cv.Schema({cv.Optional("unit"): cv.frequency}))
     sensor = SimpleNamespace(config_schema=cv.Schema({cv.Optional("unit"): cv.string}))
-    _range_bleed, refined_bleed = _bleed(hub, [("climate", climate), ("sensor", sensor)])
+    _range_bleed, refined_bleed = collect_bleed(hub, [("climate", climate), ("sensor", sensor)])
     assert refined_bleed["sensor"] == {("unit",): None}
     assert ("unit",) not in refined_bleed.get("climate", {})
 
