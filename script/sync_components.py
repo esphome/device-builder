@@ -7089,6 +7089,9 @@ def _refined_type_by_name(
         validator(refined.unit_options[0])
     except Exception:
         return refined
+    _LOGGER.debug(
+        "%s accepts bare unit %r; treating it as a unit picker", lowered, refined.unit_options[0]
+    )
     return None
 
 
