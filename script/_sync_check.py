@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable
 from typing import Any, Protocol
 
-NOT_A_DEVICE_PAGE = "no device page (index.md with frontmatter) in that folder"
+NOT_A_DEVICE_PAGE = "no readable device page (index.md with frontmatter) in that folder"
 
 
 class _Skip(Protocol):

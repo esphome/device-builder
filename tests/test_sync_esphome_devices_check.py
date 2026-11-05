@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from script import sync_esphome_devices as sync  # type: ignore[import-not-found]
+from script._board_import import manifest_collides  # type: ignore[import-not-found]
 from script._sync_check import (  # type: ignore[import-not-found]
     NOT_A_DEVICE_PAGE,
     check_results,
@@ -141,3 +142,37 @@ def test_check_results_without_requested_lists_every_seen_folder() -> None:
 def test_print_check_results_text(capsys: pytest.CaptureFixture[str]) -> None:
     print_check_results([{"device": "A", "imported": True, "reason": None}], as_json=False)
     assert capsys.readouterr().out == "ok    A\n"
+
+
+def test_check_reports_a_slug_collision_as_skipped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A page whose slug a curated board owns is a skip in check mode too."""
+    _device(tmp_path, "Plug-A")
+    with patch.object(sync, "manifest_collides", return_value=True):
+        code, out = _run(["--repo", str(tmp_path), "--check", "--device", "Plug-A"], capsys)
+    assert code == 1
+    assert out.splitlines() == ["skip  Plug-A: slug collides with hand-curated board"]
+
+
+def test_manifest_collides_only_for_an_unowned_manifest(tmp_path: Path) -> None:
+    """An existing manifest without this source's ownership collides; an absent one doesn't."""
+    record = {"id": "plug-a", "source": {"type": "esphome-devices"}}
+    assert manifest_collides(record, boards_dir=tmp_path) is False
+    (tmp_path / "plug-a").mkdir()
+    (tmp_path / "plug-a" / "manifest.yaml").write_text("id: plug-a\nname: Plug A\n")
+    assert manifest_collides(record, boards_dir=tmp_path) is True
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["--json"], id="json-without-check"),
+        pytest.param(["--check", "--limit", "1"], id="check-with-limit"),
+        pytest.param(["--repo", ".", "--clean"], id="clean-with-repo"),
+    ],
+)
+def test_conflicting_flags_are_refused(argv: list[str]) -> None:
+    """Flag combinations that would be silently ignored fail argument parsing."""
+    with patch.object(sys, "argv", ["sync_esphome_devices.py", *argv]), pytest.raises(SystemExit):
+        sync._parse_args()

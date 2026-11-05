@@ -74,6 +74,7 @@ from script._board_import import (  # noqa: E402
     hash_content,
     is_placeholder_value,
     load_components_index,
+    manifest_collides,
     prune_removed,
     read_manifest_dict,
     safe_load_yaml,
@@ -2496,6 +2497,12 @@ def _parse_args() -> argparse.Namespace:
         help="Print every skip reason.",
     )
     args = parser.parse_args()
+    if args.json and not args.check:
+        parser.error("--json only applies with --check")
+    if args.check and args.limit is not None:
+        parser.error("--check reports every requested device; drop --limit")
+    if args.clean and args.repo is not None:
+        parser.error("--clean wipes the clone cache, which --repo doesn't use")
     if args.check:
         args.dry_run = True
     return args
@@ -2541,7 +2548,10 @@ def main() -> int:
         if gate_reason is not None:
             report.skipped.append(_SkippedDevice(src.folder_name, gate_reason))
             continue
-        if not args.dry_run and _emit_manifest(record) is None:
+        # Checked even on a dry run, so --check reports the skip a real sync would make.
+        if manifest_collides(record, boards_dir=_BOARDS_DIR) or (
+            not args.dry_run and _emit_manifest(record) is None
+        ):
             report.skipped.append(
                 _SkippedDevice(src.folder_name, "slug collides with hand-curated board")
             )
