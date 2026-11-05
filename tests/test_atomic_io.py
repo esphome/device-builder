@@ -498,3 +498,46 @@ def test_move_exclusive_refuses_an_existing_destination(tmp_path: Path) -> None:
 
     assert src.read_text(encoding="utf-8") == "x: 1\n"
     assert dst.read_text(encoding="utf-8") == "mine: 1\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX link-then-unlink move")
+def test_move_exclusive_removes_the_destination_when_unlinking_the_source_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    src, dst = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    src.write_text("x: 1\n", encoding="utf-8")
+    real_unlink = Path.unlink
+
+    def _unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == src:
+            raise PermissionError(errno.EACCES, "denied")
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", _unlink)
+    with pytest.raises(PermissionError):
+        move_exclusive(src, dst)
+
+    assert src.read_text(encoding="utf-8") == "x: 1\n"
+    assert not dst.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX hardlink fallback")
+def test_move_exclusive_fallback_leaves_no_partial_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    src, dst = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    src.write_text("x: 1\n", encoding="utf-8")
+
+    def _no_links(src: object, dst: object, **kwargs: object) -> None:
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    def _no_chmod(fd: int, mode: int) -> None:
+        raise OSError(errno.EIO, "I/O error")
+
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.link", _no_links)
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.fchmod", _no_chmod)
+    with pytest.raises(OSError, match="I/O error"):
+        move_exclusive(src, dst)
+
+    assert src.read_text(encoding="utf-8") == "x: 1\n"
+    assert not dst.exists()
