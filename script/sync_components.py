@@ -4601,6 +4601,7 @@ def _emit_platform_capabilities_index() -> None:
         "board_mcus": board_mcus(),
         # And an nRF52's bootloader, when its YAML names only the board.
         "nrf52_board_bootloaders": _nrf52_board_bootloaders(),
+        "nrf52_board_variants": _nrf52_board_variants(),
         "libretiny_families": list(_libretiny_families()),
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
@@ -4628,6 +4629,32 @@ def _nrf52_board_bootloaders() -> dict[str, str]:
     }
 
 
+def _nrf52_variants() -> set[str]:
+    """Return the nRF52 chips ESPHome knows (``NRF54L15``); empty before it named them."""
+    from esphome.components.nrf52 import const
+
+    return set(getattr(const, "VARIANT_PORT_PINS", {}))
+
+
+def _nrf52_board_variants() -> dict[str, str]:
+    """``{board: variant}`` for the nRF52 boards ESPHome names, by its own board rule."""
+    from esphome.components import nrf52
+    from esphome.components.nrf52 import boards
+
+    board_variant = getattr(nrf52, "_board_variant", None)
+    if board_variant is None:
+        return {}
+    names = {*boards.BOARDS_ZEPHYR, *getattr(boards, "BOARD_ALIASES", {})}
+    return {board: board_variant(board) for board in sorted(names)}
+
+
+def _logger_default_key(key: str) -> str:
+    """Canonical spelling of a ``SplitDefault`` key; ``nrf52_54l15`` is the ``NRF54L15``."""
+    if key.startswith("nrf52_"):
+        key = "nrf" + key.removeprefix("nrf52_")
+    return normalize_chip_variant(key)
+
+
 def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     """
     Snapshot logger's ``hardware_uart`` defaults and legal values.
@@ -4647,13 +4674,16 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     # esp32 variants, spelled through the same normalizers the runtime
     # uses, so a brand-new chip syncs the day it lands; only a genuinely
     # unknown platform key fails the sync loudly.
-    known_keys = {p.value for p in Platform} | {normalize_chip_variant(v) for v in VARIANTS}
+    known_keys = (
+        {p.value for p in Platform}
+        | {normalize_chip_variant(v) for v in VARIANTS}
+        | {normalize_chip_variant(v) for v in _nrf52_variants()}
+    )
     defaults: dict[str, str] = {}
     for key, value in sorted(raw.items()):
-        # nRF52 devices are looked up by platform alone, so a per-chip row has no reader
-        if value == "DEFAULT" or key.startswith("nrf52_"):
+        if value == "DEFAULT":
             continue
-        canonical = normalize_chip_variant(key)
+        canonical = _logger_default_key(key)
         if canonical not in known_keys:
             raise RuntimeError(
                 f"logger hardware_uart default key {key!r} does not map onto a "

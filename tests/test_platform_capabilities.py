@@ -34,6 +34,7 @@ from script._board_mcus import board_mcus  # type: ignore[import-not-found]
 from script.sync_components import (  # type: ignore[import-not-found]
     _logger_interface_snapshot,
     _nrf52_board_bootloaders,
+    _nrf52_board_variants,
 )
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
@@ -85,6 +86,7 @@ def test_index_within_installed_esphome() -> None:
         (set(caps.esp32_board_variants), set(ESP32_BOARDS)),
         # ``.items()``: a board both sides list is the same bootloader on both.
         (set(caps.nrf52_board_bootloaders.items()), set(_nrf52_board_bootloaders().items())),
+        (set(caps.nrf52_board_variants.items()), set(_nrf52_board_variants().items())),
     ]
     installed_mcus = board_mcus()
     assert set(caps.board_mcus) == set(installed_mcus)
@@ -130,12 +132,13 @@ def test_logger_interface_snapshot_within_installed_esphome() -> None:
             assert not extra, f"committed logger data no installed esphome exposes: {extra}"
 
 
-def test_logger_snapshot_drops_nrf52_variant_rows(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An nRF52 per-chip default is dropped instead of failing the sync."""
+def test_logger_snapshot_keys_nrf52_variant_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An nRF52 per-chip default is keyed by the chip, like an esp32 variant."""
     raw = {("hardware_uart",): {"nrf52": "USB_CDC", "nrf52_54l15": "UART0"}}
     monkeypatch.setattr(sync_components, "_collect_platform_defaults", lambda _component: raw)
+    monkeypatch.setattr(sync_components, "_nrf52_variants", lambda: {"NRF54L15"})
     defaults, _values = _logger_interface_snapshot()
-    assert defaults == {"nrf52": "USB_CDC"}
+    assert defaults == {"nrf52": "USB_CDC", "nrf54l15": "UART0"}
 
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:
