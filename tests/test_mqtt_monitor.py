@@ -106,14 +106,15 @@ def test_parse_mqtt_block_custom_port() -> None:
     assert config.port == 8883
 
 
-def test_parse_mqtt_block_resolves_secrets() -> None:
+@pytest.mark.parametrize("pw", ["topsecret", "pa$word"])
+def test_parse_mqtt_block_resolves_secrets(pw: str) -> None:
     yaml = "mqtt:\n  broker: !secret broker_host\n  port: !secret port\n  password: !secret pw\n"
-    secrets = {"broker_host": "192.168.1.5", "port": "8883", "pw": "topsecret"}
+    secrets = {"broker_host": "192.168.1.5", "port": "8883", "pw": pw}
     config = parse_mqtt_block(yaml, secrets)
     assert config is not None
     assert config.host == "192.168.1.5"
     assert config.port == 8883
-    assert config.password == "topsecret"
+    assert config.password == pw
 
 
 def test_parse_mqtt_block_missing_secret_returns_none() -> None:
@@ -162,6 +163,22 @@ def test_parse_mqtt_block_unresolved_substitution_returns_none() -> None:
     # become a host, so the caller defers to the seed / reload path.
     yaml = "mqtt:\n  broker: ${mqtt_host}\n"
     assert parse_mqtt_block(yaml) is None
+
+
+@pytest.mark.parametrize("field", ["username", "password"])
+@pytest.mark.parametrize("token", ["${mqtt_login}", "$mqtt_login"])
+def test_parse_mqtt_block_unresolved_login_returns_none(field: str, token: str) -> None:
+    """An unresolved substitution in the login yields no broker."""
+    yaml = f'mqtt:\n  broker: 10.0.0.5\n  {field}: "{token}"\n'
+    assert parse_mqtt_block(yaml) is None
+
+
+def test_parse_mqtt_block_password_with_dollar_is_kept() -> None:
+    """A password that merely contains ``$`` is not a token."""
+    yaml = 'mqtt:\n  broker: 10.0.0.5\n  username: bob\n  password: "pa$$word"\n'
+    config = parse_mqtt_block(yaml)
+    assert config is not None
+    assert config.password == "pa$$word"
 
 
 def test_parse_mqtt_block_resolves_port_substitution() -> None:
@@ -1134,14 +1151,21 @@ def test_coordinator_refuses_unusable_transport(block: dict[str, Any]) -> None:
     assert _broker_from_mqtt_dict({"broker": "10.0.0.5", **block}, {}, {}) is None
 
 
+@pytest.mark.parametrize(
+    "yaml",
+    [
+        pytest.param("mqtt:\n  broker: ${mqtt_host}\n", id="host"),
+        pytest.param('mqtt:\n  broker: 10.0.0.5\n  username: "${mqtt_user}"\n', id="username"),
+    ],
+)
 async def test_coordinator_skips_unresolved_substitution(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
     caplog: pytest.LogCaptureFixture,
+    yaml: str,
 ) -> None:
-    # An undefined substitution must not start a monitor on the literal
-    # token; warn once instead of looping on DNS failure.
-    device = write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: ${mqtt_host}\n")
+    # An unresolved token must not start a monitor; warn once.
+    device = write_mqtt_device(tmp_path, "alpha", yaml)
     coord = make_mqtt_coordinator(tmp_path, [device])
 
     target = "esphome_device_builder.controllers._device_mqtt_coordinator"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -465,6 +466,34 @@ def test_scan_populates_and_omits_the_extract(tmp_path: Path) -> None:
     assert mqtt_device.mqtt_extract.main_block is not None
     assert "mqtt_extract" not in mqtt_device.to_dict()
     assert plain_device.mqtt_extract is None
+
+
+@pytest.mark.parametrize(
+    ("login", "connects"),
+    [
+        pytest.param("password: !secret pw", True, id="secret-with-dollar"),
+        pytest.param('username: "${user}"', False, id="unresolved-username"),
+    ],
+)
+async def test_seed_login_matches_the_main_path(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    login: str,
+    connects: bool,
+) -> None:
+    """A package-sourced login is judged like an inline one."""
+    (tmp_path / "secrets.yaml").write_text("pw: pa$sword\n")
+    (tmp_path / "base.yaml").write_text(f"mqtt:\n  broker: 10.3.3.3\n  {login}\n")
+    (tmp_path / "pkg.yaml").write_text(
+        "esphome:\n  name: pkg\n\npackages:\n  base: !include base.yaml\n"
+    )
+    device = await asyncio.to_thread(
+        load_device_from_storage, tmp_path / "pkg.yaml", "", "", "", "", 0, ()
+    )
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert len(stub_monitor.instances) == connects
 
 
 async def test_shallow_ws_extract_without_path_defers_to_a_reload(

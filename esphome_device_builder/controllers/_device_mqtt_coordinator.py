@@ -31,6 +31,7 @@ from ..helpers.async_ import run_in_executor
 from ..helpers.atomic_io import read_text_with_stat
 from ..helpers.device_yaml import (
     _UNRESOLVED_SUBSTITUTION_RE,
+    _UNRESOLVED_WHOLE_TOKEN_RE,
     SecretRef,
     _resolve_substitutions,
     extract_mqtt_block,
@@ -86,6 +87,8 @@ _WS_ENDPOINT_FIELDS = (*_ENDPOINT_FIELDS, "ws_path")
 _TRANSPORT_SHAPING_FIELDS = ("transport", "port", "certificate_authority")
 
 _PEM_CERT_MARKER = "-----BEGIN CERTIFICATE-----"
+
+_LOGIN_FIELDS = ("username", "password")
 
 _UNREADABLE_DEBUG = "Could not read %s for MQTT broker config"
 
@@ -404,9 +407,9 @@ class DeviceMqttCoordinator:
             self._unresolved_logged,
             configuration,
             "Device %s declares mqtt: but broker could not be resolved "
-            "(missing secret, invalid config, packages: that failed to load, "
-            "an unsupported transport, a ws_path not starting with '/', "
-            "or a certificate_authority that is not valid inline PEM content)",
+            "(missing secret, unresolved substitution, invalid config, packages: "
+            "that failed to load, an unsupported transport, a ws_path not starting "
+            "with '/', or a certificate_authority that is not valid inline PEM content)",
             "Device %s declares mqtt: but broker still could not be resolved",
             configuration,
         )
@@ -458,8 +461,8 @@ def parse_mqtt_block(
     block has no resolvable ``broker:`` field, or when the YAML fails
     to parse. ``!secret xyz`` references and ``${var}`` / ``$var``
     substitutions from the file's own ``substitutions:`` block are
-    resolved; a broker still carrying an unresolved token returns
-    ``None`` so the caller defers to the seed or a scanner reload.
+    resolved; a broker or login still carrying an unresolved token
+    returns ``None`` so the caller defers to the seed or a scanner reload.
     ``CLIENT_CERT_UNSUPPORTED`` flags a block using client-certificate
     auth, which discovery cannot do.
     """
@@ -571,18 +574,23 @@ def _broker_from_block(
     # An unresolved ``${var}`` / ``$var`` token, or a declared field that
     # resolved to nothing (a missing secret), would otherwise become a
     # bogus or default endpoint and loop the monitor on connect failure.
-    # A WebSocket path must also be absolute.
-    for field in _WS_ENDPOINT_FIELDS if websocket else _ENDPOINT_FIELDS:
+    # A WebSocket path must also be absolute. An unresolved login would loop on
+    # "not authorised"; a literal ``$`` is valid there, so only a whole token counts.
+    endpoint_fields = _WS_ENDPOINT_FIELDS if websocket else _ENDPOINT_FIELDS
+    for field in (*endpoint_fields, *_LOGIN_FIELDS):
         value = mqtt.get(field)
+        login = field in _LOGIN_FIELDS
+        token_re = _UNRESOLVED_WHOLE_TOKEN_RE if login else _UNRESOLVED_SUBSTITUTION_RE
         if (
-            (field in raw_mqtt and not value)
-            or (isinstance(value, str) and _UNRESOLVED_SUBSTITUTION_RE.search(value))
+            (not login and field in raw_mqtt and not value)
+            or (isinstance(value, str) and token_re.search(value))
             or (field == "ws_path" and value is not None and not value.startswith("/"))
         ):
             return None
     host = mqtt.get("broker")
     if not host:
         return None
+    username, password = (mqtt.get(f) for f in _LOGIN_FIELDS)
     certificate_authority = mqtt.get("certificate_authority") or None
     # esphome's ``certificate_authority`` is PEM content; a file path or
     # a corrupt cert would hand paho garbage and loop on SSLError forever.
@@ -604,15 +612,13 @@ def _broker_from_block(
         port = int(port_raw) if port_raw else _DEFAULT_PORT
     except (TypeError, ValueError):
         port = _DEFAULT_PORT
-    username = mqtt.get("username") or None
-    password = mqtt.get("password") or None
     if transport not in _SUPPORTED_TRANSPORTS:
         return None
     return MqttBrokerConfig(
         host=str(host),
         port=port,
-        username=str(username) if username is not None else None,
-        password=str(password) if password is not None else None,
+        username=str(username) if username else None,
+        password=str(password) if password else None,
         certificate_authority=certificate_authority,
         skip_cert_cn_check=skip_cert_cn_check,
         transport=transport,
