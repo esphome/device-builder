@@ -184,17 +184,6 @@ def _platform_domains_from_shipped_index() -> frozenset[str]:
     return _domains_from_ids(c["id"] for c in payload["components"])
 
 
-def _require_component_categories(domains: frozenset[str]) -> None:
-    """Fail the sync loudly when a platform domain has no ``ComponentCategory`` member."""
-    missing = sorted(domains - {c.value for c in ComponentCategory})
-    if missing:
-        raise SystemExit(
-            f"New upstream platform domain(s) without a ComponentCategory member: {missing}. "
-            "Add the enum member(s) in esphome_device_builder/models/components.py and "
-            "coordinate the frontend category UI, then re-run."
-        )
-
-
 # Top-level platform domains in the schema. Components are keyed as
 # ``<id>.<domain>`` in the schema files — e.g. ``dht.sensor`` lives in
 # dht.json under the key ``dht.sensor``. Seeded from the shipped catalog
@@ -1179,10 +1168,9 @@ def load_index(schema_dir: Path) -> SchemaIndex:
 
     Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
     ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set):
-    a bundle with no ``core.platforms`` fails loud, and a shipped
-    domain missing from the fresh bundle logs a warning.
+    a bundle with no ``core.platforms`` fails loud, and an added or
+    dropped domain logs a warning.
     """
-    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
 
     # 1. esphome.json — core.components and core.platforms.
@@ -1201,16 +1189,7 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             f"Schema bundle at {schema_dir} has no core.platforms (esphome.json missing or "
             "empty); refusing to sync against the stale shipped domain set."
         )
-    fresh_domains = frozenset(platforms)
-    _require_component_categories(fresh_domains)
-    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
-        _LOGGER.warning(
-            "Platform domain(s) in the shipped catalog but absent from the fresh "
-            "schema bundle: %s. Expected for a genuine upstream removal; check the "
-            "catalog diff if not.",
-            dropped,
-        )
-    _PLATFORM_DOMAINS = fresh_domains
+    _refresh_platform_domains(frozenset(platforms))
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -1232,6 +1211,24 @@ def load_index(schema_dir: Path) -> SchemaIndex:
             metadata.setdefault(cid, meta or {})
 
     return SchemaIndex(metadata=metadata)
+
+
+def _refresh_platform_domains(fresh_domains: frozenset[str]) -> None:
+    """Replace ``_PLATFORM_DOMAINS``, warning on each added or dropped domain."""
+    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
+    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
+        _LOGGER.warning(
+            "Platform domain(s) in the shipped catalog but absent from the fresh "
+            "schema bundle: %s. Expected for a genuine upstream removal; check the "
+            "catalog diff if not.",
+            dropped,
+        )
+    if added := sorted(fresh_domains - _PLATFORM_DOMAINS):
+        _LOGGER.warning(
+            "New upstream platform domain(s): %s",
+            added,
+        )
+    _PLATFORM_DOMAINS = fresh_domains
 
 
 def iter_schema_files(schema_dir: Path) -> Iterable[Path]:
@@ -3594,12 +3591,7 @@ def _merge_extends_config_vars(
         origin_ref.update(dict.fromkeys(resolved, ref))
     merged: dict[str, Any] = {}
     for key in {*extended, *config_vars}:
-        base = extended.get(key)
-        local = config_vars.get(key)
-        if isinstance(base, dict) and isinstance(local, dict):
-            merged[key] = {**base, **local}
-        else:
-            merged[key] = local if local is not None else base or {}
+        merged[key] = _overlay_field(extended.get(key), config_vars.get(key))
     return merged, {key: ref for key, ref in origin_ref.items() if key not in config_vars}
 
 
@@ -3740,21 +3732,29 @@ def _lookup_schema_ref(ref: str, schema_dir: Path) -> dict | None:
     return None
 
 
-def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
-    """Look up an ``extends`` reference and return its config_vars.
+def _overlay_field(base: Any, local: Any) -> Any:
+    """Merge a local field over its inherited one key by key; a missing side yields the other."""
+    if isinstance(base, dict) and isinstance(local, dict):
+        return {**base, **local}
+    return local if local is not None else base or {}
 
-    For schemas that themselves carry ``extends`` we recurse so the full
-    ancestry is flattened into one config_vars dict.
-    """
+
+def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
+    """Return *ref*'s config_vars with its whole ancestry merged per field."""
     target = _lookup_schema_ref(ref, schema_dir)
     if target is None:
         return {}
     schema_node = target.get("schema") or {}
-    inner = dict(schema_node.get("config_vars") or {})
-    # Recurse into nested extends so the merged map carries everything.
+    inherited: dict[str, dict] = {}
     for sub in schema_node.get("extends") or []:
         for k, v in _resolve_extends(sub, schema_dir).items():
-            inner.setdefault(k, v)
+            inherited.setdefault(k, v)
+    inner: dict[str, dict] = {}
+    for k, v in (schema_node.get("config_vars") or {}).items():
+        base = inherited.get(k)
+        inner[k] = _overlay_field(base, v)
+    for k, v in inherited.items():
+        inner.setdefault(k, v)
     return inner
 
 
@@ -4601,6 +4601,7 @@ def _emit_platform_capabilities_index() -> None:
         "board_mcus": board_mcus(),
         # And an nRF52's bootloader, when its YAML names only the board.
         "nrf52_board_bootloaders": _nrf52_board_bootloaders(),
+        "nrf52_board_variants": _nrf52_board_variants(),
         "libretiny_families": list(_libretiny_families()),
         "logger_interface_defaults": logger_defaults,
         "logger_interface_values": logger_values,
@@ -4628,6 +4629,37 @@ def _nrf52_board_bootloaders() -> dict[str, str]:
     }
 
 
+def _nrf52_variants() -> set[str]:
+    """Return the nRF52 chips ESPHome knows (``NRF54L15``); empty before it named them."""
+    from esphome.components.nrf52 import const
+
+    return set(getattr(const, "VARIANT_PORT_PINS", {}))
+
+
+def _nrf52_board_variants() -> dict[str, str]:
+    """``{board: variant}`` for the nRF52 boards ESPHome names, by its own board rule."""
+    from esphome.components import nrf52
+    from esphome.components.nrf52 import boards
+
+    board_variant = getattr(nrf52, "_board_variant", None)
+    if board_variant is None:
+        if _nrf52_variants():
+            raise RuntimeError(
+                "esphome names nRF52 chips but has no nrf52._board_variant to map boards"
+            )
+        return {}
+    aliases = getattr(boards, "BOARD_ALIASES", {})
+    names = {*boards.BOARDS_ZEPHYR, *aliases, *aliases.values()}
+    return {board: board_variant(board) for board in sorted(names)}
+
+
+def _logger_default_key(key: str) -> str:
+    """Canonical spelling of a ``SplitDefault`` key; ``nrf52_54l15`` is the ``NRF54L15``."""
+    if key.startswith("nrf52_"):
+        key = "nrf" + key.removeprefix("nrf52_")
+    return normalize_chip_variant(key)
+
+
 def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     """
     Snapshot logger's ``hardware_uart`` defaults and legal values.
@@ -4647,12 +4679,16 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     # esp32 variants, spelled through the same normalizers the runtime
     # uses, so a brand-new chip syncs the day it lands; only a genuinely
     # unknown platform key fails the sync loudly.
-    known_keys = {p.value for p in Platform} | {normalize_chip_variant(v) for v in VARIANTS}
+    known_keys = (
+        {p.value for p in Platform}
+        | {normalize_chip_variant(v) for v in VARIANTS}
+        | {normalize_chip_variant(v) for v in _nrf52_variants()}
+    )
     defaults: dict[str, str] = {}
     for key, value in sorted(raw.items()):
         if value == "DEFAULT":
             continue
-        canonical = normalize_chip_variant(key)
+        canonical = _logger_default_key(key)
         if canonical not in known_keys:
             raise RuntimeError(
                 f"logger hardware_uart default key {key!r} does not map onto a "
@@ -5555,73 +5591,69 @@ def _resolve_name(component_id: str, stem: str, doc_name: str | None) -> str:
 # external_components, ...). The frontend's "Add core configuration"
 # dialog is a thin filter on category=core, so this list defines what
 # the user sees there.
-_CATEGORY_OVERRIDES: dict[str, str] = {
+_CATEGORY_OVERRIDES: dict[str, ComponentCategory] = {
     # Core ESPHome infrastructure
-    "esphome": "core",
-    "wifi": "core",
-    "api": "core",
-    "ota": "core",
-    "logger": "core",
-    "mqtt": "core",
-    "web_server": "core",
-    "captive_portal": "core",
-    "safe_mode": "core",
-    "time": "core",
-    "network": "core",
-    "ethernet": "core",
-    "mdns": "core",
-    "improv_serial": "core",
-    "debug": "core",
-    "preferences": "core",
+    "esphome": ComponentCategory.CORE,
+    "wifi": ComponentCategory.CORE,
+    "api": ComponentCategory.CORE,
+    "ota": ComponentCategory.CORE,
+    "logger": ComponentCategory.CORE,
+    "mqtt": ComponentCategory.CORE,
+    "web_server": ComponentCategory.CORE,
+    "captive_portal": ComponentCategory.CORE,
+    "safe_mode": ComponentCategory.CORE,
+    "time": ComponentCategory.CORE,
+    "network": ComponentCategory.CORE,
+    "ethernet": ComponentCategory.CORE,
+    "mdns": ComponentCategory.CORE,
+    "improv_serial": ComponentCategory.CORE,
+    "debug": ComponentCategory.CORE,
+    "preferences": ComponentCategory.CORE,
     # Networking / web infrastructure that's auto-pulled by other
     # core components (ota.http_request → http_request,
     # web_server → web_server_base, etc.). Keeping them tagged
     # `core` lets the dependency-satisfaction filter on the core
     # dialog pass the parent OTA / web entries that depend on them.
-    "http_request": "core",
-    "web_server_base": "core",
-    "web_server_idf": "core",
-    "socket": "core",
-    "async_tcp": "core",
+    "http_request": ComponentCategory.CORE,
+    "web_server_base": ComponentCategory.CORE,
+    "web_server_idf": ComponentCategory.CORE,
+    "socket": ComponentCategory.CORE,
+    "async_tcp": ComponentCategory.CORE,
     # Target platform components (esp32, esp8266, ...) — these are
     # also tagged via `is_target_platform` introspection, but listing
     # them explicitly here makes the override authoritative.
-    "esp32": "core",
-    "esp8266": "core",
-    RP2_CANONICAL_PLATFORM: "core",
-    "bk72xx": "core",
-    "rtl87xx": "core",
-    "ln882x": "core",
-    "nrf52": "core",
-    "host": "core",
+    "esp32": ComponentCategory.CORE,
+    "esp8266": ComponentCategory.CORE,
+    RP2_CANONICAL_PLATFORM: ComponentCategory.CORE,
+    "bk72xx": ComponentCategory.CORE,
+    "rtl87xx": ComponentCategory.CORE,
+    "ln882x": ComponentCategory.CORE,
+    "nrf52": ComponentCategory.CORE,
+    "host": ComponentCategory.CORE,
     # Device-wide config keys (not really "components" — they don't
     # have C++ implementations — but they live at the top level of
     # YAML alongside real components).
-    "substitutions": "core",
-    "packages": "core",
-    "external_components": "core",
-    "dashboard_import": "core",
-    "globals": "core",
+    "substitutions": ComponentCategory.CORE,
+    "packages": ComponentCategory.CORE,
+    "external_components": ComponentCategory.CORE,
+    "dashboard_import": ComponentCategory.CORE,
+    "globals": ComponentCategory.CORE,
     # Bus / transport components
-    "i2c": "bus",
-    "spi": "bus",
-    "uart": "bus",
-    "one_wire": "bus",
-    "modbus": "bus",
-    "canbus": "bus",
+    "i2c": ComponentCategory.BUS,
+    "spi": ComponentCategory.BUS,
+    "uart": ComponentCategory.BUS,
+    "one_wire": ComponentCategory.BUS,
+    "modbus": ComponentCategory.BUS,
+    "canbus": ComponentCategory.BUS,
     # Automation primitives
-    "script": "automation",
-    "interval": "automation",
+    "script": ComponentCategory.AUTOMATION,
+    "interval": ComponentCategory.AUTOMATION,
 }
 
 
-def _infer_misc_category(top_key: str) -> str:
-    """Best-effort category for non-platform components.
-
-    Looks up ``_CATEGORY_OVERRIDES`` first (curated list mirroring the
-    legacy catalog), falls through to ``misc`` for everything else.
-    """
-    return _CATEGORY_OVERRIDES.get(top_key, "misc")
+def _infer_misc_category(top_key: str) -> ComponentCategory:
+    """Category for a non-platform component: its override, else ``misc``."""
+    return _CATEGORY_OVERRIDES.get(top_key, ComponentCategory.MISC)
 
 
 # ---------------------------------------------------------------------------
@@ -5770,26 +5802,14 @@ def _upgrade_stamp_only_refinements(
 
 
 def _collect_bleed_keys(
-    manifest: Any,
+    merged_ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
+    merged_refined: dict[tuple[str, ...], RefinedType],
     platform_manifests_by_domain: list[tuple[str, Any]],
 ) -> tuple[
     dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]],
     dict[str, dict[tuple[str, ...], RefinedType | None]],
 ]:
-    """Per-domain hub signals a platform schema redefines, for platform builds to shed.
-
-    Both signals shed when the platform's own value differs (the
-    modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
-    item's plain ``cv.positive_int``), each shed path mapping to the
-    platform's own range / refinement (``None`` when it has none) so the
-    build substitutes rather than dropping. Keyed per platform domain, not
-    aggregated: one platform's redefinition must not spare a sibling
-    platform from the shed. Hub builds keep every signal. Covers
-    hub-to-platform bleed only; a sibling platform's contribution rides
-    ``merge_from_platforms`` unguarded.
-    """
-    hub_ranges = _collect_field_ranges(manifest)
-    hub_refined = _collect_refined_types(manifest)
+    """Per-domain paths whose platform range / refinement differs from the merge, mapped to its own."""
     range_bleed: dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]] = {}
     refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
@@ -5797,16 +5817,16 @@ def _collect_bleed_keys(
         platform_ranges = _collect_field_ranges(platform_manifest)
         bled = {
             path: platform_ranges.get(path)
-            for path in hub_ranges
-            if path in keys and platform_ranges.get(path) != hub_ranges[path]
+            for path in merged_ranges
+            if path in keys and platform_ranges.get(path) != merged_ranges[path]
         }
         if bled:
             range_bleed[domain] = bled
         platform_refined = _collect_refined_types(platform_manifest)
         refined_bled = {
             path: platform_refined.get(path)
-            for path in hub_refined
-            if path in keys and platform_refined.get(path) != hub_refined[path]
+            for path in merged_refined
+            if path in keys and platform_refined.get(path) != merged_refined[path]
         }
         if refined_bled:
             refined_bleed[domain] = refined_bled
@@ -5894,24 +5914,23 @@ def introspect_component(component_id: str) -> dict[str, Any]:
                 merged.setdefault(path, value)
         return merged
 
+    merged_ranges = merge_from_platforms(_collect_field_ranges)
     refined_types = _upgrade_stamp_only_refinements(
         merge_from_platforms(_collect_refined_types), platform_manifests
     )
     component_gates = merge_from_platforms(_collect_component_gates)
     platform_constraints = merge_from_platforms(_collect_platform_constraints)
-    field_ranges = _drop_machine_derived_ranges(
-        component_id, merge_from_platforms(_collect_field_ranges)
-    )
+    field_ranges = _drop_machine_derived_ranges(component_id, dict(merged_ranges))
     inclusive_groups = merge_from_platforms(_collect_inclusive_groups)
     required_groups = merge_from_platforms(_collect_required_groups)
     list_fields = merge_from_platforms(_collect_list_fields)
     registry_members = merge_from_platforms(_collect_registry_members)
     typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
-    # Hub signals must not bleed onto platform fields the domain
-    # redefines; platform builds shed them (``build_component_entry``).
+    # Merged hub and sibling signals must not bleed onto fields a platform
+    # domain types differently; platform builds shed them (``build_component_entry``).
     field_range_bleed_keys, refined_bleed_keys = _collect_bleed_keys(
-        manifest, platform_manifests_by_domain
+        merged_ranges, refined_types, platform_manifests_by_domain
     )
 
     model_variance = _collect_model_variance_by_domain(
@@ -6692,7 +6711,8 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
             # resolver never matches (see models/boards.py).
             per_platform[normalize_platform(str(plat))] = value
         if per_platform:
-            out[path] = per_platform
+            # Sorted: upstream builds some SplitDefaults from a set of variants.
+            out[path] = dict(sorted(per_platform.items()))
 
     _walk_schema_keys(schema, visit)
     return out
@@ -7091,6 +7111,27 @@ def _duration_min_unit_of(validator: Any) -> str | None:
     return _duration_precision_of(validator) or None
 
 
+def _refined_type_by_name(
+    validator: Any, qualname: str, by_name: dict[str, RefinedType]
+) -> RefinedType | None:
+    """Match a closure or partial to the longest table name its own name contains."""
+    lowered = (getattr(validator, "__name__", None) or qualname).lower()
+    key = max((k for k in by_name if k in lowered), key=len, default=None)
+    refined = by_name[key] if key is not None else None
+    if refined is None or refined.type != "float_with_unit" or not refined.unit_options:
+        return refined
+    # A unit picker named like a unit-coerced validator (cv.temperature_unit)
+    # accepts a bare unit; a coercer rejects one, so any raise keeps the refinement.
+    try:
+        validator(refined.unit_options[0])
+    except Exception:
+        return refined
+    _LOGGER.debug(
+        "%s accepts bare unit %r; treating it as a unit picker", lowered, refined.unit_options[0]
+    )
+    return None
+
+
 def _with_duration_min_unit(refined: RefinedType | None, validator: Any) -> RefinedType | None:
     """Return *refined* carrying *validator*'s time-period precision, when it has one."""
     unit = _duration_min_unit_of(validator)
@@ -7201,12 +7242,8 @@ def _refined_types_in_schema(  # noqa: C901
             units = _extract_validator_units(validator)
             if units:
                 return RefinedType("float_with_unit", unit_options=units)
-        # Fall back to name-based matching for closures and partials
-        # that lose identity but keep the name.
-        name = (getattr(validator, "__name__", None) or qualname).lower()
-        for k, t in by_name.items():
-            if k in name:
-                return t
+        if (t := _refined_type_by_name(validator, qualname, by_name)) is not None:
+            return t
         # Last resort: component-local suffix strippers (stepper's
         # ``validate_speed``) that no table can bind (#2056).
         units = _derive_suffix_units(validator)
@@ -8223,10 +8260,8 @@ def _load_board_index() -> list[dict]:
     """
     Load the committed ``boards.index.json`` (each board carries esphome.platform/board).
 
-    Read as committed: the board sync (``sync_boards.py``) and this component
-    sync are independent workflows, so board options can trail a board
-    add/remove by one component-sync cycle. ``allow_custom_value`` covers the
-    gap — the user can still type any board id.
+    Read from disk, so the catalog-sync workflow re-stamps boards before
+    this sync; ``allow_custom_value`` covers any board id not listed.
     """
     data = orjson.loads((_DEFINITIONS_DIR / "boards.index.json").read_bytes())
     boards = data.get("boards") if isinstance(data, dict) else data
@@ -8288,6 +8323,18 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     add("esp8266", _logger.UART_SELECTION_ESP8266)
     add(RP2_CANONICAL_PLATFORM, _logger.UART_SELECTION_RP2040)
     add("nrf52", _logger.UART_SELECTION_NRF52)
+    # A per-chip default row (``nrf52_54l15``) needs its own choices, matching upstream's uart_selection
+    from esphome import loader
+    from esphome.components.nrf52 import const as nrf52_const
+
+    without_usb = getattr(nrf52_const, "VARIANTS_WITHOUT_USB", frozenset())
+    defaults = _collect_platform_defaults(loader.get_component("logger")).get(
+        ("hardware_uart",), {}
+    )
+    for key in defaults:
+        if key.startswith("nrf52_"):
+            variant = _logger_default_key(key).upper()
+            add(key, [_logger.UART0] if variant in without_usb else _logger.UART_SELECTION_NRF52)
     return out
 
 

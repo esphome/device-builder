@@ -155,9 +155,11 @@ Home Assistant add-on.
 
 ## Workflow conventions
 
-- All GitHub Actions are SHA-pinned with the version as a trailing
-  comment (`uses: actions/checkout@<sha>  # v4`) so dependabot can bump
-  while preserving traceability. Org policy.
+- GitHub Actions are written with version tags (`uses: actions/checkout@v7.0.1`);
+  the commit SHAs live in `.github/workflows/actions.lock`, managed by
+  `gh actions-lock` and checked by the `verify-lockfile` workflow. After
+  adding or changing any `uses:`, run `gh actions-lock` and commit the
+  regenerated lockfile. Org policy.
 - Release flow lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ci--release-pipeline).
 - **CI runs the test matrix on Windows too.** PowerShell is the default
   shell on `windows-latest` and **does not accept bash-style `\` line

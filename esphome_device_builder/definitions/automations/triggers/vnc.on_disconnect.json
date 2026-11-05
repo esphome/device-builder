@@ -1,0 +1,1 @@
+{"id":"vnc.on_disconnect","name":"Vnc → On Disconnect","description":"An automation to run when the connection is lost.","docs_url":"https://esphome.io/components/vnc/#configuration-variables","applies_to":["vnc"],"is_device_level":false,"supports_list":true,"config_entries":[]}

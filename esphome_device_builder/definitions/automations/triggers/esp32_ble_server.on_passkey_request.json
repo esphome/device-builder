@@ -1,0 +1,1 @@
+{"id":"esp32_ble_server.on_passkey_request","name":"Esp32 Ble Server → On Passkey Request","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["esp32_ble_server"],"is_device_level":false,"supports_list":true,"config_entries":[]}

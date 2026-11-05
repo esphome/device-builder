@@ -44,7 +44,7 @@ from ._loading import (
     pending_changes_via_hash,
     resolution_incomplete,
 )
-from ._mqtt_block import build_mqtt_extract, extract_mqtt_block
+from ._mqtt_block import build_mqtt_extract, extract_mqtt_block, extract_mqtt_parts
 from ._ota_old_key import yaml_declares_ota_old_key
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
@@ -119,6 +119,7 @@ __all__ = [
     "extract_directly_referenced_integrations",
     "extract_esphome_meta_from_config",
     "extract_mqtt_block",
+    "extract_mqtt_parts",
     "generate_adoption_yaml",
     "generate_device_yaml",
     "generate_minimal_stub_yaml",

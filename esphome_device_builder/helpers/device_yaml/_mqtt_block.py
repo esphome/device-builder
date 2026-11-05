@@ -20,13 +20,20 @@ def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[s
     tags load as ``None``. Returns ``(None, {})`` when the YAML fails to
     parse, has no ``mqtt:`` mapping, or ``!remove``s a key from it.
     """
+    mqtt, subs, _ = extract_mqtt_parts(yaml_content)
+    return mqtt, subs
+
+
+def extract_mqtt_parts(yaml_content: str) -> tuple[dict[str, Any] | None, dict[str, str], bool]:
+    """:func:`extract_mqtt_block` plus whether the file declares top-level ``packages:``."""
     data = load_yaml_tolerant(yaml_content)
     if not isinstance(data, dict):
-        return None, {}
+        return None, {}, False
+    has_packages = "packages" in data
     mqtt = data.get("mqtt")
     if not isinstance(mqtt, dict) or any(isinstance(v, Remove) for v in mqtt.values()):
-        return None, {}
-    return mqtt, _extract_resolved_substitutions(data)
+        return None, {}, has_packages
+    return mqtt, _extract_resolved_substitutions(data), has_packages
 
 
 def build_mqtt_extract(
@@ -39,7 +46,7 @@ def build_mqtt_extract(
     shallow: bool = False,
 ) -> DeviceMqttExtract:
     """Build the scan-time extraction the MQTT coordinator consumes."""
-    main_block, main_subs = extract_mqtt_block(yaml_content)
+    main_block, main_subs, has_packages = extract_mqtt_parts(yaml_content)
     resolved_block = resolved_config.get("mqtt") if isinstance(resolved_config, dict) else None
     if not isinstance(resolved_block, dict):
         resolved_block = None
@@ -53,4 +60,5 @@ def build_mqtt_extract(
         resolved_block=resolved_block,
         resolved_substitutions=resolved_substitutions,
         from_shallow_load=shallow,
+        has_packages=has_packages,
     )

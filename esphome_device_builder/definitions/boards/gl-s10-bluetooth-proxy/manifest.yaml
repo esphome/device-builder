@@ -38,5 +38,5 @@ source:
   type: bluetooth-proxies
   remote_id: gl-inet/gl-s10
   upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/gl-inet/gl-s10.yaml
-  upstream_revision: 6387b836d61375b273065501a31fe936225eb620
+  upstream_revision: aa3d6c5170f02e2549e00a6448c9d1f1b0a0741c
   content_hash: 2184182583b2a50592c0d2e0d1e21e6a480fd70d3d14b913287cc9e9d4653d5f
