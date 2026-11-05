@@ -402,12 +402,17 @@ def is_imported_manifest(manifest_path: Path, *, source_type: str) -> tuple[bool
 def manifest_collides(record: dict[str, Any], *, boards_dir: Path) -> bool:
     """Whether ``boards/<id>/manifest.yaml`` exists and this record's source doesn't own it."""
     manifest_path = boards_dir / record["id"] / "manifest.yaml"
+    return _collides(record, manifest_path, read_manifest_dict(manifest_path))
+
+
+def _collides(record: dict[str, Any], manifest_path: Path, prior: dict[str, Any] | None) -> bool:
+    """Whether *manifest_path* exists and *prior* (its parse) isn't owned by *record*'s source."""
     # Hand-curated boards (no ``source.type``) and unparsable files both read as
     # "not imported", so guard on the file existing, not on the parse.
-    if not manifest_path.is_file():
-        return False
-    prior = read_manifest_dict(manifest_path)
-    return not imported_remote_id(prior, source_type=record["source"]["type"])[0]
+    return (
+        manifest_path.is_file()
+        and not imported_remote_id(prior, source_type=record["source"]["type"])[0]
+    )
 
 
 def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
@@ -428,7 +433,7 @@ def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
     manifest_path = target_dir / "manifest.yaml"
     prior = read_manifest_dict(manifest_path)
     # An existing manifest the sync doesn't own is a slug collision; leave it untouched.
-    if manifest_collides(record, boards_dir=boards_dir):
+    if _collides(record, manifest_path, prior):
         _LOGGER.warning(
             "Skipping %s — slug collides with a board this source doesn't own",
             record["id"],

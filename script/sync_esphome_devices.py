@@ -2548,9 +2548,12 @@ def main() -> int:
         if gate_reason is not None:
             report.skipped.append(_SkippedDevice(src.folder_name, gate_reason))
             continue
-        # Checked even on a dry run, so --check reports the skip a real sync would make.
-        if manifest_collides(record, boards_dir=_BOARDS_DIR) or (
-            not args.dry_run and _emit_manifest(record) is None
+        # A dry run (and --check) reports the skip a real sync makes; a real sync
+        # finds it in _emit_manifest, which also logs the collision.
+        if (
+            manifest_collides(record, boards_dir=_BOARDS_DIR)
+            if args.dry_run
+            else _emit_manifest(record) is None
         ):
             report.skipped.append(
                 _SkippedDevice(src.folder_name, "slug collides with hand-curated board")
