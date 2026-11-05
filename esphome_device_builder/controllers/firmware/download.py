@@ -169,6 +169,7 @@ def collect_download_entries(
                 "file": _MCUBOOT_UPDATE_IMAGE,
             }
         )
+    listed = []
     for entry in downloads:
         entry["download_name"] = _download_filename(storage.name, Path(entry["file"]).name)
         artifact_type = _ARTIFACT_TYPES.get(entry["file"])
@@ -176,17 +177,22 @@ def collect_download_entries(
             entry["type"] = artifact_type
         # Debug symbols are 14 MB+ and never verified before a flash.
         if artifact_type != "elf":
-            # ``md5`` is optional: a file a rebuild just removed, or one that
-            # resolves outside the build dir, keeps its row without a digest.
+            # ``md5`` is optional: an artifact that resolves outside the build
+            # dir or can't be read keeps its row without a digest; one a
+            # rebuild removed since the existence filter drops out.
             try:
                 path = resolve_under_root(build_dir / entry["file"], build_dir)
                 stat = path.stat()
                 entry["md5"] = _md5_digest(path, stat.st_size, stat.st_mtime_ns)
-            except (FileNotFoundError, ValueError) as err:
+            except FileNotFoundError:
+                _LOGGER.debug("%s vanished before it could be hashed", entry["file"])
+                continue
+            except ValueError as err:
                 _LOGGER.debug("Could not hash %s: %s", entry["file"], err)
             except OSError as err:
                 _LOGGER.warning("Could not hash %s: %s", entry["file"], err)
-    return downloads
+        listed.append(entry)
+    return listed
 
 
 def _download_filename(device_name: str, artifact_name: str) -> str:
