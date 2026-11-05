@@ -17,6 +17,7 @@ workflows:
     '.github/workflows/close-uneditable-fork-pr.yml':
         - 'actions/github-script@v9.0.0'
     '.github/workflows/dependabot-auto-merge.yml':
+        - 'actions/create-github-app-token@v3.3.0'
         - 'dependabot/fetch-metadata@v3.1.0'
     '.github/workflows/device-status-followup.yml':
         - 'actions/github-script@v9.0.0'
