@@ -8334,7 +8334,7 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     )
     for key in defaults:
         if key.startswith("nrf52_"):
-            variant = "NRF" + key.removeprefix("nrf52_").upper()
+            variant = _logger_default_key(key).upper()
             add(key, [_logger.UART0] if variant in without_usb else _logger.UART_SELECTION_NRF52)
     return out
 

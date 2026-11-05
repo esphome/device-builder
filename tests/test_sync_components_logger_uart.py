@@ -20,6 +20,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
     _apply_logger_uart_options,
     _collect_platform_defaults,
+    _logger_default_key,
     _logger_uart_platform_options,
 )
 from script.sync_components import (  # type: ignore[import-not-found]
@@ -65,7 +66,7 @@ def test_uart_options_cover_nrf52_chip_defaults() -> None:
     without_usb = getattr(nrf52_const, "VARIANTS_WITHOUT_USB", frozenset())
     for key in (k for k in defaults if k.startswith("nrf52_")):
         values = {o["value"] for o in opts[key]}
-        if "NRF" + key.removeprefix("nrf52_").upper() in without_usb:
+        if _logger_default_key(key).upper() in without_usb:
             assert values == {"UART0"}
         else:
             assert "USB_CDC" in values
