@@ -3591,12 +3591,7 @@ def _merge_extends_config_vars(
         origin_ref.update(dict.fromkeys(resolved, ref))
     merged: dict[str, Any] = {}
     for key in {*extended, *config_vars}:
-        base = extended.get(key)
-        local = config_vars.get(key)
-        if isinstance(base, dict) and isinstance(local, dict):
-            merged[key] = {**base, **local}
-        else:
-            merged[key] = local if local is not None else base or {}
+        merged[key] = _overlay_field(extended.get(key), config_vars.get(key))
     return merged, {key: ref for key, ref in origin_ref.items() if key not in config_vars}
 
 
@@ -3737,21 +3732,29 @@ def _lookup_schema_ref(ref: str, schema_dir: Path) -> dict | None:
     return None
 
 
-def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
-    """Look up an ``extends`` reference and return its config_vars.
+def _overlay_field(base: Any, local: Any) -> Any:
+    """Merge a local field over its inherited one key by key; a missing side yields the other."""
+    if isinstance(base, dict) and isinstance(local, dict):
+        return {**base, **local}
+    return local if local is not None else base or {}
 
-    For schemas that themselves carry ``extends`` we recurse so the full
-    ancestry is flattened into one config_vars dict.
-    """
+
+def _resolve_extends(ref: str, schema_dir: Path) -> dict[str, dict]:
+    """Return *ref*'s config_vars with its whole ancestry merged per field."""
     target = _lookup_schema_ref(ref, schema_dir)
     if target is None:
         return {}
     schema_node = target.get("schema") or {}
-    inner = dict(schema_node.get("config_vars") or {})
-    # Recurse into nested extends so the merged map carries everything.
+    inherited: dict[str, dict] = {}
     for sub in schema_node.get("extends") or []:
         for k, v in _resolve_extends(sub, schema_dir).items():
-            inner.setdefault(k, v)
+            inherited.setdefault(k, v)
+    inner: dict[str, dict] = {}
+    for k, v in (schema_node.get("config_vars") or {}).items():
+        base = inherited.get(k)
+        inner[k] = _overlay_field(base, v)
+    for k, v in inherited.items():
+        inner.setdefault(k, v)
     return inner
 
 
@@ -5763,27 +5766,14 @@ def _upgrade_stamp_only_refinements(
 
 
 def _collect_bleed_keys(
-    manifest: Any,
+    merged_ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
+    merged_refined: dict[tuple[str, ...], RefinedType],
     platform_manifests_by_domain: list[tuple[str, Any]],
 ) -> tuple[
     dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]],
     dict[str, dict[tuple[str, ...], RefinedType | None]],
 ]:
-    """Per-domain merged signals a platform schema redefines, for platform builds to shed.
-
-    Both signals shed when the platform's own value differs from the
-    hub-plus-siblings merge (the modbus_controller hub's ``cv.hex_uint8_t``
-    ``address`` vs the platform item's plain ``cv.positive_int``; template
-    number's float ``initial_value`` vs template text's string one), each
-    shed path mapping to the platform's own
-    range / refinement (``None`` when it has none) so the build substitutes
-    rather than dropping. Keyed per platform domain, not aggregated: one
-    platform's redefinition must not spare a sibling platform from the
-    shed. Hub builds keep every signal.
-    """
-    platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
-    hub_ranges = _merge_keep_first(_collect_field_ranges, manifest, platform_manifests)
-    hub_refined = _merge_keep_first(_collect_refined_types, manifest, platform_manifests)
+    """Per-domain paths whose platform range / refinement differs from the merge, mapped to its own."""
     range_bleed: dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]] = {}
     refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
@@ -5791,33 +5781,20 @@ def _collect_bleed_keys(
         platform_ranges = _collect_field_ranges(platform_manifest)
         bled = {
             path: platform_ranges.get(path)
-            for path in hub_ranges
-            if path in keys and platform_ranges.get(path) != hub_ranges[path]
+            for path in merged_ranges
+            if path in keys and platform_ranges.get(path) != merged_ranges[path]
         }
         if bled:
             range_bleed[domain] = bled
         platform_refined = _collect_refined_types(platform_manifest)
         refined_bled = {
             path: platform_refined.get(path)
-            for path in hub_refined
-            if path in keys and platform_refined.get(path) != hub_refined[path]
+            for path in merged_refined
+            if path in keys and platform_refined.get(path) != merged_refined[path]
         }
         if refined_bled:
             refined_bleed[domain] = refined_bled
     return range_bleed, refined_bleed
-
-
-def _merge_keep_first(
-    collect: Callable[[Any], dict[tuple[str, ...], Any]],
-    manifest: Any,
-    platform_manifests: list[Any],
-) -> dict[tuple[str, ...], Any]:
-    """Merge *collect* over the hub then each platform manifest, first value per path winning."""
-    merged = collect(manifest)
-    for platform_manifest in platform_manifests:
-        for path, value in collect(platform_manifest).items():
-            merged.setdefault(path, value)
-    return merged
 
 
 def _shed_range_bleed(
@@ -5895,16 +5872,19 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     def merge_from_platforms(
         collect: Callable[[Any], dict[tuple[str, ...], Any]],
     ) -> dict[tuple[str, ...], Any]:
-        return _merge_keep_first(collect, manifest, platform_manifests)
+        merged = collect(manifest)
+        for platform_manifest in platform_manifests:
+            for path, value in collect(platform_manifest).items():
+                merged.setdefault(path, value)
+        return merged
 
+    merged_ranges = merge_from_platforms(_collect_field_ranges)
     refined_types = _upgrade_stamp_only_refinements(
         merge_from_platforms(_collect_refined_types), platform_manifests
     )
     component_gates = merge_from_platforms(_collect_component_gates)
     platform_constraints = merge_from_platforms(_collect_platform_constraints)
-    field_ranges = _drop_machine_derived_ranges(
-        component_id, merge_from_platforms(_collect_field_ranges)
-    )
+    field_ranges = _drop_machine_derived_ranges(component_id, dict(merged_ranges))
     inclusive_groups = merge_from_platforms(_collect_inclusive_groups)
     required_groups = merge_from_platforms(_collect_required_groups)
     list_fields = merge_from_platforms(_collect_list_fields)
@@ -5914,7 +5894,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     # Hub signals must not bleed onto platform fields the domain
     # redefines; platform builds shed them (``build_component_entry``).
     field_range_bleed_keys, refined_bleed_keys = _collect_bleed_keys(
-        manifest, platform_manifests_by_domain
+        merged_ranges, refined_types, platform_manifests_by_domain
     )
 
     model_variance = _collect_model_variance_by_domain(
@@ -7097,18 +7077,19 @@ def _duration_min_unit_of(validator: Any) -> str | None:
 def _refined_type_by_name(
     validator: Any, qualname: str, by_name: dict[str, RefinedType]
 ) -> RefinedType | None:
-    """Match a closure or partial to a table entry by a name substring."""
+    """Match a closure or partial to the longest table name its own name contains."""
     lowered = (getattr(validator, "__name__", None) or qualname).lower()
-    refined = next((t for k, t in by_name.items() if k in lowered), None)
+    key = max((k for k in by_name if k in lowered), key=len, default=None)
+    refined = by_name[key] if key is not None else None
     if refined is None or refined.type != "float_with_unit" or not refined.unit_options:
         return refined
     # A unit picker named like a unit-coerced validator (cv.temperature_unit)
-    # rejects a unit-suffixed number; only a real coercer accepts one.
+    # accepts a bare unit; a coercer rejects one, so any raise keeps the refinement.
     try:
-        validator(f"1{refined.unit_options[0]}")
+        validator(refined.unit_options[0])
     except Exception:
-        return None
-    return refined
+        return refined
+    return None
 
 
 def _with_duration_min_unit(refined: RefinedType | None, validator: Any) -> RefinedType | None:
@@ -7221,8 +7202,6 @@ def _refined_types_in_schema(  # noqa: C901
             units = _extract_validator_units(validator)
             if units:
                 return RefinedType("float_with_unit", unit_options=units)
-        # Fall back to name-based matching for closures and partials
-        # that lose identity but keep the name.
         if (t := _refined_type_by_name(validator, qualname, by_name)) is not None:
             return t
         # Last resort: component-local suffix strippers (stepper's

@@ -45,6 +45,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _collect_automation_field_ranges,
     _collect_bleed_keys,
     _collect_field_ranges,
+    _collect_refined_types,
     _field_ranges_in_schema,
     _numeric_range_bounds,
     _platform_field_keys,
@@ -52,6 +53,19 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _walk_entries,
     introspect_component,
 )
+
+
+def _bleed(hub: object, platforms: list[tuple[str, object]]) -> tuple[dict, dict]:
+    """Run ``_collect_bleed_keys`` against the hub-plus-platforms keep-first merges."""
+    merged_ranges: dict = {}
+    merged_refined: dict = {}
+    for manifest in [hub, *(m for _domain, m in platforms)]:
+        for path, value in _collect_field_ranges(manifest).items():
+            merged_ranges.setdefault(path, value)
+        for path, value in _collect_refined_types(manifest).items():
+            merged_refined.setdefault(path, value)
+    return _collect_bleed_keys(merged_ranges, merged_refined, platforms)
+
 
 _BODIES_DIR = (
     Path(__file__).resolve().parent.parent / "esphome_device_builder" / "definitions" / "components"
@@ -380,7 +394,7 @@ def test_per_domain_bleed_does_not_aggregate_across_platforms() -> None:
     hub = _FakeManifest({cv.Optional("address"): cv.hex_uint8_t})
     bounded = _FakeManifest({cv.Optional("address"): cv.All(cv.int_, cv.Range(min=0, max=255))})
     unbounded = _FakeManifest({cv.Optional("address"): cv.positive_int})
-    bleed, _refined = _collect_bleed_keys(hub, [("a", bounded), ("b", unbounded)])
+    bleed, _refined = _bleed(hub, [("a", bounded), ("b", unbounded)])
     assert ("address",) not in bleed.get("a", {})  # a bounds it identically -> keep
     assert ("address",) in bleed.get("b", {})  # b unbounded -> shed
 
@@ -390,7 +404,7 @@ def test_divergent_platform_bound_is_shed_with_substitute() -> None:
     hub = _FakeManifest({cv.Optional("address"): cv.hex_uint8_t})
     divergent = _FakeManifest({cv.Optional("address"): cv.All(cv.int_, cv.Range(min=5, max=48))})
     unbounded = _FakeManifest({cv.Optional("address"): cv.positive_int})
-    bleed, _refined = _collect_bleed_keys(hub, [("a", divergent), ("b", unbounded)])
+    bleed, _refined = _bleed(hub, [("a", divergent), ("b", unbounded)])
     assert bleed["a"][("address",)] == (5, 48)
     assert bleed["b"][("address",)] is None
 

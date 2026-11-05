@@ -25,10 +25,24 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
     RefinedType,
     _apply_refined_types,
+    _collect_bleed_keys,
+    _collect_field_ranges,
     _collect_refined_types,
     _convert_field,
     _refined_type_tables,
 )
+
+
+def _bleed(hub: object, platforms: list[tuple[str, object]]) -> tuple[dict, dict]:
+    """Run ``_collect_bleed_keys`` against the hub-plus-platforms keep-first merges."""
+    merged_ranges: dict = {}
+    merged_refined: dict = {}
+    for manifest in [hub, *(m for _domain, m in platforms)]:
+        for path, value in _collect_field_ranges(manifest).items():
+            merged_ranges.setdefault(path, value)
+        for path, value in _collect_refined_types(manifest).items():
+            merged_refined.setdefault(path, value)
+    return _collect_bleed_keys(merged_ranges, merged_refined, platforms)
 
 
 @pytest.fixture
@@ -282,8 +296,6 @@ def test_integer_branch_suppresses_stamp_on_options_entries() -> None:
 
 def test_bleed_guard_sees_list_item_paths() -> None:
     """A hub refinement inside a list item mapping is shed when a platform redefines it."""
-    from script.sync_components import _collect_bleed_keys  # noqa: PLC0415
-
     hub = SimpleNamespace(
         config_schema=cv.Schema(
             {cv.Optional("items"): cv.ensure_list(cv.Schema({cv.Optional("addr"): cv.hex_int}))}
@@ -294,17 +306,15 @@ def test_bleed_guard_sees_list_item_paths() -> None:
             {cv.Optional("items"): cv.ensure_list(cv.Schema({cv.Optional("addr"): cv.string}))}
         )
     )
-    _range_bleed, refined_bleed = _collect_bleed_keys(hub, [("sensor", platform)])
+    _range_bleed, refined_bleed = _bleed(hub, [("sensor", platform)])
     assert ("items", "addr") in refined_bleed.get("sensor", {})
 
 
 def test_shed_path_substitutes_the_platforms_own_refinement() -> None:
     """A shed path where the platform refines differently maps to the platform's refinement."""
-    from script.sync_components import _collect_bleed_keys  # noqa: PLC0415
-
     hub = SimpleNamespace(config_schema=cv.Schema({cv.Optional("threshold"): cv.hex_int}))
     platform = SimpleNamespace(config_schema=cv.Schema({cv.Optional("threshold"): cv.frequency}))
-    _range_bleed, refined_bleed = _collect_bleed_keys(hub, [("sensor", platform)])
+    _range_bleed, refined_bleed = _bleed(hub, [("sensor", platform)])
     substitute = refined_bleed["sensor"][("threshold",)]
     assert substitute is not None
     assert substitute.type == "float_with_unit"
@@ -312,16 +322,32 @@ def test_shed_path_substitutes_the_platforms_own_refinement() -> None:
 
 def test_sibling_platform_refinement_is_shed_where_a_domain_redefines_the_key() -> None:
     """A sibling platform's refinement is shed from a domain that types the key plainly."""
-    from script.sync_components import _collect_bleed_keys  # noqa: PLC0415
-
     hub = SimpleNamespace(config_schema=cv.Schema({}))
     climate = SimpleNamespace(config_schema=cv.Schema({cv.Optional("unit"): cv.frequency}))
     sensor = SimpleNamespace(config_schema=cv.Schema({cv.Optional("unit"): cv.string}))
-    _range_bleed, refined_bleed = _collect_bleed_keys(
-        hub, [("climate", climate), ("sensor", sensor)]
-    )
+    _range_bleed, refined_bleed = _bleed(hub, [("climate", climate), ("sensor", sensor)])
     assert refined_bleed["sensor"] == {("unit",): None}
     assert ("unit",) not in refined_bleed.get("climate", {})
+
+
+def test_upgraded_sibling_type_is_shed_from_a_stamp_only_platform() -> None:
+    """A stamp-only platform field sheds the type a sibling upgrades the merged entry to."""
+    from script.sync_components import _upgrade_stamp_only_refinements  # noqa: PLC0415
+
+    hub = SimpleNamespace(config_schema=cv.Schema({}))
+    text = SimpleNamespace(
+        config_schema=cv.Schema({cv.Optional("value"): cv.Any(cv.returning_lambda, cv.string)})
+    )
+    number = SimpleNamespace(config_schema=cv.Schema({cv.Optional("value"): cv.float_}))
+    merged: dict = {}
+    for manifest in (hub, text, number):
+        for path, value in _collect_refined_types(manifest).items():
+            merged.setdefault(path, value)
+    upgraded = _upgrade_stamp_only_refinements(merged, [text, number])
+    assert upgraded[("value",)].type == "float"
+    _ranges, refined_bleed = _collect_bleed_keys({}, upgraded, [("text", text), ("number", number)])
+    assert ("value",) in refined_bleed["text"]
+    assert not refined_bleed["text"][("value",)].type
 
 
 def test_unit_picker_is_not_refined_as_a_unit_coercer() -> None:
@@ -334,15 +360,20 @@ def test_unit_picker_is_not_refined_as_a_unit_coercer() -> None:
     def temperature_with_unit(value: str) -> float:
         return cv.temperature(value)
 
+    def bounded_temperature(value: str) -> float:
+        return cv.All(cv.temperature, cv.Range(min=5.0))(value)
+
     schema = cv.Schema(
         {
             cv.Optional("unit_of_measurement"): temperature_unit,
             cv.Optional("target_temperature"): temperature_with_unit,
+            cv.Optional("min_temperature"): bounded_temperature,
         }
     )
     refined = _refined_types_in_schema(schema)
     assert ("unit_of_measurement",) not in refined
     assert refined[("target_temperature",)].type == "float_with_unit"
+    assert refined[("min_temperature",)].type == "float_with_unit"
 
 
 def test_shed_refined_bleed_substitutes_and_drops() -> None:
