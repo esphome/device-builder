@@ -170,6 +170,7 @@ def collect_download_entries(
             }
         )
     for entry in downloads:
+        entry["download_name"] = _download_filename(storage.name, Path(entry["file"]).name)
         artifact_type = _ARTIFACT_TYPES.get(entry["file"])
         if artifact_type:
             entry["type"] = artifact_type
@@ -184,6 +185,11 @@ def collect_download_entries(
             except (OSError, ValueError) as err:
                 _LOGGER.debug("Could not hash %s: %s", entry["file"], err)
     return downloads
+
+
+def _download_filename(device_name: str, artifact_name: str) -> str:
+    """Filename-safe name an artifact downloads under."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", f"{device_name}-{artifact_name}")
 
 
 @lru_cache(maxsize=32)
@@ -280,7 +286,7 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
         msg = f"Binary not found: {file}"
         raise FileNotFoundError(msg)
 
-    download_name = re.sub(r"[^A-Za-z0-9._-]", "_", f"{storage.name}-{path.name}")
+    download_name = _download_filename(storage.name, path.name)
     return path, download_name
 
 

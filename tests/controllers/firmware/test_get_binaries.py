@@ -75,6 +75,13 @@ def _stub_download_types(monkeypatch: Any, types_returned: list[dict]) -> list[A
 # Digest of the ``b"x"`` every ``_make_build`` artifact holds.
 _X_MD5 = hashlib.md5(b"x", usedforsecurity=False).hexdigest()
 
+
+def _listed(entry: dict, *, md5: bool = True) -> dict:
+    """*entry* as ``get_binaries`` returns it for the ``kitchen`` device."""
+    listed = {**entry, "download_name": f"kitchen-{Path(entry['file']).name}"}
+    return {**listed, "md5": _X_MD5} if md5 else listed
+
+
 _ELF_ENTRY = {
     "title": "ELF (for debugging)",
     "description": "Debug symbols for the ESP stack trace decoder.",
@@ -425,7 +432,7 @@ async def test_get_binaries_filters_to_files_present_on_disk(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [{**factory, "md5": _X_MD5}, {**ota, "md5": _X_MD5}]
+    assert result == [_listed(factory), _listed(ota)]
 
 
 async def test_get_binaries_appends_elf_entry_when_present(
@@ -446,7 +453,7 @@ async def test_get_binaries_appends_elf_entry_when_present(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [{**factory, "md5": _X_MD5}, _ELF_ENTRY]
+    assert result == [_listed(factory), _listed(_ELF_ENTRY, md5=False)]
 
 
 async def test_get_binaries_does_not_duplicate_elf_listed_upstream(
@@ -467,7 +474,7 @@ async def test_get_binaries_does_not_duplicate_elf_listed_upstream(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [elf]
+    assert result == [_listed(elf, md5=False)]
     assert sum(entry["file"] == "firmware.elf" for entry in result) == 1
 
 
@@ -504,7 +511,7 @@ async def test_get_binaries_appends_mcuboot_image_beside_a_uf2(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [{**uf2, "md5": _X_MD5}, {**_MCUBOOT_ENTRY, "md5": _X_MD5}]
+    assert result == [_listed(uf2), _listed(_MCUBOOT_ENTRY)]
 
 
 async def test_get_binaries_does_not_duplicate_mcuboot_image_listed_upstream(
@@ -525,7 +532,7 @@ async def test_get_binaries_does_not_duplicate_mcuboot_image_listed_upstream(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [{**upstream, "md5": _X_MD5}]
+    assert result == [_listed(upstream)]
 
 
 async def test_get_binaries_omits_mcuboot_image_when_absent(
@@ -546,7 +553,7 @@ async def test_get_binaries_omits_mcuboot_image_when_absent(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [{**uf2, "md5": _X_MD5}]
+    assert result == [_listed(uf2)]
 
 
 async def test_get_binaries_omits_elf_entry_when_absent(
@@ -567,7 +574,7 @@ async def test_get_binaries_omits_elf_entry_when_absent(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [{**factory, "md5": _X_MD5}]
+    assert result == [_listed(factory)]
 
 
 async def test_get_binaries_returns_empty_when_no_build_path(
@@ -625,5 +632,5 @@ async def test_get_binaries_keeps_an_artifact_it_cannot_hash(
     controller = firmware_controller_factory()
 
     assert await controller.get_binaries(configuration="kitchen.yaml") == [
-        {**firmware, "type": "bin"}
+        _listed({**firmware, "type": "bin"}, md5=False)
     ]
