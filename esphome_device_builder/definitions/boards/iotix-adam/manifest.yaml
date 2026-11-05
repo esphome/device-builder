@@ -23,7 +23,6 @@ hardware:
   - bluetooth
 tags:
 - relay
-product_url: https://shop.iotix.ro/product/adam/
 docs_url: https://devices.esphome.io/devices/IoTiX-Adam/
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/IoTiX-Adam/adam.webp
