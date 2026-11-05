@@ -155,6 +155,7 @@ _API_KEYED = "api:\n  encryption:\n    key: k\n"
         pytest.param(_OTA_LIST + "      key: k\n", True, id="list"),
         pytest.param("ota:\n  platform: esphome\n  encryption:\n    key: k\n", True, id="mapping"),
         pytest.param(_OTA_LIST, True, id="bare"),
+        pytest.param("ota:\n  - platform: esphome\n    encryption: !remove\n", False, id="removed"),
         pytest.param("ota:\n  - platform: esphome\n    password: x\n", False, id="no-encryption"),
         pytest.param("ota:\n  - platform: esphome\n" + _API_KEYED, False, id="api-block"),
         pytest.param(_API_KEYED, False, id="no-ota"),
@@ -450,6 +451,16 @@ def test_load_device_from_storage_sets_api_encrypted_from_resolved_yaml(
     )
     assert device.api_enabled is True
     assert device.api_encrypted is True
+
+
+def test_load_device_from_storage_api_encryption_removed(isolated_storage: Path) -> None:
+    """``api: encryption: !remove`` leaves ``api_encrypted`` False."""
+    device = _scan(
+        isolated_storage / "air.yaml",
+        "esphome:\n  name: air\napi:\n  encryption: !remove\n",
+    )
+    assert device.api_enabled is True
+    assert device.api_encrypted is False
 
 
 @pytest.mark.parametrize(
