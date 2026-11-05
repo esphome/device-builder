@@ -116,9 +116,6 @@ jobs:
         # than a degraded catalog proposed for merge.
         run: uv pip install --prerelease=allow "esphome==${{ steps.version.outputs.version }}"
 
-      - name: Run sync_components
-        run: python script/sync_components.py --version "${{ steps.version.outputs.version }}"
-
       - name: Re-stamp board catalog
         # boards.index.json carries an ``esphome_version`` stamp from the
         # installed esphome. The catalog is one logical unit per esphome
@@ -127,8 +124,17 @@ jobs:
         # re-stamps it and the opened PR lands red on every esphome patch.
         # ``--restamp`` because the installed esphome is the freshly-resolved
         # one while the committed stamp is still the previous version — the
-        # one caller for which that mismatch is the point.
+        # one caller for which that mismatch is the point. Runs before
+        # sync_components so its board dropdowns list boards the restamp adds.
         run: python script/sync_boards.py --restamp
+
+      - name: Run sync_components
+        run: python script/sync_components.py --version "${{ steps.version.outputs.version }}"
+
+      - name: Regenerate board catalog
+        # The board bodies read the component catalog (pin and reference
+        # keys), so rebuild them against the one sync_components just wrote.
+        run: python script/sync_boards.py
 
       - name: Validate definitions
         # Re-validate every board (curated + imported) against the JSON Schema
