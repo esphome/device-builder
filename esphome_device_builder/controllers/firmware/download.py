@@ -175,9 +175,14 @@ def collect_download_entries(
             entry["type"] = artifact_type
         # Debug symbols are 14 MB+ and never verified before a flash.
         if artifact_type != "elf":
-            path = resolve_under_root(build_dir / entry["file"], build_dir)
-            stat = path.stat()
-            entry["md5"] = _md5_digest(path, stat.st_size, stat.st_mtime_ns)
+            # ``md5`` is optional: a file a rebuild just removed, or one that
+            # resolves outside the build dir, keeps its row without a digest.
+            try:
+                path = resolve_under_root(build_dir / entry["file"], build_dir)
+                stat = path.stat()
+                entry["md5"] = _md5_digest(path, stat.st_size, stat.st_mtime_ns)
+            except (OSError, ValueError) as err:
+                _LOGGER.debug("Could not hash %s: %s", entry["file"], err)
     return downloads
 
 

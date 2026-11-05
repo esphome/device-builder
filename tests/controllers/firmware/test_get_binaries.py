@@ -602,3 +602,28 @@ async def test_get_binaries_rehashes_a_rebuilt_artifact(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
     assert result[0]["md5"] == hashlib.md5(b"rebuilt", usedforsecurity=False).hexdigest()
+
+
+async def test_get_binaries_keeps_an_artifact_it_cannot_hash(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A hashing failure drops that entry's ``md5``, not the listing."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    _stub_download_types(monkeypatch, [firmware])
+    build_dir = _make_build(tmp_path, "firmware.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+
+    def _raise(*_args: Any) -> str:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(download_mod, "_md5_digest", _raise)
+    controller = firmware_controller_factory()
+
+    assert await controller.get_binaries(configuration="kitchen.yaml") == [
+        {**firmware, "type": "bin"}
+    ]
