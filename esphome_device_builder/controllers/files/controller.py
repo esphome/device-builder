@@ -150,7 +150,8 @@ class FilesController:
             message=f"Rename {old} to {new}",
             precheck=_check,
         )
-        remaining = {new if rel == old else rel for rel in plan.remaining}
+        # Matched by the old paths, which the devices' dependencies still list.
+        remaining = plan.remaining
         keys = {dependency_key(rel) for rel in remaining}
         flagged = {c: deps for c, deps in users.items() if keys & {dependency_key(c), *deps}}
         reached = {key for c, deps in flagged.items() for key in (dependency_key(c), *deps)}
@@ -158,11 +159,11 @@ class FilesController:
         # device, a device not loaded yet) is reported itself, as are the files that
         # certainly still include the old one.
         unmapped = {rel for rel in remaining if dependency_key(rel) not in reached}
-        stale = {new if rel == old else rel for rel in plan.stale}
+        unresolved = plan.stale | unmapped | flagged.keys()
         return {
             "path": new,
             "rewritten": sorted(rel for rel in plan.texts if rel != old),
-            "unresolved": sorted(stale | unmapped | flagged.keys()),
+            "unresolved": sorted(new if rel == old else rel for rel in unresolved),
         }
 
     @api_command("files/usage")
@@ -172,7 +173,7 @@ class FilesController:
 
         ``unknown`` lists devices whose files aren't known yet (never parsed, or
         still loading); ``referenced_by`` the files whose ``!include`` names
-        *path* directly, packages and archived devices included, and
+        *path* directly, packages, hidden and archived files included, and
         ``rewritable`` those of them a rename updates, and ``unreadable`` the files
         that couldn't be checked.
         """

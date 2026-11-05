@@ -429,6 +429,21 @@ async def test_rename_reports_an_archived_file_it_could_not_rewrite(
     assert result["unresolved"] == ["archive/old.yaml", "garage.yaml"]
 
 
+async def test_rename_rewrites_a_hidden_top_level_include_source(
+    tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
+) -> None:
+    _, devices, _ = setup
+    write_tree(tmp_path, {".shared.yaml": "base: !include common/base.yaml\n"})
+
+    with patch.object(devices, "get_devices", return_value=_users()):
+        usage = await files.usage(path="common/base.yaml")
+        result = await files.rename(path="common/base.yaml", new_path="common/main.yaml")
+
+    assert ".shared.yaml" in usage["rewritable"]
+    assert ".shared.yaml" in result["rewritten"]
+    assert (tmp_path / ".shared.yaml").read_text() == "base: !include common/main.yaml\n"
+
+
 @pytest.mark.parametrize("skip", ["archive/old.yaml", ["a.yaml", 1], {"a.yaml": 1}])
 async def test_rename_refuses_a_malformed_skip(
     tmp_path: Path,
@@ -541,6 +556,19 @@ async def test_rename_reports_files_no_loaded_device_reaches(
         result = await files.rename(path="common/base.yaml", new_path="common/main.yaml")
 
     assert result["unresolved"] == ["common/extra.yaml", "garage.yaml"]
+
+
+async def test_rename_flags_the_users_of_a_package_that_may_still_name_itself(
+    tmp_path: Path, files: FilesController, setup: tuple[FilesController, object, list]
+) -> None:
+    _, devices, _ = setup
+    write_tree(tmp_path, {"common/base.yaml": "b: !include ${part}.yaml\n"})
+    users = [SimpleNamespace(configuration="kitchen.yaml", dependencies=("common/base.yaml",))]
+
+    with patch.object(devices, "get_devices", return_value=users):
+        result = await files.rename(path="common/base.yaml", new_path="common/main.yaml")
+
+    assert result["unresolved"] == ["garage.yaml", "kitchen.yaml"]
 
 
 async def test_usage_and_rename_skip_an_unrelated_incomplete_file(
