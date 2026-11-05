@@ -5769,20 +5769,21 @@ def _collect_bleed_keys(
     dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]],
     dict[str, dict[tuple[str, ...], RefinedType | None]],
 ]:
-    """Per-domain hub signals a platform schema redefines, for platform builds to shed.
+    """Per-domain merged signals a platform schema redefines, for platform builds to shed.
 
-    Both signals shed when the platform's own value differs (the
-    modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
-    item's plain ``cv.positive_int``), each shed path mapping to the
-    platform's own range / refinement (``None`` when it has none) so the
-    build substitutes rather than dropping. Keyed per platform domain, not
-    aggregated: one platform's redefinition must not spare a sibling
-    platform from the shed. Hub builds keep every signal. Covers
-    hub-to-platform bleed only; a sibling platform's contribution rides
-    ``merge_from_platforms`` unguarded.
+    Both signals shed when the platform's own value differs from the
+    hub-plus-siblings merge (the modbus_controller hub's ``cv.hex_uint8_t``
+    ``address`` vs the platform item's plain ``cv.positive_int``; template
+    number's float ``initial_value`` vs template text's string one), each
+    shed path mapping to the platform's own
+    range / refinement (``None`` when it has none) so the build substitutes
+    rather than dropping. Keyed per platform domain, not aggregated: one
+    platform's redefinition must not spare a sibling platform from the
+    shed. Hub builds keep every signal.
     """
-    hub_ranges = _collect_field_ranges(manifest)
-    hub_refined = _collect_refined_types(manifest)
+    platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
+    hub_ranges = _merge_keep_first(_collect_field_ranges, manifest, platform_manifests)
+    hub_refined = _merge_keep_first(_collect_refined_types, manifest, platform_manifests)
     range_bleed: dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]] = {}
     refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
@@ -5804,6 +5805,19 @@ def _collect_bleed_keys(
         if refined_bled:
             refined_bleed[domain] = refined_bled
     return range_bleed, refined_bleed
+
+
+def _merge_keep_first(
+    collect: Callable[[Any], dict[tuple[str, ...], Any]],
+    manifest: Any,
+    platform_manifests: list[Any],
+) -> dict[tuple[str, ...], Any]:
+    """Merge *collect* over the hub then each platform manifest, first value per path winning."""
+    merged = collect(manifest)
+    for platform_manifest in platform_manifests:
+        for path, value in collect(platform_manifest).items():
+            merged.setdefault(path, value)
+    return merged
 
 
 def _shed_range_bleed(
@@ -5881,11 +5895,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     def merge_from_platforms(
         collect: Callable[[Any], dict[tuple[str, ...], Any]],
     ) -> dict[tuple[str, ...], Any]:
-        merged = collect(manifest)
-        for platform_manifest in platform_manifests:
-            for path, value in collect(platform_manifest).items():
-                merged.setdefault(path, value)
-        return merged
+        return _merge_keep_first(collect, manifest, platform_manifests)
 
     refined_types = _upgrade_stamp_only_refinements(
         merge_from_platforms(_collect_refined_types), platform_manifests
@@ -7084,6 +7094,23 @@ def _duration_min_unit_of(validator: Any) -> str | None:
     return _duration_precision_of(validator) or None
 
 
+def _refined_type_by_name(
+    validator: Any, qualname: str, by_name: dict[str, RefinedType]
+) -> RefinedType | None:
+    """Match a closure or partial to a table entry by a name substring."""
+    lowered = (getattr(validator, "__name__", None) or qualname).lower()
+    refined = next((t for k, t in by_name.items() if k in lowered), None)
+    if refined is None or refined.type != "float_with_unit" or not refined.unit_options:
+        return refined
+    # A unit picker named like a unit-coerced validator (cv.temperature_unit)
+    # rejects a unit-suffixed number; only a real coercer accepts one.
+    try:
+        validator(f"1{refined.unit_options[0]}")
+    except Exception:
+        return None
+    return refined
+
+
 def _with_duration_min_unit(refined: RefinedType | None, validator: Any) -> RefinedType | None:
     """Return *refined* carrying *validator*'s time-period precision, when it has one."""
     unit = _duration_min_unit_of(validator)
@@ -7196,10 +7223,8 @@ def _refined_types_in_schema(  # noqa: C901
                 return RefinedType("float_with_unit", unit_options=units)
         # Fall back to name-based matching for closures and partials
         # that lose identity but keep the name.
-        name = (getattr(validator, "__name__", None) or qualname).lower()
-        for k, t in by_name.items():
-            if k in name:
-                return t
+        if (t := _refined_type_by_name(validator, qualname, by_name)) is not None:
+            return t
         # Last resort: component-local suffix strippers (stepper's
         # ``validate_speed``) that no table can bind (#2056).
         units = _derive_suffix_units(validator)

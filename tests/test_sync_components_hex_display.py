@@ -310,6 +310,41 @@ def test_shed_path_substitutes_the_platforms_own_refinement() -> None:
     assert substitute.type == "float_with_unit"
 
 
+def test_sibling_platform_refinement_is_shed_where_a_domain_redefines_the_key() -> None:
+    """A sibling platform's refinement is shed from a domain that types the key plainly."""
+    from script.sync_components import _collect_bleed_keys  # noqa: PLC0415
+
+    hub = SimpleNamespace(config_schema=cv.Schema({}))
+    climate = SimpleNamespace(config_schema=cv.Schema({cv.Optional("unit"): cv.frequency}))
+    sensor = SimpleNamespace(config_schema=cv.Schema({cv.Optional("unit"): cv.string}))
+    _range_bleed, refined_bleed = _collect_bleed_keys(
+        hub, [("climate", climate), ("sensor", sensor)]
+    )
+    assert refined_bleed["sensor"] == {("unit",): None}
+    assert ("unit",) not in refined_bleed.get("climate", {})
+
+
+def test_unit_picker_is_not_refined_as_a_unit_coercer() -> None:
+    """A validator named like a unit coercer that rejects a unit-suffixed number stays unrefined."""
+    from script.sync_components import _refined_types_in_schema  # noqa: PLC0415
+
+    def temperature_unit(value: str) -> str:
+        return cv.one_of("°C", "°F", "K")(value)
+
+    def temperature_with_unit(value: str) -> float:
+        return cv.temperature(value)
+
+    schema = cv.Schema(
+        {
+            cv.Optional("unit_of_measurement"): temperature_unit,
+            cv.Optional("target_temperature"): temperature_with_unit,
+        }
+    )
+    refined = _refined_types_in_schema(schema)
+    assert ("unit_of_measurement",) not in refined
+    assert refined[("target_temperature",)].type == "float_with_unit"
+
+
 def test_shed_refined_bleed_substitutes_and_drops() -> None:
     """The shed keeps unshed paths, substitutes typed platform refinements, drops the rest."""
     from script.sync_components import _shed_refined_bleed  # noqa: PLC0415
