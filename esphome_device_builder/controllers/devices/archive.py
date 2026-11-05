@@ -173,9 +173,11 @@ async def delete_archived_single(controller: DevicesController, configuration: s
     settings = controller._db.settings
 
     def _delete_all() -> bool:
+        # Resolve first: a refused (escaping) active path must leave the archive intact.
+        active_path = settings.rel_path(configuration)
         require_file_exists(archive_path, configuration, archived=True)
         archive_path.unlink()
-        if settings.rel_path(configuration).exists():
+        if active_path.exists():
             # An active config with the same filename owns the
             # sidecars now; leave them alone.
             return False
