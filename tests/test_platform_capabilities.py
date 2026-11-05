@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import orjson
 import pytest
+from esphome.components import nrf52 as nrf52_component
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
@@ -138,6 +139,14 @@ def test_nrf52_board_variants_cover_alias_targets() -> None:
     variants = _nrf52_board_variants()
     for alias, target in getattr(nrf52_boards, "BOARD_ALIASES", {}).items():
         assert variants[target] == variants[alias]
+
+
+def test_nrf52_board_variants_fail_without_board_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Losing the board rule while ESPHome names the chips fails the sync."""
+    monkeypatch.delattr(nrf52_component, "_board_variant", raising=False)
+    monkeypatch.setattr(sync_components, "_nrf52_variants", lambda: {"NRF54L15"})
+    with pytest.raises(RuntimeError, match="_board_variant"):
+        _nrf52_board_variants()
 
 
 def test_logger_snapshot_keys_nrf52_variant_rows(monkeypatch: pytest.MonkeyPatch) -> None:
