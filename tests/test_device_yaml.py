@@ -25,6 +25,7 @@ from esphome.core import CORE, EsphomeError
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
+    load_platform_capabilities_index,
 )
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.atomic_io import read_text_with_stat
@@ -32,6 +33,7 @@ from esphome_device_builder.helpers.device_yaml import (
     LoadBatch,
     _has_native_wifi,
     _parse_inline_value,
+    _parsing,
     board_provides_network,
     board_requires_wifi,
     compute_has_pending_changes,
@@ -68,6 +70,7 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     extract_logger_interface,
     extract_ota_partition_access,
     resolve_esp32_variant,
+    resolve_nrf52_variant,
     safe_stat_key,
     yaml_has_name_add_mac_suffix,
 )
@@ -1094,6 +1097,36 @@ def test_resolve_esp32_variant_unresolved_yaml_variant_falls_back_to_storage() -
 def test_extract_logger_interface_board_snapshot_fallback() -> None:
     config = {"logger": {}, "esp32": {"board": "esp32-s3-devkitc-1"}}
     assert extract_logger_interface(config, "esp32") == "USB_SERIAL_JTAG"
+
+
+@pytest.fixture
+def nrf54l15_caps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch in an nRF54L15 board and its own logger default."""
+    caps = load_platform_capabilities_index()
+    patched = caps._replace(
+        nrf52_board_variants={"nrf54l15dk": "NRF54L15", "xiao_ble": "NRF52840"},
+        logger_interface_defaults={**caps.logger_interface_defaults, "nrf54l15": "UART0"},
+    )
+    monkeypatch.setattr(_parsing, "load_platform_capabilities_index", lambda: patched)
+
+
+@pytest.mark.usefixtures("nrf54l15_caps")
+def test_extract_logger_interface_nrf52_variant_from_board() -> None:
+    """An nRF52 chip with its own default wins; the rest take the platform default."""
+    for board, expected in (
+        ("nrf54l15dk", "UART0"),
+        ("xiao_ble", "USB_CDC"),
+        ("custom", "USB_CDC"),
+    ):
+        config = {"logger": {}, "nrf52": {"board": board}}
+        assert extract_logger_interface(config, "nrf52") == expected
+
+
+@pytest.mark.usefixtures("nrf54l15_caps")
+def test_resolve_nrf52_variant() -> None:
+    assert resolve_nrf52_variant({"nrf52": {"board": "${b}"}}, {"b": "nrf54l15dk"}) == "nrf54l15"
+    assert resolve_nrf52_variant({"nrf52": {"board": "custom"}}) is None
+    assert resolve_nrf52_variant({}) is None
 
 
 @pytest.mark.parametrize(
@@ -3628,9 +3661,7 @@ def test_board_provides_network_for_package_boards() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_component(
-    entry_id: str, category: ComponentCategory = ComponentCategory.CORE
-) -> ComponentCatalogEntry:
+def _make_component(entry_id: str, category: str = ComponentCategory.CORE) -> ComponentCatalogEntry:
     """Minimal ``ComponentCatalogEntry`` for the network-default tests."""
     return ComponentCatalogEntry(id=entry_id, name=entry_id, description="", category=category)
 

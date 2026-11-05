@@ -18,63 +18,11 @@ class IntegrationDocEntry(TypedDict):
 
 
 class ComponentCategory(StrEnum):
-    """Component categories (ESPHome platform types + infrastructure).
+    """Dashboard-assigned categories; a platform entry's category is its domain string."""
 
-    Values must mirror the strings written by the sync script — anything
-    missing here gets coerced to ``MISC`` at load time, which would
-    silently break the category filter for that domain.
-    """
-
-    SENSOR = "sensor"
-    BINARY_SENSOR = "binary_sensor"
-    SWITCH = "switch"
-    LIGHT = "light"
-    FAN = "fan"
-    COVER = "cover"
-    CLIMATE = "climate"
-    BUTTON = "button"
-    NUMBER = "number"
-    SELECT = "select"
-    TEXT = "text"
-    TEXT_SENSOR = "text_sensor"
-    LOCK = "lock"
-    VALVE = "valve"
-    MEDIA_PLAYER = "media_player"
-    SPEAKER = "speaker"
-    MICROPHONE = "microphone"
-    CAMERA = "camera"
-    DISPLAY = "display"
-    TOUCHSCREEN = "touchscreen"
-    OUTPUT = "output"
-    DATETIME = "datetime"
-    EVENT = "event"
-    UPDATE = "update"
-    ALARM = "alarm_control_panel"
     CORE = "core"
     BUS = "bus"
     AUTOMATION = "automation"
-    # Platform-domain umbrellas surfaced as their own categories by
-    # the sync script. ``ota.*``/``time.*`` components live under
-    # these and the regular component selector hides them since the
-    # OTA / time blocks belong in the core dialog.
-    OTA = "ota"
-    TIME = "time"
-    # Other platform domains the sync script tags from the schema —
-    # listed explicitly so loading doesn't silently coerce them to
-    # MISC.
-    AUDIO_ADC = "audio_adc"
-    AUDIO_DAC = "audio_dac"
-    BRIDGE = "bridge"
-    CANBUS = "canbus"
-    IMAGE = "image"
-    INFRARED = "infrared"
-    MEDIA_SOURCE = "media_source"
-    MOTION = "motion"
-    ONE_WIRE = "one_wire"
-    PACKET_TRANSPORT = "packet_transport"
-    RADIO_FREQUENCY = "radio_frequency"
-    STEPPER = "stepper"
-    WATER_HEATER = "water_heater"
     MISC = "misc"
     # Synthetic category for components surfaced as board recommendations.
     # Featured entries are materialised on the fly from the board catalog
@@ -100,7 +48,7 @@ class ComponentCatalogIndexEntry(DashboardModel):
     id: str
     name: str
     description: str
-    category: ComponentCategory
+    category: str
     docs_url: str = ""
     image_url: str = ""
     dependencies: list[str] = field(default_factory=list)
@@ -142,7 +90,7 @@ class ComponentCatalogIndexEntry(DashboardModel):
     # Real catalog category behind a ``featured`` entry (``bus`` for a
     # featured ``spi``), so the card can chip its type alongside its
     # recommendation status. ``None`` on regular entries.
-    underlying_category: ComponentCategory | None = None
+    underlying_category: str | None = None
 
     class Config(_CatalogConfig):
         """Omit fields at their default; see :class:`_CatalogConfig`."""
@@ -170,7 +118,7 @@ class ComponentCatalogEntry(DashboardModel):
     description: str
 
     # Group the component is filed under in the catalog UI.
-    category: ComponentCategory
+    category: str
 
     # Direct link to the official ESPHome docs page for this component.
     docs_url: str = ""

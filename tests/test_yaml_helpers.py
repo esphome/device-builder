@@ -86,7 +86,7 @@ from esphome_device_builder.models.components import (
 def _component(
     *,
     component_id: str,
-    category: ComponentCategory,
+    category: str,
     name: str = "test",
     multi_conf: bool = False,
 ) -> ComponentCatalogEntry:
@@ -1230,7 +1230,7 @@ def test_generate_api_encryption_key_yields_distinct_base64_values() -> None:
 
 def test_generate_component_yaml_preserves_lambda_filter_tag() -> None:
     """A templatable filter lambda sentinel emits as a ``!lambda |-`` block."""
-    component = _component(component_id="sensor.template", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.template", category="sensor")
     fields: dict[str, Any] = {
         "name": "Test Sensor",
         "filters": [{"multiply": {"_lambda": "return 0.01;", "_tag": "!lambda"}}],
@@ -1250,7 +1250,7 @@ def test_generate_component_yaml_preserves_lambda_filter_tag() -> None:
 
 def test_generate_component_yaml_preserves_direct_lambda_field_tag() -> None:
     """A scalar field holding a lambda sentinel emits a multi-line ``!lambda |-`` block."""
-    component = _component(component_id="sensor.template", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.template", category="sensor")
     fields: dict[str, Any] = {
         "name": "Test Sensor",
         "lambda": {"_lambda": "auto x = id(t).state;\nreturn x + 1;", "_tag": "!lambda"},
@@ -1278,7 +1278,7 @@ def test_generate_component_yaml_skips_name_autofill_without_name_field() -> Non
         id="media_player.speaker",
         name="Speaker Audio Media Player",
         description="",
-        category=ComponentCategory.MEDIA_PLAYER,
+        category="media_player",
         config_entries=[pipeline],
     )
 
@@ -1300,7 +1300,7 @@ def test_merge_component_yaml_appends_first_platform_block() -> None:
     The splice helper returns ``None`` when there's no existing
     domain block, and the caller falls through to ``_append_block``.
     """
-    component = _component(component_id="sensor.dht", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.dht", category="sensor")
     fields: dict[str, Any] = {"pin": "GPIO4", "name": "Temp"}
 
     result = merge_component_yaml("esphome:\n  name: kitchen\n", component, fields)
@@ -1317,7 +1317,7 @@ def test_merge_component_yaml_splices_second_sensor_into_existing_block() -> Non
     domain would produce duplicate top-level keys. ESPHome would
     reject the second with a duplicate-key error.
     """
-    component = _component(component_id="sensor.dht", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.dht", category="sensor")
     fields: dict[str, Any] = {"pin": "GPIO4", "name": "Inside"}
 
     existing = "esphome:\n  name: kitchen\n\nsensor:\n  - platform: bme280\n    address: 0x76\n"
@@ -1338,7 +1338,7 @@ def test_merge_component_yaml_preserves_following_blocks_after_splice() -> None:
     alphabetic line; this test guards against a regression that
     would slurp the trailing block into the splice.
     """
-    component = _component(component_id="sensor.dht", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.dht", category="sensor")
     fields: dict[str, Any] = {"pin": "GPIO4", "name": "Inside"}
 
     existing = (
@@ -1353,7 +1353,7 @@ def test_merge_component_yaml_preserves_following_blocks_after_splice() -> None:
 
 def test_merge_component_yaml_splice_stops_at_dot_prefixed_key() -> None:
     """A dot-prefixed anchor block after the domain block ends the splice range."""
-    component = _component(component_id="sensor.dht", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.dht", category="sensor")
     fields: dict[str, Any] = {"pin": "GPIO4", "name": "Inside"}
 
     existing = (
@@ -1409,7 +1409,7 @@ def test_merge_component_yaml_appends_singleton_when_absent() -> None:
 
 def test_merge_component_yaml_noops_when_platform_id_already_defined() -> None:
     """Re-adding a platform entry whose id is already defined is a no-op (no ``ID redefined``)."""
-    component = _component(component_id="output.ledc", category=ComponentCategory.OUTPUT)
+    component = _component(component_id="output.ledc", category="output")
     existing = "output:\n  - platform: ledc\n    pin: 18\n    id: buzzer_output\n"
 
     result = merge_component_yaml(existing, component, {"pin": 18, "id": "buzzer_output"})
@@ -1433,7 +1433,7 @@ def test_merge_component_yaml_noops_when_multi_conf_id_already_defined() -> None
 
 def test_merge_component_yaml_splices_platform_when_id_is_new() -> None:
     """A distinct id still splices a second entry — dedup keys on id, not on domain."""
-    component = _component(component_id="output.ledc", category=ComponentCategory.OUTPUT)
+    component = _component(component_id="output.ledc", category="output")
     existing = "output:\n  - platform: ledc\n    pin: 18\n    id: buzzer_output\n"
 
     result = merge_component_yaml(existing, component, {"pin": 19, "id": "second_output"})
@@ -1451,7 +1451,7 @@ def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
     that, every splice would either eat blank lines or pile new
     ones on, drifting formatting on every add.
     """
-    component = _component(component_id="sensor.dht", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.dht", category="sensor")
     fields: dict[str, Any] = {"pin": "GPIO4", "name": "Inside"}
 
     existing = (
@@ -1470,7 +1470,7 @@ def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
 
 def test_merge_component_yaml_splices_into_zero_indented_list() -> None:
     """The new item adopts a column-0 dash indent so the result stays parseable."""
-    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    component = _component(component_id="switch.gpio", category="switch")
     fields: dict[str, Any] = {"pin": "GPIO11"}
 
     existing = "switch:\n- platform: template\n  name: a\n"
@@ -1482,7 +1482,7 @@ def test_merge_component_yaml_splices_into_zero_indented_list() -> None:
 
 def test_merge_component_yaml_splices_into_four_space_list() -> None:
     """The new item adopts a 4-space dash indent so the result stays parseable."""
-    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    component = _component(component_id="switch.gpio", category="switch")
     fields: dict[str, Any] = {"pin": "GPIO11"}
 
     existing = "switch:\n    - platform: template\n      name: a\n"
@@ -1494,7 +1494,7 @@ def test_merge_component_yaml_splices_into_four_space_list() -> None:
 
 def test_merge_component_yaml_splices_into_comment_only_block() -> None:
     """A body with no list item falls back to the canonical dash indent."""
-    component = _component(component_id="switch.gpio", category=ComponentCategory.SWITCH)
+    component = _component(component_id="switch.gpio", category="switch")
     fields: dict[str, Any] = {"pin": "GPIO11"}
 
     existing = "switch:\n  # populated later\n"
@@ -1525,9 +1525,7 @@ def test_merge_component_yaml_splices_into_comment_only_block() -> None:
 )
 def test_merge_component_yaml_splices_multi_level_item(dash_indent: str, existing: str) -> None:
     """Every nesting level of a spliced multi-level item stays parseable and intact."""
-    component = _component(
-        component_id="binary_sensor.gpio", category=ComponentCategory.BINARY_SENSOR
-    )
+    component = _component(component_id="binary_sensor.gpio", category="binary_sensor")
     fields: dict[str, Any] = {
         "pin": {"number": "GPIO11", "mode": {"input": True}},
         "filters": [{"delayed_on": "10ms"}],
@@ -1627,9 +1625,9 @@ def test_merge_component_yaml_accepts_incomplete_draft() -> None:
     assert "i2c:\n  sda: GPIO21\n  scl: GPIO22\n" in result
 
 
-@pytest.mark.parametrize("category", [ComponentCategory.OUTPUT, ComponentCategory.SWITCH])
+@pytest.mark.parametrize("category", ["output", "switch"])
 def test_merge_component_yaml_splices_other_platform_categories(
-    category: ComponentCategory,
+    category: str,
 ) -> None:
     """Splice works across platform domains, not just ``sensor``.
 
@@ -1637,15 +1635,13 @@ def test_merge_component_yaml_splices_other_platform_categories(
     hardcodes the splice to one domain shows up in CI. Add new ones
     if a future bug points at a specific domain.
     """
-    component_id = f"{category.value}.gpio"
+    component_id = f"{category}.gpio"
     component = _component(component_id=component_id, category=category)
     fields: dict[str, Any] = {"pin": "GPIO4", "id": ""}
 
-    existing = (
-        f"esphome:\n  name: kitchen\n\n{category.value}:\n  - platform: ledc\n    pin: GPIO5\n"
-    )
+    existing = f"esphome:\n  name: kitchen\n\n{category}:\n  - platform: ledc\n    pin: GPIO5\n"
     result = merge_component_yaml(existing, component, fields)
-    assert result.count(f"{category.value}:\n") == 1
+    assert result.count(f"{category}:\n") == 1
     assert "- platform: ledc" in result
     assert "- platform: gpio" in result
 
@@ -1656,7 +1652,7 @@ def test_merge_component_yaml_umbrella_entry_emits_legacy_bare_mapping() -> None
     The legacy bare-mapping form is what the umbrella documents;
     ``- platform: ota`` names a platform that doesn't exist.
     """
-    component = _component(component_id="ota", category=ComponentCategory.OTA)
+    component = _component(component_id="ota", category="ota")
 
     result = merge_component_yaml("esphome:\n  name: kitchen\n", component, {})
     assert "ota:" in result
@@ -1845,7 +1841,7 @@ def test_generate_component_yaml_singleton_emits_mapping_form() -> None:
 
 def test_generate_component_yaml_surfaces_name_and_id_after_platform() -> None:
     """Trailing ``name``/``id`` fields are emitted right after the ``- platform:`` line."""
-    component = _component(component_id="sensor.dht", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.dht", category="sensor")
     out = generate_component_yaml(component, {"pin": "GPIO4", "name": "Temp", "id": "temp_1"})
     assert out.splitlines() == [
         "sensor:",
@@ -1872,7 +1868,7 @@ def test_generate_component_yaml_surfaces_id_first_in_multi_conf_list_form() -> 
 
 def test_generate_component_yaml_first_defined_id_is_the_surfaced_parent_id() -> None:
     """``_first_defined_id`` sees the entry-level id, not an earlier nested one."""
-    component = _component(component_id="sensor.hlw8012", category=ComponentCategory.SENSOR)
+    component = _component(component_id="sensor.hlw8012", category="sensor")
     out = generate_component_yaml(component, {"current": {"id": "amps"}, "id": "plug"})
     assert _first_defined_id(out) == "plug"
 

@@ -62,7 +62,7 @@ def _make_entry(
     entry_id: str,
     name: str = "",
     description: str = "",
-    category: ComponentCategory = ComponentCategory.MISC,
+    category: str = ComponentCategory.MISC,
     docs_url: str = "",
     supported_platforms: list[str] | None = None,
     provides: list[str] | None = None,
@@ -291,8 +291,8 @@ async def test_get_components_exclude_category_drops_matching_entries() -> None:
     cat = ComponentCatalog()
     cat._components = [
         _make_entry(entry_id="wifi", category=ComponentCategory.CORE),
-        _make_entry(entry_id="dht", category=ComponentCategory.SENSOR),
-        _make_entry(entry_id="gpio", category=ComponentCategory.SWITCH),
+        _make_entry(entry_id="dht", category="sensor"),
+        _make_entry(entry_id="gpio", category="switch"),
     ]
     cat._by_id = {c.id: c for c in cat._components}
     res = await cat.get_components(exclude_category=ComponentCategory.CORE.value)
@@ -311,23 +311,19 @@ async def test_get_components_provides_filters_to_interface_providers() -> None:
     """
     cat = ComponentCatalog()
     cat._components = [
-        _make_entry(
-            entry_id="sensor.adc", category=ComponentCategory.SENSOR, provides=["voltage_sampler"]
-        ),
+        _make_entry(entry_id="sensor.adc", category="sensor", provides=["voltage_sampler"]),
         _make_entry(
             entry_id="sensor.ads1115",
-            category=ComponentCategory.SENSOR,
+            category="sensor",
             provides=["voltage_sampler"],
         ),
-        _make_entry(entry_id="sensor.dht", category=ComponentCategory.SENSOR),
+        _make_entry(entry_id="sensor.dht", category="sensor"),
     ]
     cat._by_id = {c.id: c for c in cat._components}
     res = await cat.get_components(provides="voltage_sampler")
     assert {c.id for c in res.components} == {"sensor.adc", "sensor.ads1115"}
     # Combines with the category filter rather than overriding it.
-    res = await cat.get_components(
-        provides="voltage_sampler", category=ComponentCategory.SWITCH.value
-    )
+    res = await cat.get_components(provides="voltage_sampler", category="switch")
     assert res.components == []
 
 
@@ -341,9 +337,9 @@ async def test_get_components_provides_filters_featured_entries() -> None:
     cat = ComponentCatalog()
     cat._by_id = {
         "sensor.adc": _make_entry(
-            entry_id="sensor.adc", category=ComponentCategory.SENSOR, provides=["voltage_sampler"]
+            entry_id="sensor.adc", category="sensor", provides=["voltage_sampler"]
         ),
-        "sensor.dht": _make_entry(entry_id="sensor.dht", category=ComponentCategory.SENSOR),
+        "sensor.dht": _make_entry(entry_id="sensor.dht", category="sensor"),
     }
     featured_by_id = {
         "featured.b.adc": _FeaturedRecord(
@@ -370,8 +366,8 @@ async def test_get_components_query_ranks_featured_entries() -> None:
     """A query ranks featured cards by match strength, not just curated order."""
     cat = ComponentCatalog()
     cat._by_id = {
-        "sensor.hub": _make_entry(entry_id="sensor.hub", category=ComponentCategory.SENSOR),
-        "uart": _make_entry(entry_id="uart", name="UART Bus", category=ComponentCategory.SENSOR),
+        "sensor.hub": _make_entry(entry_id="sensor.hub", category="sensor"),
+        "uart": _make_entry(entry_id="uart", name="UART Bus", category="sensor"),
     }
     featured_by_id = {
         "featured.b.hub": _FeaturedRecord(
@@ -446,10 +442,10 @@ async def test_get_components_response_categories_track_query_filter() -> None:
     """
     cat = ComponentCatalog()
     cat._components = [
-        _make_entry(entry_id="dht", name="DHT", category=ComponentCategory.SENSOR),
-        _make_entry(entry_id="bme280", name="BME280", category=ComponentCategory.SENSOR),
+        _make_entry(entry_id="dht", name="DHT", category="sensor"),
+        _make_entry(entry_id="bme280", name="BME280", category="sensor"),
         _make_entry(entry_id="debug", name="Debug", category=ComponentCategory.CORE),
-        _make_entry(entry_id="gpio", name="GPIO", category=ComponentCategory.SWITCH),
+        _make_entry(entry_id="gpio", name="GPIO", category="switch"),
     ]
     cat._by_id = {c.id: c for c in cat._components}
 
@@ -468,14 +464,14 @@ async def test_get_components_response_categories_ignore_selected_category() -> 
     """
     cat = ComponentCatalog()
     cat._components = [
-        _make_entry(entry_id="dht", category=ComponentCategory.SENSOR),
-        _make_entry(entry_id="gpio", category=ComponentCategory.SWITCH),
+        _make_entry(entry_id="dht", category="sensor"),
+        _make_entry(entry_id="gpio", category="switch"),
     ]
     cat._by_id = {c.id: c for c in cat._components}
 
-    res = await cat.get_components(category=ComponentCategory.SENSOR.value)
+    res = await cat.get_components(category="sensor")
     ids = {c["id"] for c in res.categories}
-    assert ids == {ComponentCategory.SENSOR.value, ComponentCategory.SWITCH.value}
+    assert ids == {"sensor", "switch"}
 
 
 async def test_get_components_response_categories_honor_exclude_and_platform() -> None:
@@ -485,12 +481,12 @@ async def test_get_components_response_categories_honor_exclude_and_platform() -
         _make_entry(entry_id="wifi", category=ComponentCategory.CORE),
         _make_entry(
             entry_id="esp32-only",
-            category=ComponentCategory.SENSOR,
+            category="sensor",
             supported_platforms=["esp32"],
         ),
         _make_entry(
             entry_id="esp8266-only",
-            category=ComponentCategory.SWITCH,
+            category="switch",
             supported_platforms=["esp8266"],
         ),
     ]
@@ -504,7 +500,7 @@ async def test_get_components_response_categories_honor_exclude_and_platform() -
     counts = {c["id"]: c["count"] for c in res.categories}
     assert counts == {
         ComponentCategory.CORE.value: 1,
-        ComponentCategory.SENSOR.value: 1,
+        "sensor": 1,
     }
 
 
@@ -517,8 +513,8 @@ async def test_get_categories_endpoint_unaffected_by_query_filter_change() -> No
     """
     cat = ComponentCatalog()
     cat._components = [
-        _make_entry(entry_id="dht", category=ComponentCategory.SENSOR),
-        _make_entry(entry_id="gpio", category=ComponentCategory.SWITCH),
+        _make_entry(entry_id="dht", category="sensor"),
+        _make_entry(entry_id="gpio", category="switch"),
         _make_entry(entry_id="wifi", category=ComponentCategory.CORE),
     ]
     cat._by_id = {c.id: c for c in cat._components}
@@ -526,8 +522,8 @@ async def test_get_categories_endpoint_unaffected_by_query_filter_change() -> No
     cats = await cat.get_categories()
     counts = {c["id"]: c["count"] for c in cats}
     assert counts == {
-        ComponentCategory.SENSOR.value: 1,
-        ComponentCategory.SWITCH.value: 1,
+        "sensor": 1,
+        "switch": 1,
         ComponentCategory.CORE.value: 1,
     }
 
@@ -1266,3 +1262,16 @@ async def test_resolve_network_components_returns_only_first_match() -> None:
     assert len(pairs) == 1
     # The first featured entry (eth_a) wins, not the second.
     assert pairs[0][1]["type"] == "A"
+
+
+def test_index_entry_loads_unlisted_platform_domain() -> None:
+    """A platform domain with no ``ComponentCategory`` member loads verbatim."""
+    entry = ComponentCatalogIndexEntry.from_dict(
+        {
+            "id": "brand_new_domain.foo",
+            "name": "Foo",
+            "description": "",
+            "category": "brand_new_domain",
+        }
+    )
+    assert entry.category == "brand_new_domain"

@@ -49,6 +49,12 @@ _OFFLINE_TIMEOUT = 65.0  # two missed broadcasts + slack before OFFLINE
 _RECONNECT_DELAY = 5.0  # delay before reconnecting after broker errors
 _CONNECT_TIMEOUT = 10.0  # seconds to wait for CONNACK before giving up
 _DEFAULT_PORT = 1883
+# esphome's ``mqtt.transport`` vocabulary; the tests pin it against esphome.
+_DEFAULT_TRANSPORT = "tcp"
+_TLS_TRANSPORT = "wss"
+_WEBSOCKET_TRANSPORTS = frozenset({"ws", _TLS_TRANSPORT})
+_SUPPORTED_TRANSPORTS = frozenset({_DEFAULT_TRANSPORT, *_WEBSOCKET_TRANSPORTS})
+_DEFAULT_WS_PATH = "/mqtt"
 # One taxonomy for "quiet reconnect": ``_run``'s except clause and the
 # session TaskGroup unwrap must agree, or a concurrent group stops
 # collapsing and degrades to the loud unexpected path.
@@ -121,6 +127,9 @@ class _SessionSignals:
         self.suback_pending.set()
 
 
+_BrokerEndpoint = tuple[str, int, str, str]
+
+
 class BrokerKey(NamedTuple):
     """Broker-session identity; the CA digest folds TLS config into dedup."""
 
@@ -129,6 +138,16 @@ class BrokerKey(NamedTuple):
     username: str | None
     ca_digest: str | None
     skip_cn: bool
+    transport: str
+    ws_path: str
+
+    @property
+    def endpoint(self) -> _BrokerEndpoint:
+        return self.host, self.port, self.transport, self.ws_path
+
+    @property
+    def url(self) -> str:
+        return _broker_url(self.transport, self.host, self.port, self.ws_path)
 
 
 @dataclass(frozen=True)
@@ -143,6 +162,17 @@ class MqttBrokerConfig:
     # the PEM itself, not a file path); truthy means connect over TLS.
     certificate_authority: str | None = None
     skip_cert_cn_check: bool = False
+    transport: str = _DEFAULT_TRANSPORT
+    ws_path: str = _DEFAULT_WS_PATH
+
+    @property
+    def uses_tls(self) -> bool:
+        """TLS is on for a declared CA or the ``wss`` transport."""
+        return bool(self.certificate_authority) or self.transport == _TLS_TRANSPORT
+
+    @property
+    def url(self) -> str:
+        return _broker_url(self.transport, self.host, self.port, self.ws_path)
 
     @property
     def key(self) -> BrokerKey:
@@ -155,7 +185,15 @@ class MqttBrokerConfig:
         """
         ca = self.certificate_authority
         ca_digest = hashlib.sha256(ca.encode()).hexdigest() if ca else None
-        return BrokerKey(self.host, self.port, self.username, ca_digest, self.skip_cert_cn_check)
+        return BrokerKey(
+            self.host,
+            self.port,
+            self.username,
+            ca_digest,
+            self.skip_cert_cn_check,
+            self.transport,
+            self.ws_path,
+        )
 
 
 class DeviceMqttMonitor:
@@ -264,7 +302,10 @@ class DeviceMqttMonitor:
 
     async def _run(self) -> None:
         client_id = f"esphome-dashboard-{secrets.token_hex(6)}"
-        _LOGGER.info("MQTT discovery starting — broker=%s:%s", self._broker.host, self._broker.port)
+        _LOGGER.info(
+            "MQTT discovery starting — broker=%s",
+            self._broker.url,
+        )
 
         while True:
             try:
@@ -304,17 +345,17 @@ class DeviceMqttMonitor:
             # checks the YAML, not the network.
             if isinstance(err, ssl.SSLError):
                 first = (
-                    "TLS handshake with MQTT broker %s:%s failed (%s) — check "
+                    "TLS handshake with MQTT broker %s failed (%s) — check "
                     "certificate_authority / skip_cert_cn_check — reconnecting in %ss"
                 )
-                repeat = "TLS handshake with MQTT broker %s:%s still failing (%s) — retrying in %ss"
+                repeat = "TLS handshake with MQTT broker %s still failing (%s) — retrying in %ss"
             else:
-                first = "MQTT broker %s:%s unreachable (%s) — reconnecting in %ss"
-                repeat = "MQTT broker %s:%s still unreachable (%s) — reconnecting in %ss"
+                first = "MQTT broker %s unreachable (%s) — reconnecting in %ss"
+                repeat = "MQTT broker %s still unreachable (%s) — reconnecting in %ss"
             if self._connect_error_logged:
-                _LOGGER.debug(repeat, self._broker.host, self._broker.port, err, delay)
+                _LOGGER.debug(repeat, self._broker.url, err, delay)
             else:
-                _LOGGER.warning(first, self._broker.host, self._broker.port, err, delay)
+                _LOGGER.warning(first, self._broker.url, err, delay)
                 self._connect_error_logged = True
             return
 
@@ -325,18 +366,16 @@ class DeviceMqttMonitor:
         # without flipping the log level.
         if self._unexpected_error_logged:
             _LOGGER.debug(
-                "MQTT broker %s:%s error %s: %s (suppressed traceback) — reconnecting in %ss",
-                self._broker.host,
-                self._broker.port,
+                "MQTT broker %s error %s: %s (suppressed traceback) — reconnecting in %ss",
+                self._broker.url,
                 type(err).__name__,
                 err,
                 delay,
             )
             return
         _LOGGER.error(
-            "MQTT broker %s:%s error — reconnecting in %ss",
-            self._broker.host,
-            self._broker.port,
+            "MQTT broker %s error — reconnecting in %ss",
+            self._broker.url,
             delay,
             exc_info=err,
         )
@@ -392,11 +431,21 @@ class DeviceMqttMonitor:
 
         # Read per session, not at import: tests swap the module in.
         api_version = getattr(paho_mqtt, "CallbackAPIVersion", None)
+
+        websocket = self._broker.transport in _WEBSOCKET_TRANSPORTS
+        # paho spells the WebSocket transport ``websockets``; esphome spells it ``ws``/``wss``.
+        kwargs: dict[str, Any] = {
+            "client_id": client_id,
+            "clean_session": True,
+            "transport": "websockets" if websocket else "tcp",
+        }
         client: Any = (
-            paho_mqtt.Client(api_version.VERSION2, client_id=client_id, clean_session=True)
+            paho_mqtt.Client(api_version.VERSION2, **kwargs)
             if api_version is not None
-            else paho_mqtt.Client(client_id=client_id, clean_session=True)
+            else paho_mqtt.Client(**kwargs)
         )
+        if websocket:
+            client.ws_set_options(path=self._broker.ws_path)
         client.on_connect = on_connect
         client.on_subscribe = on_subscribe
         client.on_message = on_message
@@ -421,7 +470,10 @@ class DeviceMqttMonitor:
             if signals.errors:
                 raise ConnectionError(signals.errors[0])
 
-            _LOGGER.info("MQTT connected to %s:%s", self._broker.host, self._broker.port)
+            _LOGGER.info(
+                "MQTT connected to %s",
+                self._broker.url,
+            )
             self._set_connected(value=True)
 
             async def raise_when_session_failed() -> None:
@@ -535,9 +587,8 @@ class DeviceMqttMonitor:
             _LOGGER.debug("discover broadcast still failing (rc=%s)", info.rc)
         else:
             _LOGGER.warning(
-                "Discover broadcast to %s:%s failed (rc=%s) — device aging paused",
-                self._broker.host,
-                self._broker.port,
+                "Discover broadcast to %s failed (rc=%s) — device aging paused",
+                self._broker.url,
                 info.rc,
             )
             self._publish_error_logged = True
@@ -559,14 +610,19 @@ class DeviceMqttMonitor:
 
     def _apply_tls(self, client: Any) -> None:
         """
-        Wrap *client* in a TLS context when the broker carries a CA.
+        Wrap *client* in a TLS context when the broker uses TLS.
 
         Executor-only: the cert parse is CPU-bound OpenSSL work today,
         and becomes hidden disk I/O the day a CA loads from a file path.
         """
-        if not self._broker.certificate_authority:
+        if not self._broker.uses_tls:
             return
-        client.tls_set_context(_build_tls_context(self._broker))
+        context = (
+            _build_tls_context(self._broker)
+            if self._broker.certificate_authority
+            else ssl.create_default_context()
+        )
+        client.tls_set_context(context)
         if self._broker.skip_cert_cn_check:
             # Never flip ``check_hostname`` directly: both paho majors
             # then call ``ssl.match_hostname``, removed in Python 3.12.
@@ -642,6 +698,12 @@ class _DiscoverPingLoop(PresenceGatedLoop[bool]):
     def _after_idle(self, broadcast_sent: bool) -> None:  # noqa: FBT001 — hook signature
         if broadcast_sent:
             self._monitor._sweep_stale()
+
+
+def _broker_url(transport: str, host: str, port: int, ws_path: str) -> str:
+    """``transport://host:port``, plus the path for a WebSocket transport."""
+    path = ws_path if transport in _WEBSOCKET_TRANSPORTS else ""
+    return f"{transport}://{host}:{port}{path}"
 
 
 def _build_tls_context(broker: MqttBrokerConfig) -> ssl.SSLContext:

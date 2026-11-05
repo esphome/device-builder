@@ -1,0 +1,1 @@
+{"id":"rx8111.time.on_timer","name":"Time.Rx8111 → On Timer","description":"Run when a timer flag is observed during event polling.","docs_url":"https://esphome.io/components/time/rx8111/#wake-up-timer-options","applies_to":["time.rx8111"],"is_device_level":false,"supports_list":true,"config_entries":[]}

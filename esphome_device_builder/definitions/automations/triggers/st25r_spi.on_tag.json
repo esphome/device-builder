@@ -1,0 +1,1 @@
+{"id":"st25r_spi.on_tag","name":"St25R Spi → On Tag","description":"An automation to perform when a tag is first read. See [`on_tag` Trigger](https://esphome.io/components/st25r/#on_tag-trigger).","docs_url":"https://esphome.io/components/st25r/#configuration-variables","applies_to":["st25r_spi"],"is_device_level":false,"supports_list":true,"config_entries":[]}
