@@ -23,7 +23,8 @@ Usage
     python script/sync_esphome_devices.py --clean        # wipe cache
     python script/sync_esphome_devices.py --limit 20     # debug subset
     python script/sync_esphome_devices.py --dry-run      # no writes
-    python script/sync_esphome_devices.py --device <name>  # single device
+    python script/sync_esphome_devices.py --device <name>  # single device (repeatable)
+    python script/sync_esphome_devices.py --repo <checkout> --check --device <name>
 """
 
 from __future__ import annotations
@@ -87,6 +88,7 @@ from script._expander_pins import (  # noqa: E402
 )
 from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
+from script._sync_check import check_results, print_check_results  # noqa: E402
 from script.sync_boards import canonical_board_id, esp32_variant_for_board  # noqa: E402
 
 # Hoisted to ``script/_board_import.py``; private aliases keep this module's
@@ -328,7 +330,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 # honoured; group 2 is the inline body, which is empty for a file-backed
 # fence (``\n?`` makes the body and its trailing newline optional).
 _YAML_FENCE_RE = re.compile(r"```ya?ml([^\n]*)\n(.*?)\n?```", re.DOTALL)
-_FENCE_FILE_RE = re.compile(r"\bfile=(\S+)")
+_FENCE_FILE_RE = re.compile(r"""\bfile=(?:"([^"]+)"|'([^']+)'|(\S+))""")
 _IMAGE_REF_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+?)(?:\s+\"[^\"]*\")?\)")
 
 
@@ -357,7 +359,7 @@ def _resolve_fenced_yaml(info: str, inline: str, device_dir: Path) -> str | None
     match = _FENCE_FILE_RE.search(info)
     if match is None:
         return inline
-    ref = match.group(1).removeprefix("./")
+    ref = next(g for g in match.groups() if g is not None).removeprefix("./")
     if "/" in ref or "\\" in ref or ".." in ref:
         # Same single-folder scope as image refs; warn so the resulting
         # drop is diagnosable instead of a silent "no config" skip.
@@ -467,10 +469,12 @@ def _plain_tree(value: Any) -> Any:
     return value
 
 
-def _iter_devices(repo: Path) -> Iterator[_DeviceSource]:
-    """Walk *repo* and yield one record per usable device page."""
+def _iter_devices(repo: Path, only: set[str] | None = None) -> Iterator[_DeviceSource]:
+    """Walk *repo* and yield one record per usable device page, limited to *only* when given."""
     devices_root = repo / _DEVICES_SUBDIR
     for device_dir in sorted(devices_root.iterdir()):
+        if only is not None and device_dir.name not in only:
+            continue
         if not device_dir.is_dir():
             continue
         page_path = device_dir / "index.md"
@@ -2465,9 +2469,25 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--device",
-        type=str,
+        action="append",
         default=None,
-        help="Process only this upstream folder name (e.g. Sonoff-BASIC-R2-v1.4).",
+        help="Process only this upstream folder name (e.g. Sonoff-BASIC-R2-v1.4). Repeatable.",
+    )
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        default=None,
+        help="Use this devices.esphome.io checkout instead of cloning into the cache.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Report whether each requested device imports (implies --dry-run); exit 1 on a skip.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="With --check, print the results as a JSON list on stdout.",
     )
     parser.add_argument(
         "--verbose",
@@ -2475,7 +2495,10 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print every skip reason.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.check:
+        args.dry_run = True
+    return args
 
 
 def main() -> int:
@@ -2490,7 +2513,13 @@ def main() -> int:
         _LOGGER.info("Removing %s (--clean)", _DEVICES_CLONE_DIR)
         shutil.rmtree(_DEVICES_CLONE_DIR)
 
-    repo = _ensure_devices_repo()
+    if args.repo is not None:
+        repo = args.repo.resolve()
+        if not (repo / _DEVICES_SUBDIR).is_dir():
+            _LOGGER.error("%s has no %s", repo, _DEVICES_SUBDIR.as_posix())
+            return 2
+    else:
+        repo = _ensure_devices_repo()
     if repo is None:
         return 1
     revision = _get_repo_revision(repo)
@@ -2522,8 +2551,13 @@ def main() -> int:
 
     # Pruning is dangerous when --limit / --device is in effect, since
     # we haven't actually visited the rest of the upstream tree.
-    if not args.dry_run and args.limit is None and args.device is None:
+    if not args.dry_run and args.limit is None and not args.device:
         report.removed = _prune_removed(active_remote_ids)
+
+    if args.check:
+        results = check_results(args.device, active_remote_ids, report.skipped)
+        print_check_results(results, as_json=args.json)
+        return 0 if all(r["imported"] for r in results) else 1
 
     _print_report(report, args.verbose)
     return 0
@@ -2538,9 +2572,7 @@ def _collect_records(
 ) -> list[tuple[_DeviceSource, dict[str, Any]]]:
     """Build the record for every accepted upstream page, honoring the CLI filters."""
     pending: list[tuple[_DeviceSource, dict[str, Any]]] = []
-    for src in _iter_devices(repo):
-        if args.device and src.folder_name != args.device:
-            continue
+    for src in _iter_devices(repo, set(args.device) if args.device else None):
         record, skip_reason = _make_record(src, components_index, revision)
         if skip_reason is not None:
             report.skipped.append(_SkippedDevice(src.folder_name, skip_reason))
