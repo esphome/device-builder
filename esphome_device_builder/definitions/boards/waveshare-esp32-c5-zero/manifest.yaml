@@ -139,4 +139,4 @@ featured_components:
       pin: { value: 27, locked: true }
       chipset: WS2812
       num_leds: { value: 1, locked: true }
-      channel_colors: { value: RGB, locked: true }
+      channel_colors: { value: GRB, locked: true }
