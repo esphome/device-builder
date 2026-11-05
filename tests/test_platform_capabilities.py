@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import orjson
+import pytest
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
@@ -28,6 +29,7 @@ from esphome_device_builder.definitions import (
     load_board_index,
     load_platform_capabilities_index,
 )
+from script import sync_components  # type: ignore[import-not-found]
 from script._board_mcus import board_mcus  # type: ignore[import-not-found]
 from script.sync_components import (  # type: ignore[import-not-found]
     _logger_interface_snapshot,
@@ -126,6 +128,14 @@ def test_logger_interface_snapshot_within_installed_esphome() -> None:
         else:
             extra = indexed - installed
             assert not extra, f"committed logger data no installed esphome exposes: {extra}"
+
+
+def test_logger_snapshot_drops_nrf52_variant_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An nRF52 per-chip default is dropped instead of failing the sync."""
+    raw = {("hardware_uart",): {"nrf52": "USB_CDC", "nrf52_54l15": "UART0"}}
+    monkeypatch.setattr(sync_components, "_collect_platform_defaults", lambda _component: raw)
+    defaults, _values = _logger_interface_snapshot()
+    assert defaults == {"nrf52": "USB_CDC"}
 
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:

@@ -4650,7 +4650,8 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     known_keys = {p.value for p in Platform} | {normalize_chip_variant(v) for v in VARIANTS}
     defaults: dict[str, str] = {}
     for key, value in sorted(raw.items()):
-        if value == "DEFAULT":
+        # nRF52 devices are looked up by platform alone, so a per-chip row has no reader
+        if value == "DEFAULT" or key.startswith("nrf52_"):
             continue
         canonical = normalize_chip_variant(key)
         if canonical not in known_keys:
