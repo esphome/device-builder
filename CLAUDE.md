@@ -525,6 +525,16 @@ against legacy behaviour before assuming the simpler version suffices.
   board against the installed esphome and re-stamp that version (the
   catalog-sync workflows' esphome-bump path). Full contributor workflow:
   `definitions/README.md`.
+  **Submit a new board to devices.esphome.io first; a manifest adds no new
+  external domain.** Board photos live on the devices.esphome.io device page;
+  once it has merged, reference the
+  image as `https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/<Dir>/<file>`
+  and point `docs_url` at `https://devices.esphome.io/devices/<Dir>/` (or an
+  esphome.io component page). Leave `product_url` out when its domain isn't
+  already in the catalog; the device page's `project-url` carries the shop
+  link. Each external domain is a URL the dashboard links or fetches
+  indefinitely from a site we don't control. #2880 (IoTiX Adam) is the worked
+  example.
 - **Frontend handoff** for the catalog is documented inline in models
   (`ConfigEntry`, `ComponentCatalogEntry`). New `ConfigEntryType` values
   need a frontend update — coordinate.
