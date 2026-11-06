@@ -61,7 +61,10 @@ from script.sync_boards import (
     _backfill_mcu,
     _backfill_rp2040_wifi,
     _consolidate_full_setup_bundles,
+    _detach_occupancy_pins,
+    _fill_detached_esp32_pins,
     _has_pin_conflict,
+    _reattach_occupancy_pins,
     _stamp_featured_locked_pins,
     _stamp_featured_requires,
 )
@@ -103,6 +106,7 @@ def test_split_artefacts_match_manifests() -> None:
     mix: curated manifests stay checked, empty product manifests get filled.
     """
     from_yaml = build_board_catalog_from_manifests(strict=True)
+    occupancy = _detach_occupancy_pins(from_yaml.boards)
     # Variant / wifi / mcu backfills are part of emission (sync_boards.build_catalog),
     # so apply them here too or esp32 boards carrying only a PIO board id (and rp2040
     # / LibreTiny boards lacking the WiFi tag or chip series) mismatch disk.
@@ -117,7 +121,9 @@ def test_split_artefacts_match_manifests() -> None:
     esp8266_empty = {
         b.id for b in from_yaml.boards if b.esphome.platform.value == "esp8266" and not b.pins
     }
+    _fill_detached_esp32_pins(from_yaml.boards, occupancy)
     _backfill_donor_pins(from_yaml.boards)
+    _reattach_occupancy_pins(from_yaml.boards, occupancy)
     _augment_rmii_data_pins(from_yaml.boards)
     _stamp_featured_locked_pins(from_yaml.boards)
     _stamp_featured_requires(from_yaml.boards)

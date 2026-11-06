@@ -15,6 +15,12 @@ tags:
 - relay
 - compact
 pins:
+- gpio: 10
+  available: false
+  occupied_by: uart
+- gpio: 11
+  available: false
+  occupied_by: uart
 - gpio: 15
   available: false
   occupied_by: Outdoor Plug
@@ -26,6 +32,16 @@ pins:
   occupied_by: button
 docs_url: https://devices.esphome.io/devices/Feit-PLUG3-WIFI-WP-2-N/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 10
+      locked: true
+    tx_pin:
+      value: 11
+      locked: true
+    baud_rate: 115200
 - id: button
   component_id: binary_sensor.gpio
   fields:

@@ -15,11 +15,27 @@ images:
 tags:
 - relay
 pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 - gpio: 4
   available: false
   occupied_by: QIACHIP Test
 docs_url: https://devices.esphome.io/devices/QIACHIP-Smart-Switch/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    tx_pin:
+      value: 1
+      locked: true
+    rx_pin:
+      value: 3
+      locked: true
 - id: relay
   component_id: switch.gpio
   fields:

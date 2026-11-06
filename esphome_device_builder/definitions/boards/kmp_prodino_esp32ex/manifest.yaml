@@ -15,6 +15,15 @@ pins:
 - gpio: 0
   available: false
   occupied_by: LED WS2812B
+- gpio: 2
+  available: false
+  occupied_by: modbus1
+- gpio: 4
+  available: false
+  occupied_by: mod_bus
+- gpio: 16
+  available: false
+  occupied_by: mod_bus
 - gpio: 18
   available: false
   occupied_by: spi
@@ -35,6 +44,32 @@ pins:
   occupied_by: mcp23s08_hub
 docs_url: https://devices.esphome.io/devices/KMP-PRODINo-ESP32EX/
 featured_components:
+- id: mod_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 16
+      locked: true
+    rx_pin:
+      value: 4
+      locked: true
+    baud_rate: 9600
+    parity: even
+    stop_bits: 1
+    id:
+      value: mod_bus
+      locked: true
+- id: modbus1
+  component_id: modbus
+  fields:
+    flow_control_pin:
+      value: 2
+      locked: true
+    id:
+      value: modbus1
+      locked: true
+  requires:
+  - mod_bus
 - id: spi_bus
   component_id: spi
   fields:

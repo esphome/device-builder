@@ -13,6 +13,12 @@ tags:
 - relay
 - sonoff
 pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 - gpio: 4
   available: false
   occupied_by: button_1
@@ -21,6 +27,16 @@ pins:
   occupied_by: button_2
 docs_url: https://devices.esphome.io/devices/Sonoff-Dual-DIY-light/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 1
+      locked: true
+    rx_pin:
+      value: 3
+      locked: true
+    baud_rate: 19200
 - id: button_1
   component_id: binary_sensor.gpio
   fields:

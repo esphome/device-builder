@@ -13,6 +13,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Xiaomi-Gateway-3/image.jpg
 pins:
+- gpio: 2
+  available: false
+  occupied_by: uart_zigbee
+- gpio: 4
+  available: false
+  occupied_by: uart_zigbee
 - gpio: 12
   available: false
   occupied_by: zb-gw03-coordinator Zigbee Download Mode
@@ -22,11 +28,43 @@ pins:
 - gpio: 14
   available: false
   occupied_by: output0
+- gpio: 32
+  available: false
+  occupied_by: i2c_bus
+- gpio: 33
+  available: false
+  occupied_by: i2c_bus
 - gpio: 34
   available: false
   occupied_by: zb-gw03-coordinator Enable Pairing Mode
 docs_url: https://devices.esphome.io/devices/Xiaomi-Gateway-3/
 featured_components:
+- id: uart_zigbee
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 4
+      locked: true
+    tx_pin:
+      value: 2
+      locked: true
+    baud_rate: 115200
+    id:
+      value: uart_zigbee
+      locked: true
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 33
+      locked: true
+    scl:
+      value: 32
+      locked: true
+    scan: true
+    id:
+      value: i2c_bus
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

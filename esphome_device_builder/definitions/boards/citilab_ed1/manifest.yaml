@@ -28,6 +28,21 @@ pins:
 - gpio: 15
   available: false
   occupied_by: Button OK
+- gpio: 18
+  available: false
+  occupied_by: spi
+- gpio: 19
+  available: false
+  occupied_by: spi
+- gpio: 21
+  available: false
+  occupied_by: bus_i2c
+- gpio: 22
+  available: false
+  occupied_by: bus_i2c
+- gpio: 23
+  available: false
+  occupied_by: spi
 - gpio: 26
   available: false
   occupied_by: buzzer_output
@@ -40,6 +55,31 @@ pins:
 docs_url: https://devices.esphome.io/devices/Citilab-ED1/
 product_url: https://github.com/glifocat/ed1-hoas
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 23
+      locked: true
+    miso_pin:
+      value: 19
+      locked: true
+- id: bus_i2c
+  component_id: i2c
+  fields:
+    sda:
+      value: 21
+      locked: true
+    scl:
+      value: 22
+      locked: true
+    scan: true
+    id:
+      value: bus_i2c
+      locked: true
 - id: esp32_touch_hub
   component_id: esp32_touch
   fields:

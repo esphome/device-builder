@@ -10,8 +10,29 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Alfawise-SJ-7/diffuser.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Alfawise-SJ-7/lovelace_card_example.png
+pins:
+- gpio: 1
+  available: false
+  occupied_by: uart_bus
+- gpio: 3
+  available: false
+  occupied_by: uart_bus
 docs_url: https://devices.esphome.io/devices/Alfawise-SJ-7/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 1
+      locked: true
+    rx_pin:
+      value: 3
+      locked: true
+    baud_rate: 9600
+    stop_bits: 1
+    id:
+      value: uart_bus
+      locked: true
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:

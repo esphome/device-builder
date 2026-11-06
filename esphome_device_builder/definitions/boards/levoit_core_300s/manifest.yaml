@@ -13,8 +13,25 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Levoit-Core-300s/levoit-core-300s-flashing.jpeg
+pins:
+- gpio: 16
+  available: false
+  occupied_by: uart
+- gpio: 17
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Levoit-Core-300s/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 17
+      locked: true
+    rx_pin:
+      value: 16
+      locked: true
+    baud_rate: 115200
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

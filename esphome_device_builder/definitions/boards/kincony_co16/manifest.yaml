@@ -23,6 +23,12 @@ pins:
 - gpio: 2
   available: false
   occupied_by: Ethernet MOSI
+- gpio: 8
+  available: false
+  occupied_by: i2c
+- gpio: 18
+  available: false
+  occupied_by: i2c
 - gpio: 41
   available: false
   occupied_by: Ethernet MISO
@@ -37,6 +43,17 @@ pins:
   occupied_by: Ethernet RESET
 docs_url: https://devices.esphome.io/devices/KinCony-CO16/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    frequency: 100kHz
+    scan: true
 - id: onboard_psram
   component_id: psram
   name: PSRAM

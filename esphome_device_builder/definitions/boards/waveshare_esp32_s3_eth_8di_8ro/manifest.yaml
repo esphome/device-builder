@@ -59,6 +59,12 @@ pins:
 - gpio: 16
   available: false
   occupied_by: Ethernet CS
+- gpio: 17
+  available: false
+  occupied_by: modbus_uart
+- gpio: 18
+  available: false
+  occupied_by: modbus_uart
 - gpio: 38
   available: false
   occupied_by: RGB LED
@@ -73,6 +79,22 @@ pins:
   occupied_by: buzzer
 docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/
 featured_components:
+- id: modbus_uart
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 17
+      locked: true
+    rx_pin:
+      value: 18
+      locked: true
+    baud_rate: 38400
+    stop_bits: 1
+    data_bits: 8
+    parity: EVEN
+    id:
+      value: modbus_uart
+      locked: true
 - id: i2cbus
   component_id: i2c
   fields:

@@ -16,6 +16,12 @@ pins:
 - gpio: 0
   available: false
   occupied_by: Button A
+- gpio: 5
+  available: false
+  occupied_by: spi
+- gpio: 6
+  available: false
+  occupied_by: spi
 - gpio: 8
   available: false
   occupied_by: Button B
@@ -39,6 +45,15 @@ pins:
   occupied_by: Button Hold
 docs_url: https://devices.esphome.io/devices/M5Stack-AirQ/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 5
+      locked: true
+    mosi_pin:
+      value: 6
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:

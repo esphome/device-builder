@@ -17,8 +17,29 @@ pins:
 - gpio: 4
   available: false
   occupied_by: GPIO Presence
+- gpio: 16
+  available: false
+  occupied_by: ld2420_uart
+- gpio: 17
+  available: false
+  occupied_by: ld2420_uart
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Presence-Sensor-1/
 featured_components:
+- id: ld2420_uart
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 17
+      locked: true
+    rx_pin:
+      value: 16
+      locked: true
+    baud_rate: 115200
+    parity: NONE
+    stop_bits: 1
+    id:
+      value: ld2420_uart
+      locked: true
 - id: gpio_presence_sensor
   component_id: binary_sensor.gpio
   fields:

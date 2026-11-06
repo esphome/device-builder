@@ -14,11 +14,30 @@ images:
 tags:
 - relay
 pins:
+- gpio: 1
+  available: false
+  occupied_by: uart_bus
+- gpio: 3
+  available: false
+  occupied_by: uart_bus
 - gpio: 14
   available: false
   occupied_by: gen_pwm_test
 docs_url: https://devices.esphome.io/devices/Tinxy-4N-Fan-Regulator/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 1
+      locked: true
+    rx_pin:
+      value: 3
+      locked: true
+    baud_rate: 9600
+    id:
+      value: uart_bus
+      locked: true
 - id: gen_pwm_test
   component_id: output.esp8266_pwm
   fields:
