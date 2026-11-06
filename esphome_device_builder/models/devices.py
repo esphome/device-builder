@@ -126,6 +126,9 @@ class DeviceRuntimeState(DashboardModel):
         return d
 
 
+# The cipher ESPHome firmware advertises in its ``api_encryption`` TXT.
+NOISE_CIPHER = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+
 # Canonical name set for routing flat attr names onto ``runtime_state``.
 RUNTIME_STATE_FIELD_NAMES = frozenset(f.name for f in fields(DeviceRuntimeState))
 

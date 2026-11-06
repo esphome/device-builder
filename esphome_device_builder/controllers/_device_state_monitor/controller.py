@@ -489,7 +489,9 @@ class DeviceStateMonitor(TaskControllerBase):
             return False
         return self._apply_observation(name, "deployed_version", version, forward, name, version)
 
-    def apply_api_encryption(self, name: str, encryption: str) -> bool:
+    def apply_api_encryption(
+        self, name: str, encryption: str, *, api_session: bool = False
+    ) -> bool:
         """
         Record the device's broadcast API encryption status.
 
@@ -512,8 +514,13 @@ class DeviceStateMonitor(TaskControllerBase):
         fragment) — translating that to ``""`` would clobber the
         last-known truthy value and trip the "reinstall to apply"
         prompt.
+
+        An ``api_session`` observation (a Native API handshake) is refused
+        while mDNS owns an api device.
         """
         if (forward := self._on_api_encryption_change) is None:
+            return False
+        if api_session and self._mdns_owns_api_identity(name):
             return False
         return self._apply_observation(
             name, "api_encryption_active", encryption, forward, name, encryption

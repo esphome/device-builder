@@ -209,10 +209,11 @@ class ApiInfoSource(ApiSweepSource):
         Report whether *device* needs an API probe, ignoring cooldown.
 
         Due means: online, exposes a Native API, reachable by IP, and either
-        still missing a field or flagged for a forced re-probe (post-flash
-        version verification, which probes even when both fields are filled).
-        Only the forced case defers to mDNS ownership — the announce carries
-        the fields, so the re-probe is redundant there. The missing-field case
+        still missing a field, flagged for a forced re-probe (post-flash
+        version verification, which probes even when both fields are filled),
+        or deployed encrypted firmware still reading plaintext. Only the
+        latter two defer to mDNS ownership — the announce carries the
+        fields, so the re-probe is redundant there. The missing-field case
         deliberately doesn't: ownership proves an announce resolved once, not
         that its TXT payload was ever applied (#1910), and the sweep's cache
         reconcile has already run, so reaching here means the cache can't fill
@@ -226,7 +227,7 @@ class ApiInfoSource(ApiSweepSource):
             and (
                 not (device.mac_address and runtime.deployed_version)
                 or (
-                    device.name in self._force_reprobe
+                    (device.name in self._force_reprobe or _reads_stale_plaintext(device))
                     and monitor.priority_for(device.name) != ReachabilitySource.MDNS
                 )
             )
@@ -334,3 +335,14 @@ class ApiInfoSource(ApiSweepSource):
                 "and the api.port setting",
                 failing,
             )
+
+
+def _reads_stale_plaintext(device: Device) -> bool:
+    """Whether firmware built from an encrypted YAML still reads plaintext-confirmed."""
+    runtime = device.runtime_state
+    return (
+        device.api_encrypted
+        and runtime.api_encryption_active == ""
+        and bool(runtime.deployed_config_hash)
+        and runtime.deployed_config_hash == device.expected_config_hash
+    )

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from ...helpers.device_yaml import DEFAULT_API_PORT
 from ...helpers.json import JSONDecodeError, dumps, loads
 from ...helpers.subprocess import run_subprocess_capture
+from ...models import NOISE_CIPHER
 from ._sweep_source import SweepSource
 
 if TYPE_CHECKING:
@@ -106,14 +107,14 @@ async def build_probe_request(
 
 def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, Any]) -> bool:
     """
-    Apply a worker payload's mac/version; True iff either was newly written.
+    Apply a worker payload's mac/version/encryption; True iff any was newly written.
 
     Judged on the ``apply_*`` returns, not a post-apply Device re-read —
     apply dedupes and fans out across same-named devices. An
     identity-carrying payload also stamps ``deployed_identity_live``,
     even when nothing was newly written — a confirming re-probe is
     evidence too. The monitor itself refuses the stamp under mDNS
-    ownership.
+    ownership, as it does a Noise session's encryption stamp.
     """
     mac = info.get("mac_address", "")
     version = info.get("esphome_version", "")
@@ -121,7 +122,10 @@ def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, An
     filled_version = monitor.apply_version(name, version)
     if mac or version:
         monitor.apply_deployed_identity_live(name, live=True)
-    return filled_mac or filled_version
+    confirmed = bool(info.get("noise")) and monitor.apply_api_encryption(
+        name, NOISE_CIPHER, api_session=True
+    )
+    return filled_mac or filled_version or confirmed
 
 
 async def run_worker(name: str, request: bytes) -> dict[str, Any] | None:
