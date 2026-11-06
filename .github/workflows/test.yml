@@ -398,6 +398,13 @@ jobs:
           packages: mosquitto
           version: 1.0
 
+      - name: Let mosquitto read the test config
+        # Ubuntu 26.04's AppArmor profile confines mosquitto to its own
+        # config paths, so it can't open the per-test conf under /tmp.
+        run: |
+          ls /etc/apparmor.d | grep -i mosquitto || true
+          if [ -e /etc/apparmor.d/mosquitto ]; then sudo apparmor_parser -R /etc/apparmor.d/mosquitto; fi
+
       - name: Run MQTT discovery e2e
         timeout-minutes: 5
         run: uv run --no-sync pytest -q tests/e2e/slow/mqtt --durations=10 --timeout=120 --no-cov
