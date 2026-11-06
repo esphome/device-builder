@@ -21,6 +21,12 @@ pins:
 - gpio: 10
   available: false
   occupied_by: builtin_led
+- gpio: 13
+  available: false
+  occupied_by: spi
+- gpio: 15
+  available: false
+  occupied_by: spi
 - gpio: 21
   available: false
   occupied_by: bus_a
@@ -48,6 +54,15 @@ pins:
 docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS2/
 product_url: https://docs.m5stack.com/en/core/M5StickC%20PLUS2
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 13
+      locked: true
+    mosi_pin:
+      value: 15
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:

@@ -14,8 +14,27 @@ pins:
 - gpio: 5
   available: false
   occupied_by: pwm_output
+- gpio: 13
+  available: false
+  occupied_by: spihwd
+- gpio: 14
+  available: false
+  occupied_by: spihwd
 docs_url: https://devices.esphome.io/devices/geekmagic-ultra/
 featured_components:
+- id: spihwd
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 14
+      locked: true
+    mosi_pin:
+      value: 13
+      locked: true
+    interface: hardware
+    id:
+      value: spihwd
+      locked: true
 - id: backlight
   component_id: light.monochromatic
   fields:

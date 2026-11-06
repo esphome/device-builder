@@ -24,9 +24,15 @@ pins:
 - gpio: 12
   available: false
   occupied_by: bluetooth_led
+- gpio: 13
+  available: false
+  occupied_by: i2c
 - gpio: 14
   available: false
   occupied_by: power_led
+- gpio: 15
+  available: false
+  occupied_by: i2c
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -41,6 +47,16 @@ pins:
   occupied_by: Reset Button
 docs_url: https://devices.esphome.io/devices/GL-iNet-GL-S10/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 13
+      locked: true
+    scan: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet

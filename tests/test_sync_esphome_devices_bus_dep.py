@@ -8,6 +8,7 @@ from script.sync_esphome_devices import (  # type: ignore[import-not-found]
     _collect_bus_dep_refs,
     _extract_bus_deps,
     _extract_fields,
+    _extract_orphan_buses,
     _find_consumer_block,
     _fold_requires_into_bundles,
     _is_bus_dep,
@@ -511,3 +512,44 @@ def test_platform_bus_folds_into_bundle_ahead_of_consumer() -> None:
     _extract_bus_deps(config, featured, _COMPONENTS)
     _fold_requires_into_bundles(bundles, featured)
     assert bundles[0]["component_ids"] == ["one_wire_bus", "sensor_dallas_temp_1"]
+
+
+def test_orphan_bus_lifts_with_locked_pins() -> None:
+    """A pinned i2c bus whose only consumer is uncatalogued still lifts."""
+    config = {
+        "i2c": [{"id": "bus_a", "sda": "GPIO21", "scl": "GPIO22"}],
+        "sensor": [{"platform": "axp192", "i2c_id": "bus_a"}],
+    }
+    extra, occ = _extract_orphan_buses(config, [], _COMPONENTS)
+    assert [e["component_id"] for e in extra] == ["i2c"]
+    assert extra[0]["id"] == "bus_a"
+    assert extra[0]["fields"]["sda"] == {"value": 21, "locked": True}
+    assert extra[0]["fields"]["id"] == {"value": "bus_a", "locked": True}
+    assert set(occ) == {21, 22}
+
+
+def test_orphan_bus_skips_an_already_lifted_bus() -> None:
+    """A bus an earlier pass lifted is not lifted again."""
+    featured = [{"id": "bus", "component_id": "i2c", "fields": {"id": {"value": "bus"}}}]
+    config = {"i2c": {"id": "bus", "scl": "GPIO5", "sda": "GPIO4"}}
+    assert _extract_orphan_buses(config, featured, _COMPONENTS) == ([], {})
+
+
+def test_orphan_bus_skips_pinless_and_ambiguous_blocks() -> None:
+    """A bus with no pins, or one of several id-less blocks, lifts nothing."""
+    assert _extract_orphan_buses({"i2c": None}, [], _COMPONENTS) == ([], {})
+    config = {"i2c": [{"scl": "GPIO5", "sda": "GPIO4"}, {"scl": "GPIO7", "sda": "GPIO6"}]}
+    assert _extract_orphan_buses(config, [], _COMPONENTS) == ([], {})
+
+
+def test_orphan_bus_keeps_alias_pinned_bus() -> None:
+    """An i2c bus wired with board aliases still lifts."""
+    extra, _ = _extract_orphan_buses({"i2c": {"sda": "D2", "scl": "D1"}}, [], _COMPONENTS)
+    assert [e["component_id"] for e in extra] == ["i2c"]
+    assert extra[0]["fields"]["sda"]["value"] == "D2"
+
+
+def test_orphan_bus_skips_uart() -> None:
+    """A uart whose consumer is uncatalogued is not lifted."""
+    config = {"uart": {"id": "mcu", "tx_pin": "GPIO1", "rx_pin": "GPIO3", "baud_rate": 9600}}
+    assert _extract_orphan_buses(config, [], _COMPONENTS) == ([], {})

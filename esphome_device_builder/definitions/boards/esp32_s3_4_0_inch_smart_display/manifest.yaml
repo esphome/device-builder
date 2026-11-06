@@ -71,6 +71,9 @@ pins:
 - gpio: 18
   available: false
   occupied_by: display.st7701s
+- gpio: 19
+  available: false
+  occupied_by: i2c
 - gpio: 20
   available: false
   occupied_by: display.st7701s
@@ -86,6 +89,9 @@ pins:
 - gpio: 40
   available: false
   occupied_by: touchdisplay1 Relay 1
+- gpio: 45
+  available: false
+  occupied_by: i2c
 - gpio: 46
   available: false
   occupied_by: display.st7701s
@@ -97,6 +103,15 @@ pins:
   occupied_by: spi
 docs_url: https://devices.esphome.io/devices/ESP32-S3-4.0-Inch-Smart-Display/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    scl:
+      value: 45
+      locked: true
+    sda:
+      value: 19
+      locked: true
 - id: spi_bus
   component_id: spi
   fields:
