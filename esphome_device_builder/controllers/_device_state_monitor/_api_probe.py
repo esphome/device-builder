@@ -114,7 +114,7 @@ def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, An
     identity-carrying payload also stamps ``deployed_identity_live``,
     even when nothing was newly written — a confirming re-probe is
     evidence too. The monitor itself refuses the stamp under mDNS
-    ownership; the same holds for a Noise session's encryption stamp.
+    ownership, as it does a Noise session's encryption stamp.
     """
     mac = info.get("mac_address", "")
     version = info.get("esphome_version", "")
@@ -122,10 +122,8 @@ def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, An
     filled_version = monitor.apply_version(name, version)
     if mac or version:
         monitor.apply_deployed_identity_live(name, live=True)
-    confirmed = (
-        bool(info.get("noise"))
-        and not monitor._mdns_owns_api_identity(name)
-        and monitor.apply_api_encryption(name, NOISE_CIPHER)
+    confirmed = bool(info.get("noise")) and monitor.apply_api_encryption(
+        name, NOISE_CIPHER, api_session=True
     )
     return filled_mac or filled_version or confirmed
 
