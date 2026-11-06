@@ -31,7 +31,7 @@ from esphome_device_builder.controllers._device_state_monitor.api_info import Ap
 from esphome_device_builder.helpers import api_device_info
 from esphome_device_builder.helpers.async_ import log_task_exit
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
-from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
+from esphome_device_builder.models import NOISE_CIPHER, Device, DeviceState, ReachabilitySource
 
 from .conftest import make_device, make_online_api_device, make_state_monitor_with_callbacks
 
@@ -113,6 +113,45 @@ def test_select_targets_picks_forced_reprobe_when_ping_owned() -> None:
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
     monitor.api_info.request_reprobe("kitchen")
     assert [d.name for d in monitor.api_info._select_targets()] == ["kitchen"]
+
+
+def _stuck_plaintext_device(**overrides: Any) -> Device:
+    """Encrypted YAML deployed as-is, wire state stuck at plaintext-confirmed."""
+    base: dict[str, Any] = {
+        "mac_address": "94:C9:60:1F:8C:F1",
+        "deployed_version": "2026.6.1",
+        "api_encrypted": True,
+        "api_encryption_active": "",
+        "expected_config_hash": "abcd1234",
+        "deployed_config_hash": "abcd1234",
+    }
+    base.update(overrides)
+    return make_online_api_device(**base)
+
+
+@pytest.mark.parametrize(
+    ("owner", "overrides", "due"),
+    [
+        pytest.param(ReachabilitySource.PING, {}, True, id="ping_owned"),
+        pytest.param(ReachabilitySource.MDNS, {}, False, id="mdns_owned"),
+        pytest.param(
+            ReachabilitySource.PING,
+            {"deployed_config_hash": "0000ffff"},
+            False,
+            id="pending_install",
+        ),
+        pytest.param(
+            ReachabilitySource.PING, {"deployed_config_hash": ""}, False, id="hash_unknown"
+        ),
+    ],
+)
+def test_select_targets_stuck_plaintext_encrypted_device(
+    owner: ReachabilitySource, overrides: dict[str, Any], due: bool
+) -> None:
+    """Deployed encrypted firmware reading plaintext is due unless mDNS owns it."""
+    monitor, _ = make_state_monitor_with_callbacks([_stuck_plaintext_device(**overrides)])
+    monitor.state.state_source["kitchen"] = owner
+    assert bool(monitor.api_info._select_targets()) is due
 
 
 def test_select_targets_picks_when_online_via_ping_not_mdns() -> None:
@@ -217,6 +256,47 @@ async def test_forced_reprobe_confirming_known_values_still_stamps() -> None:
     assert device.runtime_state.deployed_identity_live is True
     assert ("on_deployed_identity_live_change", "kitchen", True) in callbacks.calls
     assert "kitchen" not in src._cooldown
+
+
+@pytest.mark.parametrize(
+    ("owner", "expected"),
+    [
+        pytest.param("ping", NOISE_CIPHER, id="ping_owned"),
+        pytest.param("mdns", "", id="mdns_owned"),
+    ],
+)
+async def test_fetch_noise_session_confirms_encryption(owner: str, expected: str) -> None:
+    """A Noise-keyed connect stamps the cipher unless mDNS owns the name."""
+    device = _stuck_plaintext_device()
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.apply("kitchen", DeviceState.ONLINE, owner, claim=True)
+    monitor._resolve_api_connection = AsyncMock(return_value=("a2V5", 6053))
+    src = monitor.api_info
+    src._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1", "noise": True}
+    )
+
+    await src._fetch(device)
+
+    assert device.runtime_state.api_encryption_active == expected
+    stamped = callbacks.calls_for("on_api_encryption_change") != []
+    assert stamped is bool(expected)
+    assert ("kitchen" in src._cooldown) is not stamped
+
+
+async def test_fetch_plaintext_session_does_not_write_encryption() -> None:
+    """A connect without the Noise handshake vouches for no cipher."""
+    device = make_online_api_device(address="")
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.apply("kitchen", DeviceState.ONLINE, "ping", claim=True)
+    monitor.api_info._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1", "noise": False}
+    )
+
+    await monitor.api_info._fetch(device)
+
+    assert device.runtime_state.api_encryption_active is None
+    assert callbacks.calls_for("on_api_encryption_change") == []
 
 
 async def test_fetch_empty_payload_does_not_stamp() -> None:
@@ -895,6 +975,7 @@ async def test_worker_fetch_returns_name_mac_and_version(monkeypatch: Any) -> No
         "name": "kitchen",
         "mac_address": "AA:BB:CC:DD:EE:FF",
         "esphome_version": "2026.6.1",
+        "noise": False,
     }
     client.connect.assert_awaited_once()
     client.disconnect.assert_awaited_once()
@@ -944,6 +1025,7 @@ def test_worker_main_writes_json_on_success(monkeypatch: Any, capsys: Any) -> No
         "name": "kitchen",
         "mac_address": "AA:BB:CC:DD:EE:FF",
         "esphome_version": "2026.6.1",
+        "noise": True,
     }
 
 

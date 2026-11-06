@@ -3,7 +3,8 @@ Out-of-process Native API device-info fetch.
 
 Run as ``python -m esphome_device_builder.helpers.api_device_info``: reads
 one JSON request from stdin, connects to the device over the ESPHome Native
-API, and writes its name + MAC address + ESPHome version as JSON to stdout.
+API, and writes its name + MAC address + ESPHome version as JSON to stdout,
+plus ``noise`` (whether the session ran over the Noise handshake).
 Running ``aioesphomeapi`` in a short-lived child keeps the heavy client out
 of the long-running dashboard process. Any failure exits non-zero with no
 stdout.
@@ -22,19 +23,20 @@ from .json import JSONDecodeError, dumps_str, loads
 _CONNECT_TIMEOUT = 10.0
 
 
-async def _fetch(request: dict[str, Any]) -> dict[str, str]:
+async def _fetch(request: dict[str, Any]) -> dict[str, Any]:
     # Import inside the try-wrapped path (not module top) so an import-time
     # failure of aioesphomeapi / a transitive dep is caught by main() and
     # reported via the ``{"error": ...}`` channel rather than dying silently
     # before main() with stderr discarded by the parent.
     from aioesphomeapi import APIClient  # noqa: PLC0415
 
+    noise_psk = request.get("noise_psk") or None
     client = APIClient(
         request["address"],
         request["port"],
         None,
         client_info="esphome-device-builder",
-        noise_psk=request.get("noise_psk") or None,
+        noise_psk=noise_psk,
         addresses=request.get("addresses") or None,
     )
     try:
@@ -48,6 +50,7 @@ async def _fetch(request: dict[str, Any]) -> dict[str, str]:
         "name": info.name or "",
         "mac_address": info.mac_address or "",
         "esphome_version": info.esphome_version or "",
+        "noise": noise_psk is not None,
     }
 
 
