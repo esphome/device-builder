@@ -401,9 +401,7 @@ jobs:
       - name: Let mosquitto read the test config
         # Ubuntu 26.04's AppArmor profile confines mosquitto to its own
         # config paths, so it can't open the per-test conf under /tmp.
-        run: |
-          ls /etc/apparmor.d | grep -i mosquitto || true
-          if [ -e /etc/apparmor.d/mosquitto ]; then sudo apparmor_parser -R /etc/apparmor.d/mosquitto; fi
+        run: if [ -e /etc/apparmor.d/mosquitto ]; then sudo apparmor_parser -R /etc/apparmor.d/mosquitto; fi
 
       - name: Run MQTT discovery e2e
         timeout-minutes: 5
