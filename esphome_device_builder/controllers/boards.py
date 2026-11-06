@@ -232,7 +232,7 @@ class BoardCatalog:
         variant: str = "",
     ) -> BoardCatalogIndex | None:
         """
-        Find a board by ``platform`` (and optional ``variant``), prefer generic.
+        Find a board by ``platform`` (and optional ``variant``), prefer a plain generic.
 
         Returns the slim index entry — see :meth:`find_by_pio_board`
         for the body-fetch contract. Used as a final fallback when a
@@ -249,7 +249,6 @@ class BoardCatalog:
             return None
         if not matches:
             return None
-        for b in matches:
-            if b.is_generic:
-                return b
-        return matches[0]
+        # A generic that is a project (a Bluetooth proxy) or a named devkit is no
+        # stand-in for a device that only names its chip.
+        return min(matches, key=lambda b: (not b.is_generic, b.manufacturer != "Generic"))

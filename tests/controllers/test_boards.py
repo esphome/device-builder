@@ -818,6 +818,31 @@ def test_find_by_platform_variant_single_chip_platform_without_variant_returns_g
     assert board.id == "generic-esp8266"
 
 
+def test_find_by_platform_variant_prefers_plain_generic_over_project_generic() -> None:
+    """A chip-only lookup lands on the plain generic board, not a generic project or devkit."""
+    cat = BoardCatalog()
+    _seed_catalog(
+        cat,
+        [
+            _board(board_id="s3-proxy", manufacturer="", variant="esp32s3", is_generic=True),
+            _board(
+                board_id="s3-devkit", manufacturer="Espressif", variant="esp32s3", is_generic=True
+            ),
+            _board(
+                board_id="generic-esp32s3",
+                manufacturer="Generic",
+                variant="esp32s3",
+                is_generic=True,
+            ),
+        ],
+    )
+
+    board = cat.find_by_platform_variant("esp32", variant="esp32s3")
+
+    assert board is not None
+    assert board.id == "generic-esp32s3"
+
+
 @pytest.mark.parametrize(
     "variant",
     [

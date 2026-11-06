@@ -187,6 +187,16 @@ def test_no_duplicate_platform_name_boards() -> None:
     assert not dups, "Duplicate (platform, name) board entries:\n" + "\n".join(dups)
 
 
+def test_generic_manufacturer_marks_only_plain_chip_boards() -> None:
+    """A generic board with ``manufacturer: Generic`` never imports a package."""
+    projects = [
+        board.id
+        for board in load_board_catalog().boards
+        if board.is_generic and board.manufacturer == "Generic" and board.package_import_url
+    ]
+    assert not projects, f"Generic-manufacturer boards importing a package: {projects}"
+
+
 def test_wiznet_w6300_resolves_to_curated_ethernet_board() -> None:
     """The W6300-EVB-Pico2 lists once, as the curated board carrying onboard ethernet."""
     hits = [b for b in load_board_catalog().boards if b.name == "WIZnet W6300-EVB-Pico2"]
