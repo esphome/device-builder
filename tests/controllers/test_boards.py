@@ -761,12 +761,7 @@ async def test_get_compatible_boards_unknown_id_returns_empty(
 def test_find_by_platform_variant_prefers_generic_fallback(
     catalog: BoardCatalog,
 ) -> None:
-    """When matches include a generic, prefer the generic.
-
-    Documented in the function's docstring: a YAML naming only
-    the platform should resolve to "Generic ESP32-C3" rather than
-    a vendor-specific board that happens to share the variant.
-    """
+    """With a variant, prefer the generic board for that chip."""
     board = catalog.find_by_platform_variant("esp32", variant="esp32c3")
 
     assert board is not None
@@ -812,16 +807,29 @@ def test_find_by_platform_variant_folds_renamed_rp2() -> None:
     assert cat.find_by_platform_variant("rp2") is not None
 
 
-def test_find_by_platform_variant_without_variant_falls_through(
+def test_find_by_platform_variant_single_chip_platform_without_variant_returns_generic(
     catalog: BoardCatalog,
 ) -> None:
-    """No variant supplied → first matching platform entry (may be generic)."""
+    """No variant on a single-chip platform → its generic board."""
     board = catalog.find_by_platform_variant("esp8266")
 
     assert board is not None
     assert board.esphome.platform == Platform.ESP8266
-    # The generic preference still kicks in when present.
     assert board.id == "generic-esp8266"
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        pytest.param("", id="no_variant"),
+        pytest.param("esp32c6", id="variant_not_in_catalog"),
+    ],
+)
+def test_find_by_platform_variant_ambiguous_chip_returns_none(
+    catalog: BoardCatalog, variant: str
+) -> None:
+    """A multi-chip platform without a catalogued variant matches no board."""
+    assert catalog.find_by_platform_variant("esp32", variant=variant) is None
 
 
 def test_find_by_platform_variant_unknown_platform_returns_none(
