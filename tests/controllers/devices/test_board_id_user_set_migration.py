@@ -28,6 +28,7 @@ from esphome_device_builder.controllers.devices.metadata import (
     _USER_SET_MIGRATED_KEY,
     _migrate_board_id_user_set_sync,
 )
+from esphome_device_builder.helpers.device_yaml import load_device_from_storage
 from esphome_device_builder.helpers.metadata_sidecar import _load_metadata
 
 _APOLLO = "apollo-esk-1"
@@ -46,6 +47,14 @@ def _controller(tmp_path: Path, catalog: BoardCatalog | None) -> DevicesControll
     controller._shared_sidecar = SharedSidecarClient(tmp_path)
     controller._db = SimpleNamespace(boards=catalog, settings=SimpleNamespace(config_dir=tmp_path))
     return controller
+
+
+def _loaded_board_id(controller: DevicesController, path: Path) -> str:
+    """Board id a scan would load for *path*: resolver metadata, then load-time derive."""
+    metadata = controller._resolve_device_metadata(path.parent, path.name)
+    return load_device_from_storage(
+        path, metadata.board_id, derive_board_id=controller._derive_board_id
+    ).board_id
 
 
 @pytest.fixture(scope="module")
@@ -187,8 +196,8 @@ async def test_migrate_then_resolve_matches_fleet_outcome(
 
     def _resolved_board_ids() -> tuple[str, str]:
         return (
-            controller._resolve_device_metadata(tmp_path, "aps.yaml").board_id,
-            controller._resolve_device_metadata(tmp_path, "cb3s-test.yaml").board_id,
+            _loaded_board_id(controller, tmp_path / "aps.yaml"),
+            _loaded_board_id(controller, tmp_path / "cb3s-test.yaml"),
         )
 
     apollo_board, cb3s_board = await asyncio.to_thread(_resolved_board_ids)
@@ -212,9 +221,7 @@ async def test_curated_esp8266_pick_survives_exact_id_derive(
     controller = _controller(tmp_path, real_catalog)
     await controller.migrate_board_id_user_set()
 
-    resolved = await asyncio.to_thread(
-        lambda: controller._resolve_device_metadata(tmp_path, "sonoff.yaml").board_id
-    )
+    resolved = await asyncio.to_thread(_loaded_board_id, controller, tmp_path / "sonoff.yaml")
     assert resolved == "sonoff-basic"
 
 

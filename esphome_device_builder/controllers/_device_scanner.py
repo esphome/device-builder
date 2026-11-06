@@ -23,6 +23,7 @@ from esphome import util
 
 from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import (
+    BoardIdDeriver,
     LoadBatch,
     load_device_from_storage,
 )
@@ -45,6 +46,7 @@ _POISONED_CACHE_KEY: _CacheKey = (-1, -1, -1.0, -1, ())
 class DeviceFileMetadata(NamedTuple):
     """Persisted sidecar fields the scanner threads into each ``Device``."""
 
+    # A user pick only; ``""`` lets the load derive the board from the config.
     board_id: str
     ip: str
     expected_config_hash: str = ""
@@ -309,10 +311,12 @@ class DeviceScanner(WakeWorker[str]):
         config_dir: Path,
         make_metadata_resolver: MetadataResolverFactory,
         on_change: ScanCallback,
+        derive_board_id: BoardIdDeriver,
     ) -> None:
         super().__init__()
         self._config_dir = config_dir
         self._make_metadata_resolver = make_metadata_resolver
+        self._derive_board_id = derive_board_id
         self._on_change = on_change
         self._index = _DeviceIndex()
         self._lock = asyncio.Lock()
@@ -557,6 +561,7 @@ class DeviceScanner(WakeWorker[str]):
                     shallow=shallow and known is not None,
                     dependencies=known,
                     batch=batch,
+                    derive_board_id=self._derive_board_id,
                 )
                 # The read's own fstat keys each file, so an edit landing after
                 # the read still flips the next scan.

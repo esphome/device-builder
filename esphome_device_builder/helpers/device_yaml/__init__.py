@@ -17,7 +17,7 @@ from __future__ import annotations
 from esphome.storage_json import StorageJSON
 
 from ._bootloader import resolve_nrf52_bootloader
-from ._chip import resolve_chip_mcu
+from ._chip import BoardIdDeriver, resolve_chip_mcu
 from ._dependencies import (
     LoadBatch,
     UnreadableDependencyError,
@@ -93,6 +93,7 @@ __all__ = [
     "WIFI_RADIO_PROVIDER_COMPONENT_IDS",
     "_UNRESOLVED_SUBSTITUTION_RE",
     "_UNRESOLVED_WHOLE_TOKEN_RE",
+    "BoardIdDeriver",
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",
     "LoadBatch",

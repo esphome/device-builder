@@ -40,6 +40,7 @@ def _make_scanner(config_dir: Path) -> tuple[DeviceScanner, list[tuple[ScanChang
         config_dir=config_dir,
         make_metadata_resolver=lambda: _stub_metadata,
         on_change=lambda kind, device, _previous: events.append((kind, device)),
+        derive_board_id=lambda *_: "",
     )
     return scanner, events
 
