@@ -497,18 +497,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # Resolve up front so the caller learns the exact filename the download
         # will save under (so the UI's "saved as …" matches the file), and so a
         # missing artifact fails here rather than on the download navigation.
-        # The md5 is of that same resolved file, so it describes the bytes the
-        # download hands out rather than an earlier listing.
         try:
-            filename, md5 = await run_in_executor(
+            reply = await run_in_executor(
                 download_mod.resolve_artifact_download, configuration, file
             )
         except (FileNotFoundError, ValueError) as err:
             raise CommandError(ErrorCode.NOT_FOUND, "Firmware artifact not found") from err
-        result = {"token": self.download_tokens.create(configuration, file), "filename": filename}
-        if md5 is not None:
-            result["md5"] = md5
-        return result
+        return {"token": self.download_tokens.create(configuration, file), **reply}
 
     # ------------------------------------------------------------------
     # Internals — queue processing

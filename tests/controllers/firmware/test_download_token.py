@@ -87,11 +87,11 @@ async def test_download_token_omits_md5_when_hashing_fails(
     _seed_build(tmp_path, monkeypatch, files=("firmware.factory.bin",))
     controller = firmware_controller_factory()
 
-    def _unreadable(path: Path) -> str:
+    def _unreadable(path: Path, *_stat_key: int) -> str:
         raise PermissionError("denied")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.download._artifact_md5", _unreadable
+        "esphome_device_builder.controllers.firmware.download._md5_digest", _unreadable
     )
     result = await controller.download_token(
         configuration="kitchen.yaml", file="firmware.factory.bin"
@@ -108,11 +108,11 @@ async def test_download_token_artifact_vanishing_before_hashing_errors(
     _seed_build(tmp_path, monkeypatch, files=("firmware.factory.bin",))
     controller = firmware_controller_factory()
 
-    def _vanished(path: Path) -> str:
+    def _vanished(path: Path, *_stat_key: int) -> str:
         raise FileNotFoundError(path)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.download._artifact_md5", _vanished
+        "esphome_device_builder.controllers.firmware.download._md5_digest", _vanished
     )
     with pytest.raises(CommandError) as excinfo:
         await controller.download_token(configuration="kitchen.yaml", file="firmware.factory.bin")

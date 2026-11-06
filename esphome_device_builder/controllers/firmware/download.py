@@ -25,7 +25,7 @@ from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.capability_tokens import CapabilityTokens
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
-from ...helpers.paths import PathEscapeError, resolve_under_root
+from ...helpers.paths import resolve_under_root
 from ...helpers.sibling_cli import helper_cli_cmd
 from ...helpers.storage_path import resolve_storage_path
 from ...models.boards import normalize_platform
@@ -169,42 +169,11 @@ def collect_download_entries(
                 "file": _MCUBOOT_UPDATE_IMAGE,
             }
         )
-    listed = []
     for entry in downloads:
-        entry["download_name"] = _download_filename(storage.name, Path(entry["file"]).name)
         artifact_type = _ARTIFACT_TYPES.get(entry["file"])
         if artifact_type:
             entry["type"] = artifact_type
-        # Debug symbols are 14 MB+ and never verified before a flash.
-        if artifact_type != "elf":
-            # ``md5`` is optional: an artifact that can't be read keeps its row
-            # without a digest. One a rebuild removed since the existence filter,
-            # or one resolving outside the build dir (its download would refuse
-            # it too), drops out.
-            try:
-                path = resolve_under_root(build_dir / entry["file"], build_dir)
-                entry["md5"] = _artifact_md5(path)
-            except FileNotFoundError:
-                _LOGGER.debug("%s vanished before it could be hashed", entry["file"])
-                continue
-            except PathEscapeError as err:
-                _LOGGER.warning("Not listing %s: %s", entry["file"], err)
-                continue
-            except (OSError, ValueError) as err:
-                _LOGGER.warning("Could not hash %s: %s", entry["file"], err)
-        listed.append(entry)
-    return listed
-
-
-def _download_filename(device_name: str, artifact_name: str) -> str:
-    """Filename-safe name an artifact downloads under."""
-    return re.sub(r"[^A-Za-z0-9._-]", "_", f"{device_name}-{artifact_name}")
-
-
-def _artifact_md5(path: Path) -> str:
-    """Hex MD5 of the artifact at *path*, through the stat-keyed cache."""
-    stat = path.stat()
-    return _md5_digest(path, stat.st_size, stat.st_mtime_ns, stat.st_ino, stat.st_ctime_ns)
+    return downloads
 
 
 @lru_cache(maxsize=32)
@@ -301,27 +270,32 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
         msg = f"Binary not found: {file}"
         raise FileNotFoundError(msg)
 
-    download_name = _download_filename(storage.name, Path(file).name)
+    download_name = re.sub(r"[^A-Za-z0-9._-]", "_", f"{storage.name}-{path.name}")
     return path, download_name
 
 
-def resolve_artifact_download(configuration: str, file: str) -> tuple[str, str | None]:
+def resolve_artifact_download(configuration: str, file: str) -> dict[str, str]:
     """
-    Resolve *file* to ``(download_name, md5)`` for a download about to be minted.
+    Resolve *file* to ``{filename, md5?}`` for a download about to be minted.
 
-    ``md5`` is ``None`` for the ELF and for an artifact that can't be read for
-    hashing; a vanished artifact raises ``FileNotFoundError`` like the resolve.
+    ``md5`` is omitted for the ELF and for an artifact that can't be read; a
+    missing artifact raises ``FileNotFoundError``.
     """
-    path, download_name = _resolve_artifact_path(configuration, file)
+    path, filename = _resolve_artifact_path(configuration, file)
+    reply = {"filename": filename}
+    # Debug symbols are 14 MB+ and never verified before a flash.
     if _ARTIFACT_TYPES.get(file) == "elf":
-        return download_name, None
+        return reply
     try:
-        return download_name, _artifact_md5(path)
+        stat = path.stat()
+        reply["md5"] = _md5_digest(
+            path, stat.st_size, stat.st_mtime_ns, stat.st_ino, stat.st_ctime_ns
+        )
     except FileNotFoundError:
         raise
     except OSError as err:
         _LOGGER.warning("Could not hash %s: %s", file, err)
-        return download_name, None
+    return reply
 
 
 class DownloadTokens(CapabilityTokens[tuple[str, str]]):
