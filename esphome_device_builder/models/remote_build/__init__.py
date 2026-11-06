@@ -80,6 +80,7 @@ from .wire_frames import (
     SubmitJobAckFrameData,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
+    SubmitJobTarget,
 )
 
 __all__ = (
@@ -150,4 +151,5 @@ __all__ = (
     "SubmitJobAckFrameData",
     "SubmitJobChunkFrameData",
     "SubmitJobFrameData",
+    "SubmitJobTarget",
 )

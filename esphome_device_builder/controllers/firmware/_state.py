@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from ...helpers.windows_job_object import WindowsJobObject
 from ...models import FirmwareJob, JobSource, JobStatus, JobType
-from .constants import MAX_CONCURRENT_UPLOADS
+from .constants import _REMOTE_POOL_JOB_TYPES, MAX_CONCURRENT_UPLOADS
 
 
 @dataclass
@@ -238,7 +238,7 @@ class FirmwareState:
         if job.depends_on:
             # Reached only once the dependency is satisfied; latch it.
             job.dependency_released = True
-        if job.source is JobSource.REMOTE_PENDING and job.job_type is JobType.COMPILE:
+        if job.source is JobSource.REMOTE_PENDING and job.job_type in _REMOTE_POOL_JOB_TYPES:
             self.remote_dispatch.hold(job)
             return
         self.remote_dispatch.drop(job.job_id)

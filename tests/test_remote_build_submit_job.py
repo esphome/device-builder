@@ -678,10 +678,14 @@ async def test_submit_job_happy_path_with_relative_config_dir(
     firmware._enqueue.assert_awaited_once()
 
 
-async def test_submit_job_clean_target_creates_clean_job(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("target", "job_type"),
+    [("clean", JobType.CLEAN), ("analyze_memory", JobType.ANALYZE_MEMORY)],
+)
+async def test_submit_job_non_compile_target_creates_matching_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, job_type: JobType
 ) -> None:
-    """``target="clean"`` rides the same pipeline and creates a JobType.CLEAN job.
+    """A ``clean`` / ``analyze_memory`` target rides the same pipeline and creates that job type.
 
     The fan-out from the offloader's "Clean build files" click
     sends one ``submit_job(target="clean")`` per connected peer
@@ -716,7 +720,7 @@ async def test_submit_job_clean_target_creates_clean_job(
         _stub_prepare,
     )
 
-    await receiver.handle_submit_job(session, _header(target="clean", bundle=bundle))
+    await receiver.handle_submit_job(session, _header(target=target, bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
     await _drain_extracts(receiver)
@@ -728,7 +732,7 @@ async def test_submit_job_clean_target_creates_clean_job(
 
     assert len(firmware.created_jobs) == 1
     job = firmware.created_jobs[0]
-    assert job.job_type is JobType.CLEAN
+    assert job.job_type is job_type
     assert job.remote_peer == "alpha-dashboard"
     firmware._enqueue.assert_awaited_once()
 

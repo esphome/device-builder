@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from ..models.api import ErrorCode
-from ..models.firmware import JobBuildSource
+from ..models.firmware import JobBuildSource, JobType
 from ..models.remote_build import (
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
@@ -210,6 +210,16 @@ def pick_dispatch_target(inputs: BuildSchedulerInputs) -> DispatchDecision:
             return DispatchDecision.wait()
         return DispatchDecision.no_compatible_peer(_no_compatible_peer_message(result, inputs))
     return DispatchDecision.local()
+
+
+def inputs_for_job_type(inputs: BuildSchedulerInputs, job_type: JobType) -> BuildSchedulerInputs:
+    """Narrow *inputs* to the pairings whose receiver accepts *job_type*."""
+    if job_type is not JobType.ANALYZE_MEMORY:
+        return inputs
+    return replace(
+        inputs,
+        pairings={pin: p for pin, p in inputs.pairings.items() if p.analyze_memory_supported},
+    )
 
 
 def receiver_build_version(pairing: StoredPairing, offloader_esphome_version: str) -> str:

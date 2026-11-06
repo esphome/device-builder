@@ -56,6 +56,7 @@ class OffloaderPairingAddedData(TypedDict):
     friendly_name: str
     ha_addon: bool
     reset_build_env_supported: bool
+    analyze_memory_supported: bool
     receiver_label_auto: bool
 
 
@@ -247,6 +248,7 @@ class OffloaderPeerLinkOpenedData(TypedDict):
     friendly_name: str
     ha_addon: bool
     reset_build_env_supported: bool
+    analyze_memory_supported: bool
 
 
 class OffloaderPeerLinkClosedData(TypedDict):

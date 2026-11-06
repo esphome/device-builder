@@ -486,6 +486,7 @@ async def test_send_response_advertises_esphome_version() -> None:
         "esphome_version": esphome_version,
         "auto_provision_supported": True,
         "reset_build_env_supported": True,
+        "analyze_memory_supported": True,
         "friendly_name": "",
         "ha_addon": False,
     }

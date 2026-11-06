@@ -218,6 +218,9 @@ _PRIMARY_JOB_TYPES: frozenset[JobType] = frozenset(
 )
 _EPHEMERAL_JOB_TYPES: frozenset[JobType] = frozenset({JobType.ANALYZE_MEMORY})
 
+# Job types a ``REMOTE_PENDING`` source holds in the remote dispatch pool.
+_REMOTE_POOL_JOB_TYPES: frozenset[JobType] = frozenset({JobType.COMPILE, JobType.ANALYZE_MEMORY})
+
 # Job types eligible for ``--mdns/--dns-address-cache`` forwarding.
 _OTA_ADDRESS_CACHE_JOB_TYPES: frozenset[JobType] = frozenset(
     {JobType.UPLOAD, JobType.INSTALL, JobType.RENAME}

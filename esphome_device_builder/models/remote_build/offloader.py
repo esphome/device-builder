@@ -82,6 +82,7 @@ _PAIRING_VALIDATOR = vol.Schema(
         vol.Required("friendly_name"): vol.All(str, vol.Length(max=PAIRING_FRIENDLY_NAME_MAX_LEN)),
         vol.Required("ha_addon"): bool,
         vol.Required("reset_build_env_supported"): bool,
+        vol.Required("analyze_memory_supported"): bool,
         # Offloader-local: the receiver_label was left at its
         # auto-derived prefill. Older sidecars deserialise as
         # ``False``. Strict ``bool`` as above.
@@ -162,6 +163,9 @@ class StoredPairing(DashboardModel):
     # frame. Refreshed on every session-open; ``False`` on a fresh
     # row, an older sidecar, or an older receiver.
     reset_build_env_supported: bool = False
+    # Receiver-advertised: accepts ``submit_job(target="analyze_memory")``.
+    # Same refresh / default rules as above.
+    analyze_memory_supported: bool = False
     # Offloader-local (never advertised by the receiver): the
     # ``label`` was left at its auto-derived prefill, so the UI
     # may replace it with ``friendly_name``. Set from the pair
@@ -229,6 +233,8 @@ class PairingSummary(DashboardModel):
     # Receiver capability from the session handshake: the UI offers
     # the remote build-environment reset only when advertised.
     reset_build_env_supported: bool = False
+    # Receiver capability: remote ``analyze_memory`` routing.
+    analyze_memory_supported: bool = False
     # Offloader-local: the ``label`` was left at its auto-derived
     # prefill, so the UI may show ``friendly_name`` instead.
     # ``False`` on an older sidecar (label treated as custom).

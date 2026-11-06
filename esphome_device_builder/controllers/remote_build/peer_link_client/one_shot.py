@@ -145,6 +145,11 @@ def _extract_reset_build_env_supported(response: dict[str, Any]) -> bool:
     return _extract_bool(response, "reset_build_env_supported")
 
 
+def _extract_analyze_memory_supported(response: dict[str, Any]) -> bool:
+    """Lift ``analyze_memory_supported`` off the response; missing ⇒ ``False``."""
+    return _extract_bool(response, "analyze_memory_supported")
+
+
 def _build_ws_url(hostname: str, port: int) -> URL:
     """
     Build the peer-link WS URL for *hostname* / *port*.

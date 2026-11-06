@@ -23,7 +23,7 @@ REASON_QUEUE_REJECTED = "queue_rejected"
 REASON_UPLOAD_UNSUPPORTED = "upload_unsupported"
 
 # Allowed values of :attr:`SubmitJobFrameData.target`.
-# ``Literal["compile", "upload", "clean"]`` on the TypedDict is
+# ``SubmitJobTarget`` on the TypedDict is
 # the type-time gate; this set is the runtime gate so a
 # misbehaving offloader sending ``target="install"`` (or anything
 # else) gets a clean reject rather than a downstream JobType
@@ -44,4 +44,5 @@ REASON_UPLOAD_UNSUPPORTED = "upload_unsupported"
 TARGET_TO_JOB_TYPE: dict[str, JobType] = {
     "compile": JobType.COMPILE,
     "clean": JobType.CLEAN,
+    "analyze_memory": JobType.ANALYZE_MEMORY,
 }

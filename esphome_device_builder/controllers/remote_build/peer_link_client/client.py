@@ -21,7 +21,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from yarl import URL
@@ -42,6 +42,7 @@ from ....models import (
     RejectReason,
     ResetBuildEnvAckFrameData,
     SubmitJobAckFrameData,
+    SubmitJobTarget,
 )
 from .._client_models import (
     DownloadArtifactsResult,
@@ -62,6 +63,7 @@ from ._wake import _mdns_record_name, _ReceiverWakeListener
 from .one_shot import (
     _DEFAULT_TIMEOUT_SECONDS,
     _drive_initiator_handshake_and_read_response,
+    _extract_analyze_memory_supported,
     _extract_auto_provision_supported,
     _extract_ha_addon,
     _extract_receiver_esphome_version,
@@ -306,7 +308,7 @@ class PeerLinkClient:
         *,
         job_id: str,
         configuration_filename: str,
-        target: Literal["compile", "clean"],
+        target: SubmitJobTarget,
         bundle_bytes: bytes,
         device_name: str = "",
         device_friendly_name: str = "",
@@ -518,6 +520,7 @@ class PeerLinkClient:
                 receiver_friendly_name = _extract_receiver_friendly_name(response)
                 receiver_ha_addon = _extract_ha_addon(response)
                 reset_supported = _extract_reset_build_env_supported(response)
+                analyze_supported = _extract_analyze_memory_supported(response)
                 channel = PeerLinkChannel(
                     noise=session, ws=ws, log_label=f"{self._hostname}:{self._port}"
                 )
@@ -529,6 +532,7 @@ class PeerLinkClient:
                     friendly_name=receiver_friendly_name,
                     ha_addon=receiver_ha_addon,
                     reset_build_env_supported=reset_supported,
+                    analyze_memory_supported=analyze_supported,
                 )
                 try:
                     return await self._run_session_loops(channel)
@@ -743,6 +747,7 @@ class PeerLinkClient:
         friendly_name: str = "",
         ha_addon: bool = False,
         reset_build_env_supported: bool = False,
+        analyze_memory_supported: bool = False,
     ) -> None:
         _dispatch.fire_opened(
             self,
@@ -751,6 +756,7 @@ class PeerLinkClient:
             friendly_name=friendly_name,
             ha_addon=ha_addon,
             reset_build_env_supported=reset_build_env_supported,
+            analyze_memory_supported=analyze_memory_supported,
         )
 
     def _fire_closed(self, reason: str, *, error_detail: str = "") -> None:

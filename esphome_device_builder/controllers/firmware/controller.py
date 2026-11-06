@@ -263,9 +263,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     @api_command("firmware/analyze_memory")
     async def analyze_memory(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
-        """Queue ``esphome analyze-memory`` for one device."""
+        """Queue ``esphome analyze-memory`` for one device; paired-receiver auto-routing."""
         await self._validate_configuration_boundary(configuration)
-        return await self._enqueue(self._create_job(configuration, JobType.ANALYZE_MEMORY))
+        return await factories.enqueue_compile(
+            self, configuration=configuration, job_type=JobType.ANALYZE_MEMORY
+        )
 
     @api_command("firmware/clear_queued_update")
     async def clear_queued_update(self, *, configuration: str, **kwargs: Any) -> None:
@@ -766,8 +768,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             target_esphome_version=target_esphome_version,
         )
 
-    def _resolve_install_source(self, *, force_local: bool = False) -> JobBuildSource:
-        return factories.resolve_install_source(self, force_local=force_local)
+    def _resolve_install_source(
+        self, *, force_local: bool = False, job_type: JobType = JobType.COMPILE
+    ) -> JobBuildSource:
+        return factories.resolve_install_source(self, force_local=force_local, job_type=job_type)
 
     async def _enqueue(self, job: FirmwareJob, *, supersede: bool = True) -> FirmwareJob:
         return await factories.enqueue(self, job, supersede=supersede)

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from ...helpers.build_scheduler import (
     DispatchOutcome,
     build_source_for_pairing,
+    inputs_for_job_type,
     pick_dispatch_target,
 )
 from ...models import (
@@ -127,7 +128,7 @@ def _dispatch_one(
     # Re-derive busy each call so two waiting compiles in one pass can't
     # both grab the same just-freed server (or the single local slot).
     inputs = replace(
-        snapshot,
+        inputs_for_job_type(snapshot, job.job_type),
         busy_build_server_pins=pool.busy_pins(),
         local_compile_busy=not controller.compile_queue_status().idle,
     )

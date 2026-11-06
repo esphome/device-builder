@@ -246,6 +246,37 @@ async def test_no_server_connected_falls_back_to_local(
     assert "j1" not in controller.state.remote_dispatch.pending
 
 
+@pytest.mark.parametrize(
+    ("capable", "source"),
+    [
+        pytest.param(True, JobSource.REMOTE, id="capable"),
+        pytest.param(False, JobSource.LOCAL, id="older_receiver"),
+    ],
+)
+async def test_pending_analyze_binds_only_to_capable_server(
+    firmware_controller_factory: FirmwareControllerFactory,
+    capable: bool,
+    source: JobSource,
+) -> None:
+    """A waiting analysis skips a server without the capability and runs locally instead."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    _stub_offloader(
+        controller,
+        _snapshot(
+            [_pairing_kw(pin_sha256=_PIN_A, analyze_memory_supported=capable)],
+            open_pins={_PIN_A},
+            idle_pins={_PIN_A},
+        ),
+    )
+    job = _add_pending(controller, "j1")
+    job.job_type = JobType.ANALYZE_MEMORY
+
+    await remote_dispatch._dispatch_pending(controller)
+
+    assert job.source is source
+    assert "j1" not in controller.state.remote_dispatch.pending
+
+
 async def test_exact_required_connected_but_incompatible_fails_the_job(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

@@ -250,6 +250,7 @@ async def request_pair(
         pairing.friendly_name = prior.friendly_name
         pairing.ha_addon = prior.ha_addon
         pairing.reset_build_env_supported = prior.reset_build_env_supported
+        pairing.analyze_memory_supported = prior.analyze_memory_supported
         # Carried like the rest, but overridable below — unlike the
         # operator/handshake fields, the pair dialog's explicit value
         # wins (it just re-set ``label``). A re-pair path that omits

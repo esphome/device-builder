@@ -5086,11 +5086,12 @@ def test_pairing_summary_surfaces_display_identity() -> None:
     assert summary.ha_addon is True
 
 
-def test_pairing_summary_surfaces_reset_capability() -> None:
-    """``PairingSummary.reset_build_env_supported`` mirrors the storage-shape field."""
+@pytest.mark.parametrize("key", ["reset_build_env_supported", "analyze_memory_supported"])
+def test_pairing_summary_surfaces_capability_flag(key: str) -> None:
+    """A receiver capability flag on ``PairingSummary`` mirrors the storage-shape field."""
     pairing = _valid_stored_pairing()
-    pairing.reset_build_env_supported = True
-    assert pairing_summary(pairing, connected=False).reset_build_env_supported is True
+    setattr(pairing, key, True)
+    assert getattr(pairing_summary(pairing, connected=False), key) is True
 
 
 def test_peer_summary_surfaces_display_identity() -> None:
