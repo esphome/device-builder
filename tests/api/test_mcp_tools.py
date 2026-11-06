@@ -385,6 +385,22 @@ async def test_edit_config_with_a_stale_hash_writes_nothing(
     assert file == {"text": "a: 1\n"}
 
 
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("update_config", {"content": "b: 2\n", "expected_hash": "any"}),
+        ("edit_config", {"edits": [{"old_text": "a", "new_text": "b"}]}),
+    ],
+)
+async def test_config_writes_are_unavailable_until_devices_load(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, tool: str, args: dict[str, Any]
+) -> None:
+    mcp_db.devices = None
+    is_error, text = await mcp_call(mcp_client, tool, {"configuration": "kitchen.yaml", **args})
+    assert is_error
+    assert text == "unavailable: Devices are not loaded"
+
+
 async def test_edit_config_refuses_empty_edits_and_old_text(
     mcp_client: Any, mcp_db: McpStubDeviceBuilder
 ) -> None:
