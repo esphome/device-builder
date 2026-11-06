@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, AsyncMock
 
@@ -14,6 +15,7 @@ from esphome_device_builder.api.mcp.tools import TOOLS, _check_configuration
 from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.text import text_hash
 from esphome_device_builder.models import (
     LOCATION_FIELDS,
     LOCATION_TYPES,
@@ -219,6 +221,181 @@ async def test_update_config_forwards_expected_and_surfaces_a_stale_read(
         {"configuration": "kitchen.yaml", "content": "b: 2\n", "expected": "a: 1\n"},
     ) == (True, "precondition_failed: kitchen.yaml changed")
     assert handler.await_args.kwargs["expected"] == "a: 1\n"
+
+
+def _devices_on_disk(mcp_db: McpStubDeviceBuilder, text: str) -> dict[str, str]:
+    """Back ``mcp_db.devices.rewrite_yaml`` with an in-memory file, returned for assertions."""
+    file = {"text": text}
+
+    async def rewrite_yaml(_configuration: str, rewrite: Any, *, message: str) -> Any:
+        file["text"], result = rewrite(file["text"])
+        file["message"] = message
+        return result
+
+    mcp_db.devices = SimpleNamespace(rewrite_yaml=rewrite_yaml)
+    return file
+
+
+async def test_get_config_with_hash_returns_yaml_and_sha256(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    mcp_db.command_handlers["devices/get_config"] = AsyncMock(return_value="a: 1\n")
+    is_error, text = await mcp_call(
+        mcp_client, "get_config", {"configuration": "kitchen.yaml", "with_hash": True}
+    )
+    assert not is_error
+    assert json.loads(text) == {"yaml": "a: 1\n", "sha256": text_hash("a: 1\n")}
+
+
+async def test_update_config_with_expected_hash_writes_while_the_hash_matches(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    file = _devices_on_disk(mcp_db, "a: 1\n")
+    assert await mcp_call(
+        mcp_client,
+        "update_config",
+        {"configuration": "kitchen.yaml", "content": "b: 2\n", "expected_hash": text_hash("a: 1")},
+    ) == (False, "Saved kitchen.yaml")
+    assert file == {"text": "b: 2\n", "message": "Edit kitchen.yaml"}
+
+
+async def test_update_config_with_a_stale_hash_writes_nothing(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    file = _devices_on_disk(mcp_db, "a: 1\n")
+    is_error, text = await mcp_call(
+        mcp_client,
+        "update_config",
+        {"configuration": "kitchen.yaml", "content": "b: 2\n", "expected_hash": "stale"},
+    )
+    assert is_error
+    assert text.startswith("precondition_failed: ")
+    assert file == {"text": "a: 1\n"}
+
+
+async def test_update_config_refuses_both_expected_and_expected_hash(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    handler = AsyncMock(return_value=None)
+    mcp_db.command_handlers["devices/update_config"] = handler
+    is_error, text = await mcp_call(
+        mcp_client,
+        "update_config",
+        {
+            "configuration": "kitchen.yaml",
+            "content": "b: 2\n",
+            "expected": "a: 1\n",
+            "expected_hash": text_hash("a: 1\n"),
+        },
+    )
+    assert is_error
+    assert text.startswith("invalid_args: ")
+    handler.assert_not_awaited()
+
+
+async def test_edit_config_applies_edits_in_order_and_returns_the_new_hash(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    file = _devices_on_disk(mcp_db, "a: 1\nb: 2\n")
+    is_error, text = await mcp_call(
+        mcp_client,
+        "edit_config",
+        {
+            "configuration": "kitchen.yaml",
+            "edits": [
+                {"old_text": "a: 1", "new_text": "a: 3"},
+                {"old_text": "a: 3\nb: 2", "new_text": "c: 4"},
+            ],
+        },
+    )
+    assert not is_error
+    assert file == {"text": "c: 4\n", "message": "Edit kitchen.yaml"}
+    assert json.loads(text) == {"sha256": text_hash("c: 4\n")}
+
+
+@pytest.mark.parametrize(
+    ("old_text", "count"),
+    [("absent", 0), ("dup", 2)],
+)
+async def test_edit_config_writes_nothing_unless_old_text_occurs_once(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, old_text: str, count: int
+) -> None:
+    file = _devices_on_disk(mcp_db, "a: 1\nb: dup\nc: dup\n")
+    is_error, text = await mcp_call(
+        mcp_client,
+        "edit_config",
+        {
+            "configuration": "kitchen.yaml",
+            "edits": [
+                {"old_text": "a: 1", "new_text": "a: 2"},
+                {"old_text": old_text, "new_text": "x"},
+            ],
+        },
+    )
+    assert is_error
+    assert text.startswith(f"precondition_failed: kitchen.yaml: edit 1 old_text occurs {count} ")
+    assert file == {"text": "a: 1\nb: dup\nc: dup\n"}
+
+
+async def test_edit_config_counts_overlapping_matches(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    file = _devices_on_disk(mcp_db, "aaa\n")
+    is_error, text = await mcp_call(
+        mcp_client,
+        "edit_config",
+        {"configuration": "kitchen.yaml", "edits": [{"old_text": "aa", "new_text": "b"}]},
+    )
+    assert is_error
+    assert text.startswith("precondition_failed: kitchen.yaml: edit 0 old_text occurs 2 ")
+    assert file == {"text": "aaa\n"}
+
+
+@pytest.mark.parametrize("empty", ["", " \n"])
+async def test_edit_config_points_an_empty_file_at_update_config(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, empty: str
+) -> None:
+    file = _devices_on_disk(mcp_db, empty)
+    is_error, text = await mcp_call(
+        mcp_client,
+        "edit_config",
+        {"configuration": "kitchen.yaml", "edits": [{"old_text": "\n", "new_text": "a: 1\n"}]},
+    )
+    assert is_error
+    assert text.startswith("precondition_failed: kitchen.yaml is empty; ")
+    assert "update_config" in text
+    assert file == {"text": empty}
+
+
+async def test_edit_config_with_a_stale_hash_writes_nothing(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    file = _devices_on_disk(mcp_db, "a: 1\n")
+    is_error, text = await mcp_call(
+        mcp_client,
+        "edit_config",
+        {
+            "configuration": "kitchen.yaml",
+            "edits": [{"old_text": "a: 1", "new_text": "a: 2"}],
+            "expected_hash": "stale",
+        },
+    )
+    assert is_error
+    assert text.startswith("precondition_failed: ")
+    assert file == {"text": "a: 1\n"}
+
+
+async def test_edit_config_refuses_empty_edits_and_old_text(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder
+) -> None:
+    file = _devices_on_disk(mcp_db, "a: 1\n")
+    for edits in ([], [{"old_text": "", "new_text": "x"}]):
+        is_error, text = await mcp_call(
+            mcp_client, "edit_config", {"configuration": "kitchen.yaml", "edits": edits}
+        )
+        assert is_error
+        assert text.startswith("invalid_args: ")
+    assert file == {"text": "a: 1\n"}
 
 
 async def test_add_component_returns_the_saved_yaml(

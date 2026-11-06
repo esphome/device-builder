@@ -36,6 +36,7 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import controller as devices_controller
+from esphome_device_builder.controllers.devices.helpers import apply_text_edits
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
@@ -672,3 +673,55 @@ async def test_round_trip_update_then_get_returns_written_content(
     read_back = await controller.get_config(configuration="rt.yaml")
 
     assert read_back == written
+
+
+async def test_rewrite_yaml_with_text_edits_saves_through_the_real_controller(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    def _rewrite(current: str) -> tuple[str, None]:
+        edits = [{"old_text": "name: kitchen", "new_text": "name: k2"}]
+        return apply_text_edits(current, edits, "kitchen.yaml"), None
+
+    await controller.rewrite_yaml("kitchen.yaml", _rewrite, message="Edit kitchen.yaml")
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: k2\n"
+    assert regenerated == ["kitchen.yaml"]
+
+
+async def test_update_config_fills_an_empty_file_read_through_the_real_controller(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("", encoding="utf-8")
+
+    expected = await controller.get_config(configuration="kitchen.yaml")
+    await controller.update_config(
+        configuration="kitchen.yaml", content="esphome:\n", expected=expected
+    )
+
+    assert expected == ""
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n"
+
+
+async def test_rewrite_yaml_refuses_text_edits_that_empty_the_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n", encoding="utf-8")
+
+    def _rewrite(current: str) -> tuple[str, None]:
+        edits = [{"old_text": "esphome:", "new_text": ""}]
+        return apply_text_edits(current, edits, "kitchen.yaml"), None
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.rewrite_yaml("kitchen.yaml", _rewrite, message="Edit kitchen.yaml")
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n"
+    assert regenerated == []

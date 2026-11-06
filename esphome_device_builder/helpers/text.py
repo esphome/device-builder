@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable
 from difflib import unified_diff
 
@@ -21,6 +22,11 @@ def summarise(messages: Iterable[str]) -> str:
 def same_text(current: str, expected: str) -> bool:
     """Whether *expected* equals *current* ignoring trailing newlines."""
     return current.rstrip("\n") == expected.rstrip("\n")
+
+
+def text_hash(text: str) -> str:
+    """Return the SHA-256 hex digest of *text* ignoring trailing newlines."""
+    return hashlib.sha256(text.rstrip("\n").encode()).hexdigest()
 
 
 def diff_excerpt(expected: str, current: str) -> str:
