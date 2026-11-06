@@ -498,12 +498,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # will save under (so the UI's "saved as …" matches the file), and so a
         # missing artifact fails here rather than on the download navigation.
         try:
-            _, filename = await run_in_executor(
-                download_mod._resolve_artifact_path, configuration, file
+            reply = await run_in_executor(
+                download_mod.resolve_artifact_download, configuration, file
             )
         except (FileNotFoundError, ValueError) as err:
             raise CommandError(ErrorCode.NOT_FOUND, "Firmware artifact not found") from err
-        return {"token": self.download_tokens.create(configuration, file), "filename": filename}
+        return {"token": self.download_tokens.create(configuration, file), **reply}
 
     # ------------------------------------------------------------------
     # Internals — queue processing
