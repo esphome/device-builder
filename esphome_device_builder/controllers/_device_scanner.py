@@ -311,7 +311,7 @@ class DeviceScanner(WakeWorker[str]):
         config_dir: Path,
         make_metadata_resolver: MetadataResolverFactory,
         on_change: ScanCallback,
-        derive_board_id: BoardIdDeriver | None = None,
+        derive_board_id: BoardIdDeriver,
     ) -> None:
         super().__init__()
         self._config_dir = config_dir

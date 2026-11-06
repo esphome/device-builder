@@ -232,6 +232,7 @@ async def test_chain_success_carries_labels_to_the_renamed_device(
         tmp_path,
         make_metadata_resolver=devices._make_metadata_resolver,
         on_change=lambda _kind, _device, _previous: None,
+        derive_board_id=lambda *_: "",
     )
     devices._scanner = scanner
     controller._db.bus.add_listener(EventType.JOB_COMPLETED, devices._on_firmware_job_completed)

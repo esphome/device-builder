@@ -45,6 +45,11 @@ def catalog() -> BoardCatalog:
             id="bare_family_from_storage_is_unknown",
         ),
         pytest.param(
+            {"esp32": {"board": "lolin_s3_mini"}}, "", "esp32", None, "ESP32C3",
+            ("lolin_s3_mini", "esp32c3"),
+            id="last_compile_beats_board_table",
+        ),
+        pytest.param(
             {"esp32": {"board": "${chip_board}"}}, "", "esp32", {"chip_board": "esp32dev"}, None,
             ("esp32dev", "esp32"),
             id="board_substitution",

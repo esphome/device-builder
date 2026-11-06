@@ -51,6 +51,7 @@ def _make_scanner(
         config_dir=config_dir,
         make_metadata_resolver=lambda: resolver,
         on_change=lambda kind, device, previous: events.append((kind, device, previous)),
+        derive_board_id=lambda *_: "",
     )
     return scanner, events
 
@@ -264,7 +265,10 @@ async def test_scan_survives_a_failing_change_handler(
         events.append(f"{kind.name}:{device.name}")
 
     scanner = DeviceScanner(
-        config_dir=tmp_path, make_metadata_resolver=lambda: _stub_metadata, on_change=_on_change
+        config_dir=tmp_path,
+        make_metadata_resolver=lambda: _stub_metadata,
+        on_change=_on_change,
+        derive_board_id=lambda *_: "",
     )
     _write_yaml(tmp_path, "bad")
     _write_yaml(tmp_path, "good")
@@ -290,7 +294,10 @@ async def test_reload_survives_a_failing_change_handler(
             raise RuntimeError("handler bug")
 
     scanner = DeviceScanner(
-        config_dir=cfg, make_metadata_resolver=lambda: _stub_metadata, on_change=_on_change
+        config_dir=cfg,
+        make_metadata_resolver=lambda: _stub_metadata,
+        on_change=_on_change,
+        derive_board_id=lambda *_: "",
     )
     with patch(
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
@@ -434,6 +441,7 @@ async def test_reload_rebuckets_index_before_firing_callback(tmp_path: Path) -> 
             config_dir=cfg,
             make_metadata_resolver=lambda: _stub_metadata,
             on_change=_on_change,
+            derive_board_id=lambda *_: "",
         )
         holder.append(scanner)
         await scanner.scan()
@@ -469,6 +477,7 @@ async def test_scan_rebuckets_index_before_firing_callback(tmp_path: Path) -> No
             config_dir=cfg,
             make_metadata_resolver=lambda: _stub_metadata,
             on_change=_on_change,
+            derive_board_id=lambda *_: "",
         )
         holder.append(scanner)
         await scanner.scan()

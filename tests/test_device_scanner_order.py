@@ -42,6 +42,7 @@ def _make_scanner(config_dir: Path) -> DeviceScanner:
         config_dir=config_dir,
         make_metadata_resolver=lambda: _stub_metadata,
         on_change=lambda _kind, _device, _previous: None,
+        derive_board_id=lambda *_: "",
     )
 
 

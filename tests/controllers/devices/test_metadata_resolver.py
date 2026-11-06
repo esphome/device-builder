@@ -96,6 +96,7 @@ async def test_scan_batch_reads_sidecar_once(tmp_path: Path, monkeypatch: Any) -
         tmp_path,
         make_metadata_resolver=controller._make_metadata_resolver,
         on_change=lambda _kind, _device, _previous: None,
+        derive_board_id=lambda *_: "",
     )
     await scanner.scan()
 
@@ -118,6 +119,7 @@ async def test_snapshot_read_failure_falls_back_to_per_file_resolution(
         tmp_path,
         make_metadata_resolver=controller._make_metadata_resolver,
         on_change=lambda _kind, _device, _previous: None,
+        derive_board_id=lambda *_: "",
     )
     await scanner.scan()
 
