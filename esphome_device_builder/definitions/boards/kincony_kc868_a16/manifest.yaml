@@ -22,15 +22,9 @@ pins:
 - gpio: 5
   available: false
   occupied_by: i2c
-- gpio: 13
-  available: false
-  occupied_by: rs485
 - gpio: 14
   available: false
   occupied_by: KC868-A16-HT3
-- gpio: 16
-  available: false
-  occupied_by: rs485
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -48,19 +42,6 @@ pins:
   occupied_by: KC868-A16-HT2
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A16/
 featured_components:
-- id: rs485
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 13
-      locked: true
-    rx_pin:
-      value: 16
-      locked: true
-    baud_rate: 9600
-    id:
-      value: rs485
-      locked: true
 - id: i2c_bus
   component_id: i2c
   fields:

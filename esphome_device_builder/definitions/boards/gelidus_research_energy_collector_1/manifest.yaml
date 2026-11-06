@@ -17,30 +17,11 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/photo.sens.1m.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.connection.pins.jpg
 pins:
-- gpio: 14
-  available: false
-  occupied_by: uart_modbus_client
-- gpio: 16
-  available: false
-  occupied_by: uart_modbus_client
 - gpio: 25
   available: false
   occupied_by: digi_pot_voltage
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Energy-Collector-1/
 featured_components:
-- id: uart_modbus_client
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 16
-      locked: true
-    rx_pin:
-      value: 14
-      locked: true
-    baud_rate: 115200
-    id:
-      value: uart_modbus_client
-      locked: true
 - id: homeassistant_time
   component_id: time.homeassistant
   fields:

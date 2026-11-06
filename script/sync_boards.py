@@ -704,7 +704,11 @@ def _fill_detached_esp32_pins(
 def _reattach_occupancy_pins(
     boards: list[BoardCatalogEntry], detached: dict[str, list[BoardPin]]
 ) -> None:
-    """Mark detached occupied pins on each board's filled pinout, else restore them."""
+    """
+    Mark detached occupied pins on each board's filled pinout, else restore them.
+
+    The device's own occupancy replaces the template's on every pin it can use.
+    """
     for board in boards:
         occupied = detached.get(board.id)
         if occupied is None:
@@ -716,6 +720,8 @@ def _reattach_occupancy_pins(
             pin = replace(base, features=list(base.features))
             if occ is not None:
                 pin = replace(pin, available=False, occupied_by=occ.occupied_by)
+            elif pin.available is not False:
+                pin = replace(pin, occupied_by=None)
             merged.append(pin)
         board.pins = sorted([*merged, *by_gpio.values()], key=attrgetter("gpio"))
 

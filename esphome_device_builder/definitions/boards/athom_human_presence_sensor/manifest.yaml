@@ -22,31 +22,15 @@ pins:
 - gpio: 12
   available: false
   occupied_by: mmWave Sensor
-- gpio: 13
-  available: false
-  occupied_by: uart
 - gpio: 14
   available: false
   occupied_by: Pir Sensor
-- gpio: 15
-  available: false
-  occupied_by: uart
 - gpio: 16
   available: false
   occupied_by: Status LED
 docs_url: https://devices.esphome.io/devices/Athom-Human-Presence-Sensor/
 product_url: https://github.com/athom-tech/athom-configs/blob/main/athom-presence-sensor.yaml
 featured_components:
-- id: uart_bus
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 15
-      locked: true
-    rx_pin:
-      value: 13
-      locked: true
-    baud_rate: 115200
 - id: i2c_bus
   component_id: i2c
   fields:

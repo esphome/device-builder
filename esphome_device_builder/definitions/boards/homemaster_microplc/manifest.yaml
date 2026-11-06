@@ -17,12 +17,6 @@ images:
 tags:
 - relay
 pins:
-- gpio: 16
-  available: false
-  occupied_by: mod_uart
-- gpio: 17
-  available: false
-  occupied_by: mod_uart
 - gpio: 26
   available: false
   occupied_by: Relay
@@ -35,19 +29,6 @@ pins:
 docs_url: https://devices.esphome.io/devices/Homemaster-MicroPLC/
 product_url: https://github.com/isystemsautomation/HOMEMASTER/tree/main/MicroPLC
 featured_components:
-- id: mod_uart
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 17
-      locked: true
-    rx_pin:
-      value: 16
-      locked: true
-    baud_rate: 115200
-    id:
-      value: mod_uart
-      locked: true
 - id: bus_a
   component_id: i2c
   fields:

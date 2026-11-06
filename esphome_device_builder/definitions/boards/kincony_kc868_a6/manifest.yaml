@@ -18,18 +18,9 @@ pins:
 - gpio: 4
   available: false
   occupied_by: i2c
-- gpio: 14
-  available: false
-  occupied_by: rs485
 - gpio: 15
   available: false
   occupied_by: i2c
-- gpio: 16
-  available: false
-  occupied_by: rs232
-- gpio: 17
-  available: false
-  occupied_by: rs232
 - gpio: 18
   available: false
   occupied_by: spi
@@ -39,37 +30,8 @@ pins:
 - gpio: 23
   available: false
   occupied_by: spi
-- gpio: 27
-  available: false
-  occupied_by: rs485
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6/
 featured_components:
-- id: rs485
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 27
-      locked: true
-    rx_pin:
-      value: 14
-      locked: true
-    baud_rate: 9600
-    id:
-      value: rs485
-      locked: true
-- id: rs232
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 17
-      locked: true
-    rx_pin:
-      value: 16
-      locked: true
-    baud_rate: 9600
-    id:
-      value: rs232
-      locked: true
 - id: spi_bus
   component_id: spi
   fields:

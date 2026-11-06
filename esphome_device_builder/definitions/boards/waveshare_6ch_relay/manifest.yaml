@@ -25,12 +25,6 @@ pins:
 - gpio: 2
   available: false
   occupied_by: Relay 2
-- gpio: 17
-  available: false
-  occupied_by: modbus_uart
-- gpio: 18
-  available: false
-  occupied_by: modbus_uart
 - gpio: 21
   available: false
   occupied_by: buzzer_output
@@ -51,19 +45,6 @@ pins:
   occupied_by: Relay 6
 docs_url: https://devices.esphome.io/devices/waveshare-6ch-relay/
 featured_components:
-- id: modbus_uart
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 17
-      locked: true
-    rx_pin:
-      value: 18
-      locked: true
-    baud_rate: 9600
-    id:
-      value: modbus_uart
-      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

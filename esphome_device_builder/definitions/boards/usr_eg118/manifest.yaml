@@ -18,9 +18,6 @@ pins:
 - gpio: 0
   available: false
   occupied_by: Ethernet CLK
-- gpio: 1
-  available: false
-  occupied_by: PUSR_expansion_config
 - gpio: 2
   available: false
   occupied_by: sn74hc595_hub
@@ -33,15 +30,6 @@ pins:
 - gpio: 5
   available: false
   occupied_by: Ethernet Power
-- gpio: 12
-  available: false
-  occupied_by: PUSR_external_rs485
-- gpio: 13
-  available: false
-  occupied_by: PUSR_expansion_rs485
-- gpio: 14
-  available: false
-  occupied_by: PUSR_expansion_rs485
 - gpio: 15
   available: false
   occupied_by: sn74hc595_hub
@@ -51,15 +39,6 @@ pins:
 - gpio: 23
   available: false
   occupied_by: Ethernet MDC
-- gpio: 32
-  available: false
-  occupied_by: PUSR_external_rs485
-- gpio: 33
-  available: false
-  occupied_by: PUSR_external_rs485
-- gpio: 34
-  available: false
-  occupied_by: PUSR_expansion_rs485
 - gpio: 35
   available: false
   occupied_by: AI1
@@ -72,48 +51,6 @@ pins:
 docs_url: https://devices.esphome.io/devices/USR-EG118/
 product_url: https://www.pusr.com/products/arduino-open-source-iot-gateway.html
 featured_components:
-- id: pusr_expansion_config
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 1
-      locked: true
-    baud_rate: 9600
-    id:
-      value: PUSR_expansion_config
-      locked: true
-- id: pusr_expansion_rs485
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 13
-      locked: true
-    rx_pin:
-      value: 34
-      locked: true
-    flow_control_pin:
-      value: 14
-      locked: true
-    baud_rate: 115200
-    id:
-      value: PUSR_expansion_rs485
-      locked: true
-- id: pusr_external_rs485
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 32
-      locked: true
-    rx_pin:
-      value: 33
-      locked: true
-    flow_control_pin:
-      value: 12
-      locked: true
-    baud_rate: 115200
-    id:
-      value: PUSR_external_rs485
-      locked: true
 - id: sn74hc595_hub
   component_id: sn74hc595
   fields:

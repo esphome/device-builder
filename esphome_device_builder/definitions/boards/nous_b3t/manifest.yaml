@@ -19,12 +19,6 @@ pins:
 - gpio: 0
   available: false
   occupied_by: Status LED
-- gpio: 1
-  available: false
-  occupied_by: uart
-- gpio: 3
-  available: false
-  occupied_by: uart
 - gpio: 4
   available: false
   occupied_by: button
@@ -42,18 +36,6 @@ pins:
   occupied_by: Switch 2 (external)
 docs_url: https://devices.esphome.io/devices/Nous-B3T/
 featured_components:
-- id: uart_bus
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 1
-      locked: true
-    rx_pin:
-      value: 3
-      locked: true
-    baud_rate: 4800
-    parity: NONE
-    stop_bits: 2
 - id: button
   component_id: binary_sensor.gpio
   fields:

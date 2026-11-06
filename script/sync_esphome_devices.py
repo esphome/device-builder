@@ -116,6 +116,9 @@ _LOGGER = logging.getLogger("sync_esphome_devices")
 
 _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
+# Shared buses a user attaches catalogued devices to; a point-to-point uart
+# whose consumer is uncatalogued stays out (it would claim the logger's UART).
+_ORPHAN_BUS_DOMAINS: frozenset[str] = frozenset({"i2c", "spi"})
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 _DEVICES_CLONE_DIR = _CACHE_ROOT / "esphome-devices"
 _DEVICES_REPO_URL = "https://github.com/esphome/devices.esphome.io.git"
@@ -1728,7 +1731,7 @@ def _lift_bus(
 ) -> str | None:
     """Materialize and register the bus for ``(dep, instance)``, returning its local id."""
     bus_entry, local, bus_occ = _materialize_bus(dep, instance, state)
-    if bus_entry is None or (require_pins and not bus_occ):
+    if bus_entry is None or (require_pins and not _has_pin_preset(bus_entry, state)):
         return None
     state.used_ids.add(local)
     _register_bus_keys(state, dep, (dep, instance), bus_entry, local)
@@ -1736,6 +1739,15 @@ def _lift_bus(
     state.extra.append(bus_entry)
     _chain_bus_deps(bus_entry, dep, instance, state)
     return local
+
+
+def _has_pin_preset(entry: dict[str, Any], state: _LiftState) -> bool:
+    """Whether *entry* presets any of its component's pin fields."""
+    component = state.components_index.get(entry["component_id"]) or {}
+    return any(
+        ce.get("type") == "pin" and ce.get("key") in entry["fields"]
+        for ce in component.get("config_entries") or []
+    )
 
 
 def _chain_bus_deps(
@@ -2298,7 +2310,7 @@ def _extract_orphan_buses(
     featured: list[dict[str, Any]],
     components_index: dict[str, dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[int, str]]:
-    """Lift each pin-carrying top-level bus no featured consumer pulled in."""
+    """Lift each pinned shared bus (i2c / spi) no featured consumer pulled in."""
     state = _LiftState(
         config=config,
         components_index=components_index,
@@ -2306,8 +2318,7 @@ def _extract_orphan_buses(
         bus_local=_seed_bus_local(featured, components_index),
     )
     for domain, raw in config.items():
-        component = components_index.get(domain)
-        if component is None or not _is_bus_category(component):
+        if domain not in _ORPHAN_BUS_DOMAINS:
             continue
         for block in _block_mappings(raw):
             instance = block.get("id")

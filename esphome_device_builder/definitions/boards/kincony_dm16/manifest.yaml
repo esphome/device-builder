@@ -20,12 +20,6 @@ pins:
 - gpio: 2
   available: false
   occupied_by: Ethernet MOSI
-- gpio: 4
-  available: false
-  occupied_by: dac_uart
-- gpio: 6
-  available: false
-  occupied_by: dac_uart
 - gpio: 8
   available: false
   occupied_by: bus_a
@@ -46,22 +40,6 @@ pins:
   occupied_by: Ethernet RESET
 docs_url: https://devices.esphome.io/devices/KinCony-DM16/
 featured_components:
-- id: dac_uart
-  component_id: uart
-  fields:
-    rx_pin:
-      value: 4
-      locked: true
-    tx_pin:
-      value: 6
-      locked: true
-    baud_rate: 115200
-    stop_bits: 1
-    data_bits: 8
-    parity: NONE
-    id:
-      value: dac_uart
-      locked: true
 - id: ads1115_hub
   component_id: ads1115
   fields:

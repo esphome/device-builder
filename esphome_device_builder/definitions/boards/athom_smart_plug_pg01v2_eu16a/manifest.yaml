@@ -13,9 +13,6 @@ tags:
 - relay
 - compact
 pins:
-- gpio: 3
-  available: false
-  occupied_by: cse7766_uart_bus
 - gpio: 5
   available: false
   occupied_by: button_1
@@ -27,16 +24,6 @@ pins:
   occupied_by: sw_led1
 docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-PG01V2-EU16A/
 featured_components:
-- id: cse7766_uart_bus
-  component_id: uart
-  fields:
-    rx_pin:
-      value: 3
-      locked: true
-    baud_rate: 4800
-    id:
-      value: cse7766_uart_bus
-      locked: true
 - id: button_1
   component_id: binary_sensor.gpio
   fields:

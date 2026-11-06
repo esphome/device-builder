@@ -540,3 +540,16 @@ def test_orphan_bus_skips_pinless_and_ambiguous_blocks() -> None:
     assert _extract_orphan_buses({"i2c": None}, [], _COMPONENTS) == ([], {})
     config = {"i2c": [{"scl": "GPIO5", "sda": "GPIO4"}, {"scl": "GPIO7", "sda": "GPIO6"}]}
     assert _extract_orphan_buses(config, [], _COMPONENTS) == ([], {})
+
+
+def test_orphan_bus_keeps_alias_pinned_bus() -> None:
+    """An i2c bus wired with board aliases still lifts."""
+    extra, _ = _extract_orphan_buses({"i2c": {"sda": "D2", "scl": "D1"}}, [], _COMPONENTS)
+    assert [e["component_id"] for e in extra] == ["i2c"]
+    assert extra[0]["fields"]["sda"]["value"] == "D2"
+
+
+def test_orphan_bus_skips_uart() -> None:
+    """A uart whose consumer is uncatalogued is not lifted."""
+    config = {"uart": {"id": "mcu", "tx_pin": "GPIO1", "rx_pin": "GPIO3", "baud_rate": 9600}}
+    assert _extract_orphan_buses(config, [], _COMPONENTS) == ([], {})

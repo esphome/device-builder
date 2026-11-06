@@ -15,12 +15,6 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-A.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/Petkit-Fresh-Element-Solo-Pet-Feeder-Flashing-B.png
 pins:
-- gpio: 1
-  available: false
-  occupied_by: uart
-- gpio: 3
-  available: false
-  occupied_by: uart
 - gpio: 5
   available: false
   occupied_by: led_output
@@ -51,16 +45,6 @@ pins:
 docs_url: https://devices.esphome.io/devices/Petkit-Fresh-Element-Solo-Pet-Feeder/
 product_url: https://github.com/n6ham/esphome-configs/blob/master/petkit-fresh-element-solo.yaml
 featured_components:
-- id: uart_bus
-  component_id: uart
-  fields:
-    tx_pin:
-      value: 1
-      locked: true
-    rx_pin:
-      value: 3
-      locked: true
-    baud_rate: 9600
 - id: manual_feed_button
   component_id: binary_sensor.gpio
   fields:

@@ -35,7 +35,12 @@ def _board(board_id: str, pins: list[BoardPin], *, is_generic: bool = False) -> 
 def test_occupied_pins_overlay_the_generic_pinout() -> None:
     generic = _board(
         "generic-esp32",
-        [BoardPin(gpio=gpio, label=f"GPIO{gpio}", available=None) for gpio in (4, 21, 22)],
+        [
+            BoardPin(gpio=4, label="GPIO4", occupied_by="Built-in LED"),
+            BoardPin(gpio=6, label="GPIO6", available=False, occupied_by="SPI Flash"),
+            BoardPin(gpio=21, label="GPIO21"),
+            BoardPin(gpio=22, label="GPIO22"),
+        ],
         is_generic=True,
     )
     imported = _board("imported", [BoardPin(gpio=21, available=False, occupied_by="bus_a")])
@@ -46,12 +51,14 @@ def test_occupied_pins_overlay_the_generic_pinout() -> None:
     _fill_detached_esp32_pins(boards, detached)
     _reattach_occupancy_pins(boards, detached)
     by_gpio = {pin.gpio: pin for pin in imported.pins}
-    assert sorted(by_gpio) == [4, 21, 22]
+    assert sorted(by_gpio) == [4, 6, 21, 22]
     assert by_gpio[21].available is False
     assert by_gpio[21].occupied_by == "bus_a"
     assert by_gpio[21].label == "GPIO21"
     assert by_gpio[4].available is None
-    assert generic.pins[1].occupied_by is None
+    assert by_gpio[4].occupied_by is None
+    assert by_gpio[6].occupied_by == "SPI Flash"
+    assert generic.pins[0].occupied_by == "Built-in LED"
 
 
 def test_occupied_pins_survive_without_a_pinout() -> None:
@@ -69,13 +76,3 @@ def test_m5stickc_plus_offers_free_pins(generated_board_catalog: BoardCatalogRes
     assert by_gpio[22].occupied_by == "bus_a"
     for gpio in (25, 32, 33, 35, 36):
         assert by_gpio[gpio].available is not False
-
-
-def test_levoit_core_300s_marks_its_uart_on_the_generic_pinout(
-    generated_board_catalog: BoardCatalogResponse,
-) -> None:
-    boards = {b.id: b for b in generated_board_catalog.boards}
-    pins = {pin.gpio: pin for pin in boards["levoit_core_300s"].pins}
-    assert set(pins) == {pin.gpio for pin in boards["generic-esp32"].pins}
-    assert pins[16].occupied_by == "uart"
-    assert pins[17].occupied_by == "uart"

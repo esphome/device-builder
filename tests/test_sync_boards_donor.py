@@ -24,6 +24,7 @@ _RECIPIENTS = {
     "esp32-generic-c6-bluetooth-proxy": "generic-esp32c6",
     "esp32-generic-s3-bluetooth-proxy": "generic-esp32s3",
     "4moms_mamaroo_4": "generic-esp32c3",
+    "levoit_core_300s": "generic-esp32",
 }
 
 

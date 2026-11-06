@@ -20,22 +20,11 @@ pins:
 - gpio: 4
   available: false
   occupied_by: Relay
-- gpio: 7
-  available: false
-  occupied_by: uart
 - gpio: 9
   available: false
   occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Sonoff-S60TPF/
 featured_components:
-- id: uart_bus
-  component_id: uart
-  fields:
-    rx_pin:
-      value: 7
-      locked: true
-    baud_rate: 4800
-    parity: EVEN
 - id: button_1
   component_id: binary_sensor.gpio
   fields:
