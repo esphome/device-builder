@@ -30,6 +30,7 @@ from esphome_device_builder.controllers.firmware.download import (
     _platform_sets,
     _resolve_download_component,
 )
+from esphome_device_builder.helpers.paths import PathEscapeError
 from tests._storage_fixtures import write_storage_json
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
@@ -577,3 +578,33 @@ async def test_get_binaries_returns_empty_when_no_build_path(
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
     assert result == []
+
+
+async def test_get_binaries_drops_an_artifact_resolving_outside_the_build_dir(
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: pytest.LogCaptureFixture,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An artifact resolving outside the build dir is not offered, with a warning."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    _stub_download_types(monkeypatch, [firmware])
+    build_dir = _make_build(tmp_path, "firmware.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+
+    def _escape(*_args: Any) -> Path:
+        raise PathEscapeError("escapes the build dir")
+
+    monkeypatch.setattr(download_mod, "resolve_under_root", _escape)
+    controller = firmware_controller_factory()
+
+    with caplog.at_level(logging.WARNING):
+        result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == []
+    assert "Not listing firmware.bin" in caplog.text

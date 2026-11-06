@@ -25,7 +25,7 @@ from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.capability_tokens import CapabilityTokens
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
-from ...helpers.paths import resolve_under_root
+from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...helpers.sibling_cli import helper_cli_cmd
 from ...helpers.storage_path import resolve_storage_path
 from ...models.boards import normalize_platform
@@ -169,11 +169,20 @@ def collect_download_entries(
                 "file": _MCUBOOT_UPDATE_IMAGE,
             }
         )
+    listed = []
     for entry in downloads:
+        # A row the download would refuse (it resolves outside the build dir)
+        # is not offered.
+        try:
+            resolve_under_root(build_dir / entry["file"], build_dir)
+        except PathEscapeError as err:
+            _LOGGER.warning("Not listing %s: %s", entry["file"], err)
+            continue
         artifact_type = _ARTIFACT_TYPES.get(entry["file"])
         if artifact_type:
             entry["type"] = artifact_type
-    return downloads
+        listed.append(entry)
+    return listed
 
 
 @lru_cache(maxsize=32)
