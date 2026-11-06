@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
-from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.ip import is_unusable_address
 from ...helpers.metadata_sidecar import metadata_transaction
 from .._device_builder_base import DeviceBuilderBase
@@ -110,12 +109,10 @@ class DeviceMetadataBase(DeviceBuilderBase):
         expected_config_hash = read_build_info_hash(config_dir / filename) or str(
             store_md.get("expected_config_hash", "")
         )
-        # Trust a persisted board_id only when the user set it; an
-        # unflagged one is re-derived so a catalog change self-heals.
-        # ``is True`` so a corrupt hand-edited flag isn't trusted.
-        board_id = str(shared_md.get("board_id", ""))
-        if not (board_id and shared_md.get("board_id_user_set") is True):
-            board_id = self._derive_board_id_from_yaml(config_dir, filename)
+        # Only a user pick is persisted; the load derives the rest. ``is True``
+        # so a corrupt hand-edited flag isn't trusted.
+        user_set = shared_md.get("board_id_user_set") is True
+        board_id = str(shared_md.get("board_id", "")) if user_set else ""
         mac_address = str(shared_md.get("mac_address", ""))
         # Defensive coercion: a corrupt sidecar entry shouldn't
         # fail the whole scan.
@@ -184,17 +181,10 @@ class DeviceMetadataBase(DeviceBuilderBase):
         if stamped:
             _LOGGER.info("Back-filled board_id_user_set on %d pre-flag picks", stamped)
 
-    def _derive_board_id_from_yaml(self, config_dir: Path, filename: str) -> str:
-        """Match the YAML's board against the current catalog; never persisted."""
+    def _derive_board_id(self, platform: str, pio_board: str, variant: str) -> str:
+        """Catalog id for ``(platform, board, variant)``; ``""`` on a miss."""
         if self._db.boards is None:
             return ""
-        yaml_path = config_dir / filename
-        try:
-            yaml_content = yaml_path.read_text(encoding="utf-8")
-        except OSError:
-            return ""
-        platform, pio_board, variant = parse_platform_from_yaml(yaml_content)
-
         matched = None
         if pio_board:
             # Resolve to the exact board the YAML names (``esp01_1m`` over the

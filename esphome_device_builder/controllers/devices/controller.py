@@ -196,6 +196,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             config_dir=self._db.settings.config_dir,
             make_metadata_resolver=self._make_metadata_resolver,
             on_change=self._on_scan_change,
+            derive_board_id=self._derive_board_id,
         )
         # Single-worker build-size refresher. Bulk operations
         # (clean / delete N devices in a row, fleet-wide startup

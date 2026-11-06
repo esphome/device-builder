@@ -43,7 +43,7 @@ resolving after the subpackage split. Submodules:
   ``validate_rewritten_yaml_or_raise`` editor-validate gate).
 - ``metadata`` — ``DeviceMetadataBase`` carrying
   ``_resolve_device_metadata`` /
-  ``_derive_board_id_from_yaml`` /
+  ``_derive_board_id`` /
   ``_persist_device_metadata_async`` /
   ``_delete_device_metadata`` /
   ``_clear_volatile_device_metadata``. Inherits from

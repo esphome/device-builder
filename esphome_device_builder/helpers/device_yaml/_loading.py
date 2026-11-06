@@ -27,7 +27,7 @@ from ..migrations import has_pending_migrations
 from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._bootloader import resolve_nrf52_bootloader
-from ._chip import resolve_chip_mcu
+from ._chip import BoardIdDeriver, derive_device_board_id, resolve_chip_mcu
 from ._dependencies import (
     DependencySources,
     LoadBatch,
@@ -97,6 +97,7 @@ def load_device_from_storage(
     shallow: bool = False,
     dependencies: tuple[str, ...] | None = None,
     batch: LoadBatch | None = None,
+    derive_board_id: BoardIdDeriver | None = None,
 ) -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
@@ -151,6 +152,9 @@ def load_device_from_storage(
     used when the parse is skipped (shallow) or fails; a deep load
     discovers the current list itself. *batch* carries the state the
     devices of one scan batch share.
+
+    *derive_board_id* maps ``(platform, board, variant)`` to a catalog id
+    when *board_id* is empty.
     """
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
@@ -373,7 +377,15 @@ def load_device_from_storage(
         configuration=filename,
         comment=comment,
         area=area,
-        board_id=board_id,
+        board_id=board_id
+        or derive_device_board_id(
+            derive_board_id,
+            resolved_config,
+            yaml_content,
+            target_platform,
+            extra_subs,
+            storage.target_platform if storage else None,
+        ),
         target_platform=target_platform,
         # StorageJSON only exists after a successful compile, so a
         # freshly-added (or never-built) device would otherwise carry

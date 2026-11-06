@@ -33,16 +33,8 @@ from tests._storage_fixtures import write_synthetic_device
 from .conftest import CaptureDevicesEventsFactory, RecordingStateMonitor
 
 
-def _make_controller(monkeypatch: Any, tmp_path: Path, board_id: str = "esp32-c3-devkitm-1") -> Any:
-    """Build a controller with the YAML-parsing path stubbed out.
-
-    The board-id derivation reads StorageJSON / parses YAML — neither
-    relevant to the hash-priority tests, and both heavy to set up. A
-    single stub keeps the resolver focused on the metadata + hash
-    sources we actually want to assert against. A real metadata
-    store anchored at ``tmp_path`` is attached so the
-    resolver's two-source split works.
-    """
+def _make_controller(tmp_path: Path) -> Any:
+    """Build a controller with a real metadata store and shared sidecar at *tmp_path*."""
     controller = DevicesController.__new__(DevicesController)
     controller._shutdown_callbacks = []
     controller.schedule_mqtt_reconcile = lambda: None
@@ -52,12 +44,6 @@ def _make_controller(monkeypatch: Any, tmp_path: Path, board_id: str = "esp32-c3
         shutdown_register=controller._shutdown_callbacks.append,
     )
     controller._shared_sidecar = SharedSidecarClient(tmp_path)
-    monkeypatch.setattr(
-        controller,
-        "_derive_board_id_from_yaml",
-        lambda _config_dir, _filename: board_id,
-        raising=False,
-    )
     return controller
 
 
@@ -90,7 +76,7 @@ def _seed_metadata(
 
 async def test_scan_batch_reads_sidecar_once(tmp_path: Path, monkeypatch: Any) -> None:
     """A scan resolves every device off one sidecar parse."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     for name in ("kitchen", "livingroom", "porch"):
         (tmp_path / f"{name}.yaml").write_text(f"esphome:\n  name: {name}\n", encoding="utf-8")
 
@@ -121,7 +107,7 @@ async def test_snapshot_read_failure_falls_back_to_per_file_resolution(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     """A failed snapshot read degrades to per-file resolution instead of aborting the batch."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     def _boom() -> dict[str, Any]:
@@ -140,18 +126,18 @@ async def test_snapshot_read_failure_falls_back_to_per_file_resolution(
 
 def test_batch_resolver_tolerates_non_dict_entry(tmp_path: Path, monkeypatch: Any) -> None:
     """A corrupt sidecar entry resolves like an absent one."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     (tmp_path / ".device-builder.json").write_text('{"kitchen.yaml": "corrupt"}', encoding="utf-8")
 
     metadata = controller._make_metadata_resolver()(tmp_path, "kitchen.yaml")
 
-    assert metadata.board_id == "esp32-c3-devkitm-1"
+    assert metadata.board_id == ""
     assert metadata.labels == ()
 
 
 def test_each_batch_gets_a_fresh_sidecar_snapshot(tmp_path: Path, monkeypatch: Any) -> None:
     """A sidecar write after one batch is visible to the next; the old snapshot is not."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     stale = controller._make_metadata_resolver()
     assert stale(tmp_path, "kitchen.yaml").labels == ()
 
@@ -163,7 +149,7 @@ def test_each_batch_gets_a_fresh_sidecar_snapshot(tmp_path: Path, monkeypatch: A
 
 def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: Any) -> None:
     """``build_info.json`` is authoritative; sidecar's stale value is ignored."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     # Sidecar carries a wrong value left over from the pre-codegen
     # subprocess bug (the user-visible regression on
     # ``acfloatmonitor32.yaml``: ``f3e21d5a``).
@@ -188,7 +174,7 @@ def test_unspecified_sidecar_ip_loads_as_empty(
     tmp_path: Path, monkeypatch: Any, poisoned_ip: str
 ) -> None:
     """A sidecar poisoned by a sinkhole resolver self-heals on load."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     _seed_metadata(
         monkeypatch,
         controller,
@@ -204,7 +190,7 @@ def test_unspecified_sidecar_ip_loads_as_empty(
 
 def test_falls_back_to_sidecar_when_build_dir_wiped(tmp_path: Path, monkeypatch: Any) -> None:
     """No build_info.json (e.g. after ``clean``) → use the sidecar's hash."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     _seed_metadata(
         monkeypatch,
         controller,
@@ -237,7 +223,7 @@ def test_offline_since_is_the_later_of_the_stamp_and_the_last_contact(
     tmp_path: Path, monkeypatch: Any, stored: dict[str, Any], expected: float | None
 ) -> None:
     """The outage loads from the stored stamp unless the device was seen after it."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     _seed_metadata(monkeypatch, controller, "kitchen.yaml", {"board_id": "", **stored})
     write_synthetic_device(tmp_path, "kitchen")
 
@@ -258,7 +244,7 @@ def test_no_hash_anywhere_returns_empty_string(tmp_path: Path, monkeypatch: Any)
     # YAML only; no sidecar, no build_info.json.
     (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     _seed_metadata(monkeypatch, controller, filename, {})
 
     metadata = controller._resolve_device_metadata(config_dir, filename)
@@ -276,7 +262,7 @@ def test_build_info_hash_used_even_when_sidecar_empty(tmp_path: Path, monkeypatc
     runs on every scan, so the build_info.json read has to carry
     the value through until the persist completes.
     """
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     _seed_metadata(monkeypatch, controller, "kitchen.yaml", {})  # sidecar not yet written
 
     write_synthetic_device(tmp_path, "kitchen", config_hash=0x12345678)
@@ -382,79 +368,44 @@ def _resolver_controller(tmp_path: Path) -> DevicesController:
     return controller
 
 
-def test_user_set_board_id_is_trusted_over_yaml(tmp_path: Path, monkeypatch: Any) -> None:
-    """A user-picked board_id (flagged) wins over a fresh YAML re-derivation.
-
-    Pins that a deliberate pick survives even when it differs from
-    what ``find_by_pio_board`` would return today.
-    """
-    config_dir = tmp_path
-    filename = "kitchen.yaml"
-    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
+def test_user_set_board_id_is_trusted(tmp_path: Path, monkeypatch: Any) -> None:
+    """A user-picked board_id (flagged) comes back as the device's board."""
     controller = _resolver_controller(tmp_path)
-    derive = MagicMock(return_value="should-not-be-called")
-    monkeypatch.setattr(controller, "_derive_board_id_from_yaml", derive, raising=False)
     _seed_metadata(
-        monkeypatch, controller, filename, {"board_id": "esp32-poe", "board_id_user_set": True}
+        monkeypatch,
+        controller,
+        "kitchen.yaml",
+        {"board_id": "esp32-poe", "board_id_user_set": True},
     )
 
-    metadata = controller._resolve_device_metadata(config_dir, filename)
-
-    assert metadata.board_id == "esp32-poe"
-    derive.assert_not_called()
-
-
-def test_unflagged_board_id_is_rederived_not_trusted(tmp_path: Path, monkeypatch: Any) -> None:
-    """A stale sidecar board_id with no user-set flag is re-derived.
-
-    The reported-bug shape: a board_id auto-derived under an older
-    catalog lingers in the sidecar; resolve must recompute against
-    the current catalog rather than trust the stale value.
-    """
-    config_dir = tmp_path
-    filename = "kitchen.yaml"
-    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
-    controller = _resolver_controller(tmp_path)
-    derive = MagicMock(return_value="cb3s")
-    monkeypatch.setattr(controller, "_derive_board_id_from_yaml", derive, raising=False)
-    _seed_metadata(monkeypatch, controller, filename, {"board_id": "avatto-stale"})
-
-    metadata = controller._resolve_device_metadata(config_dir, filename)
-
-    assert metadata.board_id == "cb3s"
-    derive.assert_called_once()
+    assert controller._resolve_device_metadata(tmp_path, "kitchen.yaml").board_id == "esp32-poe"
 
 
 @pytest.mark.parametrize(
-    "flag_value",
-    [1, "true", "True", "false", "1", [], {}, 0],
-    ids=["int_1", "str_true", "str_True", "str_false", "str_1", "list", "dict", "int_0"],
+    "flag",
+    [{}, {"board_id_user_set": False}]
+    + [{"board_id_user_set": value} for value in (1, "true", "True", "false", "1", [], {}, 0)],
+    ids=[
+        "absent",
+        "false",
+        "int_1",
+        "str_true",
+        "str_True",
+        "str_false",
+        "str_1",
+        "list",
+        "dict",
+        "int_0",
+    ],
 )
-def test_corrupt_user_set_flag_is_not_trusted(
-    tmp_path: Path, monkeypatch: Any, flag_value: Any
+def test_unflagged_board_id_is_left_to_derive(
+    tmp_path: Path, monkeypatch: Any, flag: dict[str, Any]
 ) -> None:
-    """Only a literal ``True`` pins the pick; truthy non-bool values re-derive.
-
-    A hand-edited sidecar could hold ``1`` or ``"true"`` (both
-    truthy); the ``is True`` gate must still re-derive against the
-    current catalog rather than trust a stale board_id.
-    """
-    config_dir = tmp_path
-    filename = "kitchen.yaml"
-    (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
+    """Only a literal ``True`` flag keeps a stored board_id; otherwise the load derives it."""
     controller = _resolver_controller(tmp_path)
-    derive = MagicMock(return_value="cb3s")
-    monkeypatch.setattr(controller, "_derive_board_id_from_yaml", derive, raising=False)
-    seed = {"board_id": "avatto-stale", "board_id_user_set": flag_value}
-    _seed_metadata(monkeypatch, controller, filename, seed)
+    _seed_metadata(monkeypatch, controller, "kitchen.yaml", {"board_id": "avatto-stale", **flag})
 
-    metadata = controller._resolve_device_metadata(config_dir, filename)
-
-    assert metadata.board_id == "cb3s"
-    derive.assert_called_once()
+    assert controller._resolve_device_metadata(tmp_path, "kitchen.yaml").board_id == ""
 
 
 @pytest.mark.parametrize(
@@ -479,7 +430,7 @@ def test_corrupt_build_size_bytes_falls_back_to_zero(
     filename = "kitchen.yaml"
     (config_dir / filename).write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     _seed_metadata(
         monkeypatch,
         controller,
@@ -505,7 +456,7 @@ def test_resolve_device_metadata_coerces_dependencies(
     tmp_path: Path, monkeypatch: Any, stored: Any, expected: tuple[str, ...] | None
 ) -> None:
     """Only a list of strings reads as a known dependency list."""
-    controller = _make_controller(monkeypatch, tmp_path)
+    controller = _make_controller(tmp_path)
     payload: dict[str, Any] = {"board_id": ""}
     if stored is not None:
         payload["dependencies"] = stored
