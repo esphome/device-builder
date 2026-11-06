@@ -149,6 +149,10 @@ def on_offloader_peer_link_opened(
     if pairing.reset_build_env_supported != reset_supported:
         pairing.reset_build_env_supported = reset_supported
         changed = True
+    analyze_supported = data["analyze_memory_supported"]
+    if pairing.analyze_memory_supported != analyze_supported:
+        pairing.analyze_memory_supported = analyze_supported
+        changed = True
     if changed:
         controller._schedule_pairings_save()
 

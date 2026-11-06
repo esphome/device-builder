@@ -10,7 +10,7 @@ from uuid import uuid4
 from esphome.upload_targets import PortType, get_port_type
 
 from ...helpers.api import CommandError
-from ...helpers.build_scheduler import BuildPath, pick_build_path
+from ...helpers.build_scheduler import BuildPath, inputs_for_job_type, pick_build_path
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     OTA_PORT,
@@ -90,7 +90,10 @@ def create_job(
 
 
 def resolve_install_source(
-    controller: FirmwareController, *, force_local: bool = False
+    controller: FirmwareController,
+    *,
+    force_local: bool = False,
+    job_type: JobType = JobType.COMPILE,
 ) -> JobBuildSource:
     """Decide LOCAL vs deferred-REMOTE for a new compile; the pin binds at dispatch.
 
@@ -104,7 +107,7 @@ def resolve_install_source(
     offloader = controller._db.remote_build_offloader
     if offloader is None:
         return LOCAL_JOB_BUILD_SOURCE
-    decision = pick_build_path(offloader.build_scheduler_snapshot())
+    decision = pick_build_path(inputs_for_job_type(offloader.build_scheduler_snapshot(), job_type))
     if decision.path is BuildPath.REMOTE:
         return REMOTE_PENDING_JOB_BUILD_SOURCE
     return LOCAL_JOB_BUILD_SOURCE
@@ -235,10 +238,11 @@ async def enqueue_compile(
     *,
     configuration: str,
     force_local: bool = False,
+    job_type: JobType = JobType.COMPILE,
 ) -> FirmwareJob:
-    """Enqueue one COMPILE job with build-scheduler routing; the single/bulk shared core."""
-    build_source = controller._resolve_install_source(force_local=force_local)
-    job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+    """Enqueue one compiling job with build-scheduler routing; the single/bulk shared core."""
+    build_source = controller._resolve_install_source(force_local=force_local, job_type=job_type)
+    job = create_job(controller, configuration, job_type, build_source=build_source)
     return await controller._enqueue(job)
 
 

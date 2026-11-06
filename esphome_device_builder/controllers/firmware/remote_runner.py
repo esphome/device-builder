@@ -32,7 +32,7 @@ import logging
 import os
 from collections.abc import Mapping
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from esphome.const import __version__ as _offloader_esphome_version
 
@@ -55,6 +55,7 @@ from ...models import (
     OffloaderPeerLinkClosedData,
     ResetBuildEnvAckFrameData,
     SubmitJobAckFrameData,
+    SubmitJobTarget,
 )
 from ..remote_build.peer_link_client import (
     DownloadArtifactsError,
@@ -87,6 +88,16 @@ _LOGGER = logging.getLogger(__name__)
 # case string per :class:`JobStateChangedFrameData`'s
 # ``Literal`` union.
 _TERMINAL_WIRE_STATUSES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
+
+# Job types with their own receiver CLI; the rest ship as ``"compile"``.
+_WIRE_TARGET_BY_JOB_TYPE: dict[JobType, SubmitJobTarget] = {
+    JobType.CLEAN: "clean",
+    JobType.ANALYZE_MEMORY: "analyze_memory",
+}
+# Job types that finalise on the receiver's terminal frame with no artifact fetch.
+_NO_ARTIFACT_JOB_TYPES: frozenset[JobType] = frozenset(
+    {JobType.CLEAN, JobType.RESET_BUILD_ENV, JobType.ANALYZE_MEMORY}
+)
 
 # Errors any peer-link client request can raise before or at dispatch.
 _PEER_LINK_REQUEST_ERRORS = (
@@ -171,6 +182,9 @@ async def run_remote_job(  # noqa: C901
       tagged with this job's id, so progress and the terminal
       frame ride the same fan-out as a compile. Finalise like
       CLEAN — no artifacts.
+    * :attr:`JobType.ANALYZE_MEMORY` — submit_job(target="analyze_memory");
+      the receiver runs ``esphome analyze-memory`` and its streamed output
+      is the result. Finalise like CLEAN — no artifacts.
 
     ``RENAME`` is rejected at the top because the receiver-side
     contract doesn't carry a wire shape for it.
@@ -181,13 +195,14 @@ async def run_remote_job(  # noqa: C901
         JobType.INSTALL,
         JobType.CLEAN,
         JobType.RESET_BUILD_ENV,
+        JobType.ANALYZE_MEMORY,
     ):
         _fail_locally(
             controller,
             job,
             reason=(
                 f"unsupported job_type {job.job_type.value!r} "
-                f"(COMPILE/UPLOAD/INSTALL/CLEAN/RESET_BUILD_ENV only)"
+                f"(COMPILE/UPLOAD/INSTALL/CLEAN/RESET_BUILD_ENV/ANALYZE_MEMORY only)"
             ),
         )
         return
@@ -429,12 +444,7 @@ async def _submit_job_to_receiver(
 ) -> bool:
     """Send ``submit_job`` and return ``True`` on accepted ack, ``False`` otherwise."""
     device_name, device_friendly_name = _local_device_display_for_job(controller, job)
-    # CLEAN goes as target="clean" so the receiver runs
-    # ``esphome clean`` after extract; everything else stays on
-    # "compile" — the receiver only ever compiles.
-    wire_target: Literal["compile", "clean"] = (
-        "clean" if job.job_type is JobType.CLEAN else "compile"
-    )
+    wire_target = _WIRE_TARGET_BY_JOB_TYPE.get(job.job_type, "compile")
     try:
         ack = await client.submit_job(
             job_id=job.job_id,
@@ -517,11 +527,11 @@ async def _finalise_after_receiver_completed(
 ) -> None:
     """Wire the post-completed dispatch by job_type.
 
-    CLEAN / RESET_BUILD_ENV finalise immediately (wipe-only). COMPILE /
-    UPLOAD / INSTALL all materialise first; UPLOAD / INSTALL then spawn
-    the local flash subprocess.
+    CLEAN / RESET_BUILD_ENV / ANALYZE_MEMORY finalise immediately (no
+    artifacts). COMPILE / UPLOAD / INSTALL all materialise first; UPLOAD /
+    INSTALL then spawn the local flash subprocess.
     """
-    if job.job_type in (JobType.CLEAN, JobType.RESET_BUILD_ENV):
+    if job.job_type in _NO_ARTIFACT_JOB_TYPES:
         job.exit_code = 0
         _finalize_success(controller, job)
         return

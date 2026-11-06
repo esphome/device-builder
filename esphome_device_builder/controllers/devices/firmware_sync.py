@@ -16,7 +16,7 @@ from ...helpers.remote_build_layout import (
     parse_from_configuration as parse_remote_build_path,
 )
 from ...helpers.storage_path import resolve_storage_path
-from ...models import COMPILING_JOB_TYPES, JobLifecycleData, JobStatus, JobType
+from ...models import COMPILING_JOB_TYPES, JobLifecycleData, JobSource, JobStatus, JobType
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -86,7 +86,9 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         # so the drawer / table flip back to the placeholder.
         controller._build_size.request(configuration)
         return
-    recompute_hash = job_type in COMPILING_JOB_TYPES
+    # No artifacts come back from a remote analysis, so no local build_info.json.
+    remote_analysis = job_type is JobType.ANALYZE_MEMORY and job.source is JobSource.REMOTE
+    recompute_hash = job_type in COMPILING_JOB_TYPES and not remote_analysis
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
     if not (recompute_hash or flashed):
         return

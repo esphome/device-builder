@@ -22,6 +22,7 @@ from .client import PeerLinkClient
 from .one_shot import (
     _build_ws_url,
     _drive_initiator_handshake_and_read_response,
+    _extract_analyze_memory_supported,
     _extract_auto_provision_supported,
     _extract_ha_addon,
     _extract_receiver_esphome_version,
@@ -51,6 +52,7 @@ __all__ = (
     "_SessionLoopState",
     "_build_ws_url",
     "_drive_initiator_handshake_and_read_response",
+    "_extract_analyze_memory_supported",
     "_extract_auto_provision_supported",
     "_extract_ha_addon",
     "_extract_receiver_esphome_version",

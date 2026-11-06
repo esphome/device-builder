@@ -421,6 +421,35 @@ async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_comple
     client.download_artifacts.assert_not_called()
 
 
+async def test_remote_analyze_memory_dispatches_its_target_without_artifact_fetch(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """A REMOTE analysis sends ``target="analyze_memory"`` and completes with no download."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = FirmwareJob(
+        job_id="analyze-1",
+        configuration="kitchen.yaml",
+        job_type=JobType.ANALYZE_MEMORY,
+        source=JobSource.REMOTE,
+        source_pin_sha256=REMOTE_PIN,
+    )
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.COMPLETED
+    assert job.exit_code == 0
+    assert len(captured[EventType.JOB_COMPLETED]) == 1
+    assert client.submit_job.await_args.kwargs["target"] == "analyze_memory"
+    client.download_artifacts.assert_not_called()
+
+
 async def test_remote_compile_plumbs_device_names_from_local_scanner(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,

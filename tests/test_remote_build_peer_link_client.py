@@ -22,7 +22,7 @@ import hashlib
 import io
 import secrets
 import tarfile
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Any, cast
@@ -67,6 +67,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     SubmitJobTimeoutError,
     _build_ws_url,
     _DownloadArtifactsState,
+    _extract_analyze_memory_supported,
     _extract_auto_provision_supported,
     _extract_ha_addon,
     _extract_receiver_esphome_version,
@@ -1389,6 +1390,7 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
         "friendly_name": "",
         "ha_addon": False,
         "reset_build_env_supported": False,
+        "analyze_memory_supported": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=opened))
     assert pin in offloader.state.open_peer_links
@@ -1505,20 +1507,22 @@ def test_extract_ha_addon_branches(response: dict[str, Any], expected: bool) -> 
 
 
 @pytest.mark.parametrize(
-    ("response", "expected"),
+    ("key", "extract"),
     [
-        ({"reset_build_env_supported": True}, True),
-        ({"reset_build_env_supported": False}, False),
-        ({}, False),
-        ({"reset_build_env_supported": "1"}, False),
-        ({"reset_build_env_supported": 1}, False),
+        pytest.param("reset_build_env_supported", _extract_reset_build_env_supported, id="reset"),
+        pytest.param("analyze_memory_supported", _extract_analyze_memory_supported, id="analyze"),
     ],
 )
-def test_extract_reset_build_env_supported_branches(
-    response: dict[str, Any], expected: bool
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(True, True), (False, False), (None, False), ("1", False), (1, False)],
+)
+def test_extract_capability_flag_branches(
+    key: str, extract: Callable[[dict[str, Any]], bool], value: object, expected: bool
 ) -> None:
-    """Helper reads the reset capability; missing / non-bool ⇒ ``False``."""
-    assert _extract_reset_build_env_supported(response) is expected
+    """Capability helpers read a strict bool; missing / non-bool ⇒ ``False``."""
+    response = {} if value is None else {key: value}
+    assert extract(response) is expected
 
 
 async def test_peer_link_opened_refreshes_stored_pairing_version(
@@ -1568,6 +1572,7 @@ async def test_peer_link_opened_refreshes_stored_pairing_version(
             "friendly_name": "",
             "ha_addon": False,
             "reset_build_env_supported": False,
+            "analyze_memory_supported": False,
         }
         return MagicMock(data=payload)
 
@@ -1633,6 +1638,7 @@ async def test_peer_link_opened_refreshes_auto_provision_capability(
             "friendly_name": "",
             "ha_addon": False,
             "reset_build_env_supported": False,
+            "analyze_memory_supported": False,
         }
         return MagicMock(data=payload)
 
@@ -1683,6 +1689,7 @@ async def test_peer_link_opened_refreshes_display_identity(
             "friendly_name": friendly_name,
             "ha_addon": ha_addon,
             "reset_build_env_supported": False,
+            "analyze_memory_supported": False,
         }
         return MagicMock(data=payload)
 
@@ -1712,10 +1719,11 @@ async def test_peer_link_opened_refreshes_display_identity(
     assert pairing.friendly_name == "Renamed-Host"
 
 
-async def test_peer_link_opened_refreshes_reset_capability(
-    offloader_controller_dir: Path,
+@pytest.mark.parametrize("key", ["reset_build_env_supported", "analyze_memory_supported"])
+async def test_peer_link_opened_refreshes_capability_flag(
+    offloader_controller_dir: Path, key: str
 ) -> None:
-    """``reset_build_env_supported`` lands on the pairing and saves only on change."""
+    """A receiver capability flag lands on the pairing and saves only on change."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pin = "a" * 64
@@ -1738,12 +1746,14 @@ async def test_peer_link_opened_refreshes_reset_capability(
             "auto_provision_supported": False,
             "friendly_name": "",
             "ha_addon": False,
-            "reset_build_env_supported": supported,
+            "reset_build_env_supported": False,
+            "analyze_memory_supported": False,
         }
+        payload[key] = supported  # type: ignore[literal-required]
         return MagicMock(data=payload)
 
     offloader._on_offloader_peer_link_opened(_opened(True))
-    assert pairing.reset_build_env_supported is True
+    assert getattr(pairing, key) is True
     saves = len(save_calls)
     assert saves >= 1
 
@@ -1752,7 +1762,7 @@ async def test_peer_link_opened_refreshes_reset_capability(
 
     # Downgraded receiver: the capability tracks the wire back off.
     offloader._on_offloader_peer_link_opened(_opened(False))
-    assert pairing.reset_build_env_supported is False
+    assert getattr(pairing, key) is False
     assert len(save_calls) == saves + 1
 
 
@@ -1783,6 +1793,7 @@ async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
         "friendly_name": "",
         "ha_addon": False,
         "reset_build_env_supported": False,
+        "analyze_memory_supported": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=payload))
     assert len(save_calls) == 0

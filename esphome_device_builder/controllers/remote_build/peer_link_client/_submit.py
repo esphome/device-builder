@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from ....helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
@@ -20,6 +20,7 @@ from ....models import (
     SubmitJobAckFrameData,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
+    SubmitJobTarget,
 )
 from .._client_models import (
     DownloadArtifactsResult,
@@ -47,7 +48,7 @@ async def submit_job(
     *,
     job_id: str,
     configuration_filename: str,
-    target: Literal["compile", "clean"],
+    target: SubmitJobTarget,
     bundle_bytes: bytes,
     device_name: str = "",
     device_friendly_name: str = "",
@@ -191,7 +192,7 @@ async def _send_submit_job_frames(
     *,
     job_id: str,
     configuration_filename: str,
-    target: Literal["compile", "clean"],
+    target: SubmitJobTarget,
     bundle_bytes: bytes,
     device_name: str = "",
     device_friendly_name: str = "",

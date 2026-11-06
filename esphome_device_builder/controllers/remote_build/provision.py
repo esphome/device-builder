@@ -21,3 +21,8 @@ def receiver_supports_reset_build_env() -> bool:
     only offers the action against a new-enough receiver.
     """
     return True
+
+
+def receiver_supports_analyze_memory() -> bool:
+    """Whether this receiver accepts ``submit_job(target="analyze_memory")``."""
+    return True

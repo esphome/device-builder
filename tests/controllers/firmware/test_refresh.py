@@ -46,6 +46,7 @@ from esphome_device_builder.models import (
     DeviceState,
     EventType,
     FirmwareJob,
+    JobSource,
     JobStatus,
     JobType,
 )
@@ -171,6 +172,26 @@ def test_completed_install_recomputes_hash_and_reloads(tmp_path: Path) -> None:
     # ``deployed_config_hash`` and the orange "modified" dot clears
     # without waiting on the rebooted device's mDNS announce.
     assert captured == [("kitchen.yaml", True, True)]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(JobSource.LOCAL, [("kitchen.yaml", True, False)], id="local"),
+        pytest.param(JobSource.REMOTE, [], id="remote"),
+    ],
+)
+def test_completed_analyze_recomputes_hash_only_when_built_locally(
+    tmp_path: Path, source: JobSource, expected: list[tuple[str, bool, bool]]
+) -> None:
+    """A remote analysis leaves no local build_info.json, so its hash recompute is skipped."""
+    controller, captured = _make_controller(tmp_path)
+    job = _job(JobType.ANALYZE_MEMORY, JobStatus.COMPLETED)
+    job.source = source
+
+    controller._on_firmware_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    assert captured == expected
 
 
 async def test_completed_app_upload_clears_the_deployed_name(tmp_path: Path) -> None:

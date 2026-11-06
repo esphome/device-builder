@@ -9,10 +9,14 @@ import pytest
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode, EventType, JobSource, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
+    REMOTE_PIN,
     BareFirmwareControllerFactory,
     CaptureEnqueueOrderFactory,
     EnqueueStep,
     FirmwareControllerFactory,
+    build_scheduler_inputs,
+    stub_offloader,
+    stub_pairing,
 )
 
 
@@ -20,7 +24,7 @@ async def test_analyze_memory_returns_queued_local_job(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """Happy path: a ``QUEUED`` ``ANALYZE_MEMORY`` job that always builds locally."""
+    """Happy path: a ``QUEUED`` ``ANALYZE_MEMORY`` job builds locally with no build server."""
     controller = firmware_controller_factory(with_queue=True)
     (tmp_path / "kitchen.yaml").write_text("")
 
@@ -30,6 +34,37 @@ async def test_analyze_memory_returns_queued_local_job(
     assert job.job_type == JobType.ANALYZE_MEMORY
     assert job.configuration == "kitchen.yaml"
     assert job.source == JobSource.LOCAL
+
+
+@pytest.mark.parametrize(
+    ("capable", "source"),
+    [
+        pytest.param(True, JobSource.REMOTE_PENDING, id="capable"),
+        pytest.param(False, JobSource.LOCAL, id="older_receiver"),
+    ],
+)
+async def test_analyze_memory_routes_to_capable_build_server(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    capable: bool,
+    source: JobSource,
+) -> None:
+    """A free build server takes the analysis only when it advertises the capability."""
+    controller = firmware_controller_factory(with_queue=True)
+    stub_offloader(
+        controller,
+        build_scheduler_inputs(
+            pairings=[stub_pairing(pin_sha256=REMOTE_PIN, analyze_memory_supported=capable)],
+            open_pins={REMOTE_PIN},
+            idle_pins={REMOTE_PIN},
+        ),
+    )
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    job = await controller.analyze_memory(configuration="kitchen.yaml")
+
+    assert job.source is source
+    assert (job.job_id in controller.state.remote_dispatch.pending) is capable
 
 
 async def test_analyze_memory_rejects_traversal_configuration(
