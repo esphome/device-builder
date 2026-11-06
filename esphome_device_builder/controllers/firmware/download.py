@@ -183,10 +183,7 @@ def collect_download_entries(
             # it too), drops out.
             try:
                 path = resolve_under_root(build_dir / entry["file"], build_dir)
-                stat = path.stat()
-                entry["md5"] = _md5_digest(
-                    path, stat.st_size, stat.st_mtime_ns, stat.st_ino, stat.st_ctime_ns
-                )
+                entry["md5"] = _artifact_md5(path)
             except FileNotFoundError:
                 _LOGGER.debug("%s vanished before it could be hashed", entry["file"])
                 continue
@@ -202,6 +199,12 @@ def collect_download_entries(
 def _download_filename(device_name: str, artifact_name: str) -> str:
     """Filename-safe name an artifact downloads under."""
     return re.sub(r"[^A-Za-z0-9._-]", "_", f"{device_name}-{artifact_name}")
+
+
+def _artifact_md5(path: Path) -> str:
+    """Hex MD5 of the artifact at *path*, through the stat-keyed cache."""
+    stat = path.stat()
+    return _md5_digest(path, stat.st_size, stat.st_mtime_ns, stat.st_ino, stat.st_ctime_ns)
 
 
 @lru_cache(maxsize=32)
@@ -300,6 +303,25 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
 
     download_name = _download_filename(storage.name, Path(file).name)
     return path, download_name
+
+
+def resolve_artifact_download(configuration: str, file: str) -> tuple[str, str | None]:
+    """
+    Resolve *file* to ``(download_name, md5)`` for a download about to be minted.
+
+    ``md5`` is ``None`` for the ELF and for an artifact that can't be read for
+    hashing; a vanished artifact raises ``FileNotFoundError`` like the resolve.
+    """
+    path, download_name = _resolve_artifact_path(configuration, file)
+    if _ARTIFACT_TYPES.get(file) == "elf":
+        return download_name, None
+    try:
+        return download_name, _artifact_md5(path)
+    except FileNotFoundError:
+        raise
+    except OSError as err:
+        _LOGGER.warning("Could not hash %s: %s", file, err)
+        return download_name, None
 
 
 class DownloadTokens(CapabilityTokens[tuple[str, str]]):
