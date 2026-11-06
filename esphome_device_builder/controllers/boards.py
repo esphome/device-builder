@@ -236,16 +236,19 @@ class BoardCatalog:
 
         Returns the slim index entry — see :meth:`find_by_pio_board`
         for the body-fetch contract. Used as a final fallback when a
-        YAML config names only the platform.
+        YAML config names only the platform. ``None`` when no *variant* is
+        given on a multi-chip platform, or no entry carries *variant*.
         """
         if not platform:
             return None
         platform = normalize_platform(platform)
         matches = [b for b in self._boards if b.esphome.platform.value == platform]
+        if variant:
+            matches = _filter_by_variant(matches, variant)
+        elif len({b.esphome.variant for b in matches}) > 1:
+            return None
         if not matches:
             return None
-        if variant:
-            matches = _filter_by_variant(matches, variant) or matches
         for b in matches:
             if b.is_generic:
                 return b
