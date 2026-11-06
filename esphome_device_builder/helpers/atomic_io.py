@@ -95,6 +95,20 @@ def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> Non
     _staged_write(path, data, mode=mode, publish=_publish_exclusive)
 
 
+def move_exclusive(src: Path, dst: Path) -> None:
+    """Move *src* onto *dst* in the same folder; ``FileExistsError`` when *dst* exists."""
+    _publish_exclusive(src, dst)
+    if _IS_WINDOWS:  # There the publish was the move.
+        return
+    published = dst.stat()
+    try:
+        src.unlink()
+    except BaseException:
+        # A failed move leaves only *src*, which callers' rollbacks assume.
+        _unlink_if_same(dst, published)
+        raise
+
+
 def read_bytes_with_retry(path: Path) -> bytes:
     """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
     return _retry_windows_permission(path.read_bytes)
@@ -177,14 +191,27 @@ def _publish_exclusive(src: Path, dst: Path) -> None:
         # one exotic mount class. Mirror the staged file's mode; a
         # fresh ``open("xb")`` would otherwise take the umask default.
         with dst.open("xb") as f:
-            f.write(src.read_bytes())
-        dst.chmod(stat.S_IMODE(src.stat().st_mode))
+            created = os.fstat(f.fileno())
+            try:
+                f.write(src.read_bytes())
+                f.flush()
+                os.fchmod(f.fileno(), stat.S_IMODE(src.stat().st_mode))
+            except BaseException:
+                _unlink_if_same(dst, created)  # Never leave a partial target.
+                raise
         return
     # ``Path.rename`` on Windows refuses an existing destination
     # (``FileExistsError``, surfaced immediately, not a
     # ``PermissionError``); a transient hold by an AV / indexer gets
     # the shared retry policy.
     _retry_windows_permission(lambda: src.rename(dst))
+
+
+def _unlink_if_same(path: Path, created: os.stat_result) -> None:
+    """Best-effort unlink of *path*, only while it is still the file we created."""
+    with contextlib.suppress(OSError):
+        if os.path.samestat(path.stat(), created):
+            path.unlink()
 
 
 def _retry_windows_permission[T](op: Callable[[], T], retries: int = _REPLACE_RETRIES) -> T:
