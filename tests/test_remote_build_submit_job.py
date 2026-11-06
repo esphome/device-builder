@@ -685,20 +685,7 @@ async def test_submit_job_happy_path_with_relative_config_dir(
 async def test_submit_job_non_compile_target_creates_matching_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, job_type: JobType
 ) -> None:
-    """A ``clean`` / ``analyze_memory`` target rides the same pipeline and creates that job type.
-
-    The fan-out from the offloader's "Clean build files" click
-    sends one ``submit_job(target="clean")`` per connected peer
-    so receivers that built this device locally drop their stale
-    ``<data_dir>/build/<device_name>/`` artifacts. The bundle is
-    shipped + extracted exactly like compile — re-extracting a
-    fresh copy of the YAML is wasteful for a clean (we're about
-    to delete the build dir anyway, not the subtree) but it
-    keeps the wire / dispatch code paths uniform with compile /
-    upload. The real cleanup is the ``esphome clean <yaml>`` run
-    that the firmware queue invokes after this dispatch lands
-    the ``JobType.CLEAN``.
-    """
+    """A ``clean`` / ``analyze_memory`` target extracts like compile and creates that job type."""
     firmware = _make_firmware_controller()
     receiver = _make_receiver(tmp_path, firmware)
     session = _make_session(dashboard_id="alpha-dashboard")

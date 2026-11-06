@@ -528,9 +528,8 @@ async def _finalise_after_receiver_completed(
     """Wire the post-completed dispatch by job_type.
 
     CLEAN / RESET_BUILD_ENV / ANALYZE_MEMORY finalise immediately (no
-    artifacts). COMPILE /
-    UPLOAD / INSTALL all materialise first; UPLOAD / INSTALL then spawn
-    the local flash subprocess.
+    artifacts). COMPILE / UPLOAD / INSTALL all materialise first; UPLOAD /
+    INSTALL then spawn the local flash subprocess.
     """
     if job.job_type in _NO_ARTIFACT_JOB_TYPES:
         job.exit_code = 0
