@@ -17,11 +17,26 @@ pins:
 - gpio: 12
   available: false
   occupied_by: waveshare button
+- gpio: 13
+  available: false
+  occupied_by: spi
+- gpio: 14
+  available: false
+  occupied_by: spi
 - gpio: 36
   available: false
   occupied_by: waveshare Battery voltage
 docs_url: https://devices.esphome.io/devices/Waveshare-epaper-cloud-module/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 13
+      locked: true
+    mosi_pin:
+      value: 14
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

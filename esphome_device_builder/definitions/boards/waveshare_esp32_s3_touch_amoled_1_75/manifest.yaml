@@ -28,6 +28,12 @@ pins:
 - gpio: 12
   available: false
   occupied_by: disp1
+- gpio: 14
+  available: false
+  occupied_by: bus_a
+- gpio: 15
+  available: false
+  occupied_by: bus_a
 - gpio: 38
   available: false
   occupied_by: display_qspi
@@ -39,6 +45,19 @@ pins:
   occupied_by: Speaker Enable
 docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 14
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
 - id: display_qspi
   component_id: spi
   fields:

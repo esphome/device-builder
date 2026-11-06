@@ -22,11 +22,30 @@ pins:
 - gpio: 14
   available: false
   occupied_by: output0
+- gpio: 32
+  available: false
+  occupied_by: i2c_bus
+- gpio: 33
+  available: false
+  occupied_by: i2c_bus
 - gpio: 34
   available: false
   occupied_by: zb-gw03-coordinator Enable Pairing Mode
 docs_url: https://devices.esphome.io/devices/Xiaomi-Gateway-3/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 33
+      locked: true
+    scl:
+      value: 32
+      locked: true
+    scan: true
+    id:
+      value: i2c_bus
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

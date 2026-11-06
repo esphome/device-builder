@@ -13,6 +13,21 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Multiboard/MultiBoard.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-Multiboard/Multiboard_Pinout.png
 pins:
+- gpio: 18
+  available: false
+  occupied_by: spi
+- gpio: 19
+  available: false
+  occupied_by: spi
+- gpio: 21
+  available: false
+  occupied_by: bus_a
+- gpio: 22
+  available: false
+  occupied_by: bus_a
+- gpio: 23
+  available: false
+  occupied_by: spi
 - gpio: 25
   available: false
   occupied_by: Grove Digital Output (GPIO25)
@@ -28,6 +43,31 @@ pins:
 docs_url: https://devices.esphome.io/devices/ESP32-Multiboard/
 product_url: https://github.com/thebeaverdam/ESP32_MultiBoard
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 21
+      locked: true
+    scl:
+      value: 22
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 23
+      locked: true
+    miso_pin:
+      value: 19
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

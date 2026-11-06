@@ -21,6 +21,12 @@ pins:
 - gpio: 4
   available: false
   occupied_by: Rowi Plug Button
+- gpio: 16
+  available: false
+  occupied_by: i2c
+- gpio: 17
+  available: false
+  occupied_by: i2c
 - gpio: 18
   available: false
   occupied_by: red
@@ -32,6 +38,15 @@ pins:
   occupied_by: blue
 docs_url: https://devices.esphome.io/devices/ESP32-SmartPlug-Rowi-AU/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 16
+      locked: true
+    scl:
+      value: 17
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:

@@ -26,6 +26,12 @@ pins:
 - gpio: 10
   available: false
   occupied_by: uart
+- gpio: 17
+  available: false
+  occupied_by: i2c
+- gpio: 18
+  available: false
+  occupied_by: i2c
 - gpio: 41
   available: false
   occupied_by: Ethernet CS
@@ -40,6 +46,15 @@ pins:
   occupied_by: Ethernet MISO
 docs_url: https://devices.esphome.io/devices/KinCony-N60/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 18
+      locked: true
+    scl:
+      value: 17
+      locked: true
 - id: modbus_bus
   component_id: modbus
   fields: {}

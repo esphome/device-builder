@@ -672,6 +672,67 @@ def _backfill_donor_pins(
             board.pins = list(matched[0].pins)
 
 
+def _detach_occupancy_pins(boards: list[BoardCatalogEntry]) -> dict[str, list[BoardPin]]:
+    """Empty each pin table that lists only occupied pins, returning the tables by board id."""
+    detached: dict[str, list[BoardPin]] = {}
+    for board in boards:
+        if board.pins and all(
+            pin.available is False and pin.occupied_by and not pin.features and not pin.notes
+            for pin in board.pins
+        ):
+            detached[board.id] = board.pins
+            board.pins = []
+    return detached
+
+
+def _fill_detached_esp32_pins(
+    boards: list[BoardCatalogEntry], detached: dict[str, list[BoardPin]]
+) -> None:
+    """Give each detached esp32 board its variant pinout with the board's ESPHome aliases."""
+    if not detached:
+        return
+    generic = _esp32_generic_pins_by_variant(boards)
+    module = importlib.import_module(_ESP32_BOARDS_MODULE)
+    pin_map: dict[str, Any] = getattr(module, _ESP32_BOARD_PINS_ATTR)
+    for board in boards:
+        cfg = board.esphome
+        if board.id in detached and not board.pins and cfg.platform is Platform.ESP32:
+            base = _esp32_generic_base(generic, cfg.variant, cfg.engineering_sample)
+            board.pins = _esp32_board_pins(base, _resolve_board_pins(pin_map, cfg.board))
+
+
+def _reattach_occupancy_pins(
+    boards: list[BoardCatalogEntry], detached: dict[str, list[BoardPin]]
+) -> None:
+    """
+    Mark detached occupied pins on each board's filled pinout, else restore them.
+
+    The device's own occupancy replaces the template's on every pin it can use.
+    """
+    for board in boards:
+        occupied = detached.get(board.id)
+        if occupied is None:
+            continue
+        by_gpio = {pin.gpio: pin for pin in occupied}
+        merged: list[BoardPin] = []
+        for base in board.pins:
+            occ = by_gpio.pop(base.gpio, None)
+            pin = replace(base, features=list(base.features))
+            if occ is not None:
+                pin = replace(pin, available=False, occupied_by=occ.occupied_by)
+            elif pin.available is not False:
+                pin = replace(pin, occupied_by=None)
+            merged.append(pin)
+        board.pins = sorted([*merged, *by_gpio.values()], key=attrgetter("gpio"))
+
+
+def _esp32_generic_base(
+    generic: dict[tuple[str, bool], list[BoardPin]], variant: str | None, es: bool
+) -> list[BoardPin]:
+    """Return the ``generic-<variant>`` pinout for this revision, else the other revision's."""
+    return generic.get((variant, es)) or generic.get((variant, not es), [])
+
+
 def _manifest_pins_from() -> dict[str, str]:
     """``{board_id: donor_id}`` for every manifest carrying ``pins_from``."""
     out: dict[str, str] = {}
@@ -716,7 +777,7 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
         pins = _resolve_board_pins(pin_map, name)
         es = bool(meta.get("engineering_sample"))
         # Fall back to the other revision's generic for variants with one manifest.
-        base = generic_pins.get((variant, es)) or generic_pins.get((variant, not es), [])
+        base = _esp32_generic_base(generic_pins, variant, es)
         derived = _esp32_board_pins(base, pins)
         boards.append(_generated_board(Platform("esp32"), name, display, derived, variant))
         ids.add(name)
@@ -1242,6 +1303,7 @@ def build_catalog() -> BoardCatalogResponse:
     drift test so the committed artefacts stay reproducible.
     """
     catalog = build_board_catalog_from_manifests(strict=True)
+    occupancy = _detach_occupancy_pins(catalog.boards)
     _backfill_esp32_variants(catalog.boards)
     _augment_libretiny_boards(catalog.boards)
     _augment_rp2040_boards(catalog.boards)
@@ -1252,9 +1314,11 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_esp32_engineering_sample(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
+    _fill_detached_esp32_pins(catalog.boards, occupancy)
     # Last pin-FILLING pass — a filler inserted after it would find its
     # empty-pin targets already claimed; the passes below only decorate.
     _backfill_donor_pins(catalog.boards)
+    _reattach_occupancy_pins(catalog.boards, occupancy)
     _augment_rmii_data_pins(catalog.boards)
     _stamp_featured_locked_pins(catalog.boards)
     _stamp_featured_requires(catalog.boards)

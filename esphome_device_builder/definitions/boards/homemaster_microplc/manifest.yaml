@@ -20,9 +20,28 @@ pins:
 - gpio: 26
   available: false
   occupied_by: Relay
+- gpio: 32
+  available: false
+  occupied_by: bus_a
+- gpio: 33
+  available: false
+  occupied_by: bus_a
 docs_url: https://devices.esphome.io/devices/Homemaster-MicroPLC/
 product_url: https://github.com/isystemsautomation/HOMEMASTER/tree/main/MicroPLC
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 32
+      locked: true
+    scl:
+      value: 33
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
 - id: relay1
   component_id: switch.gpio
   fields:

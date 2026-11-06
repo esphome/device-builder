@@ -21,8 +21,29 @@ pins:
 - gpio: 15
   available: false
   occupied_by: i2c
+- gpio: 18
+  available: false
+  occupied_by: spi
+- gpio: 19
+  available: false
+  occupied_by: spi
+- gpio: 23
+  available: false
+  occupied_by: spi
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 23
+      locked: true
+    miso_pin:
+      value: 19
+      locked: true
 - id: i2c_bus
   component_id: i2c
   fields:

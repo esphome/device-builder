@@ -31,6 +31,12 @@ pins:
 - gpio: 18
   available: false
   occupied_by: display.st7789v
+- gpio: 21
+  available: false
+  occupied_by: bus_a
+- gpio: 22
+  available: false
+  occupied_by: bus_a
 - gpio: 23
   available: false
   occupied_by: display.st7789v
@@ -49,6 +55,19 @@ pins:
 docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS/
 product_url: https://docs.m5stack.com/en/core/m5stickc_plus
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 21
+      locked: true
+    scl:
+      value: 22
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
 - id: spi_bus
   component_id: spi
   fields:
