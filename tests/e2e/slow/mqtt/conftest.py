@@ -34,21 +34,25 @@ def free_port() -> int:
 
 async def restart_mosquitto(tmp_path: Path, port: int) -> asyncio.subprocess.Process:
     """Start mosquitto against ``tmp_path/mosquitto.conf`` and wait for *port*."""
-    broker = await asyncio.create_subprocess_exec(
-        str(MOSQUITTO),
-        "-c",
-        str(tmp_path / "mosquitto.conf"),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
+    log_path = tmp_path / "mosquitto.log"
+    with log_path.open("ab") as log:
+        broker = await asyncio.create_subprocess_exec(
+            str(MOSQUITTO),
+            "-c",
+            str(tmp_path / "mosquitto.conf"),
+            stdout=log,
+            stderr=asyncio.subprocess.STDOUT,
+        )
     deadline = asyncio.get_running_loop().time() + 10.0
     while True:
         try:
             _reader, writer = await asyncio.open_connection("127.0.0.1", port)
         except OSError:
+            if broker.returncode is not None:
+                pytest.fail(f"mosquitto exited with {broker.returncode}:\n{log_path.read_text()}")
             if asyncio.get_running_loop().time() > deadline:
-                broker.terminate()
-                pytest.fail("mosquitto did not come back after restart")
+                await stop_broker(broker)
+                pytest.fail(f"mosquitto did not listen on {port}:\n{log_path.read_text()}")
             await asyncio.sleep(0.05)
         else:
             writer.close()
