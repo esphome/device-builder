@@ -57,7 +57,9 @@ _SOC_CONNECTIVITY: dict[str, list[str]] = {
     "esp8266": ["wifi"],
     "bk72xx": ["wifi"],
     "rp2040": ["wifi"],
+    "rp2": ["wifi"],
     "rtl87xx": ["wifi"],
+    "ln882x": ["wifi"],
 }
 
 # Per-variant overrides for the esp32 family. ``None`` means "no
@@ -399,6 +401,22 @@ def is_imported_manifest(manifest_path: Path, *, source_type: str) -> tuple[bool
     return imported_remote_id(read_manifest_dict(manifest_path), source_type=source_type)
 
 
+def manifest_collides(record: dict[str, Any], *, boards_dir: Path) -> bool:
+    """Whether ``boards/<id>/manifest.yaml`` exists and this record's source doesn't own it."""
+    manifest_path = boards_dir / record["id"] / "manifest.yaml"
+    return _collides(record, manifest_path, read_manifest_dict(manifest_path))
+
+
+def _collides(record: dict[str, Any], manifest_path: Path, prior: dict[str, Any] | None) -> bool:
+    """Whether *manifest_path* exists and *prior* (its parse) isn't owned by *record*'s source."""
+    # Hand-curated boards (no ``source.type``) and unparsable files both read as
+    # "not imported", so guard on the file existing, not on the parse.
+    return (
+        manifest_path.is_file()
+        and not imported_remote_id(prior, source_type=record["source"]["type"])[0]
+    )
+
+
 def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
     """
     Write ``boards/<id>/manifest.yaml``.
@@ -413,15 +431,11 @@ def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
     pre-existing local ``images/`` subdir from older syncs is removed so
     the wheel doesn't carry stale mirrors.
     """
-    source_type = record["source"]["type"]
     target_dir = boards_dir / record["id"]
     manifest_path = target_dir / "manifest.yaml"
     prior = read_manifest_dict(manifest_path)
-    # An existing manifest the sync doesn't own is a slug collision —
-    # leave it untouched. Hand-curated boards (no ``source.type``) and
-    # unparsable files both read as "not imported"; an unreadable file
-    # ``prior is None`` so guard on the file existing, not on the parse.
-    if manifest_path.is_file() and not imported_remote_id(prior, source_type=source_type)[0]:
+    # An existing manifest the sync doesn't own is a slug collision; leave it untouched.
+    if _collides(record, manifest_path, prior):
         _LOGGER.warning(
             "Skipping %s — slug collides with a board this source doesn't own",
             record["id"],

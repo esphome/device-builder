@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import subprocess
 from dataclasses import dataclass
-from functools import cache
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,7 +25,7 @@ from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.capability_tokens import CapabilityTokens
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
-from ...helpers.paths import resolve_under_root
+from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...helpers.sibling_cli import helper_cli_cmd
 from ...helpers.storage_path import resolve_storage_path
 from ...models.boards import normalize_platform
@@ -168,11 +169,46 @@ def collect_download_entries(
                 "file": _MCUBOOT_UPDATE_IMAGE,
             }
         )
+    listed = []
     for entry in downloads:
+        entry["download_name"] = _download_filename(storage.name, Path(entry["file"]).name)
         artifact_type = _ARTIFACT_TYPES.get(entry["file"])
         if artifact_type:
             entry["type"] = artifact_type
-    return downloads
+        # Debug symbols are 14 MB+ and never verified before a flash.
+        if artifact_type != "elf":
+            # ``md5`` is optional: an artifact that can't be read keeps its row
+            # without a digest. One a rebuild removed since the existence filter,
+            # or one resolving outside the build dir (its download would refuse
+            # it too), drops out.
+            try:
+                path = resolve_under_root(build_dir / entry["file"], build_dir)
+                stat = path.stat()
+                entry["md5"] = _md5_digest(
+                    path, stat.st_size, stat.st_mtime_ns, stat.st_ino, stat.st_ctime_ns
+                )
+            except FileNotFoundError:
+                _LOGGER.debug("%s vanished before it could be hashed", entry["file"])
+                continue
+            except PathEscapeError as err:
+                _LOGGER.warning("Not listing %s: %s", entry["file"], err)
+                continue
+            except (OSError, ValueError) as err:
+                _LOGGER.warning("Could not hash %s: %s", entry["file"], err)
+        listed.append(entry)
+    return listed
+
+
+def _download_filename(device_name: str, artifact_name: str) -> str:
+    """Filename-safe name an artifact downloads under."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", f"{device_name}-{artifact_name}")
+
+
+@lru_cache(maxsize=32)
+def _md5_digest(path: Path, *_stat_key: int) -> str:
+    """Hex MD5 of *path*, cached per stat key (size, mtime, inode, ctime) so a rebuild rehashes."""
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, lambda: hashlib.md5(usedforsecurity=False)).hexdigest()
 
 
 def _download_types_for(
@@ -262,7 +298,7 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
         msg = f"Binary not found: {file}"
         raise FileNotFoundError(msg)
 
-    download_name = re.sub(r"[^A-Za-z0-9._-]", "_", f"{storage.name}-{path.name}")
+    download_name = _download_filename(storage.name, Path(file).name)
     return path, download_name
 
 

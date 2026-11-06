@@ -17,6 +17,7 @@ resolved list (filter to files on disk, append ``firmware.elf``, tag types).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import types
 from pathlib import Path
@@ -30,6 +31,7 @@ from esphome_device_builder.controllers.firmware.download import (
     _platform_sets,
     _resolve_download_component,
 )
+from esphome_device_builder.helpers.paths import PathEscapeError
 from tests._storage_fixtures import write_storage_json
 from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
@@ -71,6 +73,16 @@ def _stub_download_types(monkeypatch: Any, types_returned: list[dict]) -> list[A
 
 
 # The ELF entry ``get_binaries`` appends when ``firmware.elf`` is on disk.
+# Digest of the ``b"x"`` every ``_make_build`` artifact holds.
+_X_MD5 = hashlib.md5(b"x", usedforsecurity=False).hexdigest()
+
+
+def _listed(entry: dict, *, md5: bool = True) -> dict:
+    """*entry* as ``get_binaries`` returns it for the ``kitchen`` device."""
+    listed = {**entry, "download_name": f"kitchen-{Path(entry['file']).name}"}
+    return {**listed, "md5": _X_MD5} if md5 else listed
+
+
 _ELF_ENTRY = {
     "title": "ELF (for debugging)",
     "description": "Debug symbols for the ESP stack trace decoder.",
@@ -421,7 +433,7 @@ async def test_get_binaries_filters_to_files_present_on_disk(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [factory, ota]
+    assert result == [_listed(factory), _listed(ota)]
 
 
 async def test_get_binaries_appends_elf_entry_when_present(
@@ -442,7 +454,7 @@ async def test_get_binaries_appends_elf_entry_when_present(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [factory, _ELF_ENTRY]
+    assert result == [_listed(factory), _listed(_ELF_ENTRY, md5=False)]
 
 
 async def test_get_binaries_does_not_duplicate_elf_listed_upstream(
@@ -463,7 +475,7 @@ async def test_get_binaries_does_not_duplicate_elf_listed_upstream(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [elf]
+    assert result == [_listed(elf, md5=False)]
     assert sum(entry["file"] == "firmware.elf" for entry in result) == 1
 
 
@@ -500,7 +512,7 @@ async def test_get_binaries_appends_mcuboot_image_beside_a_uf2(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [uf2, _MCUBOOT_ENTRY]
+    assert result == [_listed(uf2), _listed(_MCUBOOT_ENTRY)]
 
 
 async def test_get_binaries_does_not_duplicate_mcuboot_image_listed_upstream(
@@ -521,7 +533,7 @@ async def test_get_binaries_does_not_duplicate_mcuboot_image_listed_upstream(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [upstream]
+    assert result == [_listed(upstream)]
 
 
 async def test_get_binaries_omits_mcuboot_image_when_absent(
@@ -542,7 +554,7 @@ async def test_get_binaries_omits_mcuboot_image_when_absent(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [uf2]
+    assert result == [_listed(uf2)]
 
 
 async def test_get_binaries_omits_elf_entry_when_absent(
@@ -563,8 +575,7 @@ async def test_get_binaries_omits_elf_entry_when_absent(
 
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
-    assert result == [factory]
-    assert _ELF_ENTRY not in result
+    assert result == [_listed(factory)]
 
 
 async def test_get_binaries_returns_empty_when_no_build_path(
@@ -577,3 +588,115 @@ async def test_get_binaries_returns_empty_when_no_build_path(
     result = await controller.get_binaries(configuration="kitchen.yaml")
 
     assert result == []
+
+
+async def test_get_binaries_rehashes_a_rebuilt_artifact(
+    tmp_path: Path, monkeypatch: Any, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A rewritten artifact gets a fresh digest, not the cached one."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    _stub_download_types(monkeypatch, [firmware])
+    build_dir = _make_build(tmp_path, "firmware.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+    controller = firmware_controller_factory()
+    assert (await controller.get_binaries(configuration="kitchen.yaml"))[0]["md5"] == _X_MD5
+
+    (build_dir / "firmware.bin").write_bytes(b"rebuilt")
+
+    result = await controller.get_binaries(configuration="kitchen.yaml")
+    assert result[0]["md5"] == hashlib.md5(b"rebuilt", usedforsecurity=False).hexdigest()
+
+
+async def test_get_binaries_keeps_an_artifact_it_cannot_hash(
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: pytest.LogCaptureFixture,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A hashing failure drops that entry's ``md5``, not the listing."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    _stub_download_types(monkeypatch, [firmware])
+    build_dir = _make_build(tmp_path, "firmware.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+
+    def _raise(*_args: Any) -> str:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(download_mod, "_md5_digest", _raise)
+    controller = firmware_controller_factory()
+
+    with caplog.at_level(logging.WARNING):
+        result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == [_listed({**firmware, "type": "bin"}, md5=False)]
+    assert "Could not hash firmware.bin" in caplog.text
+
+
+async def test_get_binaries_quietly_skips_a_vanished_artifact(
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: pytest.LogCaptureFixture,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An artifact a rebuild removed mid-listing drops out without a warning."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    _stub_download_types(monkeypatch, [firmware])
+    build_dir = _make_build(tmp_path, "firmware.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+
+    def _raise(*_args: Any) -> str:
+        raise FileNotFoundError("gone")
+
+    monkeypatch.setattr(download_mod, "_md5_digest", _raise)
+    controller = firmware_controller_factory()
+
+    with caplog.at_level(logging.WARNING):
+        result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == []
+    assert "Could not hash" not in caplog.text
+
+
+async def test_get_binaries_drops_an_artifact_resolving_outside_the_build_dir(
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: pytest.LogCaptureFixture,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An artifact resolving outside the build dir is not offered, with a warning."""
+    firmware = {"title": "Firmware", "file": "firmware.bin"}
+    _stub_download_types(monkeypatch, [firmware])
+    build_dir = _make_build(tmp_path, "firmware.bin")
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        firmware_bin_path=build_dir / "firmware.bin",
+        overrides={"esp_platform": "esp8266"},
+    )
+
+    def _escape(*_args: Any) -> Path:
+        raise PathEscapeError("escapes the build dir")
+
+    monkeypatch.setattr(download_mod, "resolve_under_root", _escape)
+    controller = firmware_controller_factory()
+
+    with caplog.at_level(logging.WARNING):
+        result = await controller.get_binaries(configuration="kitchen.yaml")
+
+    assert result == []
+    assert "Not listing firmware.bin" in caplog.text
