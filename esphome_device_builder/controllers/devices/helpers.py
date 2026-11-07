@@ -134,12 +134,12 @@ def require_hash_unchanged(current: str, expected_hash: str, configuration: str)
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
 
-def _count_matches(text: str, old_text: str) -> int:
-    """Return how many places *old_text* matches in *text*, overlapping ones included."""
-    count = start = 0
-    while (start := text.find(old_text, start) + 1) > 0:
-        count += 1
-    return count
+def _non_unique_match(text: str, old_text: str) -> str | None:
+    """Say how often *old_text* occurs unless exactly once, overlaps included; else ``None``."""
+    first = text.find(old_text)
+    if first < 0:
+        return "0 times"
+    return None if text.find(old_text, first + 1) < 0 else "2 or more times"
 
 
 def apply_text_edits(text: str, edits: Sequence[dict[str, str]], configuration: str) -> str:
@@ -149,9 +149,9 @@ def apply_text_edits(text: str, edits: Sequence[dict[str, str]], configuration: 
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     for index, edit in enumerate(edits):
         old_text = edit["old_text"]
-        if (count := _count_matches(text, old_text)) != 1:
+        if found := _non_unique_match(text, old_text):
             msg = (
-                f"{configuration}: edit {index} old_text occurs {count} times, not exactly once; "
+                f"{configuration}: edit {index} old_text occurs {found}, not exactly once; "
                 "nothing was written"
             )
             raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)

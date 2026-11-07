@@ -696,6 +696,21 @@ async def test_rewrite_yaml_with_text_edits_saves_through_the_real_controller(
     assert regenerated == ["kitchen.yaml"]
 
 
+def test_text_edits_stop_looking_after_the_second_match() -> None:
+    class CountingText(str):
+        __slots__ = ()
+        finds = 0
+
+        def find(self, sub: str, start: int = 0) -> int:  # type: ignore[override]
+            CountingText.finds += 1
+            return super().find(sub, start)
+
+    with pytest.raises(CommandError, match="occurs 2 or more times"):
+        apply_text_edits(CountingText("aaaa"), [{"old_text": "a", "new_text": "b"}], "k.yaml")
+
+    assert CountingText.finds == 2
+
+
 @pytest.mark.parametrize("line_end", ["\r\n", "\r"])
 async def test_text_edit_hash_stays_valid_after_inserting_other_line_endings(
     tmp_path: Path, make_controller: MakeControllerFactory, line_end: str

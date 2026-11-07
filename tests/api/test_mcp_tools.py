@@ -315,11 +315,11 @@ async def test_edit_config_applies_edits_in_order_and_returns_the_new_hash(
 
 
 @pytest.mark.parametrize(
-    ("old_text", "count"),
-    [("absent", 0), ("dup", 2)],
+    ("old_text", "found"),
+    [("absent", "0 times"), ("dup", "2 or more times")],
 )
 async def test_edit_config_writes_nothing_unless_old_text_occurs_once(
-    mcp_client: Any, mcp_db: McpStubDeviceBuilder, old_text: str, count: int
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, old_text: str, found: str
 ) -> None:
     file = _devices_on_disk(mcp_db, "a: 1\nb: dup\nc: dup\n")
     is_error, text = await mcp_call(
@@ -335,7 +335,7 @@ async def test_edit_config_writes_nothing_unless_old_text_occurs_once(
         },
     )
     assert is_error
-    assert text.startswith(f"precondition_failed: kitchen.yaml: edit 1 old_text occurs {count} ")
+    assert text.startswith(f"precondition_failed: kitchen.yaml: edit 1 old_text occurs {found},")
     assert file == {"text": "a: 1\nb: dup\nc: dup\n"}
 
 
@@ -353,7 +353,7 @@ async def test_edit_config_counts_overlapping_matches(
         },
     )
     assert is_error
-    assert text.startswith("precondition_failed: kitchen.yaml: edit 0 old_text occurs 2 ")
+    assert text.startswith("precondition_failed: kitchen.yaml: edit 0 old_text occurs 2 or more ")
     assert file == {"text": "aaa\n"}
 
 
