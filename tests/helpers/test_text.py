@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.helpers.text import diff_excerpt, same_text
+from esphome_device_builder.helpers.text import diff_excerpt, same_text, text_hash
 
 
 @pytest.mark.parametrize(
@@ -19,6 +19,17 @@ from esphome_device_builder.helpers.text import diff_excerpt, same_text
 )
 def test_same_text_ignores_only_trailing_newlines(current: str, expected: str, same: bool) -> None:
     assert same_text(current, expected) is same
+
+
+@pytest.mark.parametrize(
+    "text", ["a: 1\nb: 2", "a: 1\nb: 2\n\n", "a: 1\r\nb: 2\r\n", "a: 1\rb: 2\r"]
+)
+def test_text_hash_matches_what_a_read_returns(text: str) -> None:
+    assert text_hash(text) == text_hash("a: 1\nb: 2\n")
+
+
+def test_text_hash_sees_a_real_change() -> None:
+    assert text_hash("a: 1\n") != text_hash("a: 2\n")
 
 
 def test_diff_excerpt_shows_the_changed_lines() -> None:

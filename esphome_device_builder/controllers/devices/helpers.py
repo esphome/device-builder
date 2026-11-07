@@ -160,12 +160,18 @@ def apply_text_edits(text: str, edits: Sequence[dict[str, str]], configuration: 
 
 
 async def persist_if_unchanged(
-    controller: DevicesController, configuration: str, content: str, *, expected: str, message: str
+    controller: DevicesController,
+    configuration: str,
+    content: str,
+    *,
+    expected: str,
+    message: str,
+    require: Callable[[str, str, str], None] = require_unchanged,
 ) -> None:
-    """Save *content* through ``rewrite_yaml`` unless the file no longer holds *expected*."""
+    """Save *content* through ``rewrite_yaml`` unless *require* refuses the file's current text."""
 
     def _replace(current: str) -> tuple[str, None]:
-        require_unchanged(current, expected, configuration)
+        require(current, expected, configuration)
         return content, None
 
     await controller.rewrite_yaml(configuration, _replace, message=message)

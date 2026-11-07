@@ -306,6 +306,7 @@ async def test_edit_config_applies_edits_in_order_and_returns_the_new_hash(
                 {"old_text": "a: 1", "new_text": "a: 3"},
                 {"old_text": "a: 3\nb: 2", "new_text": "c: 4"},
             ],
+            "expected_hash": text_hash("a: 1\nb: 2\n"),
         },
     )
     assert not is_error
@@ -330,6 +331,7 @@ async def test_edit_config_writes_nothing_unless_old_text_occurs_once(
                 {"old_text": "a: 1", "new_text": "a: 2"},
                 {"old_text": old_text, "new_text": "x"},
             ],
+            "expected_hash": text_hash("a: 1\nb: dup\nc: dup\n"),
         },
     )
     assert is_error
@@ -344,7 +346,11 @@ async def test_edit_config_counts_overlapping_matches(
     is_error, text = await mcp_call(
         mcp_client,
         "edit_config",
-        {"configuration": "kitchen.yaml", "edits": [{"old_text": "aa", "new_text": "b"}]},
+        {
+            "configuration": "kitchen.yaml",
+            "edits": [{"old_text": "aa", "new_text": "b"}],
+            "expected_hash": text_hash("aaa\n"),
+        },
     )
     assert is_error
     assert text.startswith("precondition_failed: kitchen.yaml: edit 0 old_text occurs 2 ")
@@ -359,7 +365,11 @@ async def test_edit_config_points_an_empty_file_at_update_config(
     is_error, text = await mcp_call(
         mcp_client,
         "edit_config",
-        {"configuration": "kitchen.yaml", "edits": [{"old_text": "\n", "new_text": "a: 1\n"}]},
+        {
+            "configuration": "kitchen.yaml",
+            "edits": [{"old_text": "\n", "new_text": "a: 1\n"}],
+            "expected_hash": text_hash(empty),
+        },
     )
     assert is_error
     assert text.startswith("precondition_failed: kitchen.yaml is empty; ")
@@ -389,7 +399,7 @@ async def test_edit_config_with_a_stale_hash_writes_nothing(
     ("tool", "args"),
     [
         ("update_config", {"content": "b: 2\n", "expected_hash": "any"}),
-        ("edit_config", {"edits": [{"old_text": "a", "new_text": "b"}]}),
+        ("edit_config", {"edits": [{"old_text": "a", "new_text": "b"}], "expected_hash": "any"}),
     ],
 )
 async def test_config_writes_are_unavailable_until_devices_load(
@@ -407,10 +417,29 @@ async def test_edit_config_refuses_empty_edits_and_old_text(
     file = _devices_on_disk(mcp_db, "a: 1\n")
     for edits in ([], [{"old_text": "", "new_text": "x"}]):
         is_error, text = await mcp_call(
-            mcp_client, "edit_config", {"configuration": "kitchen.yaml", "edits": edits}
+            mcp_client,
+            "edit_config",
+            {
+                "configuration": "kitchen.yaml",
+                "edits": edits,
+                "expected_hash": text_hash("a: 1\n"),
+            },
         )
         assert is_error
         assert text.startswith("invalid_args: ")
+    assert file == {"text": "a: 1\n"}
+
+
+async def test_edit_config_requires_the_hash(mcp_client: Any, mcp_db: McpStubDeviceBuilder) -> None:
+    file = _devices_on_disk(mcp_db, "a: 1\n")
+    is_error, text = await mcp_call(
+        mcp_client,
+        "edit_config",
+        {"configuration": "kitchen.yaml", "edits": [{"old_text": "a: 1", "new_text": "a: 2"}]},
+    )
+    assert is_error
+    assert text.startswith("invalid_args: ")
+    assert "expected_hash" in text
     assert file == {"text": "a: 1\n"}
 
 

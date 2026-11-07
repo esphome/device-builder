@@ -25,8 +25,9 @@ def same_text(current: str, expected: str) -> bool:
 
 
 def text_hash(text: str) -> str:
-    """Return the SHA-256 hex digest of *text* ignoring trailing newlines."""
-    return hashlib.sha256(text.rstrip("\n").encode()).hexdigest()
+    """Return the SHA-256 hex digest of *text* as a read returns it, ignoring trailing newlines."""
+    as_read = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(as_read.rstrip("\n").encode()).hexdigest()
 
 
 def diff_excerpt(expected: str, current: str) -> str:

@@ -11,6 +11,7 @@ from ...constants import SECRETS_FILENAME, is_device_config_name, is_secrets_fil
 from ...controllers.automations.catalog import AUTOMATION_TYPES
 from ...controllers.devices.helpers import (
     apply_text_edits,
+    persist_if_unchanged,
     require_hash_unchanged,
     scanned_component_entries,
 )
@@ -261,20 +262,23 @@ async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
         await _call(
             db, "devices/update_config", **_only(args, "configuration", "content", "expected")
         )
-        return f"Saved {configuration}"
-
-    def _replace(current: str) -> tuple[str, None]:
-        require_hash_unchanged(current, expected_hash, configuration)
-        return args["content"], None
-
-    await _devices(db).rewrite_yaml(configuration, _replace, message=f"Edit {configuration}")
+    else:
+        await persist_if_unchanged(
+            _devices(db),
+            configuration,
+            args["content"],
+            expected=expected_hash,
+            require=require_hash_unchanged,
+            message=f"Edit {configuration}",
+        )
     return f"Saved {configuration}"
 
 
 @_tool(
     "edit_config",
     "Change part of a device's YAML configuration by exact text replacement, without "
-    "sending the whole file. Edits apply in order, each old_text must occur exactly once "
+    "sending the whole file. Read it with get_config with_hash first and pass the sha256 as "
+    "expected_hash. Edits apply in order, each old_text must occur exactly once "
     "when its turn comes, and if any edit fails nothing is written. Run validate_config "
     "or compile afterwards. The previous text stays in the dashboard's version history. "
     "Returns {sha256} of the saved text.",
@@ -298,7 +302,7 @@ async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
         ),
         "expected_hash": _EXPECTED_HASH,
     },
-    ("configuration", "edits"),
+    ("configuration", "edits", "expected_hash"),
 )
 async def _edit_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, str]:
     configuration = args["configuration"]
@@ -306,8 +310,7 @@ async def _edit_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, str
         raise CommandError(ErrorCode.INVALID_ARGS, "edits must not be empty")
 
     def _rewrite(current: str) -> tuple[str, dict[str, str]]:
-        if (expected_hash := args.get("expected_hash")) is not None:
-            require_hash_unchanged(current, expected_hash, configuration)
+        require_hash_unchanged(current, args["expected_hash"], configuration)
         new_text = apply_text_edits(current, args["edits"], configuration)
         return new_text, {"sha256": text_hash(new_text)}
 
