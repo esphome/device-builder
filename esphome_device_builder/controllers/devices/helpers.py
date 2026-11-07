@@ -15,7 +15,7 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_config import raise_device_not_found
 from ...helpers.hostname import default_mdns_address, is_local_hostname, normalize_hostname
-from ...helpers.text import diff_excerpt, same_text
+from ...helpers.text import diff_excerpt, same_text, text_hash
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
 
@@ -41,6 +41,7 @@ __all__ = [
     "_normalize_pin_value",
     "_rewrite_required_yaml_leaf",
     "_validate_archive_configuration",
+    "apply_text_edits",
     "clean_friendly_name",
     "friendly_name_slugify",
     "persist_if_unchanged",
@@ -48,6 +49,7 @@ __all__ = [
     "refuse_empty_write",
     "require_catalog",
     "require_file_exists",
+    "require_hash_unchanged",
     "require_unchanged",
     "scanned_component_entries",
     "slugify_hostname",
@@ -125,13 +127,51 @@ def require_unchanged(current: str, expected: str, configuration: str) -> None:
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
 
 
+def require_hash_unchanged(current: str, expected_hash: str, configuration: str) -> None:
+    """Raise ``PRECONDITION_FAILED`` unless *current* still hashes to *expected_hash*."""
+    if text_hash(current) != expected_hash:
+        msg = f"{configuration} differs from the expected hash; nothing was written, re-read it"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+
+
+def _non_unique_match(text: str, old_text: str) -> str | None:
+    """Say how often *old_text* occurs unless exactly once, overlaps included; else ``None``."""
+    first = text.find(old_text)
+    if first < 0:
+        return "0 times"
+    return None if text.find(old_text, first + 1) < 0 else "2 or more times"
+
+
+def apply_text_edits(text: str, edits: Sequence[dict[str, str]], configuration: str) -> str:
+    """Apply *edits* in order; each ``old_text`` must occur exactly once when its turn comes."""
+    if not text.strip():
+        msg = f"{configuration} is empty; nothing was written, fill it with update_config"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    for index, edit in enumerate(edits):
+        old_text = edit["old_text"]
+        if found := _non_unique_match(text, old_text):
+            msg = (
+                f"{configuration}: edit {index} old_text occurs {found}, not exactly once; "
+                "nothing was written"
+            )
+            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+        text = text.replace(old_text, edit["new_text"])
+    return text
+
+
 async def persist_if_unchanged(
-    controller: DevicesController, configuration: str, content: str, *, expected: str, message: str
+    controller: DevicesController,
+    configuration: str,
+    content: str,
+    *,
+    expected: str,
+    message: str,
+    require: Callable[[str, str, str], None] = require_unchanged,
 ) -> None:
-    """Save *content* through ``rewrite_yaml`` unless the file no longer holds *expected*."""
+    """Save *content* through ``rewrite_yaml`` unless *require* refuses the file's current text."""
 
     def _replace(current: str) -> tuple[str, None]:
-        require_unchanged(current, expected, configuration)
+        require(current, expected, configuration)
         return content, None
 
     await controller.rewrite_yaml(configuration, _replace, message=message)

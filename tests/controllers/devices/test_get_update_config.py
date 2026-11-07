@@ -36,7 +36,12 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import controller as devices_controller
+from esphome_device_builder.controllers.devices.helpers import (
+    apply_text_edits,
+    require_hash_unchanged,
+)
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.text import text_hash
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
@@ -672,3 +677,94 @@ async def test_round_trip_update_then_get_returns_written_content(
     read_back = await controller.get_config(configuration="rt.yaml")
 
     assert read_back == written
+
+
+async def test_rewrite_yaml_with_text_edits_saves_through_the_real_controller(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    def _rewrite(current: str) -> tuple[str, None]:
+        edits = [{"old_text": "name: kitchen", "new_text": "name: k2"}]
+        return apply_text_edits(current, edits, "kitchen.yaml"), None
+
+    await controller.rewrite_yaml("kitchen.yaml", _rewrite, message="Edit kitchen.yaml")
+
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n  name: k2\n"
+    assert regenerated == ["kitchen.yaml"]
+
+
+def test_text_edits_stop_looking_after_the_second_match() -> None:
+    class CountingText(str):
+        __slots__ = ()
+        finds = 0
+
+        def find(self, sub: str, start: int = 0) -> int:  # type: ignore[override]
+            CountingText.finds += 1
+            return super().find(sub, start)
+
+    with pytest.raises(CommandError, match="occurs 2 or more times"):
+        apply_text_edits(CountingText("aaaa"), [{"old_text": "a", "new_text": "b"}], "k.yaml")
+
+    assert CountingText.finds == 2
+
+
+@pytest.mark.parametrize("line_end", ["\r\n", "\r"])
+async def test_text_edit_hash_stays_valid_after_inserting_other_line_endings(
+    tmp_path: Path, make_controller: MakeControllerFactory, line_end: str
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("a: 1\n", encoding="utf-8")
+
+    def _insert(current: str) -> tuple[str, str]:
+        edits = [{"old_text": "a: 1", "new_text": f"a: 2{line_end}b: 3"}]
+        new_text = apply_text_edits(current, edits, "kitchen.yaml")
+        return new_text, text_hash(new_text)
+
+    saved_hash = await controller.rewrite_yaml("kitchen.yaml", _insert, message="Edit")
+
+    def _guarded(current: str) -> tuple[str, None]:
+        require_hash_unchanged(current, saved_hash, "kitchen.yaml")
+        return apply_text_edits(current, [{"old_text": "b: 3", "new_text": "c: 4"}], ""), None
+
+    await controller.rewrite_yaml("kitchen.yaml", _guarded, message="Edit")
+
+    assert await controller.get_config(configuration="kitchen.yaml") == "a: 2\nc: 4\n"
+
+
+async def test_update_config_fills_an_empty_file_read_through_the_real_controller(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("", encoding="utf-8")
+
+    expected = await controller.get_config(configuration="kitchen.yaml")
+    await controller.update_config(
+        configuration="kitchen.yaml", content="esphome:\n", expected=expected
+    )
+
+    assert expected == ""
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n"
+
+
+async def test_rewrite_yaml_refuses_text_edits_that_empty_the_file(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    regenerated = _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n", encoding="utf-8")
+
+    def _rewrite(current: str) -> tuple[str, None]:
+        edits = [{"old_text": "esphome:", "new_text": ""}]
+        return apply_text_edits(current, edits, "kitchen.yaml"), None
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.rewrite_yaml("kitchen.yaml", _rewrite, message="Edit kitchen.yaml")
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGS
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n"
+    assert regenerated == []
