@@ -26,9 +26,12 @@ Coverage targets:
 
 from __future__ import annotations
 
+import asyncio
 import stat
 import sys
+import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -38,6 +41,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import controller as devices_controller
 from esphome_device_builder.controllers.devices.helpers import (
     apply_text_edits,
+    persist_if_unchanged,
     require_hash_unchanged,
 )
 from esphome_device_builder.helpers.api import CommandError
@@ -768,3 +772,51 @@ async def test_rewrite_yaml_refuses_text_edits_that_empty_the_file(
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "esphome:\n"
     assert regenerated == []
+
+
+def _slow_hash_check(current: str, expected_hash: str, configuration: str) -> None:
+    """Check the hash, then hold the file long enough for an unlocked rival to read it too."""
+    require_hash_unchanged(current, expected_hash, configuration)
+    time.sleep(0.05)
+
+
+async def _save_whole_file(controller: DevicesController, content: str, read_hash: str) -> None:
+    await persist_if_unchanged(
+        controller,
+        "kitchen.yaml",
+        content,
+        expected=read_hash,
+        require=_slow_hash_check,
+        message="Edit kitchen.yaml",
+    )
+
+
+async def _save_edit(controller: DevicesController, content: str, read_hash: str) -> None:
+    def _rewrite(current: str) -> tuple[str, None]:
+        _slow_hash_check(current, read_hash, "kitchen.yaml")
+        edits = [{"old_text": "a: 1", "new_text": content.rstrip("\n")}]
+        return apply_text_edits(current, edits, "kitchen.yaml"), None
+
+    await controller.rewrite_yaml("kitchen.yaml", _rewrite, message="Edit kitchen.yaml")
+
+
+@pytest.mark.parametrize("save", [_save_whole_file, _save_edit])
+async def test_two_writes_from_the_same_read_cannot_both_land(
+    tmp_path: Path, make_controller: MakeControllerFactory, save: Any
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    (tmp_path / "kitchen.yaml").write_text("a: 1\n", encoding="utf-8")
+    read_hash = text_hash(await controller.get_config(configuration="kitchen.yaml"))
+
+    results = await asyncio.gather(
+        save(controller, "b: 2\n", read_hash),
+        save(controller, "c: 3\n", read_hash),
+        return_exceptions=True,
+    )
+
+    refused = [r for r in results if isinstance(r, CommandError)]
+    assert len(refused) == 1
+    assert refused[0].code is ErrorCode.PRECONDITION_FAILED
+    winner = "b: 2\n" if results[0] is None else "c: 3\n"
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == winner

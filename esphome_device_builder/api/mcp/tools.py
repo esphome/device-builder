@@ -239,7 +239,7 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
     "small change. Read it with get_config first, pass that text as expected or its "
     "sha256 as expected_hash, and change only what is needed; run validate_config or "
     "compile afterwards. Add or change an automation with upsert_automation instead. "
-    "The previous text stays in the dashboard's version history.",
+    "When version history is on, the previous text stays in it.",
     {
         "configuration": _CONFIGURATION,
         "content": prop("string", "The complete new YAML."),
@@ -280,7 +280,7 @@ async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
     "sending the whole file. Read it with get_config with_hash first and pass the sha256 as "
     "expected_hash. Edits apply in order, each old_text must occur exactly once "
     "when its turn comes, and if any edit fails nothing is written. Run validate_config "
-    "or compile afterwards. The previous text stays in the dashboard's version history. "
+    "or compile afterwards. When version history is on, the previous text stays in it. "
     "Returns {sha256} of the saved text.",
     {
         "configuration": _CONFIGURATION,
