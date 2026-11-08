@@ -27,7 +27,7 @@ from ..models import ErrorCode
 
 _LOGGER = logging.getLogger(__name__)
 _REPOSITORY_FILENAME = "repository.json"
-_UPDATE_PORT = 8080
+_UPDATE_PORT = 6070
 _DEVICE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _VERSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}\Z")
 
