@@ -130,7 +130,14 @@ class FirmwareRepositoryController:
         path = self.root / record["bin"]
         if not await run_in_executor(path.is_file):
             raise web.HTTPNotFound
-        return web.FileResponse(path, headers={"Cache-Control": "public, max-age=60"})
+        return web.FileResponse(
+            path,
+            headers={
+                "Cache-Control": "public, max-age=60",
+                "Content-Disposition": f'attachment; filename="{path.name}"',
+                "Content-Type": "application/octet-stream",
+            },
+        )
 
     async def _http_md5(self, request: web.Request) -> web.Response:
         device = request.query.get("device", "")

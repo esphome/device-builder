@@ -116,6 +116,9 @@ async def test_public_update_routes_serve_published_files_only(
         assert manifest["version"] == "1.0.0"
 
         firmware_response = await client.get("/update/firmware?device=garden&version=1.0.0")
+        assert firmware_response.headers["Content-Disposition"] == (
+            'attachment; filename="1.0.0.bin"'
+        )
         assert await firmware_response.read() == b"first firmware"
 
         md5_response = await client.get("/update/md5?device=garden&version=1.0.0")
