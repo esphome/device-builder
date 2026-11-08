@@ -141,13 +141,17 @@ async def test_save_uses_resolved_substitution_and_package_values(
     firmware = SimpleNamespace(_validate_configuration_boundary=AsyncMock())
     controller._db.devices = devices
     controller._db.firmware = firmware
+    unresolved = _resolved_config("${device_id}", "${fw_version}")
     resolved = _resolved_config("resolved-garden", "7.8.9")
-    resolve_mock = AsyncMock(return_value=(resolved, True))
+    resolve_mock = AsyncMock(return_value=(unresolved, True))
+    subprocess_resolve_mock = AsyncMock(return_value=resolved)
     monkeypatch.setattr(repository_module, "resolve_config", resolve_mock)
+    monkeypatch.setattr(repository_module, "resolve_config_subprocess", subprocess_resolve_mock)
 
     record = await controller.save_firmware(configuration="garden.yaml")
 
     resolve_mock.assert_awaited_once_with(devices, tmp_path / "garden.yaml")
+    subprocess_resolve_mock.assert_awaited_once_with(devices, tmp_path / "garden.yaml")
     assert record["device"] == "resolved-garden"
     assert record["version"] == "7.8.9"
     assert (controller.root / record["yaml"]).is_file()

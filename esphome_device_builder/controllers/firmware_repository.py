@@ -20,10 +20,11 @@ from esphome.storage_json import StorageJSON
 from ..helpers.api import CommandError, api_command
 from ..helpers.async_ import run_in_executor
 from ..helpers.atomic_io import atomic_write_preserving_mode
+from ..helpers.device_yaml import _UNRESOLVED_SUBSTITUTION_RE
 from ..helpers.network_interfaces import resolve_bind_host
 from ..helpers.storage_path import resolve_storage_path
 from ..models import ErrorCode
-from .devices.resolve import resolve_config
+from .devices.resolve import resolve_config, resolve_config_subprocess
 
 _LOGGER = logging.getLogger(__name__)
 _REPOSITORY_FILENAME = "repository.json"
@@ -79,6 +80,11 @@ class FirmwareRepositoryController:
         config, resolved = await resolve_config(
             devices, self._db.settings.config_dir / configuration
         )
+        if resolved and config is not None and _has_unresolved_repository_identity(config):
+            config = await resolve_config_subprocess(
+                devices, self._db.settings.config_dir / configuration
+            )
+            resolved = config is not None
         if not resolved or config is None:
             raise CommandError(ErrorCode.UNAVAILABLE, "Could not fully resolve device YAML")
         async with self._lock:
@@ -354,6 +360,18 @@ def _validate_key(device: str, version: str) -> None:
 
 def _sort_key(record: dict[str, Any]) -> tuple[str, str]:
     return record["device"], record["version"]
+
+
+def _has_unresolved_repository_identity(config: dict[str, Any]) -> bool:
+    esphome_config = config.get("esphome")
+    if not isinstance(esphome_config, dict):
+        return False
+    project = esphome_config.get("project")
+    version = project.get("version") if isinstance(project, dict) else None
+    values = (esphome_config.get("name"), version)
+    return any(
+        isinstance(value, str) and _UNRESOLVED_SUBSTITUTION_RE.search(value) for value in values
+    )
 
 
 def _read_build_info(build_path: Path | None) -> dict[str, Any]:
