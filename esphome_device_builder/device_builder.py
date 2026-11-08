@@ -40,6 +40,7 @@ from .controllers.devices.import_upload import http_import_bundle as devices_htt
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
 from .controllers.firmware.download import http_download as firmware_http_download
+from .controllers.firmware_repository import FirmwareRepositoryController
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
@@ -261,6 +262,7 @@ class DeviceBuilder:
         self.devices: DevicesController | None = None
         self.automations: AutomationsController | None = None
         self.firmware: FirmwareController | None = None
+        self.firmware_repository: FirmwareRepositoryController | None = None
         self.editor: EditorController | None = None
         self.labels: LabelsController | None = None
         self.onboarding: OnboardingController | None = None
@@ -422,6 +424,7 @@ class DeviceBuilder:
             self.devices,
             self.automations,
             self.firmware,
+            self.firmware_repository,
             self.editor,
             self.labels,
             self.onboarding,
@@ -489,6 +492,7 @@ class DeviceBuilder:
         self.devices = DevicesController(self)
         self.automations = AutomationsController(self)
         self.firmware = FirmwareController(self)
+        self.firmware_repository = FirmwareRepositoryController(self)
         self.editor = EditorController(self)
         self.labels = LabelsController(self)
         self.onboarding = OnboardingController(self)
@@ -636,6 +640,8 @@ class DeviceBuilder:
         # runner after this teardown and leak a listener past
         # shutdown.
         await self._remote_build_lifecycle.shutdown()
+        if self.firmware_repository is not None:
+            await self.firmware_repository.stop()
         # Cancel the remote-build browser BEFORE devices.stop()
         # closes the zeroconf socket the browser is using. Same
         # ordering rule as the dashboard advertise just below.
@@ -959,6 +965,7 @@ class DeviceBuilder:
 
         if with_lifecycle:
             app.on_startup.append(self._on_startup)
+            app.on_startup.append(self._start_firmware_repository_site)
             # After init_ws_app's close_active_websockets so WS handlers unwind
             # before the network teardown.
             app.on_shutdown.append(self._on_shutdown)
@@ -975,6 +982,10 @@ class DeviceBuilder:
 
     async def _on_startup(self, app: web.Application) -> None:
         await self.start()
+
+    async def _start_firmware_repository_site(self, app: web.Application) -> None:
+        if self.firmware_repository is not None:
+            await self.firmware_repository.start()
 
     async def _on_cleanup(self, app: web.Application) -> None:
         await self.stop()

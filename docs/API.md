@@ -206,6 +206,22 @@ The import lands the main YAML plus its `!include`s and local external component
 | `firmware/download_token` | `{configuration, file}` | `{token, filename, md5?}` | Mint a single-use token for the HTTP download of one artifact |
 | `firmware/cancel` | `{job_id}` | — | Cancel queued or running job |
 | `firmware/clear` | `{status?}` | — | Remove finished jobs |
+| `firmware_repository/list` | `{}` | `[{device, version, status, yaml, bin, md5, saved_at, published_at?}]` | List stored firmware versions and statuses |
+| `firmware_repository/save` | `{configuration}` | `{device, version, status, yaml, bin, md5, saved_at}` | Copy the compiled `firmware.bin` and YAML into `repos/` as `saved` |
+| `firmware_repository/publish` | `{device, version}` | `{device, version, status, yaml, bin, md5, saved_at, published_at}` | Publish a saved or obsolete version; the previous published version becomes obsolete |
+| `firmware_repository/delete` | `{device, version}` | — | Delete a stored version |
+
+**Firmware repository**: the version key is `esphome.project.version`, falling back to the installed ESPHome version when the key is absent or empty; the repository device key is `esphome.name`. Saving an existing version replaces it only while its status is `saved`; published and obsolete versions are protected. The index is `repos/repository.json`; each device with a published version also has `repos/<device>.json`. Status values are `saved`, `published`, and `obsolete` (the UI can render them as Salvo, Publicado, and Obsoleto).
+
+The unauthenticated update site listens on port `8080`, bound to the configured dashboard host. It exposes only these read-only routes:
+
+| Route | Response |
+|-------|----------|
+| `GET /update/firmware?device=<name>` | The published device JSON (`device`, `version`, `firmware`, `md5`, `published_at`) |
+| `GET /update/firmware?device=<name>&version=<version>` | The published firmware binary |
+| `GET /update/md5?device=<name>&version=<version>` | Lowercase MD5 hex as `text/plain` |
+
+Only the currently published version is available on these public routes; drafts and obsolete versions remain available to authenticated repository-management commands only.
 
 **`firmware/get_binaries`**: returns only artifacts that exist in the build directory (an empty list means "compile first"), each `{title, file, type?, description?}`. `description` is optional subtext from the platform's `get_download_types`. `type` is a stable tag (`factory` / `ota` / `bin` / `uf2` / `elf`) the frontend maps to a localized label, falling back to `title` when absent or unrecognized. A `firmware.elf` entry (debug symbols for the ESP stack trace decoder) is appended when present; `get_download_types` itself never lists it. An nRF52 build's MCUboot update image (`zephyr/app_update.bin`) is appended the same way, since `get_download_types` lists it only for a build with no UF2.
 
