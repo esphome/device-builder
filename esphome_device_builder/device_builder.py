@@ -41,6 +41,9 @@ from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
 from .controllers.firmware.download import http_download as firmware_http_download
 from .controllers.firmware_repository import FirmwareRepositoryController
+from .controllers.firmware_repository import (
+    http_repository_download as firmware_repository_http_download,
+)
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
@@ -936,6 +939,7 @@ class DeviceBuilder:
         # the ingress site). HTTP, not WS, so a large firmware.elf isn't capped
         # by a proxy's WebSocket max_msg_size.
         app.router.add_get("/api/firmware/download", firmware_http_download)
+        app.router.add_get("/api/firmware_repository/download", firmware_repository_http_download)
 
         # HTTP bundle upload. HTTP, not WS, so a large bundle isn't capped by a
         # proxy's WebSocket max_msg_size; its capability token is the auth (see

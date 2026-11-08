@@ -158,6 +158,39 @@ class FirmwareRepositoryController:
             raise web.HTTPNotFound
         return web.Response(text=record["md5"], content_type="text/plain")
 
+    async def _http_repository_download(self, request: web.Request) -> web.StreamResponse:
+        device = request.query.get("device", "")
+        version = request.query.get("version", "")
+        file_type = request.query.get("file", "")
+        try:
+            _validate_key(device, version)
+        except ValueError:
+            raise web.HTTPBadRequest(text="Invalid device or version") from None
+        if file_type not in {"yaml", "bin", "md5"}:
+            raise web.HTTPBadRequest(text="file must be yaml, bin, or md5")
+        async with self._lock:
+            record = await run_in_executor(self._get_record, device, version)
+        if record is None:
+            raise web.HTTPNotFound
+
+        filename = f"{device}-{version}.{file_type}"
+        headers = {
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
+        if file_type == "md5":
+            return web.Response(
+                text=record["md5"],
+                content_type="text/plain",
+                headers=headers,
+            )
+
+        path = self.root / record[file_type]
+        if not await run_in_executor(path.is_file):
+            raise web.HTTPNotFound
+        headers["Content-Type"] = "application/octet-stream"
+        return web.FileResponse(path, headers=headers)
+
     def _load_index(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         index_path = self.root / _REPOSITORY_FILENAME
@@ -271,6 +304,10 @@ class FirmwareRepositoryController:
     def _list_sync(self) -> list[dict[str, Any]]:
         return [dict(record) for record in sorted(self._records.values(), key=_sort_key)]
 
+    def _get_record(self, device: str, version: str) -> dict[str, Any] | None:
+        record = self._records.get((device, version))
+        return dict(record) if record is not None else None
+
     def _resolve_public_record(self, device: str, version: str | None) -> dict[str, Any] | None:
         if version is not None:
             record = self._records.get((device, version))
@@ -336,6 +373,14 @@ def _format_build_time(build_time: Any) -> str | None:
         return datetime.fromtimestamp(build_time, UTC).isoformat()
     except (OverflowError, OSError, ValueError):
         return None
+
+
+async def http_repository_download(request: web.Request) -> web.StreamResponse:
+    db = request.app["device_builder"]
+    controller: FirmwareRepositoryController | None = db.firmware_repository
+    if controller is None:
+        raise web.HTTPServiceUnavailable
+    return await controller._http_repository_download(request)
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:

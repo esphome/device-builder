@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -16,6 +17,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from esphome_device_builder.controllers import firmware_repository as repository_module
 from esphome_device_builder.controllers.firmware_repository import FirmwareRepositoryController
 from esphome_device_builder.helpers.async_ import run_in_executor
+from esphome_device_builder.helpers.auth import auth_middleware
 
 
 def _controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FirmwareRepositoryController:
@@ -191,5 +193,59 @@ async def test_public_update_routes_serve_published_files_only(
         hidden_response = await client.get("/update/firmware?device=garden&version=2.0.0")
         assert hidden_response.status == 404
         assert record["status"] == "saved"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_internal_download_route_serves_yaml_bin_and_md5(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = await run_in_executor(_controller, tmp_path, monkeypatch)
+    await run_in_executor(_write_yaml, tmp_path, "1.0.0")
+    record = await run_in_executor(
+        controller._save_sync, "garden.yaml", _resolved_config("garden", "1.0.0")
+    )
+    settings = SimpleNamespace(
+        using_password=True,
+        check_password=lambda username, password: username == "admin" and password == "test-pass",
+    )
+    auth = SimpleNamespace(
+        rate_limiter=SimpleNamespace(
+            remaining_lockout=lambda _ip: 0,
+            clear=lambda _ip: None,
+            record_failure=lambda _ip: None,
+        )
+    )
+    app = web.Application(middlewares=[auth_middleware])
+    app["device_builder"] = SimpleNamespace(
+        settings=settings, auth=auth, firmware_repository=controller
+    )
+    app.router.add_get(
+        "/api/firmware_repository/download", repository_module.http_repository_download
+    )
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        unauthenticated = await client.get(
+            "/api/firmware_repository/download?device=garden&version=1.0.0&file=bin"
+        )
+        assert unauthenticated.status == 401
+        authorization = "Basic " + base64.b64encode(b"admin:test-pass").decode("ascii")
+        headers = {"Authorization": authorization}
+        for file_type, body in (
+            ("yaml", (controller.root / record["yaml"]).read_bytes()),
+            ("bin", b"first firmware"),
+            ("md5", record["md5"].encode()),
+        ):
+            response = await client.get(
+                f"/api/firmware_repository/download?device=garden&version=1.0.0&file={file_type}",
+                headers=headers,
+            )
+            assert response.status == 200
+            assert response.headers["Content-Disposition"] == (
+                f'attachment; filename="garden-1.0.0.{file_type}"'
+            )
+            assert await response.read() == body
     finally:
         await client.close()
