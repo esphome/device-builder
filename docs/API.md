@@ -206,18 +206,18 @@ The import lands the main YAML plus its `!include`s and local external component
 | `firmware/download_token` | `{configuration, file}` | `{token, filename, md5?}` | Mint a single-use token for the HTTP download of one artifact |
 | `firmware/cancel` | `{job_id}` | — | Cancel queued or running job |
 | `firmware/clear` | `{status?}` | — | Remove finished jobs |
-| `firmware_repository/list` | `{}` | `[{device, version, status, yaml, bin, md5, saved_at, published_at?}]` | List stored firmware versions and statuses |
-| `firmware_repository/save` | `{configuration}` | `{device, version, status, yaml, bin, md5, saved_at}` | Copy the compiled `firmware.bin` and YAML into `repos/` as `saved` |
-| `firmware_repository/publish` | `{device, version}` | `{device, version, status, yaml, bin, md5, saved_at, published_at}` | Publish a saved or obsolete version; the previous published version becomes obsolete |
+| `firmware_repository/list` | `{}` | `[{device, version, status, yaml, bin, md5, saved_at, published_at?, compiled_at?, esphome_version?, config_hash?}]` | List stored firmware versions and statuses |
+| `firmware_repository/save` | `{configuration}` | `FirmwareRepositoryEntry` | Copy the compiled `firmware.bin` and YAML into `repos/` as `saved` |
+| `firmware_repository/publish` | `{device, version}` | `FirmwareRepositoryEntry` | Publish a saved or obsolete version; the previous published version becomes obsolete |
 | `firmware_repository/delete` | `{device, version}` | — | Delete a stored version |
 
-**Firmware repository**: the version key is `esphome.project.version`, falling back to the installed ESPHome version when the key is absent or empty; the repository device key is `esphome.name`. Saving an existing version replaces it only while its status is `saved`; published and obsolete versions are protected. The index is `repos/repository.json`; each device with a published version also has `repos/<device>.json`. Status values are `saved`, `published`, and `obsolete` (the UI can render them as Salvo, Publicado, and Obsoleto).
+**Firmware repository**: `esphome.name` and `esphome.project.version` are read from the resolved configuration, including substitutions and packages. If the project version is absent or empty, the repository key falls back to the ESPHome version recorded for that build. Entries also carry `compiled_at` (UTC from `build_info.json`), `esphome_version`, and `config_hash` (8-character lowercase hex); these are `null` when the build metadata is unavailable. Saving an existing version replaces it only while its status is `saved`; published and obsolete versions are protected. The index is `repos/repository.json`; each device with a published version also has `repos/<device>.json`. Status values are `saved`, `published`, and `obsolete` (the UI can render them as Salvo, Publicado, and Obsoleto).
 
 The unauthenticated update site listens on port `8080`, bound to the configured dashboard host. It exposes only these read-only routes:
 
 | Route | Response |
 |-------|----------|
-| `GET /update/firmware?device=<name>` | The published device JSON (`device`, `version`, `firmware`, `md5`, `published_at`) |
+| `GET /update/firmware?device=<name>` | The published device JSON (`device`, `version`, `firmware`, `md5`, `published_at`, `compiled_at`, `esphome_version`, `config_hash`) |
 | `GET /update/firmware?device=<name>&version=<version>` | The published firmware binary |
 | `GET /update/md5?device=<name>&version=<version>` | Lowercase MD5 hex as `text/plain` |
 

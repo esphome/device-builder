@@ -22,8 +22,8 @@ from ..helpers.async_ import run_in_executor
 from ..helpers.atomic_io import atomic_write_preserving_mode
 from ..helpers.network_interfaces import resolve_bind_host
 from ..helpers.storage_path import resolve_storage_path
-from ..helpers.yaml import load_yaml_fast_then_esphome
 from ..models import ErrorCode
+from .devices.resolve import resolve_config
 
 _LOGGER = logging.getLogger(__name__)
 _REPOSITORY_FILENAME = "repository.json"
@@ -75,9 +75,15 @@ class FirmwareRepositoryController:
     async def save_firmware(self, *, configuration: str, **kwargs: Any) -> dict[str, Any]:
         firmware = self._db.firmware
         await firmware._validate_configuration_boundary(configuration)
+        devices = self._db.devices
+        config, resolved = await resolve_config(
+            devices, self._db.settings.config_dir / configuration
+        )
+        if not resolved or config is None:
+            raise CommandError(ErrorCode.UNAVAILABLE, "Could not fully resolve device YAML")
         async with self._lock:
             try:
-                return await run_in_executor(self._save_sync, configuration)
+                return await run_in_executor(self._save_sync, configuration, config)
             except FileExistsError as err:
                 raise CommandError(ErrorCode.ALREADY_EXISTS, str(err)) from err
             except (OSError, TypeError, ValueError) as err:
@@ -173,19 +179,31 @@ class FirmwareRepositoryController:
             self._records[(device, version)] = record
         self._sync_device_json_files()
 
-    def _save_sync(self, configuration: str) -> dict[str, Any]:
+    def _save_sync(self, configuration: str, config: dict[str, Any]) -> dict[str, Any]:
         source_yaml = self._db.settings.config_dir / configuration
-        config = load_yaml_fast_then_esphome(source_yaml)
         esphome_config = config.get("esphome") if isinstance(config, dict) else None
         if not isinstance(esphome_config, dict):
-            raise TypeError("YAML must define esphome.name and esphome.project.version")
+            raise TypeError("Resolved YAML must define esphome.name")
         project = esphome_config.get("project", {})
         device = esphome_config.get("name")
         version = project.get("version") if isinstance(project, dict) else None
-        if version is None or version == "":
-            version = _installed_esphome_version
-        if not isinstance(device, str) or not isinstance(version, str):
+        if not isinstance(device, str):
             raise TypeError("YAML must define esphome.name")
+
+        storage = StorageJSON.load(resolve_storage_path(configuration))
+        if storage is None or storage.firmware_bin_path is None:
+            raise ValueError("No compiled firmware found; compile the device first")
+        source_bin = Path(storage.firmware_bin_path)
+        if not source_bin.is_file():
+            raise ValueError("Compiled firmware.bin was not found")
+        build_info = _read_build_info(storage.build_path)
+        esphome_version = build_info.get("esphome_version")
+        if not isinstance(esphome_version, str) or not esphome_version:
+            esphome_version = storage.esphome_version or _installed_esphome_version
+        if version is None or version == "":
+            version = esphome_version
+        if not isinstance(version, str):
+            raise TypeError("Resolved esphome.project.version must be a string")
         _validate_key(device, version)
 
         key = (device, version)
@@ -195,12 +213,13 @@ class FirmwareRepositoryController:
                 f"Version {version} for {device} already exists with status {existing['status']}"
             )
 
-        storage = StorageJSON.load(resolve_storage_path(configuration))
-        if storage is None or storage.firmware_bin_path is None:
-            raise ValueError("No compiled firmware found; compile the device first")
-        source_bin = Path(storage.firmware_bin_path)
-        if not source_bin.is_file():
-            raise ValueError("Compiled firmware.bin was not found")
+        config_hash = build_info.get("config_hash")
+        if isinstance(config_hash, int) and not isinstance(config_hash, bool):
+            config_hash = f"{config_hash & 0xFFFFFFFF:08x}"
+        else:
+            config_hash = None
+        build_time = build_info.get("build_time")
+        compiled_at = _format_build_time(build_time)
 
         device_dir = self.root / device
         device_dir.mkdir(parents=True, exist_ok=True)
@@ -216,6 +235,9 @@ class FirmwareRepositoryController:
             "bin": relative_bin.as_posix(),
             "md5": _md5(self.root / relative_bin),
             "saved_at": datetime.now(UTC).isoformat(),
+            "compiled_at": compiled_at,
+            "esphome_version": esphome_version,
+            "config_hash": config_hash,
         }
         self._records[key] = record
         self._write_index()
@@ -276,6 +298,9 @@ class FirmwareRepositoryController:
                 "firmware": f"/update/firmware?device={device}&version={record['version']}",
                 "md5": record["md5"],
                 "published_at": record.get("published_at", ""),
+                "compiled_at": record.get("compiled_at"),
+                "esphome_version": record.get("esphome_version"),
+                "config_hash": record.get("config_hash"),
             }
             _atomic_write_json(self.root / f"{device}.json", payload)
         for path in self.root.glob("*.json"):
@@ -292,6 +317,25 @@ def _validate_key(device: str, version: str) -> None:
 
 def _sort_key(record: dict[str, Any]) -> tuple[str, str]:
     return record["device"], record["version"]
+
+
+def _read_build_info(build_path: Path | None) -> dict[str, Any]:
+    if build_path is None:
+        return {}
+    try:
+        data = json.loads((build_path / "build_info.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _format_build_time(build_time: Any) -> str | None:
+    if not isinstance(build_time, (int, float)) or isinstance(build_time, bool):
+        return None
+    try:
+        return datetime.fromtimestamp(build_time, UTC).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
