@@ -228,6 +228,7 @@ class FirmwareRepositoryController:
         version = project.get("version") if isinstance(project, dict) else None
         if not isinstance(device, str):
             raise TypeError("YAML must define esphome.name")
+        friendly_name = _repository_friendly_name(esphome_config, device)
 
         storage = StorageJSON.load(resolve_storage_path(configuration))
         if storage is None or storage.firmware_bin_path is None:
@@ -268,6 +269,7 @@ class FirmwareRepositoryController:
         _atomic_copy(source_yaml, self.root / relative_yaml)
         record = {
             "device": device,
+            "friendly_name": friendly_name,
             "version": version,
             "status": "saved",
             "yaml": relative_yaml.as_posix(),
@@ -337,6 +339,7 @@ class FirmwareRepositoryController:
             published_devices.add(device)
             payload = {
                 "device": device,
+                "friendly_name": record.get("friendly_name", device),
                 "version": record["version"],
                 "firmware": f"/update/firmware?device={device}&version={record['version']}",
                 "md5": record["md5"],
@@ -362,13 +365,18 @@ def _sort_key(record: dict[str, Any]) -> tuple[str, str]:
     return record["device"], record["version"]
 
 
+def _repository_friendly_name(esphome_config: dict[str, Any], device: str) -> str:
+    value = esphome_config.get("friendly_name")
+    return value if isinstance(value, str) and value.strip() else device
+
+
 def _has_unresolved_repository_identity(config: dict[str, Any]) -> bool:
     esphome_config = config.get("esphome")
     if not isinstance(esphome_config, dict):
         return False
     project = esphome_config.get("project")
     version = project.get("version") if isinstance(project, dict) else None
-    values = (esphome_config.get("name"), version)
+    values = (esphome_config.get("name"), esphome_config.get("friendly_name"), version)
     return any(
         isinstance(value, str) and _UNRESOLVED_SUBSTITUTION_RE.search(value) for value in values
     )

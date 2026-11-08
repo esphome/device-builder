@@ -71,11 +71,16 @@ def _write_resolution_yaml(path: Path) -> None:
     )
 
 
-def _resolved_config(device: str, version: str | None) -> dict[str, Any]:
+def _resolved_config(
+    device: str, version: str | None, friendly_name: str | None = None
+) -> dict[str, Any]:
     project = {"name": "example.garden"}
     if version is not None:
         project["version"] = version
-    return {"esphome": {"name": device, "project": project}}
+    esphome_config: dict[str, Any] = {"name": device, "project": project}
+    if friendly_name is not None:
+        esphome_config["friendly_name"] = friendly_name
+    return {"esphome": esphome_config}
 
 
 def test_save_publish_replace_obsolete_and_delete(
@@ -86,6 +91,7 @@ def test_save_publish_replace_obsolete_and_delete(
 
     first = controller._save_sync("garden.yaml", _resolved_config("garden", "1.0.0"))
     assert first["status"] == "saved"
+    assert first["friendly_name"] == "garden"
     assert first["compiled_at"] == "2025-10-09T08:53:20+00:00"
     assert first["esphome_version"] == "2026.11.0b0"
     assert first["config_hash"] == "1234abcd"
@@ -141,8 +147,8 @@ async def test_save_uses_resolved_substitution_and_package_values(
     firmware = SimpleNamespace(_validate_configuration_boundary=AsyncMock())
     controller._db.devices = devices
     controller._db.firmware = firmware
-    unresolved = _resolved_config("${device_id}", "${fw_version}")
-    resolved = _resolved_config("resolved-garden", "7.8.9")
+    unresolved = _resolved_config("${device_id}", "${fw_version}", "${display_name}")
+    resolved = _resolved_config("resolved-garden", "7.8.9", "Garden Display Name")
     resolve_mock = AsyncMock(return_value=(unresolved, True))
     subprocess_resolve_mock = AsyncMock(return_value=resolved)
     monkeypatch.setattr(repository_module, "resolve_config", resolve_mock)
@@ -154,6 +160,7 @@ async def test_save_uses_resolved_substitution_and_package_values(
     subprocess_resolve_mock.assert_awaited_once_with(devices, tmp_path / "garden.yaml")
     assert record["device"] == "resolved-garden"
     assert record["version"] == "7.8.9"
+    assert record["friendly_name"] == "Garden Display Name"
     assert (controller.root / record["yaml"]).is_file()
 
 
@@ -164,7 +171,9 @@ async def test_public_update_routes_serve_published_files_only(
     controller = await run_in_executor(_controller, tmp_path, monkeypatch)
     await run_in_executor(_write_yaml, tmp_path, "1.0.0")
     record = await run_in_executor(
-        controller._save_sync, "garden.yaml", _resolved_config("garden", "1.0.0")
+        controller._save_sync,
+        "garden.yaml",
+        _resolved_config("garden", "1.0.0", "Garden Display Name"),
     )
     await run_in_executor(controller._publish_sync, "garden", "1.0.0")
 
@@ -178,6 +187,7 @@ async def test_public_update_routes_serve_published_files_only(
         assert manifest_response.status == 200
         manifest: dict[str, Any] = await manifest_response.json()
         assert manifest["version"] == "1.0.0"
+        assert manifest["friendly_name"] == "Garden Display Name"
         assert manifest["compiled_at"] == "2025-10-09T08:53:20+00:00"
         assert manifest["esphome_version"] == "2026.11.0b0"
         assert manifest["config_hash"] == "1234abcd"
