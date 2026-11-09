@@ -44,11 +44,31 @@ class FirmwareRepositoryController:
         self.root = device_builder.settings.config_dir / "repos"
         self._records: dict[tuple[str, str], dict[str, Any]] = {}
         self._lock = asyncio.Lock()
+        self._listener_lock = asyncio.Lock()
+        self._index_loaded = False
         self._runner: web.AppRunner | None = None
 
-    async def start(self) -> None:
-        """Load repository metadata and bind the update listener."""
+    async def start(self, *, public_enabled: bool = False) -> None:
+        """Load repository metadata and bind the listener when enabled."""
         await run_in_executor(self._load_index)
+        self._index_loaded = True
+        if public_enabled:
+            await self.set_public_enabled(enabled=True)
+
+    async def set_public_enabled(self, *, enabled: bool) -> None:
+        """Reconcile the unauthenticated update listener with the preference."""
+        async with self._listener_lock:
+            if not enabled:
+                await self._stop_public_listener()
+                return
+            if self._runner is not None:
+                return
+            if not self._index_loaded:
+                await run_in_executor(self._load_index)
+                self._index_loaded = True
+            await self._start_public_listener()
+
+    async def _start_public_listener(self) -> None:
         app = web.Application()
         app.router.add_get("/update", self._http_update_manifest)
         app.router.add_get("/update/download", self._http_download)
@@ -67,6 +87,10 @@ class FirmwareRepositoryController:
 
     async def stop(self) -> None:
         """Stop the unauthenticated update listener."""
+        async with self._listener_lock:
+            await self._stop_public_listener()
+
+    async def _stop_public_listener(self) -> None:
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None

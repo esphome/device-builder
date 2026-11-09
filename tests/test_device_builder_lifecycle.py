@@ -148,6 +148,8 @@ async def test_firmware_repository_startup_hook_keeps_listener_running(
     make_settings: MakeSettingsFactory,
 ) -> None:
     db = DeviceBuilder(make_settings(with_core_path=True))
+    db.config = MagicMock()
+    db.config.prefs.snapshot.return_value.firmware_repository_public_enabled = False
     repository = MagicMock()
     repository.start = AsyncMock()
     repository.stop = AsyncMock()
@@ -155,7 +157,7 @@ async def test_firmware_repository_startup_hook_keeps_listener_running(
 
     await db._start_firmware_repository_site(MagicMock())
 
-    repository.start.assert_awaited_once()
+    repository.start.assert_awaited_once_with(public_enabled=False)
     repository.stop.assert_not_awaited()
     db._executor.shutdown(wait=True)
     db._executor = None

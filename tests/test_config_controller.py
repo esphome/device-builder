@@ -943,6 +943,31 @@ async def test_set_prefs_toggles_version_history(tmp_path: Path) -> None:
     assert controller.prefs.snapshot().version_history_enabled is False
 
 
+async def test_set_prefs_reconciles_public_firmware_repository_listener(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    repository = SimpleNamespace(set_public_enabled=AsyncMock())
+    controller._db.firmware_repository = repository
+
+    result = await controller.set_prefs(firmware_repository_public_enabled=True)
+
+    assert result.firmware_repository_public_enabled is True
+    assert controller.prefs.snapshot().firmware_repository_public_enabled is True
+    repository.set_public_enabled.assert_awaited_once_with(enabled=True)
+
+
+async def test_set_prefs_public_firmware_listener_failure_leaves_preference_untouched(
+    tmp_path: Path,
+) -> None:
+    controller = _make_controller(tmp_path)
+    repository = SimpleNamespace(set_public_enabled=AsyncMock(side_effect=OSError("bind failed")))
+    controller._db.firmware_repository = repository
+
+    with pytest.raises(OSError, match="bind failed"):
+        await controller.set_prefs(firmware_repository_public_enabled=True)
+
+    assert controller.prefs.snapshot().firmware_repository_public_enabled is False
+
+
 async def test_set_prefs_reconcile_failure_leaves_store_untouched(tmp_path: Path) -> None:
     """Reconcile runs before the write, so a failed set_auto_commit persists nothing."""
     controller = _make_controller(tmp_path, prefs=UserPreferences(theme=Theme.DARK))

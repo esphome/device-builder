@@ -138,6 +138,40 @@ def test_save_falls_back_to_build_esphome_version(
 
 
 @pytest.mark.asyncio
+async def test_public_listener_stays_closed_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = await run_in_executor(_controller, tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        repository_module,
+        "resolve_bind_host",
+        lambda _host: pytest.fail("public update listener must stay closed"),
+    )
+
+    await controller.start()
+
+    assert controller._runner is None
+
+
+@pytest.mark.asyncio
+async def test_public_listener_preference_starts_and_stops_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = await run_in_executor(_controller, tmp_path, monkeypatch)
+    start_listener = AsyncMock()
+    monkeypatch.setattr(controller, "_start_public_listener", start_listener)
+
+    await controller.set_public_enabled(enabled=True)
+    start_listener.assert_awaited_once()
+
+    runner = SimpleNamespace(cleanup=AsyncMock())
+    controller._runner = runner
+    await controller.set_public_enabled(enabled=False)
+    runner.cleanup.assert_awaited_once()
+    assert controller._runner is None
+
+
+@pytest.mark.asyncio
 async def test_save_resolves_substitutions_and_release_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

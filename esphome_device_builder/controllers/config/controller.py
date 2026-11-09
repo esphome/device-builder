@@ -117,13 +117,19 @@ class ConfigController:
         """
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
         version_history = self._db.version_history
-        if "version_history_enabled" in update_fields and version_history is not None:
+        repository = self._db.firmware_repository
+        if ("version_history_enabled" in update_fields and version_history is not None) or (
+            "firmware_repository_public_enabled" in update_fields and repository is not None
+        ):
             # Validate the batch and decode the flag without persisting, then
-            # reconcile the watcher *before* the write lands. A bad field or a
-            # failed reconcile raises with the store untouched — no rollback that
-            # could clobber a concurrent write to another field.
+            # reconcile runtime listeners before the write lands.
             candidate = self.prefs.merged(update_fields)
-            await version_history.set_auto_commit(enabled=candidate.version_history_enabled)
+            if "version_history_enabled" in update_fields and version_history is not None:
+                await version_history.set_auto_commit(enabled=candidate.version_history_enabled)
+            if "firmware_repository_public_enabled" in update_fields and repository is not None:
+                await repository.set_public_enabled(
+                    enabled=candidate.firmware_repository_public_enabled
+                )
         return self.prefs.update(update_fields)
 
     @api_command("config/get_secrets")
