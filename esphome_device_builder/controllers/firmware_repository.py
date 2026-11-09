@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import json
@@ -176,6 +177,26 @@ class FirmwareRepositoryController:
             except OSError as err:
                 raise CommandError(ErrorCode.INTERNAL_ERROR, "Could not delete firmware") from err
 
+    async def rename_configuration(
+        self,
+        old_configuration: str,
+        new_configuration: str,
+        *,
+        new_esphome_name: str | None = None,
+        new_friendly_name: str | None = None,
+    ) -> None:
+        old_device = Path(old_configuration).stem
+        new_device = Path(new_configuration).stem
+        _validate_key(new_device, "rename")
+        async with self._lock:
+            await run_in_executor(
+                self._rename_configuration_sync,
+                old_device,
+                new_device,
+                new_esphome_name,
+                new_friendly_name,
+            )
+
     async def list_access_tokens(self) -> list[dict[str, str]]:
         """List token labels and display hints without exposing credentials."""
         async with self._lock:
@@ -331,8 +352,8 @@ class FirmwareRepositoryController:
             _validate_key(device, version)
         except ValueError:
             raise web.HTTPBadRequest(text="Invalid device or version") from None
-        if file_type not in {"yaml", "bin", "md5"}:
-            raise web.HTTPBadRequest(text="file must be yaml, bin, or md5")
+        if file_type not in {"yaml", "bin", "ota", "factory", "md5"}:
+            raise web.HTTPBadRequest(text="file must be yaml, bin, ota, factory, or md5")
         async with self._lock:
             record = await run_in_executor(self._get_record, device, version)
         if record is None:
@@ -350,7 +371,13 @@ class FirmwareRepositoryController:
                 headers=headers,
             )
 
-        path = self.root / record[file_type]
+        artifact_field = f"{file_type}_bin" if file_type in {"ota", "factory"} else file_type
+        relative_path = record.get(artifact_field)
+        if relative_path is None and file_type == "ota" and record.get("factory_bin") is None:
+            relative_path = record.get("bin")
+        if relative_path is None:
+            raise web.HTTPNotFound
+        path = self.root / relative_path
         if not await run_in_executor(path.is_file):
             raise web.HTTPNotFound
         headers["Content-Type"] = "application/octet-stream"
@@ -363,9 +390,12 @@ class FirmwareRepositoryController:
             self._write_index()
             return
         data = json.loads(index_path.read_text(encoding="utf-8"))
-        for record in data.get("firmwares", []):
+        records = data.get("firmwares", [])
+        for record in records:
             device, version = _validate_repository_record(record)
             self._records[(device, version)] = record
+        if _migrate_legacy_repository_metadata(self.root, self._records):
+            self._write_index()
 
     def _load_access_tokens_sync(self) -> dict[str, dict[str, str]]:
         path = self._db.settings.config_dir / _ALLOWLIST_FILENAME
@@ -453,6 +483,7 @@ class FirmwareRepositoryController:
             config_hash = None
         build_time = build_info.get("build_time")
         compiled_at = _format_build_time(build_time)
+        _ensure_unique_build_date(self._records, key, compiled_at)
         platform = _repository_platform(source_yaml, config, storage)
 
         device_dir = self.root / device
@@ -511,6 +542,45 @@ class FirmwareRepositoryController:
             (self.root / path).unlink(missing_ok=True)
         self._write_index()
 
+    def _rename_configuration_sync(
+        self,
+        old_device: str,
+        new_device: str,
+        new_esphome_name: str | None,
+        new_friendly_name: str | None,
+    ) -> None:
+        source_records = {
+            key: record for key, record in self._records.items() if key[0] == old_device
+        }
+        if not source_records:
+            return
+        replacements, moves = _prepare_repository_rename(
+            self.root,
+            self._records,
+            source_records,
+            old_device,
+            new_device,
+            new_esphome_name,
+            new_friendly_name,
+        )
+        previous_records = self._records
+        updated_records = {
+            key: record for key, record in self._records.items() if key not in source_records
+        }
+        updated_records.update(replacements)
+        moved: list[tuple[Path, Path]] = []
+        try:
+            moved = _move_repository_files(moves)
+            self._records = updated_records
+            self._write_index()
+        except Exception:
+            self._records = previous_records
+            _rollback_repository_files(moved)
+            raise
+        old_directory = self.root / old_device
+        with contextlib.suppress(OSError):
+            old_directory.rmdir()
+
     def _list_sync(self) -> list[dict[str, Any]]:
         return [dict(record) for record in sorted(self._records.values(), key=_sort_key)]
 
@@ -543,6 +613,109 @@ def _validate_key(device: str, version: str) -> None:
         raise ValueError("Invalid device name")
     if not isinstance(version, str) or not _VERSION_RE.fullmatch(version) or version in {".", ".."}:
         raise ValueError("Invalid firmware version")
+
+
+def _ensure_unique_build_date(
+    records: dict[tuple[str, str], dict[str, Any]],
+    key: tuple[str, str],
+    compiled_at: str | None,
+) -> None:
+    if compiled_at is None:
+        return
+    if any(
+        existing_key[0] == key[0]
+        and existing_key != key
+        and record.get("compiled_at") == compiled_at
+        for existing_key, record in records.items()
+    ):
+        raise FileExistsError(f"Build date {compiled_at} already exists for {key[0]}")
+
+
+def _migrate_legacy_repository_metadata(
+    root: Path, records: dict[tuple[str, str], dict[str, Any]]
+) -> bool:
+    changed = False
+    for record in records.values():
+        sibling = max(
+            (
+                candidate
+                for candidate in records.values()
+                if candidate["device"] == record["device"] and candidate is not record
+            ),
+            key=_repository_record_recency,
+            default=None,
+        )
+        for field in ("friendly_name", "platform"):
+            if record.get(field) not in (None, ""):
+                continue
+            value = sibling.get(field) if sibling is not None else None
+            if value not in (None, ""):
+                record[field] = value
+                changed = True
+        if record.get("platform") in (None, ""):
+            yaml_path = root / record["yaml"]
+            if yaml_path.is_file():
+                platform = _platform_from_yaml_file(yaml_path)
+                if platform:
+                    record["platform"] = platform
+                    changed = True
+    return changed
+
+
+def _prepare_repository_rename(
+    root: Path,
+    records: dict[tuple[str, str], dict[str, Any]],
+    source_records: dict[tuple[str, str], dict[str, Any]],
+    old_device: str,
+    new_device: str,
+    new_esphome_name: str | None,
+    new_friendly_name: str | None,
+) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[Path, Path]]:
+    replacements: dict[tuple[str, str], dict[str, Any]] = {}
+    moves: dict[Path, Path] = {}
+    for (_, version), record in source_records.items():
+        new_key = (new_device, version)
+        if new_key in records and new_key not in source_records:
+            raise FileExistsError(f"Firmware repository already contains {new_device} {version}")
+        updated = dict(record)
+        updated["device"] = new_device
+        if new_esphome_name is not None:
+            updated["esphome_name"] = new_esphome_name
+        if new_friendly_name is not None or new_esphome_name is not None:
+            updated["friendly_name"] = new_friendly_name or new_esphome_name
+        for field in ("yaml", "bin", "ota_bin", "factory_bin"):
+            relative_path = record.get(field)
+            if isinstance(relative_path, str) and relative_path.startswith(f"{old_device}/"):
+                renamed_path = f"{new_device}/{relative_path[len(old_device) + 1 :]}"
+                updated[field] = renamed_path
+                moves[root / relative_path] = root / renamed_path
+        replacements[new_key] = updated
+    return replacements, moves
+
+
+def _move_repository_files(moves: dict[Path, Path]) -> list[tuple[Path, Path]]:
+    source_paths = set(moves)
+    for destination in moves.values():
+        if destination.exists() and destination not in source_paths:
+            raise FileExistsError(f"Firmware repository file already exists: {destination}")
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for source, destination in moves.items():
+            if not source.is_file():
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source.replace(destination)
+            moved.append((source, destination))
+    except Exception:
+        _rollback_repository_files(moved)
+        raise
+    return moved
+
+
+def _rollback_repository_files(moved: list[tuple[Path, Path]]) -> None:
+    for source, destination in reversed(moved):
+        source.parent.mkdir(parents=True, exist_ok=True)
+        destination.replace(source)
 
 
 def _validate_repository_record(record: Any) -> tuple[str, str]:
@@ -632,6 +805,12 @@ def _remove_stale_artifact_files(
 
 def _sort_key(record: dict[str, Any]) -> tuple[str, str]:
     return record["device"], record["version"]
+
+
+def _repository_record_recency(record: dict[str, Any]) -> str:
+    return str(
+        record.get("published_at") or record.get("saved_at") or record.get("compiled_at") or ""
+    )
 
 
 def _public_firmware_manifest(

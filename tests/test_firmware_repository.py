@@ -207,7 +207,8 @@ async def test_rename_configuration_moves_repository_key_and_files(
     assert renamed["ota_bin"] == "living-room/1.0.0.ota.bin"
     assert (controller.root / renamed["ota_bin"]).read_bytes() == b"ota firmware"
     assert not (controller.root / record["ota_bin"]).exists()
-    assert (controller.root / "living-room.json").is_file()
+    repository_index = _read_json(controller.root / "repository.json")
+    assert repository_index["firmwares"][0]["device"] == "living-room"
 
 
 @pytest.mark.asyncio
