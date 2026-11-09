@@ -243,6 +243,20 @@ async def migrate_metadata_then_scan(
     """Move the renamed device's metadata before the scan rebuilds it."""
     # The tail flashed the new name; a completed RENAME reaches no other clear.
     controller._clear_deployed_name(old_configuration)
+    repository = controller._db.firmware_repository
+    if repository is not None:
+        try:
+            await repository.rename_configuration(
+                old_configuration,
+                new_configuration,
+                new_esphome_name=Path(new_configuration).stem,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Failed to rename firmware repository entries from %s to %s",
+                old_configuration,
+                new_configuration,
+            )
     await migrate_metadata(controller, old_configuration, new_configuration)
     await rescan_renamed(controller, new_configuration)
 

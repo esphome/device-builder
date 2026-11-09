@@ -137,6 +137,56 @@ def test_save_falls_back_to_build_esphome_version(
     assert record["version"] == "2026.11.0b0"
 
 
+def test_same_esphome_name_in_different_yaml_files_has_separate_repositories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = _controller(tmp_path, monkeypatch)
+    _write_yaml(tmp_path, "1.0.0")
+    (tmp_path / "garden-copy.yaml").write_text(
+        (tmp_path / "garden.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    first = controller._save_sync("garden.yaml", _resolved_config("shared-name", "1.0.0"))
+    second = controller._save_sync("garden-copy.yaml", _resolved_config("shared-name", "1.0.0"))
+
+    assert first["device"] == "garden"
+    assert second["device"] == "garden-copy"
+    assert set(controller._records) == {
+        ("garden", "1.0.0"),
+        ("garden-copy", "1.0.0"),
+    }
+    assert (controller.root / first["bin"]).is_file()
+    assert (controller.root / second["bin"]).is_file()
+
+
+@pytest.mark.asyncio
+async def test_rename_configuration_moves_repository_key_and_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = await run_in_executor(_controller, tmp_path, monkeypatch)
+    await run_in_executor(_write_variants, tmp_path / "build")
+    await run_in_executor(_write_yaml, tmp_path, "1.0.0")
+    record = await run_in_executor(
+        controller._save_sync,
+        "garden.yaml",
+        _resolved_config("garden", "1.0.0"),
+        {"ota": "firmware.ota.bin", "factory": "firmware.factory.bin"},
+    )
+
+    await controller.rename_configuration(
+        "garden.yaml", "living-room.yaml", new_esphome_name="living_room"
+    )
+
+    renamed = controller._records[("living-room", "1.0.0")]
+    assert renamed["device"] == "living-room"
+    assert renamed["esphome_name"] == "living_room"
+    assert renamed["friendly_name"] == "living_room"
+    assert renamed["ota_bin"] == "living-room/1.0.0.ota.bin"
+    assert (controller.root / renamed["ota_bin"]).read_bytes() == b"ota firmware"
+    assert not (controller.root / record["ota_bin"]).exists()
+    assert (controller.root / "living-room.json").is_file()
+
+
 @pytest.mark.asyncio
 async def test_public_listener_stays_closed_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -203,12 +253,51 @@ async def test_save_resolves_substitutions_and_release_metadata(
     )
 
     subprocess_resolve.assert_awaited_once_with(devices, tmp_path / "garden.yaml")
-    assert record["device"] == "resolved-garden"
+    assert record["device"] == "garden"
+    assert record["esphome_name"] == "resolved-garden"
     assert record["friendly_name"] == "Garden Display Name"
     assert record["summary"] == "Garden controller release"
     assert record["release_url"] == "https://example.com/releases/7.8.9"
-    assert record["ota_bin"] == "resolved-garden/7.8.9.ota.bin"
-    assert record["factory_bin"] == "resolved-garden/7.8.9.factory.bin"
+    assert record["ota_bin"] == "garden/7.8.9.ota.bin"
+    assert record["factory_bin"] == "garden/7.8.9.factory.bin"
+
+
+@pytest.mark.asyncio
+async def test_repeated_save_keeps_factory_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = await run_in_executor(_controller, tmp_path, monkeypatch)
+    await run_in_executor(_write_variants, tmp_path / "build")
+    await run_in_executor(_write_yaml, tmp_path, "1.0.0")
+    firmware = SimpleNamespace(
+        _validate_configuration_boundary=AsyncMock(),
+        get_binaries=AsyncMock(
+            return_value=[
+                {"type": "ota", "file": "firmware.ota.bin"},
+                {"type": "factory", "file": "firmware.factory.bin"},
+            ]
+        ),
+    )
+    controller._db.firmware = firmware
+    controller._db.devices = object()
+    monkeypatch.setattr(
+        repository_module,
+        "resolve_config",
+        AsyncMock(return_value=(_resolved_config("garden", "1.0.0"), True)),
+    )
+
+    first = await controller.save_firmware(configuration="garden.yaml")
+    second = await controller.save_firmware(configuration="garden.yaml")
+
+    assert firmware.get_binaries.await_count == 2
+    assert second["factory_bin"] == first["factory_bin"] == "garden/1.0.0.factory.bin"
+    assert (controller.root / second["factory_bin"]).read_bytes() == b"factory firmware"
+
+    reloaded = FirmwareRepositoryController(controller._db)
+    await run_in_executor(reloaded._load_index)
+    persisted = reloaded._records[("garden", "1.0.0")]
+    assert persisted["factory_bin"] == second["factory_bin"]
+    assert persisted["factory_md5"] == second["factory_md5"]
 
 
 @pytest.mark.asyncio
@@ -288,6 +377,7 @@ async def test_device_json_is_private_version_index(
     await run_in_executor(controller._publish_sync, "garden", "1.0.0")
     private_index = await run_in_executor(_read_json, controller.root / "garden.json")
     assert private_index["device"] == "garden"
+    assert private_index["esphome_name"] == "garden"
     assert private_index["firmwares"][0]["version"] == "1.0.0"
     assert private_index["firmwares"][0]["summary"] == "Release one"
     assert "builds" not in private_index
@@ -356,10 +446,11 @@ async def test_load_index_migrates_legacy_public_metadata(
     )
     controller._records[("garden", "1.0.0")] = {
         "device": "garden",
+        "esphome_name": "garden",
         "version": "1.0.0",
         "status": "published",
         "yaml": "garden/1.0.0.yaml",
-        "bin": "garden/1.0.0.bin",
+        "bin": "garden/1.0.0.ota.bin",
         "md5": "0" * 32,
         "ota_bin": "garden/1.0.0.ota.bin",
         "ota_md5": "0" * 32,
@@ -375,3 +466,5 @@ async def test_load_index_migrates_legacy_public_metadata(
     assert migrated["friendly_name"] == "Garden Display Name"
     assert current["platform"] == "esp32"
     assert {entry["version"] for entry in private_index["firmwares"]} == {"1.0.0", "2.0.0"}
+    assert private_index["device"] == "garden"
+    assert private_index["esphome_name"] == "garden"
