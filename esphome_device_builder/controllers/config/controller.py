@@ -119,7 +119,7 @@ class ConfigController:
         version_history = self._db.version_history
         repository = self._db.firmware_repository
         repository_fields = {
-            "firmware_repository_acess_enabled",
+            "firmware_repository_access_enabled",
             "firmware_repository_authenticate_public",
         }
         if ("version_history_enabled" in update_fields and version_history is not None) or (
@@ -132,7 +132,7 @@ class ConfigController:
                 await version_history.set_auto_commit(enabled=candidate.version_history_enabled)
             if repository_fields.intersection(update_fields) and repository is not None:
                 await repository.configure_public_access(
-                    enabled=candidate.firmware_repository_acess_enabled,
+                    enabled=candidate.firmware_repository_access_enabled,
                     authenticate_public=candidate.firmware_repository_authenticate_public,
                 )
         return self.prefs.update(update_fields)

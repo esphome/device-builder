@@ -46,7 +46,7 @@ def _upgrade_legacy_fields(obj: dict[str, Any]) -> dict[str, Any]:
     """Migrate renamed preference keys before decoding stored data."""
     upgraded = dict(obj)
     legacy_key = "firmware_repository_public_enabled"
-    current_key = "firmware_repository_acess_enabled"
+    current_key = "firmware_repository_access_enabled"
     legacy_value = upgraded.pop(legacy_key, None)
     if current_key not in upgraded and isinstance(legacy_value, bool):
         upgraded[current_key] = legacy_value
