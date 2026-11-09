@@ -26,7 +26,10 @@ clients**. The gates that enforce it are:
   Supervisor-only endpoints (`POST /encryption-key`) gate on
   `app["supervisor_channel"]`, set only when an app is created
   both trusted and peer-guarded — i.e. the ingress site; every
-  other site shape refuses them.
+  other site shape refuses them. `/api/mcp` on that channel also
+  checks a presented `Authorization` bearer against the
+  `--mcp-token-file` token; a request without the header still
+  passes, for Home Assistant before 2026.12.
 - The reverse-proxy `--trusted-domains` `Origin` / `Host`
   allowlist (defense against DNS rebinding and browser-driven
   cross-origin attacks).

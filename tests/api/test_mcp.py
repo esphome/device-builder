@@ -129,6 +129,56 @@ async def test_password_gate(
     assert resp.status == status
 
 
+_MCP_TOKEN = "ingress-token"
+
+
+@pytest.mark.parametrize(
+    ("authorization", "status"),
+    [
+        pytest.param(f"Bearer {_MCP_TOKEN}", 200, id="right"),
+        pytest.param("Bearer wrong", 401, id="wrong"),
+        pytest.param(f"Basic {_MCP_TOKEN}", 401, id="not_bearer"),
+        pytest.param("", 401, id="empty"),
+        pytest.param(None, 200, id="absent"),
+    ],
+)
+async def test_supervisor_channel_bearer(
+    mcp_db: McpStubDeviceBuilder,
+    aiohttp_client: AiohttpClient,
+    authorization: str | None,
+    status: int,
+) -> None:
+    mcp_db.settings.mcp_token = _MCP_TOKEN
+    app = make_mcp_app(mcp_db)
+    app["supervisor_channel"] = True
+    mcp_client = await aiohttp_client(app)
+    headers = {} if authorization is None else {"Authorization": authorization}
+    resp = await mcp_client.post(
+        MCP_PATH, json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers=headers
+    )
+    assert resp.status == status
+    if status == 401:
+        assert resp.headers["WWW-Authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize(
+    ("supervisor_channel", "mcp_token"),
+    [pytest.param(False, _MCP_TOKEN, id="off_channel"), pytest.param(True, "", id="no_token")],
+)
+async def test_bearer_is_not_checked_off_channel_or_without_a_token(
+    mcp_db: McpStubDeviceBuilder,
+    aiohttp_client: AiohttpClient,
+    supervisor_channel: bool,
+    mcp_token: str,
+) -> None:
+    mcp_db.settings.mcp_token = mcp_token
+    app = make_mcp_app(mcp_db)
+    app["supervisor_channel"] = supervisor_channel
+    mcp_client = await aiohttp_client(app)
+    reply = await mcp_rpc(mcp_client, method="ping", headers={"Authorization": "Bearer wrong"})
+    assert reply["result"] == {}
+
+
 # ---------------------------------------------------------------------------
 # Server identity and tool registry
 # ---------------------------------------------------------------------------

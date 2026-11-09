@@ -6,6 +6,7 @@ import hmac
 import ipaddress
 import logging
 import os
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -85,6 +86,9 @@ class DashboardSettings:
     unix_socket: str | None = None
     ingress_port: int = DEFAULT_INGRESS_PORT
     ingress_host: str = ""
+    # Bearer token for the HA Ingress site's MCP endpoint, from
+    # ``--mcp-token-file``; empty when the flag isn't set.
+    mcp_token: str = ""
     # Plain-TCP port for the remote-build peer-link receiver site
     # (issue #106). The transport is Noise XX over plain HTTP/WS,
     # not TLS — Noise provides mutual auth + forward secrecy +
@@ -206,6 +210,8 @@ class DashboardSettings:
         self.unix_socket = getattr(args, "socket", None)
         self.ingress_port = getattr(args, "ingress_port", DEFAULT_INGRESS_PORT)
         self.ingress_host = getattr(args, "ingress_host", "") or ""
+        if mcp_token_file := getattr(args, "mcp_token_file", None):
+            self.mcp_token = _load_or_create_token(Path(mcp_token_file))
         # ``--remote-build-port`` (or ``$ESPHOME_REMOTE_BUILD_PORT``).
         # Precedence mirrors ``--trusted-domains`` below: an explicit
         # CLI value (including the default) wins; ``None`` means
@@ -421,3 +427,21 @@ class DashboardSettings:
         username_ok = hmac.compare_digest(username.encode("utf-8"), self.username.encode("utf-8"))
         password_ok = hmac.compare_digest(self.password_hash, hash_password(password))
         return username_ok and password_ok
+
+    def check_mcp_token(self, token: str) -> bool:
+        """Verify *token* against the MCP bearer token in constant time; ``False`` when unset."""
+        if not self.mcp_token:
+            return False
+        # aiohttp decodes header bytes with surrogateescape; this round-trips them.
+        presented = token.encode("utf-8", "surrogateescape")
+        return hmac.compare_digest(presented, self.mcp_token.encode("utf-8"))
+
+
+def _load_or_create_token(path: Path) -> str:
+    """Return the token stored in *path*, writing a fresh one (mode 0600) when missing or empty."""
+    if path.is_file() and (token := path.read_text(encoding="utf-8").strip()):
+        return token
+    token = secrets.token_urlsafe(32)
+    atomic_write_file(path, token, private=True)
+    _LOGGER.info("Generated MCP bearer token at %s", path)
+    return token
