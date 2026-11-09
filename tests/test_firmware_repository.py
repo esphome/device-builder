@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -233,14 +234,15 @@ async def test_public_listener_preference_starts_and_stops_runner(
     start_listener = AsyncMock()
     monkeypatch.setattr(controller, "_start_public_listener", start_listener)
 
-    await controller.set_public_enabled(enabled=True)
+    await controller.configure_public_access(enabled=True, authenticate_public=True)
     start_listener.assert_awaited_once()
 
     runner = SimpleNamespace(cleanup=AsyncMock())
     controller._runner = runner
-    await controller.set_public_enabled(enabled=False)
+    await controller.configure_public_access(enabled=False, authenticate_public=False)
     runner.cleanup.assert_awaited_once()
     assert controller._runner is None
+    assert controller._authenticate_public is False
 
 
 @pytest.mark.asyncio
@@ -394,6 +396,72 @@ async def test_public_manifest_download_and_runtime_md5(
         assert await obsolete_md5.text() == record["factory_md5"]
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_public_update_routes_require_allowlisted_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = await run_in_executor(_controller, tmp_path, monkeypatch)
+    await run_in_executor(_write_variants, tmp_path / "build")
+    await run_in_executor(_write_yaml, tmp_path, "1.0.0")
+    await run_in_executor(
+        controller._save_sync,
+        "garden.yaml",
+        _resolved_config("garden", "1.0.0"),
+        {"ota": "firmware.ota.bin", "factory": "firmware.factory.bin"},
+    )
+    await run_in_executor(controller._publish_sync, "garden", "1.0.0")
+    app = web.Application()
+    app.router.add_get("/update", controller._http_update_manifest)
+    app.router.add_get("/update/firmware", controller._http_firmware)
+    app.router.add_get("/update/md5", controller._http_md5)
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        token_entry = await controller.add_access_token(name="Living room")
+        token = token_entry["token"]
+        assert token_entry["last_four"] == token[-4:]
+        assert "token" not in (await controller.list_access_tokens())[0]
+        token_store = tmp_path / ".device-builder-firmware-allowlist.json"
+        assert stat.S_IMODE(token_store.stat().st_mode) == 0o600
+        controller._authenticate_public = False
+
+        assert (await client.get("/update?device=garden")).status == 401
+        assert (await client.get("/update?device=garden&token=invalid")).status == 401
+        assert (await client.get("/update/firmware?device=garden&type=ota")).status == 401
+        assert (await client.get("/update/md5?device=garden&type=ota")).status == 401
+        manifest_response = await client.get(f"/update?device=garden&token={token}")
+        assert manifest_response.headers["Cache-Control"] == "no-store"
+        manifest = await manifest_response.json()
+        download_path = manifest["builds"][0]["ota"]["path"]
+        assert f"token={token}" in download_path
+        protected_download = await client.get(download_path)
+        assert protected_download.headers["Cache-Control"] == "no-store"
+        assert await protected_download.read() == b"ota firmware"
+        protected_md5 = await client.get(f"/update/md5?device=garden&type=ota&token={token}")
+        assert protected_md5.headers["Cache-Control"] == "no-store"
+        assert await protected_md5.text() == controller._records[("garden", "1.0.0")]["ota_md5"]
+
+        persisted = FirmwareRepositoryController(controller._db)
+        persisted._access_tokens = await run_in_executor(persisted._load_access_tokens_sync)
+        assert await persisted.list_access_tokens() == await controller.list_access_tokens()
+        await controller.delete_access_token(token_id=token_entry["id"])
+        assert (await client.get(f"/update?device=garden&token={token}")).status == 401
+    finally:
+        await client.close()
+
+
+def test_corrupt_firmware_allowlist_is_preserved_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = _controller(tmp_path, monkeypatch)
+    path = tmp_path / ".device-builder-firmware-allowlist.json"
+    path.write_text("{invalid", encoding="utf-8")
+
+    assert controller._load_access_tokens_sync() == {}
+    assert not path.exists()
+    assert path.with_name(path.name + ".corrupt").exists()
 
 
 @pytest.mark.asyncio

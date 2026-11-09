@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import re
+import secrets
 import shutil
 import tempfile
 from datetime import UTC, datetime
@@ -20,7 +22,7 @@ from esphome.storage_json import StorageJSON
 
 from ..helpers.api import CommandError, api_command
 from ..helpers.async_ import run_in_executor
-from ..helpers.atomic_io import atomic_write_preserving_mode
+from ..helpers.atomic_io import atomic_write, atomic_write_preserving_mode
 from ..helpers.device_yaml import _UNRESOLVED_SUBSTITUTION_RE, detect_platform_from_yaml
 from ..helpers.network_interfaces import resolve_bind_host
 from ..helpers.paths import resolve_under_root
@@ -30,6 +32,7 @@ from .devices.resolve import resolve_config, resolve_config_subprocess
 
 _LOGGER = logging.getLogger(__name__)
 _REPOSITORY_FILENAME = "repository.json"
+_ALLOWLIST_FILENAME = ".device-builder-firmware-allowlist.json"
 _UPDATE_PORT = 6070
 _DEVICE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _VERSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}\Z")
@@ -42,21 +45,28 @@ class FirmwareRepositoryController:
         self._db = device_builder
         self.root = device_builder.settings.config_dir / "repos"
         self._records: dict[tuple[str, str], dict[str, Any]] = {}
+        self._access_tokens: dict[str, dict[str, str]] = {}
+        self._authenticate_public = True
         self._lock = asyncio.Lock()
         self._listener_lock = asyncio.Lock()
         self._index_loaded = False
         self._runner: web.AppRunner | None = None
 
-    async def start(self, *, public_enabled: bool = False) -> None:
+    async def start(
+        self, *, access_enabled: bool = False, authenticate_public: bool = True
+    ) -> None:
         """Load repository metadata and bind the listener when enabled."""
         await run_in_executor(self._load_index)
+        self._access_tokens = await run_in_executor(self._load_access_tokens_sync)
         self._index_loaded = True
-        if public_enabled:
-            await self.set_public_enabled(enabled=True)
+        await self.configure_public_access(
+            enabled=access_enabled, authenticate_public=authenticate_public
+        )
 
-    async def set_public_enabled(self, *, enabled: bool) -> None:
-        """Reconcile the unauthenticated update listener with the preference."""
+    async def configure_public_access(self, *, enabled: bool, authenticate_public: bool) -> None:
+        """Reconcile the listener and token-authentication preference."""
         async with self._listener_lock:
+            self._authenticate_public = authenticate_public
             if not enabled:
                 await self._stop_public_listener()
                 return
@@ -73,7 +83,7 @@ class FirmwareRepositoryController:
         app.router.add_get("/update/download", self._http_download)
         app.router.add_get("/update/firmware", self._http_firmware)
         app.router.add_get("/update/md5", self._http_md5)
-        runner = web.AppRunner(app)
+        runner = web.AppRunner(app, access_log=None)
         await runner.setup()
         try:
             for host in resolve_bind_host(self._db.settings.host):
@@ -166,10 +176,49 @@ class FirmwareRepositoryController:
             except OSError as err:
                 raise CommandError(ErrorCode.INTERNAL_ERROR, "Could not delete firmware") from err
 
+    async def list_access_tokens(self) -> list[dict[str, str]]:
+        """List token labels and display hints without exposing credentials."""
+        async with self._lock:
+            return [
+                {key: value for key, value in entry.items() if key != "digest"}
+                for entry in sorted(self._access_tokens.values(), key=lambda item: item["id"])
+            ]
+
+    async def add_access_token(self, *, name: str) -> dict[str, str]:
+        """Create a token and return its secret once with its display metadata."""
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 80:
+            raise ValueError("name must contain 1 to 80 characters")
+        token = secrets.token_urlsafe(32)
+        token_id = secrets.token_urlsafe(9)
+        entry = {
+            "id": token_id,
+            "name": name.strip(),
+            "digest": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            "last_four": token[-4:],
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        async with self._lock:
+            updated = {**self._access_tokens, token_id: entry}
+            await run_in_executor(self._write_access_tokens_sync, updated)
+            self._access_tokens = updated
+        return {key: value for key, value in entry.items() if key != "digest"} | {"token": token}
+
+    async def delete_access_token(self, *, token_id: str) -> None:
+        """Delete an allowlisted token by its public identifier."""
+        if not isinstance(token_id, str) or not token_id:
+            raise ValueError("token_id is required")
+        async with self._lock:
+            if token_id not in self._access_tokens:
+                raise KeyError(token_id)
+            updated = {key: value for key, value in self._access_tokens.items() if key != token_id}
+            await run_in_executor(self._write_access_tokens_sync, updated)
+            self._access_tokens = updated
+
     async def _http_firmware(self, request: web.Request) -> web.StreamResponse:
         return await self._http_download(request)
 
     async def _http_download(self, request: web.Request) -> web.StreamResponse:
+        access_token = await self._authorize_public_request(request)
         device = request.query.get("device", "")
         version = request.query.get("version")
         artifact_type = request.query.get("type", "")
@@ -194,13 +243,14 @@ class FirmwareRepositoryController:
         return web.FileResponse(
             path,
             headers={
-                "Cache-Control": "public, max-age=60",
+                "Cache-Control": "no-store" if access_token else "public, max-age=60",
                 "Content-Disposition": f'attachment; filename="{path.name}"',
                 "Content-Type": "application/octet-stream",
             },
         )
 
     async def _http_update_manifest(self, request: web.Request) -> web.Response:
+        access_token = await self._authorize_public_request(request)
         device = request.query.get("device", "")
         artifact_type = request.query.get("type")
         if not _DEVICE_RE.fullmatch(device) or device in {".", ".."}:
@@ -217,12 +267,14 @@ class FirmwareRepositoryController:
                 platform = await run_in_executor(_platform_from_yaml_file, yaml_path)
                 if platform:
                     record["platform"] = platform
-            manifest = _public_firmware_manifest(record, artifact_type)
+            manifest = _public_firmware_manifest(record, artifact_type, access_token)
         except FileNotFoundError:
             raise web.HTTPNotFound from None
-        return web.json_response(manifest, headers={"Cache-Control": "no-cache"})
+        cache_control = "no-store" if access_token else "no-cache"
+        return web.json_response(manifest, headers={"Cache-Control": cache_control})
 
     async def _http_md5(self, request: web.Request) -> web.Response:
+        access_token = await self._authorize_public_request(request)
         device = request.query.get("device", "")
         version = request.query.get("version")
         artifact_type = request.query.get("type", "")
@@ -249,8 +301,27 @@ class FirmwareRepositoryController:
         return web.Response(
             text=digest,
             content_type="text/plain",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={
+                "Cache-Control": "no-store" if access_token else "public, max-age=60",
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
         )
+
+    async def _authorize_public_request(self, request: web.Request) -> str | None:
+        if self._authenticate_public:
+            return None
+        token = request.query.get("token", "")
+        if not token or len(token) > 512:
+            raise web.HTTPUnauthorized(text="A valid token is required")
+        digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        async with self._lock:
+            allowed = any(
+                hmac.compare_digest(entry["digest"], digest)
+                for entry in self._access_tokens.values()
+            )
+        if not allowed:
+            raise web.HTTPUnauthorized(text="A valid token is required")
+        return token
 
     async def _http_repository_download(self, request: web.Request) -> web.StreamResponse:
         device = request.query.get("device", "")
@@ -295,6 +366,41 @@ class FirmwareRepositoryController:
         for record in data.get("firmwares", []):
             device, version = _validate_repository_record(record)
             self._records[(device, version)] = record
+
+    def _load_access_tokens_sync(self) -> dict[str, dict[str, str]]:
+        path = self._db.settings.config_dir / _ALLOWLIST_FILENAME
+        if not path.exists():
+            return {}
+        invalid_reason = ""
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError) as err:
+            data = {}
+            invalid_reason = str(err)
+        entries = data.get("tokens") if isinstance(data, dict) else None
+        if not isinstance(entries, dict):
+            invalid_reason = invalid_reason or "missing tokens mapping"
+        if invalid_reason:
+            _LOGGER.warning("Ignoring invalid firmware token allowlist: %s", invalid_reason)
+            try:
+                path.replace(path.with_name(path.name + ".corrupt"))
+            except OSError:
+                _LOGGER.warning("Could not preserve invalid token allowlist at %s", path)
+            return {}
+        return {
+            token_id: entry
+            for token_id, entry in entries.items()
+            if isinstance(token_id, str)
+            and isinstance(entry, dict)
+            and all(isinstance(value, str) for value in entry.values())
+            and entry.get("id") == token_id
+            and re.fullmatch(r"[a-f0-9]{64}", entry.get("digest", ""))
+        }
+
+    def _write_access_tokens_sync(self, tokens: dict[str, dict[str, str]]) -> None:
+        path = self._db.settings.config_dir / _ALLOWLIST_FILENAME
+        data = json.dumps({"tokens": tokens}, sort_keys=True, indent=2).encode("utf-8")
+        atomic_write(path, data, mode=0o600, make_parents=True)
 
     def _save_sync(
         self,
@@ -528,7 +634,9 @@ def _sort_key(record: dict[str, Any]) -> tuple[str, str]:
     return record["device"], record["version"]
 
 
-def _public_firmware_manifest(record: dict[str, Any], artifact_type: str | None) -> dict[str, Any]:
+def _public_firmware_manifest(
+    record: dict[str, Any], artifact_type: str | None, access_token: str | None = None
+) -> dict[str, Any]:
     artifact_types = (artifact_type,) if artifact_type is not None else ("ota", "factory")
     chip_family = str(record.get("platform", "unknown")).strip().lower()
     if chip_family.startswith("esp32"):
@@ -542,9 +650,14 @@ def _public_firmware_manifest(record: dict[str, Any], artifact_type: str | None)
             digest = record.get("md5")
         if relative_bin is None or digest is None:
             continue
-        query = urlencode(
-            {"device": record["device"], "version": record["version"], "type": selected_type}
-        )
+        query_params = {
+            "device": record["device"],
+            "version": record["version"],
+            "type": selected_type,
+        }
+        if access_token is not None:
+            query_params["token"] = access_token
+        query = urlencode(query_params)
         artifact = {
             "md5": digest,
             "path": f"/update/firmware?{query}",

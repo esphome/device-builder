@@ -989,12 +989,15 @@ class DeviceBuilder:
 
     async def _start_firmware_repository_site(self, app: web.Application) -> None:
         if self.firmware_repository is not None:
-            public_enabled = (
-                self.config.prefs.snapshot().firmware_repository_public_enabled
-                if self.config is not None
-                else False
+            preferences = self.config.prefs.snapshot() if self.config is not None else None
+            await self.firmware_repository.start(
+                access_enabled=(
+                    preferences.firmware_repository_acess_enabled if preferences else False
+                ),
+                authenticate_public=(
+                    preferences.firmware_repository_authenticate_public if preferences else True
+                ),
             )
-            await self.firmware_repository.start(public_enabled=public_enabled)
 
     async def _on_cleanup(self, app: web.Application) -> None:
         await self.stop()

@@ -39,7 +39,18 @@ def _decode(raw: bytes) -> UserPreferences:
     obj = loads(raw)
     if not isinstance(obj, dict):
         raise TypeError("preferences payload is not a JSON object")
-    return UserPreferences.from_dict(obj)
+    return UserPreferences.from_dict(_upgrade_legacy_fields(obj))
+
+
+def _upgrade_legacy_fields(obj: dict[str, Any]) -> dict[str, Any]:
+    """Migrate renamed preference keys before decoding stored data."""
+    upgraded = dict(obj)
+    legacy_key = "firmware_repository_public_enabled"
+    current_key = "firmware_repository_acess_enabled"
+    legacy_value = upgraded.pop(legacy_key, None)
+    if current_key not in upgraded and isinstance(legacy_value, bool):
+        upgraded[current_key] = legacy_value
+    return upgraded
 
 
 class PreferencesStore:
@@ -198,7 +209,7 @@ class PreferencesStore:
         if _PREFS_KEY not in data:
             return None
         try:
-            return UserPreferences.from_dict(data[_PREFS_KEY])
+            return UserPreferences.from_dict(_upgrade_legacy_fields(data[_PREFS_KEY]))
         except _DECODE_ERRORS:
             _LOGGER.exception(
                 "preferences store: legacy _preferences blob undecodable; left in %s for recovery",

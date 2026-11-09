@@ -149,7 +149,8 @@ async def test_firmware_repository_startup_hook_keeps_listener_running(
 ) -> None:
     db = DeviceBuilder(make_settings(with_core_path=True))
     db.config = MagicMock()
-    db.config.prefs.snapshot.return_value.firmware_repository_public_enabled = False
+    db.config.prefs.snapshot.return_value.firmware_repository_acess_enabled = False
+    db.config.prefs.snapshot.return_value.firmware_repository_authenticate_public = True
     repository = MagicMock()
     repository.start = AsyncMock()
     repository.stop = AsyncMock()
@@ -157,7 +158,7 @@ async def test_firmware_repository_startup_hook_keeps_listener_running(
 
     await db._start_firmware_repository_site(MagicMock())
 
-    repository.start.assert_awaited_once_with(public_enabled=False)
+    repository.start.assert_awaited_once_with(access_enabled=False, authenticate_public=True)
     repository.stop.assert_not_awaited()
     db._executor.shutdown(wait=True)
     db._executor = None
@@ -183,6 +184,9 @@ async def test_start_registers_command_handlers_from_every_controller(
         assert "boards/get_boards" in db.command_handlers  # BoardCatalog
         assert "components/get_components" in db.command_handlers  # ComponentCatalog
         assert "config/version" in db.command_handlers  # ConfigController
+        assert "config/list_firmware_repository_tokens" in db.command_handlers
+        assert "config/add_firmware_repository_token" in db.command_handlers
+        assert "config/delete_firmware_repository_token" in db.command_handlers
         assert "devices/list" in db.command_handlers  # DevicesController
         assert "firmware/compile" in db.command_handlers  # FirmwareController
         assert "firmware/analyze_memory" in db.command_handlers

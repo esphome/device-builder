@@ -118,19 +118,61 @@ class ConfigController:
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
         version_history = self._db.version_history
         repository = self._db.firmware_repository
+        repository_fields = {
+            "firmware_repository_acess_enabled",
+            "firmware_repository_authenticate_public",
+        }
         if ("version_history_enabled" in update_fields and version_history is not None) or (
-            "firmware_repository_public_enabled" in update_fields and repository is not None
+            repository_fields.intersection(update_fields) and repository is not None
         ):
             # Validate the batch and decode the flag without persisting, then
             # reconcile runtime listeners before the write lands.
             candidate = self.prefs.merged(update_fields)
             if "version_history_enabled" in update_fields and version_history is not None:
                 await version_history.set_auto_commit(enabled=candidate.version_history_enabled)
-            if "firmware_repository_public_enabled" in update_fields and repository is not None:
-                await repository.set_public_enabled(
-                    enabled=candidate.firmware_repository_public_enabled
+            if repository_fields.intersection(update_fields) and repository is not None:
+                await repository.configure_public_access(
+                    enabled=candidate.firmware_repository_acess_enabled,
+                    authenticate_public=candidate.firmware_repository_authenticate_public,
                 )
         return self.prefs.update(update_fields)
+
+    @api_command("config/list_firmware_repository_tokens")
+    async def list_firmware_repository_tokens(self, **kwargs: Any) -> list[dict[str, str]]:
+        """List configured firmware access tokens without returning their secrets."""
+        repository = self._db.firmware_repository
+        if repository is None:
+            raise CommandError(ErrorCode.UNAVAILABLE, "Firmware repository is unavailable")
+        return await repository.list_access_tokens()
+
+    @api_command("config/add_firmware_repository_token")
+    async def add_firmware_repository_token(self, *, name: str, **kwargs: Any) -> dict[str, str]:
+        """Create a firmware access token and return the secret once."""
+        repository = self._db.firmware_repository
+        if repository is None:
+            raise CommandError(ErrorCode.UNAVAILABLE, "Firmware repository is unavailable")
+        try:
+            return await repository.add_access_token(name=name)
+        except ValueError as err:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+        except OSError as err:
+            raise CommandError(ErrorCode.INTERNAL_ERROR, "Could not save access token") from err
+
+    @api_command("config/delete_firmware_repository_token")
+    async def delete_firmware_repository_token(self, *, token_id: str, **kwargs: Any) -> dict:
+        """Remove a firmware access token by its identifier."""
+        repository = self._db.firmware_repository
+        if repository is None:
+            raise CommandError(ErrorCode.UNAVAILABLE, "Firmware repository is unavailable")
+        try:
+            await repository.delete_access_token(token_id=token_id)
+        except ValueError as err:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+        except KeyError as err:
+            raise CommandError(ErrorCode.NOT_FOUND, "Firmware access token not found") from err
+        except OSError as err:
+            raise CommandError(ErrorCode.INTERNAL_ERROR, "Could not delete access token") from err
+        return {}
 
     @api_command("config/get_secrets")
     async def get_secrets(self, **kwargs: Any) -> list[str]:
