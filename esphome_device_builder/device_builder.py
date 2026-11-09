@@ -992,7 +992,7 @@ class DeviceBuilder:
             preferences = self.config.prefs.snapshot() if self.config is not None else None
             await self.firmware_repository.start(
                 access_enabled=(
-                    preferences.firmware_repository_acess_enabled if preferences else False
+                    preferences.firmware_repository_access_enabled if preferences else False
                 ),
                 authenticate_public=(
                     preferences.firmware_repository_authenticate_public if preferences else True

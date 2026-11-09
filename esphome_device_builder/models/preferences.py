@@ -101,7 +101,7 @@ class UserPreferences(DashboardModel):
     version_history_enabled: bool = True
 
     # Expose the firmware update API on port 6070.
-    firmware_repository_acess_enabled: bool = False
+    firmware_repository_access_enabled: bool = False
     # Keep update endpoints open, or require an allowlisted token.
     firmware_repository_authenticate_public: bool = True
 

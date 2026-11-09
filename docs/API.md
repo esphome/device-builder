@@ -215,7 +215,7 @@ The import lands the main YAML plus its `!include`s and local external component
 
 The unauthenticated update site listens on port `6070`, bound to the configured dashboard host. It exposes only these read-only routes:
 
-Frontend setting copy: title **Expose public firmware update API**; description **Allow devices on your network to fetch firmware manifests, OTA/factory binaries, and MD5 files. Disabling this closes port 6070.** Bind this switch to `UserPreferences.firmware_repository_acess_enabled` via `config/get_preferences` / `config/set_preferences`.
+Frontend setting copy: title **Expose public firmware update API**; description **Allow devices on your network to fetch firmware manifests, OTA/factory binaries, and MD5 files. Disabling this closes port 6070.** Bind this switch to `UserPreferences.firmware_repository_access_enabled` via `config/get_preferences` / `config/set_preferences`.
 
 The **Allow unauthenticated firmware updates** setting maps to `firmware_repository_authenticate_public`. When `true` (the default), update endpoints keep their existing open access. When `false`, each update request must include an allowlisted `token`. The settings UI can manage credentials with `config/list_firmware_repository_tokens`, `config/add_firmware_repository_token`, and `config/delete_firmware_repository_token`; a new token secret is returned only once by the add command.
 
@@ -391,7 +391,7 @@ Backed by [`controllers/editor.py`](../esphome_device_builder/controllers/editor
 | `config/version` | — | `{server_version, esphome_version}` | Get versions |
 | `config/serial_ports` | — | `[{port, desc, vid, pid, hint}]` | List serial ports. `vid`/`pid` are the USB ids (`null` when unknown); `hint` is `esp` (Espressif native USB), `bridge` (common USB-UART bridge chip), or `null` |
 | `config/get_preferences` | — | `UserPreferences` | Get user preferences |
-| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, hide_device_builder?, version_history_enabled?, firmware_repository_acess_enabled?, firmware_repository_authenticate_public?, device_editor_layout?, secrets_editor_layout?, ...}` | `UserPreferences` | Update preferences (partial). `firmware_repository_acess_enabled` defaults to `false` and controls whether the update listener binds port `6070`; `firmware_repository_authenticate_public` defaults to `true` and, when `false`, requires allowlisted tokens. |
+| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, hide_device_builder?, version_history_enabled?, firmware_repository_access_enabled?, firmware_repository_authenticate_public?, device_editor_layout?, secrets_editor_layout?, ...}` | `UserPreferences` | Update preferences (partial). `firmware_repository_access_enabled` defaults to `false` and controls whether the update listener binds port `6070`; `firmware_repository_authenticate_public` defaults to `true` and, when `false`, requires allowlisted tokens. |
 | `config/list_firmware_repository_tokens` | — | `[{id, name, last_four, created_at}]` | List token metadata; token secrets are never returned |
 | `config/add_firmware_repository_token` | `{name}` | `{id, name, last_four, created_at, token}` | Create a token; the secret is returned once |
 | `config/delete_firmware_repository_token` | `{token_id}` | `{}` | Remove an allowlisted token |

@@ -149,7 +149,7 @@ async def test_firmware_repository_startup_hook_keeps_listener_running(
 ) -> None:
     db = DeviceBuilder(make_settings(with_core_path=True))
     db.config = MagicMock()
-    db.config.prefs.snapshot.return_value.firmware_repository_acess_enabled = False
+    db.config.prefs.snapshot.return_value.firmware_repository_access_enabled = False
     db.config.prefs.snapshot.return_value.firmware_repository_authenticate_public = True
     repository = MagicMock()
     repository.start = AsyncMock()

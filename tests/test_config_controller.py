@@ -949,13 +949,13 @@ async def test_set_prefs_reconciles_public_firmware_repository_listener(tmp_path
     controller._db.firmware_repository = repository
 
     result = await controller.set_prefs(
-        firmware_repository_acess_enabled=True,
+        firmware_repository_access_enabled=True,
         firmware_repository_authenticate_public=False,
     )
 
-    assert result.firmware_repository_acess_enabled is True
+    assert result.firmware_repository_access_enabled is True
     assert result.firmware_repository_authenticate_public is False
-    assert controller.prefs.snapshot().firmware_repository_acess_enabled is True
+    assert controller.prefs.snapshot().firmware_repository_access_enabled is True
     repository.configure_public_access.assert_awaited_once_with(
         enabled=True, authenticate_public=False
     )
@@ -971,9 +971,9 @@ async def test_set_prefs_public_firmware_listener_failure_leaves_preference_unto
     controller._db.firmware_repository = repository
 
     with pytest.raises(OSError, match="bind failed"):
-        await controller.set_prefs(firmware_repository_acess_enabled=True)
+        await controller.set_prefs(firmware_repository_access_enabled=True)
 
-    assert controller.prefs.snapshot().firmware_repository_acess_enabled is False
+    assert controller.prefs.snapshot().firmware_repository_access_enabled is False
 
 
 async def test_firmware_repository_token_commands(tmp_path: Path) -> None:
@@ -999,7 +999,7 @@ async def test_firmware_repository_token_commands(tmp_path: Path) -> None:
 def test_preferences_decode_migrates_old_firmware_repository_switch() -> None:
     prefs = _decode(b'{"firmware_repository_public_enabled":true}')
 
-    assert prefs.firmware_repository_acess_enabled is True
+    assert prefs.firmware_repository_access_enabled is True
     assert prefs.firmware_repository_authenticate_public is True
 
 
