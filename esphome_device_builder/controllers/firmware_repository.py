@@ -12,6 +12,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from aiohttp import web
 from esphome.const import __version__ as _installed_esphome_version
@@ -20,7 +21,7 @@ from esphome.storage_json import StorageJSON
 from ..helpers.api import CommandError, api_command
 from ..helpers.async_ import run_in_executor
 from ..helpers.atomic_io import atomic_write_preserving_mode
-from ..helpers.device_yaml import _UNRESOLVED_SUBSTITUTION_RE
+from ..helpers.device_yaml import _UNRESOLVED_SUBSTITUTION_RE, detect_platform_from_yaml
 from ..helpers.network_interfaces import resolve_bind_host
 from ..helpers.paths import resolve_under_root
 from ..helpers.storage_path import resolve_storage_path
@@ -68,6 +69,8 @@ class FirmwareRepositoryController:
 
     async def _start_public_listener(self) -> None:
         app = web.Application()
+        app.router.add_get("/update", self._http_update_manifest)
+        app.router.add_get("/update/download", self._http_download)
         app.router.add_get("/update/firmware", self._http_firmware)
         app.router.add_get("/update/md5", self._http_md5)
         runner = web.AppRunner(app)
@@ -98,7 +101,14 @@ class FirmwareRepositoryController:
             return await run_in_executor(self._list_sync)
 
     @api_command("firmware_repository/save")
-    async def save_firmware(self, *, configuration: str, **kwargs: Any) -> dict[str, Any]:
+    async def save_firmware(
+        self,
+        *,
+        configuration: str,
+        summary: str = "",
+        release_url: str = "",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         firmware = self._db.firmware
         await firmware._validate_configuration_boundary(configuration)
         devices = self._db.devices
@@ -120,7 +130,9 @@ class FirmwareRepositoryController:
         }
         async with self._lock:
             try:
-                return await run_in_executor(self._save_sync, configuration, config, artifacts)
+                return await run_in_executor(
+                    self._save_sync, configuration, config, artifacts, summary, release_url
+                )
             except FileExistsError as err:
                 raise CommandError(ErrorCode.ALREADY_EXISTS, str(err)) from err
             except (OSError, TypeError, ValueError) as err:
@@ -155,22 +167,28 @@ class FirmwareRepositoryController:
                 raise CommandError(ErrorCode.INTERNAL_ERROR, "Could not delete firmware") from err
 
     async def _http_firmware(self, request: web.Request) -> web.StreamResponse:
+        return await self._http_download(request)
+
+    async def _http_download(self, request: web.Request) -> web.StreamResponse:
         device = request.query.get("device", "")
+        version = request.query.get("version")
+        artifact_type = request.query.get("type", "")
         try:
-            _validate_key(device, request.query.get("version", "latest"))
+            _validate_key(device, "latest" if version is None else version)
         except ValueError:
             raise web.HTTPBadRequest(text="Invalid device or version") from None
-        version = request.query.get("version")
+        if artifact_type not in {"ota", "factory"}:
+            raise web.HTTPBadRequest(text="type must be ota or factory")
         async with self._lock:
             record = await run_in_executor(self._resolve_public_record, device, version)
         if record is None:
             raise web.HTTPNotFound
-        if version is None:
-            path = self.root / f"{device}.json"
-            if not await run_in_executor(path.is_file):
-                raise web.HTTPNotFound
-            return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
-        path = self.root / record["bin"]
+        relative_bin = record.get(f"{artifact_type}_bin")
+        if relative_bin is None and artifact_type == "ota" and record.get("factory_bin") is None:
+            relative_bin = record.get("bin")
+        if relative_bin is None:
+            raise web.HTTPNotFound
+        path = self.root / relative_bin
         if not await run_in_executor(path.is_file):
             raise web.HTTPNotFound
         return web.FileResponse(
@@ -182,18 +200,57 @@ class FirmwareRepositoryController:
             },
         )
 
+    async def _http_update_manifest(self, request: web.Request) -> web.Response:
+        device = request.query.get("device", "")
+        artifact_type = request.query.get("type")
+        if not _DEVICE_RE.fullmatch(device) or device in {".", ".."}:
+            raise web.HTTPBadRequest(text="Invalid device")
+        if artifact_type is not None and artifact_type not in {"ota", "factory"}:
+            raise web.HTTPBadRequest(text="type must be ota or factory")
+        async with self._lock:
+            record = await run_in_executor(self._resolve_public_record, device, None)
+        if record is None:
+            raise web.HTTPNotFound
+        try:
+            if record.get("platform") in {None, "", "unknown"}:
+                yaml_path = resolve_under_root(self.root / record["yaml"], self.root)
+                platform = await run_in_executor(_platform_from_yaml_file, yaml_path)
+                if platform:
+                    record["platform"] = platform
+            manifest = _public_firmware_manifest(record, artifact_type)
+        except FileNotFoundError:
+            raise web.HTTPNotFound from None
+        return web.json_response(manifest, headers={"Cache-Control": "no-cache"})
+
     async def _http_md5(self, request: web.Request) -> web.Response:
         device = request.query.get("device", "")
-        version = request.query.get("version", "")
+        version = request.query.get("version")
+        artifact_type = request.query.get("type", "")
         try:
-            _validate_key(device, version)
+            _validate_key(device, "latest" if version is None else version)
         except ValueError:
             raise web.HTTPBadRequest(text="Invalid device or version") from None
+        if artifact_type not in {"ota", "factory"}:
+            raise web.HTTPBadRequest(text="type must be ota or factory")
         async with self._lock:
             record = await run_in_executor(self._resolve_public_record, device, version)
         if record is None:
             raise web.HTTPNotFound
-        return web.Response(text=record["md5"], content_type="text/plain")
+        relative_bin = record.get(f"{artifact_type}_bin")
+        if relative_bin is None and artifact_type == "ota" and record.get("factory_bin") is None:
+            relative_bin = record.get("bin")
+        if relative_bin is None:
+            raise web.HTTPNotFound
+        path = self.root / relative_bin
+        if not await run_in_executor(path.is_file):
+            raise web.HTTPNotFound
+        digest = await run_in_executor(_md5, path)
+        filename = f"{device}-{record['version']}-{artifact_type}.md5"
+        return web.Response(
+            text=digest,
+            content_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     async def _http_repository_download(self, request: web.Request) -> web.StreamResponse:
         device = request.query.get("device", "")
@@ -238,23 +295,26 @@ class FirmwareRepositoryController:
         for record in data.get("firmwares", []):
             device, version = _validate_repository_record(record)
             self._records[(device, version)] = record
-        self._sync_device_json_files()
 
     def _save_sync(
         self,
         configuration: str,
         config: dict[str, Any],
         artifacts: dict[str, str] | None = None,
+        summary: str = "",
+        release_url: str = "",
     ) -> dict[str, Any]:
         source_yaml = self._db.settings.config_dir / configuration
         esphome_config = config.get("esphome") if isinstance(config, dict) else None
         if not isinstance(esphome_config, dict):
             raise TypeError("Resolved YAML must define esphome.name")
         project = esphome_config.get("project", {})
-        device = esphome_config.get("name")
+        esphome_name = esphome_config.get("name")
+        device = Path(configuration).stem
         version = project.get("version") if isinstance(project, dict) else None
-        if not isinstance(device, str):
+        if not isinstance(esphome_name, str):
             raise TypeError("YAML must define esphome.name")
+        friendly_name = _repository_friendly_name(esphome_config, esphome_name)
 
         storage = StorageJSON.load(resolve_storage_path(configuration))
         if storage is None or storage.firmware_bin_path is None:
@@ -287,6 +347,7 @@ class FirmwareRepositoryController:
             config_hash = None
         build_time = build_info.get("build_time")
         compiled_at = _format_build_time(build_time)
+        platform = _repository_platform(source_yaml, config, storage)
 
         device_dir = self.root / device
         device_dir.mkdir(parents=True, exist_ok=True)
@@ -297,6 +358,11 @@ class FirmwareRepositoryController:
         _atomic_copy(source_yaml, self.root / relative_yaml)
         record = {
             "device": device,
+            "esphome_name": esphome_name,
+            "friendly_name": friendly_name,
+            "platform": platform.strip().lower(),
+            "summary": summary,
+            "release_url": release_url or None,
             "version": version,
             "status": "saved",
             "yaml": relative_yaml.as_posix(),
@@ -311,7 +377,6 @@ class FirmwareRepositoryController:
         self._records[key] = record
         _remove_stale_artifact_files(self.root, existing, record)
         self._write_index()
-        self._sync_device_json_files()
         return dict(record)
 
     def _publish_sync(self, device: str, version: str) -> dict[str, Any]:
@@ -325,7 +390,6 @@ class FirmwareRepositoryController:
         updated[(device, version)]["status"] = "published"
         updated[(device, version)]["published_at"] = datetime.now(UTC).isoformat()
         self._records = updated
-        self._sync_device_json_files()
         self._write_index()
         return dict(self._records[(device, version)])
 
@@ -340,7 +404,6 @@ class FirmwareRepositoryController:
         for path in paths:
             (self.root / path).unlink(missing_ok=True)
         self._write_index()
-        self._sync_device_json_files()
 
     def _list_sync(self) -> list[dict[str, Any]]:
         return [dict(record) for record in sorted(self._records.values(), key=_sort_key)]
@@ -352,7 +415,11 @@ class FirmwareRepositoryController:
     def _resolve_public_record(self, device: str, version: str | None) -> dict[str, Any] | None:
         if version is not None:
             record = self._records.get((device, version))
-            return dict(record) if record is not None and record["status"] == "published" else None
+            return (
+                dict(record)
+                if record is not None and record["status"] in {"published", "obsolete"}
+                else None
+            )
         published = [
             record
             for (record_device, _), record in self._records.items()
@@ -363,27 +430,6 @@ class FirmwareRepositoryController:
     def _write_index(self) -> None:
         data = {"firmwares": self._list_sync()}
         _atomic_write_json(self.root / _REPOSITORY_FILENAME, data)
-
-    def _sync_device_json_files(self) -> None:
-        published_devices: set[str] = set()
-        for (device, _), record in self._records.items():
-            if record["status"] != "published":
-                continue
-            published_devices.add(device)
-            payload = {
-                "device": device,
-                "version": record["version"],
-                "firmware": f"/update/firmware?device={device}&version={record['version']}",
-                "md5": record["md5"],
-                "published_at": record.get("published_at", ""),
-                "compiled_at": record.get("compiled_at"),
-                "esphome_version": record.get("esphome_version"),
-                "config_hash": record.get("config_hash"),
-            }
-            _atomic_write_json(self.root / f"{device}.json", payload)
-        for path in self.root.glob("*.json"):
-            if path.name != _REPOSITORY_FILENAME and path.stem not in published_devices:
-                path.unlink(missing_ok=True)
 
 
 def _validate_key(device: str, version: str) -> None:
@@ -480,6 +526,65 @@ def _remove_stale_artifact_files(
 
 def _sort_key(record: dict[str, Any]) -> tuple[str, str]:
     return record["device"], record["version"]
+
+
+def _public_firmware_manifest(record: dict[str, Any], artifact_type: str | None) -> dict[str, Any]:
+    artifact_types = (artifact_type,) if artifact_type is not None else ("ota", "factory")
+    chip_family = str(record.get("platform", "unknown")).strip().lower()
+    if chip_family.startswith("esp32"):
+        chip_family = "esp32"
+    build: dict[str, Any] = {"chipFamily": chip_family or "unknown"}
+    for selected_type in artifact_types:
+        relative_bin = record.get(f"{selected_type}_bin")
+        digest = record.get(f"{selected_type}_md5")
+        if relative_bin is None and selected_type == "ota" and record.get("factory_bin") is None:
+            relative_bin = record.get("bin")
+            digest = record.get("md5")
+        if relative_bin is None or digest is None:
+            continue
+        query = urlencode(
+            {"device": record["device"], "version": record["version"], "type": selected_type}
+        )
+        artifact = {
+            "md5": digest,
+            "path": f"/update/firmware?{query}",
+            "summary": record.get("summary") or f"ESPHome {selected_type} firmware",
+        }
+        if selected_type == "ota" and record.get("release_url"):
+            artifact["release_url"] = record["release_url"]
+        build[selected_type] = artifact
+    if len(build) == 1:
+        raise FileNotFoundError
+    name = record.get("friendly_name") or record.get("esphome_name") or record["device"]
+    manifest: dict[str, Any] = {
+        "name": name,
+        "version": record["version"],
+        "builds": [build],
+    }
+    return manifest
+
+
+def _platform_from_yaml_file(path: Path) -> str:
+    yaml_content = path.read_text(encoding="utf-8")
+    return detect_platform_from_yaml(yaml_content, None)
+
+
+def _repository_platform(source_yaml: Path, config: dict[str, Any], storage: Any) -> str:
+    platform = detect_platform_from_yaml(source_yaml.read_text(encoding="utf-8"), config)
+    if not platform:
+        platform = str(
+            getattr(storage, "core_platform", None)
+            or getattr(storage, "target_platform", None)
+            or "unknown"
+        )
+    return platform.strip().lower()
+
+
+def _repository_friendly_name(esphome_config: dict[str, Any], esphome_name: str) -> str:
+    friendly_name = esphome_config.get("friendly_name")
+    if isinstance(friendly_name, str) and friendly_name.strip():
+        return friendly_name
+    return esphome_name
 
 
 def _has_unresolved_repository_identity(config: dict[str, Any]) -> bool:

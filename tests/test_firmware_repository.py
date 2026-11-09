@@ -58,7 +58,8 @@ def _controller(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FirmwareRepo
 
 def _write_yaml(config_dir: Path, version: str) -> None:
     (config_dir / "garden.yaml").write_text(
-        f"esphome:\n  name: garden\n  project:\n    name: example.garden\n    version: {version}\n",
+        f"esphome:\n  name: garden\n  project:\n    name: example.garden\n    version: {version}\n"
+        "esp32:\n  board: esp32dev\n",
         encoding="utf-8",
     )
 
@@ -135,6 +136,27 @@ def test_save_falls_back_to_build_esphome_version(
     _write_yaml(tmp_path, "")
     record = controller._save_sync("garden.yaml", _resolved_config("garden", None))
     assert record["version"] == "2026.11.0b0"
+
+
+@pytest.mark.parametrize(
+    ("friendly_name", "expected"),
+    [(None, "garden"), ("Garden display", "Garden display")],
+)
+def test_save_persists_friendly_name_with_esphome_name_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    friendly_name: str | None,
+    expected: str,
+) -> None:
+    controller = _controller(tmp_path, monkeypatch)
+    _write_yaml(tmp_path, "1.0.0")
+
+    record = controller._save_sync(
+        "garden.yaml", _resolved_config("garden", "1.0.0", friendly_name)
+    )
+
+    assert record["esphome_name"] == "garden"
+    assert record["friendly_name"] == expected
 
 
 def test_same_esphome_name_in_different_yaml_files_has_separate_repositories(
@@ -307,6 +329,16 @@ async def test_public_manifest_download_and_runtime_md5(
     controller = await run_in_executor(_controller, tmp_path, monkeypatch)
     await run_in_executor(_write_variants, tmp_path / "build")
     await run_in_executor(_write_yaml, tmp_path, "1.0.0")
+    binary = tmp_path / "build" / "firmware.bin"
+    monkeypatch.setattr(
+        repository_module.StorageJSON,
+        "load",
+        lambda _path: SimpleNamespace(
+            firmware_bin_path=binary,
+            build_path=binary.parent,
+            esphome_version="2026.11.0b0",
+        ),
+    )
     record = await run_in_executor(
         controller._save_sync,
         "garden.yaml",
@@ -316,8 +348,10 @@ async def test_public_manifest_download_and_runtime_md5(
         "https://example.com/releases/1.0.0",
     )
     await run_in_executor(controller._publish_sync, "garden", "1.0.0")
+    controller._records[("garden", "1.0.0")]["platform"] = "unknown"
     app = web.Application()
     app.router.add_get("/update", controller._http_update_manifest)
+    app.router.add_get("/update/firmware", controller._http_firmware)
     app.router.add_get("/update/download", controller._http_download)
     app.router.add_get("/update/md5", controller._http_md5)
     client = TestClient(TestServer(app))
@@ -326,18 +360,21 @@ async def test_public_manifest_download_and_runtime_md5(
         manifest_response = await client.get("/update?device=garden")
         manifest = await manifest_response.json()
         assert manifest["name"] == "Garden Display Name"
-        assert manifest["release_url"] == "https://example.com/releases/1.0.0"
         build = manifest["builds"][0]
         assert build["chipFamily"] == "esp32"
         assert build["ota"]["summary"] == "Garden release 1.0.0"
+        assert build["ota"]["release_url"] == "https://example.com/releases/1.0.0"
         assert build["factory"]["summary"] == "Garden release 1.0.0"
-        assert build["ota"]["path"] == ("/update/download?device=garden&version=1.0.0&type=ota")
+        assert "release_url" not in manifest
+        assert build["ota"]["path"] == ("/update/firmware?device=garden&version=1.0.0&type=ota")
 
-        ota_response = await client.get("/update/download?device=garden&type=ota")
+        ota_response = await client.get("/update/firmware?device=garden&type=ota")
         assert await ota_response.read() == b"ota firmware"
-        factory_response = await client.get("/update/download?device=garden&type=factory")
+        factory_response = await client.get("/update/firmware?device=garden&type=factory")
         assert await factory_response.read() == b"factory firmware"
+        assert (await client.get("/update/firmware?device=garden")).status == 400
         assert (await client.get("/update/download?device=garden")).status == 400
+        assert (await client.get("/update/md5?device=garden")).status == 400
 
         ota_path = controller.root / record["ota_bin"]
         await run_in_executor(ota_path.write_bytes, b"changed image")
@@ -360,7 +397,7 @@ async def test_public_manifest_download_and_runtime_md5(
 
 
 @pytest.mark.asyncio
-async def test_device_json_is_private_version_index(
+async def test_repository_json_is_authoritative_version_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     controller = await run_in_executor(_controller, tmp_path, monkeypatch)
@@ -375,12 +412,11 @@ async def test_device_json_is_private_version_index(
         None,
     )
     await run_in_executor(controller._publish_sync, "garden", "1.0.0")
-    private_index = await run_in_executor(_read_json, controller.root / "garden.json")
-    assert private_index["device"] == "garden"
-    assert private_index["esphome_name"] == "garden"
-    assert private_index["firmwares"][0]["version"] == "1.0.0"
-    assert private_index["firmwares"][0]["summary"] == "Release one"
-    assert "builds" not in private_index
+    repository_index = await run_in_executor(_read_json, controller.root / "repository.json")
+    assert repository_index["firmwares"][0]["device"] == "garden"
+    assert repository_index["firmwares"][0]["version"] == "1.0.0"
+    assert repository_index["firmwares"][0]["summary"] == "Release one"
+    assert not (controller.root / "garden.json").exists()
 
 
 @pytest.mark.asyncio
@@ -460,11 +496,9 @@ async def test_load_index_migrates_legacy_public_metadata(
     await run_in_executor(controller._write_index)
     reloaded = FirmwareRepositoryController(controller._db)
     await run_in_executor(reloaded._load_index)
-    private_index = await run_in_executor(_read_json, reloaded.root / "garden.json")
+    repository_index = await run_in_executor(_read_json, reloaded.root / "repository.json")
     migrated = reloaded._records[("garden", "1.0.0")]
     assert migrated["platform"] == "esp32"
     assert migrated["friendly_name"] == "Garden Display Name"
     assert current["platform"] == "esp32"
-    assert {entry["version"] for entry in private_index["firmwares"]} == {"1.0.0", "2.0.0"}
-    assert private_index["device"] == "garden"
-    assert private_index["esphome_name"] == "garden"
+    assert {entry["version"] for entry in repository_index["firmwares"]} == {"1.0.0", "2.0.0"}
