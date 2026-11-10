@@ -1,1 +1,1 @@
-{"id":"cover.on_opened","name":"Cover → On Opened","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["cover"],"is_device_level":false,"supports_list":true,"config_entries":[]}
+{"id":"cover.on_opened","name":"Cover → On Opened","description":"This trigger is activated each time the cover reaches a fully open state.","docs_url":"https://esphome.io/components/cover/#cover-on_opened-trigger","applies_to":["cover"],"is_device_level":false,"supports_list":true,"config_entries":[]}
