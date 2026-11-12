@@ -72,6 +72,37 @@ def test_emit_manifest_ownership(tmp_path: Path, existing_type: str | None, emit
         assert "name: X" in manifest.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    ("existing_id", "existing_type", "emitted"),
+    [
+        pytest.param("some-board", None, False, id="hyphen_curated_refused"),
+        pytest.param("Some_Board", None, False, id="case_curated_refused"),
+        pytest.param("some-board", "source-b", False, id="hyphen_cross_source_refused"),
+        pytest.param("some-board", "source-a", True, id="hyphen_own_type_emitted"),
+        pytest.param("some_board_2", None, True, id="distinct_id_emitted"),
+    ],
+)
+def test_emit_manifest_refuses_id_spelling_variant(
+    tmp_path: Path, existing_id: str, existing_type: str | None, emitted: bool
+) -> None:
+    _write_manifest(tmp_path, existing_id, existing_type)
+    result = emit_manifest(dict(_RECORD), boards_dir=tmp_path)
+    assert (result is not None) is emitted
+    assert (
+        (tmp_path / existing_id / "manifest.yaml")
+        .read_text(encoding="utf-8")
+        .startswith(f"id: {existing_id}\n")
+    )
+
+
+def test_emit_manifest_refuses_owned_import_once_curated_variant_exists(tmp_path: Path) -> None:
+    """An already-imported board stops re-emitting once a curated spelling variant lands."""
+    owned = _write_manifest(tmp_path, "some_board", "source-a")
+    _write_manifest(tmp_path, "some-board", None)
+    assert emit_manifest(dict(_RECORD), boards_dir=tmp_path) is None
+    assert owned.read_text(encoding="utf-8").startswith("id: some_board\nname: X\n")
+
+
 def test_emit_manifest_preserves_full_config_override(tmp_path: Path) -> None:
     path = _write_manifest(tmp_path, "some_board", "source-a")
     path.write_text(path.read_text(encoding="utf-8") + "full_config: false\n", encoding="utf-8")
