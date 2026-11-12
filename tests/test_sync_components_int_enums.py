@@ -100,3 +100,55 @@ def test_real_cc1101_string_enums_stay_unrefined() -> None:
     refined = sync_components._collect_refined_types(loader.get_component("cc1101"))
     assert ("wait_time",) not in refined
     assert ("filter_length_fsk_msk",) not in refined
+
+
+_BITS = RefinedType("string", option_suffix="bit")
+
+
+def test_literal_unit_before_int_enum_refines_to_suffixed_string() -> None:
+    bits = cv.float_with_unit("bits", "bit")
+    schema = cv.Schema(
+        {
+            cv.Optional("one_of"): cv.All(bits, cv.int_, cv.one_of(8, 16, int=True)),
+            cv.Optional("enum"): cv.All(bits, cv.enum({16: "a", 32: "b"})),
+        }
+    )
+    refined = _refined(schema)
+    assert refined.get(("one_of",)) == _BITS
+    assert refined.get(("enum",)) == _BITS
+
+
+def test_optional_or_grouped_unit_before_int_enum_is_not_suffixed() -> None:
+    schema = cv.Schema(
+        {
+            cv.Optional("optional"): cv.All(
+                cv.float_with_unit("current", "mA", optional_unit=True), cv.one_of(4, 8, int=True)
+            ),
+            cv.Optional("grouped"): cv.All(cv.frequency, cv.one_of(4, 8, int=True)),
+        }
+    )
+    refined = _refined(schema)
+    assert refined[("optional",)].option_suffix is None
+    assert refined[("grouped",)].option_suffix is None
+
+
+def test_apply_suffixes_options_and_retypes_string() -> None:
+    entries = [
+        {
+            "key": "bits_per_sample",
+            "type": "integer",
+            "options": [{"label": "16", "value": "16"}, {"label": "32", "value": "32"}],
+        }
+    ]
+    sync_components._apply_refined_types(entries, {("bits_per_sample",): _BITS})
+    assert entries[0]["type"] == "string"
+    assert entries[0]["options"] == [
+        {"label": "16bit", "value": "16bit"},
+        {"label": "32bit", "value": "32bit"},
+    ]
+
+
+def test_real_i2s_speaker_bits_per_sample_refines_suffixed() -> None:
+    loader = sync_components._get_esphome_loader()
+    refined = sync_components._collect_refined_types(loader.get_platform("speaker", "i2s_audio"))
+    assert refined.get(("bits_per_sample",)) == _BITS
