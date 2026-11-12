@@ -409,12 +409,25 @@ def manifest_collides(record: dict[str, Any], *, boards_dir: Path) -> bool:
 
 def _collides(record: dict[str, Any], manifest_path: Path, prior: dict[str, Any] | None) -> bool:
     """Whether *manifest_path* exists and *prior* (its parse) isn't owned by *record*'s source."""
+    source_type = record["source"]["type"]
     # Hand-curated boards (no ``source.type``) and unparsable files both read as
     # "not imported", so guard on the file existing, not on the parse.
-    return (
-        manifest_path.is_file()
-        and not imported_remote_id(prior, source_type=record["source"]["type"])[0]
+    if manifest_path.is_file():
+        return not imported_remote_id(prior, source_type=source_type)[0]
+    # Board ids differing only in case or separators collide too: a
+    # case-insensitive checkout can't hold both, and the catalog would list the
+    # board twice.
+    key = _id_key(record["id"])
+    return any(
+        _id_key(sibling.parent.name) == key
+        and not is_imported_manifest(sibling, source_type=source_type)[0]
+        for sibling in manifest_path.parent.parent.glob("*/manifest.yaml")
     )
+
+
+def _id_key(board_id: str) -> str:
+    """Return *board_id* folded to lowercase with separators unified."""
+    return re.sub(r"[^a-z0-9]+", "_", board_id.lower()).strip("_")
 
 
 def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
