@@ -30,6 +30,10 @@ featured_components:
   component_id: light.rgb
   fields:
     internal: true
+    effects:
+      value:
+      - pulse: null
+      locked: true
     red: red
     green: green
     blue: blue
@@ -71,5 +75,5 @@ source:
   type: esphome-devices
   remote_id: Hegg-Dongle
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hegg-Dongle/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 1552207cc5ecd8e3123ded4d7893b9923b9e85ffa1dac5c3a0c9210d5e7bfa59

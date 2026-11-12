@@ -27,6 +27,68 @@ featured_components:
 - id: device_name
   component_id: light.rgbw
   fields:
+    effects:
+      value:
+      - random:
+          name: Slow Random Colors
+          transition_length: 30s
+          update_interval: 30s
+      - random:
+          name: Fast Random Colors
+          transition_length: 4s
+          update_interval: 5s
+      - pulse:
+          name: Fast Pulse
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 0%
+          max_brightness: 100%
+      - pulse:
+          name: Slow Pulse
+          transition_length: 500ms
+          update_interval: 2s
+      - strobe:
+          name: Default Strobe
+      - strobe:
+          name: In Alarm
+          colors:
+          - state: true
+            brightness: 100%
+            white: 0%
+            red: 100%
+            blue: 0%
+            green: 0%
+            duration: 150ms
+          - state: false
+            duration: 100ms
+          - state: true
+            brightness: 100%
+            white: 0%
+            red: 100%
+            blue: 0%
+            green: 0%
+            duration: 150ms
+          - state: false
+            duration: 100ms
+          - state: true
+            brightness: 100%
+            white: 0%
+            red: 0%
+            blue: 100%
+            green: 0%
+            duration: 150ms
+          - state: false
+            duration: 100ms
+          - state: true
+            brightness: 100%
+            white: 0%
+            red: 0%
+            blue: 100%
+            green: 0%
+            duration: 150ms
+          - state: false
+            duration: 100ms
+      locked: true
     red: red_channel
     green: green_channel
     blue: blue_channel
@@ -74,5 +136,5 @@ source:
   type: esphome-devices
   remote_id: MagicHome-ZJ-WFMN-A-RGBW
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MagicHome-ZJ-WFMN-A-RGBW/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: c161f92d049a0a213b0a1c9f8d2258fed5174c4ffc4345c277e4fb5503181ecb

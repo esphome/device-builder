@@ -53,5 +53,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-BASIC-R4-v1.0
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-BASIC-R4-v1.0/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 65124ec1c37da8fd94602edfae9e609c6bc064d7efb4115d4253f47c44f442eb

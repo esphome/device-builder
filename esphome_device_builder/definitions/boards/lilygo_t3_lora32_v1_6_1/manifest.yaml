@@ -1,0 +1,60 @@
+id: lilygo_t3_lora32_v1_6_1
+name: LILYGO T3 LoRa32 V1.6.1
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LILYGO-T3-LoRa32-V1.6.1/lilygo-t3-lora32-v1-6-1.webp
+pins:
+- gpio: 5
+  available: false
+  occupied_by: spi
+- gpio: 19
+  available: false
+  occupied_by: spi
+- gpio: 21
+  available: false
+  occupied_by: i2c
+- gpio: 22
+  available: false
+  occupied_by: i2c
+- gpio: 27
+  available: false
+  occupied_by: spi
+docs_url: https://devices.esphome.io/devices/LILYGO-T3-LoRa32-V1.6.1/
+featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 5
+      locked: true
+    mosi_pin:
+      value: 27
+      locked: true
+    miso_pin:
+      value: 19
+      locked: true
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 21
+      locked: true
+    scl:
+      value: 22
+      locked: true
+    frequency: 400kHz
+source:
+  type: esphome-devices
+  remote_id: LILYGO-T3-LoRa32-V1.6.1
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LILYGO-T3-LoRa32-V1.6.1/index.md
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  content_hash: a7a6b50ed76cd79d21310d96df326bd89e1a8bfd8581f80614a61eb2a3911e29

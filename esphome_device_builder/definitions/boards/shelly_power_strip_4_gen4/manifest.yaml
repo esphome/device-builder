@@ -215,5 +215,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Power-Strip-4-Gen4
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Power-Strip-4-Gen4/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 453cec4b753cd6f567798e7ef0e49f06f9db7d5d0ef94523a8c15757bd0b9729

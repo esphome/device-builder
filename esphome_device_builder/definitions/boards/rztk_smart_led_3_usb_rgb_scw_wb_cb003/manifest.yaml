@@ -29,6 +29,58 @@ featured_components:
   component_id: light.rgb
   fields:
     default_transition_length: 1s
+    effects:
+      value:
+      - flicker: null
+      - flicker:
+          name: Flicker Effect With Custom Values
+          alpha: 95%
+          intensity: 1.5%
+      - random: null
+      - random:
+          name: My Slow Random Effect
+          transition_length: 30s
+          update_interval: 30s
+      - random:
+          name: My Fast Random Effect
+          transition_length: 4s
+          update_interval: 5s
+      - pulse: null
+      - pulse:
+          name: Fast Pulse
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 0%
+          max_brightness: 100%
+      - pulse:
+          name: Slow Pulse
+          transition_length: 500ms
+          update_interval: 2s
+      - pulse:
+          name: Asymmetrical Pulse
+          transition_length:
+            on_length: 1s
+            off_length: 500ms
+          update_interval: 1.5s
+      - strobe: null
+      - strobe:
+          name: Strobe Effect With Custom Values
+          colors:
+          - state: true
+            brightness: 100%
+            red: 100%
+            green: 90%
+            blue: 0%
+            duration: 500ms
+          - state: false
+            duration: 250ms
+          - state: true
+            brightness: 100%
+            red: 0%
+            green: 100%
+            blue: 0%
+            duration: 500ms
+      locked: true
     restore_mode: ALWAYS_OFF
     red: output_red
     green: output_green
@@ -85,5 +137,5 @@ source:
   type: esphome-devices
   remote_id: RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 111490fc1fda0de0a3ed9797c0fd2f7a6528c81c12661b28daf86a6381a846c1

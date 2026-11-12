@@ -53,5 +53,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-9W-CCT-LED-Downlight/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 92baa9e4629d5fb00cc4dfbd9437c092a9eb576b4eced75048ab69891012828c

@@ -2253,5 +2253,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-KC868-AIO
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-AIO/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: e039cb5890f0246f284744778b1c8ed3f0cadda9118617462856fc066f2bae5b

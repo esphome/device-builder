@@ -116,6 +116,8 @@ featured_components:
     output: backlight_output
     id: led
     name: LCD Backlight
+  requires:
+  - onboard_psram
 - id: backlight_output
   component_id: output.ledc
   fields:
@@ -128,11 +130,12 @@ featured_bundles:
 - id: led_setup
   name: LCD Backlight (full setup)
   component_ids:
+  - onboard_psram
   - backlight_output
   - led
 source:
   type: esphome-devices
   remote_id: Lilygo-TDisplay-S3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Lilygo-TDisplay-S3/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 30e395b09ce6722634889c46c24aab5877aeef8a3a1acd64a69a04fb6786c405

@@ -110,5 +110,5 @@ source:
   type: esphome-devices
   remote_id: Zemismart-Switch-TB22
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Zemismart-Switch-TB22/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 9c1b80b7ea4fc117fcd8e6cbcc1e66481e479a1f9101adfd52caed825ef1abc5

@@ -1,0 +1,40 @@
+id: waveshare_esp32s3_matrix
+name: Waveshare ESP32-S3 Matrix
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32S3-Matrix/esp32-s3-matrix-1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32S3-Matrix/esp32-s3-matrix-2.jpg
+pins:
+- gpio: 11
+  available: false
+  occupied_by: i2c
+- gpio: 12
+  available: false
+  occupied_by: i2c
+docs_url: https://devices.esphome.io/devices/Waveshare-ESP32S3-Matrix/
+product_url: https://github.com/dala318/esphome-qmi8658/blob/main/led8x8-qmi8658.yaml
+featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 11
+      locked: true
+    scl:
+      value: 12
+      locked: true
+source:
+  type: esphome-devices
+  remote_id: Waveshare-ESP32S3-Matrix
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32S3-Matrix/index.md
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  content_hash: a625f1034c4edcd3b46d7d0b57a65347a58e609fdd3d7294c09ec94eae094ff0

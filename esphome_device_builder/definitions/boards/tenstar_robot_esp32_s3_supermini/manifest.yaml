@@ -49,5 +49,5 @@ source:
   type: esphome-devices
   remote_id: TENSTAR-ROBOT-ESP32-S3-SuperMini
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: be73ebde450dfb159f65d31908fadcd8897428501aa73427334ec0f6457b7523

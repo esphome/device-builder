@@ -46,6 +46,49 @@ featured_components:
 - id: light_rgb_1
   component_id: light.rgb
   fields:
+    effects:
+      value:
+      - random: null
+      - random:
+          name: Slow Random Effect
+          transition_length: 30s
+          update_interval: 30s
+      - random:
+          name: Fast Random Effect
+          transition_length: 4s
+          update_interval: 5s
+      - pulse: null
+      - pulse:
+          name: Fast Pulse
+          transition_length: 0.5s
+          update_interval: 0.5s
+      - pulse:
+          name: Slow Pulse
+          update_interval: 2s
+      - strobe: null
+      - strobe:
+          name: Strobe Effect With Custom Values
+          colors:
+          - state: true
+            brightness: 100%
+            red: 100%
+            green: 90%
+            blue: 0%
+            duration: 500ms
+          - state: false
+            duration: 250ms
+          - state: true
+            brightness: 100%
+            red: 0%
+            green: 100%
+            blue: 0%
+            duration: 500ms
+      - flicker: null
+      - flicker:
+          name: Flicker Effect With Custom Values
+          alpha: 95%
+          intensity: 1.5%
+      locked: true
     red: output_component_red
     green: output_component_green
     blue: output_component_blue
@@ -97,5 +140,5 @@ source:
   type: esphome-devices
   remote_id: Holman-RGB-Wifi
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Holman-RGB-Wifi/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 93e80834d74dc7eb18054607cd90fe72fa8f1d4c4bac1004d26271b8707257a9

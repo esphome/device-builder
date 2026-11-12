@@ -65,5 +65,5 @@ source:
   type: esphome-devices
   remote_id: Aubess-WiFi-Smart-Switch-with-Power-Monitoring
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Aubess-WiFi-Smart-Switch-with-Power-Monitoring/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 463e62b339c7696d2f1c1e7258a42e1fea3f1437055b9329a41291644fda52d0

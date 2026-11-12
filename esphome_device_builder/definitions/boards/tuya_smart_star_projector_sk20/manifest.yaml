@@ -51,6 +51,24 @@ featured_components:
   component_id: light.rgb
   fields:
     restore_mode: ALWAYS_OFF
+    effects:
+      value:
+      - random:
+          transition_length: 2.5s
+          update_interval: 3s
+      - random:
+          name: Random Slow
+          transition_length: 10s
+          update_interval: 5s
+      - flicker:
+          alpha: 95%
+          intensity: 2.5%
+      - strobe: null
+      - pulse:
+          transition_length: 30s
+          min_brightness: 5%
+          max_brightness: 100%
+      locked: true
     red: red
     green: green
     blue: blue
@@ -190,5 +208,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Smart-Star-Projector-SK20
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Smart-Star-Projector-SK20/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 9fa6cd590480f8e82332c792187636a1142fc5fc68fe113681770c90416133b3

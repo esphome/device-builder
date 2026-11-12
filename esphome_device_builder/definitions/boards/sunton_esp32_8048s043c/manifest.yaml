@@ -18,8 +18,26 @@ pins:
 - gpio: 2
   available: false
   occupied_by: backlight_pwm
+- gpio: 19
+  available: false
+  occupied_by: bus_a
+- gpio: 20
+  available: false
+  occupied_by: bus_a
 docs_url: https://devices.esphome.io/devices/Sunton-ESP32-8048S043C/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    scl:
+      value: 20
+      locked: true
+    sda:
+      value: 19
+      locked: true
+    id:
+      value: bus_a
+      locked: true
 - id: onboard_psram
   component_id: psram
   name: PSRAM
@@ -33,6 +51,8 @@ featured_components:
     output: backlight_pwm
     id: back_light
     name: Đèn nền
+  requires:
+  - onboard_psram
 - id: backlight_pwm
   component_id: output.ledc
   fields:
@@ -44,11 +64,12 @@ featured_bundles:
 - id: back_light_setup
   name: Đèn nền (full setup)
   component_ids:
+  - onboard_psram
   - backlight_pwm
   - back_light
 source:
   type: esphome-devices
   remote_id: Sunton-ESP32-8048S043C
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sunton-ESP32-8048S043C/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 36fc76e2e66e8798468845a65530309d34ca8a1b2ff60f5d7b08cd33c6797c8e
