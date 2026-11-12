@@ -1,1 +1,1 @@
-{"id":"valve.on_open","name":"Valve → On Open","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["valve"],"is_device_level":false,"supports_list":true,"config_entries":[]}
+{"id":"valve.on_open","name":"Valve → On Open","description":"This trigger is activated each time the valve reaches a fully open state.","docs_url":"https://esphome.io/components/valve/#valve-on_open-trigger","applies_to":["valve"],"is_device_level":false,"supports_list":true,"config_entries":[]}

@@ -1,1 +1,1 @@
-{"id":"valve.on_closed","name":"Valve → On Closed","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["valve"],"is_device_level":false,"supports_list":true,"config_entries":[]}
+{"id":"valve.on_closed","name":"Valve → On Closed","description":"This trigger is activated each time the valve reaches a fully closed state.","docs_url":"https://esphome.io/components/valve/#valve-on_closed-trigger","applies_to":["valve"],"is_device_level":false,"supports_list":true,"config_entries":[]}
