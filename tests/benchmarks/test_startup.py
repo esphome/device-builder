@@ -97,24 +97,22 @@ def test_parse_one_board_manifest(benchmark: BenchmarkFixture) -> None:
     # ``_load_featured_component`` into a no-op still fails the
     # test (instead of CodSpeed reporting a "speedup" against
     # nothing). Asserting *inside* @benchmark would inflate the
-    # per-iteration cost the benchmark exists to measure. Counts
-    # pinned to the fixture's current shape — update both if the
-    # fixture board grows or shrinks an entry.
+    # per-iteration cost the benchmark exists to measure. The
+    # fixture is a synced import, so compare against its own entries
+    # rather than pinned counts.
     # ``FastestSafeLoader`` is what production now uses (see
     # ``definitions.load_board_catalog``); benchmarking
     # ``yaml.safe_load`` would silently keep measuring the
     # pure-Python loader and miss the ~7-8x C-loader speedup.
     _smoke = yaml.load(_BOARD_MANIFEST_BYTES, Loader=FastestSafeLoader)  # noqa: S506
-    assert len([_load_pin(p, board_id) for p in _smoke.get("pins", [])]) == 4
-    assert (
-        len(
-            [
-                _load_featured_component(fc, _BOARD_DIR)
-                for fc in _smoke.get("featured_components", [])
-            ]
-        )
-        == 5
-    )
+    raw_pins = _smoke["pins"]
+    raw_featured = _smoke["featured_components"]
+    assert raw_pins
+    assert raw_featured
+    assert [_load_pin(p, board_id).gpio for p in raw_pins] == [p["gpio"] for p in raw_pins]
+    assert [_load_featured_component(fc, _BOARD_DIR).id for fc in raw_featured] == [
+        fc["id"] for fc in raw_featured
+    ]
 
     @benchmark
     def run() -> None:
