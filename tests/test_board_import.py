@@ -95,6 +95,14 @@ def test_emit_manifest_refuses_id_spelling_variant(
     )
 
 
+def test_emit_manifest_refuses_owned_import_once_curated_variant_exists(tmp_path: Path) -> None:
+    """An already-imported board stops re-emitting once a curated spelling variant lands."""
+    owned = _write_manifest(tmp_path, "some_board", "source-a")
+    _write_manifest(tmp_path, "some-board", None)
+    assert emit_manifest(dict(_RECORD), boards_dir=tmp_path) is None
+    assert owned.read_text(encoding="utf-8").startswith("id: some_board\nname: X\n")
+
+
 def test_emit_manifest_preserves_full_config_override(tmp_path: Path) -> None:
     path = _write_manifest(tmp_path, "some_board", "source-a")
     path.write_text(path.read_text(encoding="utf-8") + "full_config: false\n", encoding="utf-8")
