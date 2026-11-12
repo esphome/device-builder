@@ -402,13 +402,13 @@ def is_imported_manifest(manifest_path: Path, *, source_type: str) -> tuple[bool
 
 
 def manifest_collides(record: dict[str, Any], *, boards_dir: Path) -> bool:
-    """Whether ``boards/<id>/manifest.yaml`` exists and this record's source doesn't own it."""
+    """Whether an unowned manifest exists at the record's id or a case/separator variant of it."""
     manifest_path = boards_dir / record["id"] / "manifest.yaml"
     return _collides(record, manifest_path, read_manifest_dict(manifest_path))
 
 
 def _collides(record: dict[str, Any], manifest_path: Path, prior: dict[str, Any] | None) -> bool:
-    """Whether *manifest_path* exists and *prior* (its parse) isn't owned by *record*'s source."""
+    """Whether *manifest_path* (parsed as *prior*) or a spelling-variant sibling is unowned."""
     source_type = record["source"]["type"]
     # Hand-curated boards (no ``source.type``) and unparsable files both read as
     # "not imported", so guard on the file existing, not on the parse.
