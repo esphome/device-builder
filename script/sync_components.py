@@ -6732,6 +6732,7 @@ class RefinedType(NamedTuple):
     templatable: bool = False
     duration_min_unit: str | None = None
     drop_options: bool = False
+    option_suffix: str | None = None
 
 
 # Stamp-only refinement: the union is templatable but no plain branch
@@ -7208,6 +7209,7 @@ def _refined_types_in_schema(  # noqa: C901
         # ``cv.enum({"8": ...})`` rejects a bare ``8``) stay unrefined.
         refined = (
             by_identity.get(id(validator))
+            or _unit_suffixed_enum_refined_type(validator)
             or _int_enum_refined_type(validator)
             or (_PLACEHOLDER_OPTIONS if _rejects_own_placeholders(validator) else None)
         )
@@ -7238,7 +7240,7 @@ def _refined_types_in_schema(  # noqa: C901
         # name-by-name registration loop missed because they weren't
         # bound back to a top-level ``cv.<name>`` attribute.
         qualname = getattr(validator, "__qualname__", "") or ""
-        if "float_with_unit" in qualname:
+        if _is_float_with_unit(validator):
             units = _extract_validator_units(validator)
             if units:
                 return RefinedType("float_with_unit", unit_options=units)
@@ -7492,6 +7494,58 @@ def _int_enum_refined_type(validator: Any) -> RefinedType | None:
     if values and all(type(v) is int for v in values):
         return RefinedType("integer")
     return None
+
+
+def _unit_suffixed_enum_refined_type(validator: Any) -> RefinedType | None:
+    """Return a suffixed ``string`` refinement for a literal-unit validator chained before an int enum."""
+    if not isinstance(validator, vol.All):
+        return None
+    suffix: str | None = None
+    for link in validator.validators:
+        if suffix is None:
+            suffix = _literal_unit_suffix(link)
+        elif _int_enum_refined_type(link) is not None:
+            return RefinedType("string", option_suffix=suffix)
+    return None
+
+
+# ``cv.float_with_unit``'s pattern is ``<mantissa>`` + this + ``regex_suffix`` + ``$``.
+_FLOAT_WITH_UNIT_PREFIX_GROUP = r"\s*(\w*?)"
+
+
+def _is_float_with_unit(validator: Any) -> bool:
+    """Return whether *validator* is a ``cv.float_with_unit`` closure."""
+    return "float_with_unit" in (getattr(validator, "__qualname__", "") or "")
+
+
+def _literal_unit_suffix(validator: Any) -> str | None:
+    """
+    Return the mandatory literal unit of a ``cv.float_with_unit`` closure, else None.
+
+    An unreadable closure or pattern fails the sync rather than shipping bare options.
+    """
+    if not _is_float_with_unit(validator):
+        return None
+    try:
+        nonlocals = _closure_nonlocals(validator)
+    except ValueError:
+        nonlocals = {}
+    if nonlocals.get("optional_unit"):
+        return None
+    pattern = nonlocals.get("pattern")
+    source = pattern.pattern if isinstance(pattern, re.Pattern) else ""
+    _, sep, tail = source.rpartition(_FLOAT_WITH_UNIT_PREFIX_GROUP)
+    if "optional_unit" not in nonlocals or not sep or not tail.endswith("$"):
+        # SystemExit so ``build_catalog``'s blanket ``except Exception`` can't swallow it.
+        raise SystemExit(
+            f"cv.float_with_unit internals changed upstream ({validator!r}); "
+            "update _literal_unit_suffix."
+        )
+    suffix = tail[:-1]
+    # A regex group (``(Hz|hz)?``) is a unit picker, not a literal.
+    if re.escape(suffix) != suffix or not _SUFFIX_UNIT_RE.match(suffix):
+        return None
+    return suffix
 
 
 def _extract_enum_values(validator: Any) -> list[Any] | None:
@@ -8141,7 +8195,11 @@ def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
     if new_type.type == "time_period":
         # Carries only ``duration_min_unit``; never retypes an entry.
         return
-    if new_type.type == "float_with_unit":
+    if new_type.option_suffix:
+        # The validator rejects the bare number, so every option carries the unit.
+        entry["type"] = new_type.type
+        _suffix_options(entry, new_type.option_suffix)
+    elif new_type.type == "float_with_unit":
         # Always apply — see the caller's docstring. Carries
         # unit_options the schema bundle can't represent.
         entry["type"] = new_type.type
@@ -8159,6 +8217,13 @@ def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
             _stamp_display_format(entry, new_type)
     elif entry.get("type") == "integer":
         _stamp_display_format(entry, new_type)
+
+
+def _suffix_options(entry: dict, suffix: str) -> None:
+    """Append *suffix* to every option's value and label."""
+    for option in entry.get("options") or []:
+        for key in ("value", "label"):
+            option[key] = f"{option[key]}{suffix}"
 
 
 def _stamp_display_format(entry: dict, new_type: RefinedType) -> None:
