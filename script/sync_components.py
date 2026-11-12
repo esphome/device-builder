@@ -7519,19 +7519,28 @@ def _is_float_with_unit(validator: Any) -> bool:
 
 
 def _literal_unit_suffix(validator: Any) -> str | None:
-    """Return the mandatory literal unit of a ``cv.float_with_unit`` closure, else None."""
+    """
+    Return the mandatory literal unit of a ``cv.float_with_unit`` closure, else None.
+
+    An unreadable closure or pattern fails the sync rather than shipping bare options.
+    """
     if not _is_float_with_unit(validator):
         return None
     try:
         nonlocals = _closure_nonlocals(validator)
     except ValueError:
+        nonlocals = {}
+    if nonlocals.get("optional_unit"):
         return None
     pattern = nonlocals.get("pattern")
-    if nonlocals.get("optional_unit") or not isinstance(pattern, re.Pattern):
-        return None
-    _, sep, tail = pattern.pattern.rpartition(_FLOAT_WITH_UNIT_PREFIX_GROUP)
+    source = pattern.pattern if isinstance(pattern, re.Pattern) else ""
+    _, sep, tail = source.rpartition(_FLOAT_WITH_UNIT_PREFIX_GROUP)
     if not sep or not tail.endswith("$"):
-        return None
+        # SystemExit so ``build_catalog``'s blanket ``except Exception`` can't swallow it.
+        raise SystemExit(
+            f"cv.float_with_unit internals changed upstream ({validator!r}); "
+            "update _literal_unit_suffix."
+        )
     suffix = tail[:-1]
     # A regex group (``(Hz|hz)?``) is a unit picker, not a literal.
     if re.escape(suffix) != suffix or not _SUFFIX_UNIT_RE.match(suffix):

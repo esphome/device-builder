@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 _SCRIPT_DIR = Path(__file__).parent.parent / "script"
 if str(_SCRIPT_DIR) not in sys.path:
@@ -152,3 +156,17 @@ def test_real_i2s_speaker_bits_per_sample_refines_suffixed() -> None:
     loader = sync_components._get_esphome_loader()
     refined = sync_components._collect_refined_types(loader.get_platform("speaker", "i2s_audio"))
     assert refined.get(("bits_per_sample",)) == _BITS
+
+
+def test_unrecognised_float_with_unit_pattern_fails_the_sync() -> None:
+    def float_with_unit() -> Any:
+        pattern = re.compile(r"^(\d+)bit$")
+        optional_unit = False
+
+        def validator(value: Any) -> Any:
+            return pattern, optional_unit, value
+
+        return validator
+
+    with pytest.raises(SystemExit, match="float_with_unit internals changed"):
+        sync_components._literal_unit_suffix(float_with_unit())
