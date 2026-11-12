@@ -7535,7 +7535,7 @@ def _literal_unit_suffix(validator: Any) -> str | None:
     pattern = nonlocals.get("pattern")
     source = pattern.pattern if isinstance(pattern, re.Pattern) else ""
     _, sep, tail = source.rpartition(_FLOAT_WITH_UNIT_PREFIX_GROUP)
-    if not sep or not tail.endswith("$"):
+    if "optional_unit" not in nonlocals or not sep or not tail.endswith("$"):
         # SystemExit so ``build_catalog``'s blanket ``except Exception`` can't swallow it.
         raise SystemExit(
             f"cv.float_with_unit internals changed upstream ({validator!r}); "

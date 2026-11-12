@@ -170,3 +170,16 @@ def test_unrecognised_float_with_unit_pattern_fails_the_sync() -> None:
 
     with pytest.raises(SystemExit, match="float_with_unit internals changed"):
         sync_components._literal_unit_suffix(float_with_unit())
+
+
+def test_float_with_unit_without_optional_unit_fails_the_sync() -> None:
+    def float_with_unit() -> Any:
+        pattern = re.compile(r"^([-+]?[0-9]*)\s*(\w*?)bit$")
+
+        def validator(value: Any) -> Any:
+            return pattern, value
+
+        return validator
+
+    with pytest.raises(SystemExit, match="float_with_unit internals changed"):
+        sync_components._literal_unit_suffix(float_with_unit())
