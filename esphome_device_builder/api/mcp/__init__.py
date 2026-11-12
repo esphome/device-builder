@@ -47,19 +47,15 @@ async def handle_post(request: web.Request) -> web.Response:
 
 
 def _reject_invalid_ingress_bearer(request: web.Request) -> web.Response | None:
-    """401 a supervisor-channel request whose bearer isn't the ``--mcp-token-file`` token."""
-    settings = request.app["device_builder"].settings
-    if not settings.mcp_token or not request.app.get("supervisor_channel"):
+    """401 supervisor-channel requests without the bearer token; all of them if no token is set."""
+    if not request.app.get("supervisor_channel"):
         return None
-    authorization = request.headers.get(hdrs.AUTHORIZATION)
-    # Home Assistant before 2026.12 sends no credential, so a missing header still
-    # passes on the peer guard alone; this goes away once the bearer is mandatory.
-    if authorization is None:
+    token = extract_bearer_token(request.headers.get(hdrs.AUTHORIZATION, ""))
+    if token is not None and request.app["device_builder"].settings.check_mcp_token(token):
         return None
-    token = extract_bearer_token(authorization)
-    if token is not None and settings.check_mcp_token(token):
-        return None
-    _LOGGER.debug("Rejecting MCP request with an invalid bearer token from %s", request.remote)
+    _LOGGER.debug("Rejecting MCP request without a valid bearer token from %s", request.remote)
     return web.Response(
-        status=401, text="Invalid bearer token", headers={hdrs.WWW_AUTHENTICATE: "Bearer"}
+        status=401,
+        text="Missing or invalid bearer token",
+        headers={hdrs.WWW_AUTHENTICATE: "Bearer"},
     )

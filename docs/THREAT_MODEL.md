@@ -27,11 +27,11 @@ clients**. The gates that enforce it are:
   `app["supervisor_channel"]`, set only when an app is created
   both trusted and peer-guarded — i.e. the ingress site; every
   other site shape refuses them. `/api/mcp` on that channel also
-  checks a presented `Authorization` bearer against the
-  `--mcp-token-file` token; a request without the header still
-  passes, for Home Assistant before 2026.12. That bearer is defense
-  in depth for `/api/mcp`, not a boundary: `/ws` on the same site
-  stays open to the same peers.
+  requires an `Authorization` bearer matching the
+  `--mcp-token-file` token, and refuses every request when no
+  token is configured. That bearer is defense in depth for
+  `/api/mcp`, not a boundary: `/ws` on the same site stays open to
+  the same peers.
 - The reverse-proxy `--trusted-domains` `Origin` / `Host`
   allowlist (defense against DNS rebinding and browser-driven
   cross-origin attacks).

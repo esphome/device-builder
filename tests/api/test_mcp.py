@@ -139,7 +139,7 @@ _MCP_TOKEN = "ingress-token"
         pytest.param("Bearer wrong", 401, id="wrong"),
         pytest.param(f"Basic {_MCP_TOKEN}", 401, id="not_bearer"),
         pytest.param("", 401, id="empty"),
-        pytest.param(None, 200, id="absent"),
+        pytest.param(None, 401, id="absent"),
     ],
 )
 async def test_supervisor_channel_bearer(
@@ -162,19 +162,27 @@ async def test_supervisor_channel_bearer(
 
 
 @pytest.mark.parametrize(
-    ("supervisor_channel", "mcp_token"),
-    [pytest.param(False, _MCP_TOKEN, id="off_channel"), pytest.param(True, "", id="no_token")],
+    "authorization",
+    [pytest.param(None, id="absent"), pytest.param("Bearer anything", id="any_bearer")],
 )
-async def test_bearer_is_not_checked_off_channel_or_without_a_token(
-    mcp_db: McpStubDeviceBuilder,
-    aiohttp_client: AiohttpClient,
-    supervisor_channel: bool,
-    mcp_token: str,
+async def test_supervisor_channel_without_a_token_refuses_every_request(
+    mcp_db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient, authorization: str | None
 ) -> None:
-    mcp_db.settings.mcp_token = mcp_token
     app = make_mcp_app(mcp_db)
-    app["supervisor_channel"] = supervisor_channel
+    app["supervisor_channel"] = True
     mcp_client = await aiohttp_client(app)
+    headers = {} if authorization is None else {"Authorization": authorization}
+    resp = await mcp_client.post(
+        MCP_PATH, json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers=headers
+    )
+    assert resp.status == 401
+
+
+async def test_bearer_is_not_checked_off_the_supervisor_channel(
+    mcp_db: McpStubDeviceBuilder, aiohttp_client: AiohttpClient
+) -> None:
+    mcp_db.settings.mcp_token = _MCP_TOKEN
+    mcp_client = await aiohttp_client(make_mcp_app(mcp_db))
     reply = await mcp_rpc(mcp_client, method="ping", headers={"Authorization": "Bearer wrong"})
     assert reply["result"] == {}
 
