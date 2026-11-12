@@ -29,7 +29,9 @@ clients**. The gates that enforce it are:
   other site shape refuses them. `/api/mcp` on that channel also
   checks a presented `Authorization` bearer against the
   `--mcp-token-file` token; a request without the header still
-  passes, for Home Assistant before 2026.12.
+  passes, for Home Assistant before 2026.12. That bearer is defense
+  in depth for `/api/mcp`, not a boundary: `/ws` on the same site
+  stays open to the same peers.
 - The reverse-proxy `--trusted-domains` `Origin` / `Host`
   allowlist (defense against DNS rebinding and browser-driven
   cross-origin attacks).

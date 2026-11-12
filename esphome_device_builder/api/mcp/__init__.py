@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from aiohttp import hdrs, web
@@ -13,6 +14,8 @@ from .tools import TOOLS
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
+
+_LOGGER = logging.getLogger(__name__)
 
 MCP_PATH = "/api/mcp"
 SERVER_NAME = "ESPHome Device Builder"
@@ -56,6 +59,7 @@ def _reject_invalid_ingress_bearer(request: web.Request) -> web.Response | None:
     token = extract_bearer_token(authorization)
     if token is not None and settings.check_mcp_token(token):
         return None
+    _LOGGER.debug("Rejecting MCP request with an invalid bearer token from %s", request.remote)
     return web.Response(
         status=401, text="Invalid bearer token", headers={hdrs.WWW_AUTHENTICATE: "Bearer"}
     )
