@@ -38,6 +38,7 @@ from .controllers.desktop import DesktopController
 from .controllers.devices import DevicesController
 from .controllers.devices.import_upload import http_import_bundle as devices_http_import_bundle
 from .controllers.editor import EditorController
+from .controllers.files import FilesController
 from .controllers.firmware import FirmwareController
 from .controllers.firmware.download import http_download as firmware_http_download
 from .controllers.labels import LabelsController
@@ -262,6 +263,7 @@ class DeviceBuilder:
         self.automations: AutomationsController | None = None
         self.firmware: FirmwareController | None = None
         self.editor: EditorController | None = None
+        self.files: FilesController | None = None
         self.labels: LabelsController | None = None
         self.onboarding: OnboardingController | None = None
         self.remote_build_offloader: OffloaderController | None = None
@@ -423,6 +425,7 @@ class DeviceBuilder:
             self.automations,
             self.firmware,
             self.editor,
+            self.files,
             self.labels,
             self.onboarding,
             self.remote_build_offloader,
@@ -490,6 +493,7 @@ class DeviceBuilder:
         self.automations = AutomationsController(self)
         self.firmware = FirmwareController(self)
         self.editor = EditorController(self)
+        self.files = FilesController(self)
         self.labels = LabelsController(self)
         self.onboarding = OnboardingController(self)
         self.remote_build_offloader = OffloaderController(self)
