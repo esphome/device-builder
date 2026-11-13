@@ -23,6 +23,11 @@ on:
 
 permissions: {}
 
+# Overlapping runs could each take the other's request as their own confirmation.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   request:
     name: Request Copilot review
