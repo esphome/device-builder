@@ -56,6 +56,9 @@ workflows:
         - 'actions/upload-artifact@v7.0.2'
         - 'astral-sh/setup-uv@v8.3.2'
         - 'pypa/gh-action-pypi-publish@v1.14.3'
+    '.github/workflows/request-copilot-review.yml':
+        - 'actions/checkout@v7.0.1'
+        - 'actions/github-script@v9.0.0'
     '.github/workflows/sync-component-catalog.yml':
         - 'actions/cache@v6.1.0'
         - 'actions/checkout@v7.0.1'
