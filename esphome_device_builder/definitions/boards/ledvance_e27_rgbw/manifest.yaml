@@ -28,6 +28,13 @@ featured_components:
   component_id: light.rgbw
   fields:
     color_interlock: true
+    effects:
+      value:
+      - random:
+          name: Random
+      - flicker:
+          name: Flicker
+      locked: true
     red: output_red
     green: output_green
     blue: output_blue
@@ -75,5 +82,5 @@ source:
   type: esphome-devices
   remote_id: LEDVANCE-E27-RGBW
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDVANCE-E27-RGBW/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 90dd4887566ca965b435facec483e083e5595f5ff0029bb623aae97802a580a5

@@ -113,5 +113,5 @@ source:
   type: esphome-devices
   remote_id: LEDVANCE-SMART-PLUS-PLUG-EU
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDVANCE-SMART-PLUS-PLUG-EU/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: fdae9d547face7c179dcf148bd54482d06c49ebb6b8a772e913ef6e18b46c926

@@ -72,8 +72,28 @@ pins:
 - gpio: 44
   available: false
   occupied_by: Ethernet MISO
+- gpio: 47
+  available: false
+  occupied_by: bus_a
+- gpio: 48
+  available: false
+  occupied_by: bus_a
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A2v3/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 48
+      locked: true
+    scl:
+      value: 47
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
 - id: uart_1
   component_id: uart
   fields:
@@ -249,5 +269,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-KC868-A2v3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-A2v3/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: e22ba39ea5f13eb2d9a049dc0d50159e6b567eda7932d48e2fadc03053474d65

@@ -44,6 +44,12 @@ featured_components:
   fields:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
+    effects:
+      value:
+      - pulse: null
+      - flicker: null
+      - random: null
+      locked: true
     cold_white: output_cw
     warm_white: output_ww
     id: white_light
@@ -98,5 +104,5 @@ source:
   type: esphome-devices
   remote_id: LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter-v1.1/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: bf88529865c3a10917618f0a0c3cacb7d9f17abdc76ff4b7bc10f098c42d6981

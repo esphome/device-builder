@@ -1937,5 +1937,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-N30
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-N30/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 70a0651f4125b5aacf1a1ba66db43e8db0353428bcb816d3342ce811385cd2aa

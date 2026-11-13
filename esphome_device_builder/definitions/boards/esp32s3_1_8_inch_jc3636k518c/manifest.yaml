@@ -13,6 +13,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/JC3636K518C.webp
 pins:
+- gpio: 11
+  available: false
+  occupied_by: touchscreen_bus
+- gpio: 12
+  available: false
+  occupied_by: touchscreen_bus
 - gpio: 13
   available: false
   occupied_by: display_qspi
@@ -45,6 +51,18 @@ pins:
   occupied_by: backlight_pwm
 docs_url: https://devices.esphome.io/devices/ESP32S3-1.8-inch-JC3636K518C/
 featured_components:
+- id: touchscreen_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 11
+      locked: true
+    scl:
+      value: 12
+      locked: true
+    id:
+      value: touchscreen_bus
+      locked: true
 - id: display_qspi
   component_id: spi
   fields:
@@ -604,6 +622,8 @@ featured_components:
     output: backlight_pwm
     id: display_backlight
     name: Backlight
+  requires:
+  - onboard_psram
 - id: i2s_microphone
   component_id: microphone.i2s_audio
   fields:
@@ -631,11 +651,12 @@ featured_bundles:
 - id: display_backlight_setup
   name: Backlight (full setup)
   component_ids:
+  - onboard_psram
   - backlight_pwm
   - display_backlight
 source:
   type: esphome-devices
   remote_id: ESP32S3-1.8-inch-JC3636K518C
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 1617cc473ac6bcc2d854dc91eb31bda702f4ed5f50947a8e88e1021af23c0ce7

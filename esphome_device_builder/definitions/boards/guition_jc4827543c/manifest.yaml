@@ -23,8 +23,40 @@ pins:
 - gpio: 8
   available: false
   occupied_by: bus_a
+- gpio: 21
+  available: false
+  occupied_by: quad_spi
+- gpio: 39
+  available: false
+  occupied_by: quad_spi
+- gpio: 40
+  available: false
+  occupied_by: quad_spi
+- gpio: 47
+  available: false
+  occupied_by: quad_spi
+- gpio: 48
+  available: false
+  occupied_by: quad_spi
 docs_url: https://devices.esphome.io/devices/Guition-JC4827543C/
 featured_components:
+- id: quad_spi
+  component_id: spi
+  fields:
+    type: quad
+    clk_pin:
+      value: 47
+      locked: true
+    data_pins:
+      value:
+      - 21
+      - 48
+      - 40
+      - 39
+      locked: true
+    id:
+      value: quad_spi
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -52,6 +84,8 @@ featured_components:
     output: gpio_backlight_pwm
     id: display_backlight
     name: Display Backlight
+  requires:
+  - onboard_psram
 - id: gpio_backlight_pwm
   component_id: output.ledc
   fields:
@@ -65,11 +99,12 @@ featured_bundles:
 - id: display_backlight_setup
   name: Display Backlight (full setup)
   component_ids:
+  - onboard_psram
   - gpio_backlight_pwm
   - display_backlight
 source:
   type: esphome-devices
   remote_id: Guition-JC4827543C
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Guition-JC4827543C/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: f61b99705fabd2c67e3690942e0c05cdf72b3d60742d963d7c5c21db188d3cb3

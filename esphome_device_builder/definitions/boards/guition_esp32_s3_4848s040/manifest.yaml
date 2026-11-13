@@ -218,6 +218,8 @@ featured_components:
     output: backlight_output
     id: display_backlight
     name: Backlight
+  requires:
+  - onboard_psram
 - id: backlight_output
   component_id: output.ledc
   fields:
@@ -269,6 +271,7 @@ featured_bundles:
 - id: display_backlight_setup
   name: Backlight (full setup)
   component_ids:
+  - onboard_psram
   - backlight_output
   - display_backlight
 - id: tft_touch_setup
@@ -283,5 +286,5 @@ source:
   type: esphome-devices
   remote_id: Guition-ESP32-S3-4848S040
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Guition-ESP32-S3-4848S040/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: d15d6903a503e70eceda2bc4922387111bb60a9b235944054bf30ca3bfe5ba4a

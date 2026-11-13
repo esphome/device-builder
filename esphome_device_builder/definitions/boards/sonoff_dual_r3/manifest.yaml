@@ -133,5 +133,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-Dual-R3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-Dual-R3/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: d779d48d30fda6b2739cf7928d00072656f29317e1341c994ee33cf6d9afc8da

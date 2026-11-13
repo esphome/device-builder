@@ -66,5 +66,5 @@ source:
   type: esphome-devices
   remote_id: HBN-CP-A86WT
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/HBN-CP-A86WT/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: f8f74024479ba07d162c3bd907467e8048812fe8ae96626277219c1fa06bfb96

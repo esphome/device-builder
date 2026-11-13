@@ -14,6 +14,12 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/lanbon_l8/lanbon-l8-us-white.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/lanbon_l8/lanbon-l8-eu-black.png
 pins:
+- gpio: 0
+  available: false
+  occupied_by: i2c
+- gpio: 4
+  available: false
+  occupied_by: i2c
 - gpio: 5
   available: false
   occupied_by: backlight_pwm
@@ -46,6 +52,15 @@ pins:
   occupied_by: moodBlue
 docs_url: https://devices.esphome.io/devices/lanbon_l8/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 0
+      locked: true
 - id: spi_bus
   component_id: spi
   fields:
@@ -78,6 +93,8 @@ featured_components:
     output: backlight_pwm
     id: backlight
     name: Backlight
+  requires:
+  - onboard_psram
 - id: light_rgb_1
   component_id: light.rgb
   fields:
@@ -86,6 +103,8 @@ featured_components:
     blue: moodblue
     id: light_rgb_1
     name: Mood Light
+  requires:
+  - onboard_psram
 - id: backlight_pwm
   component_id: output.ledc
   fields:
@@ -139,11 +158,13 @@ featured_bundles:
 - id: backlight_setup
   name: Backlight (full setup)
   component_ids:
+  - onboard_psram
   - backlight_pwm
   - backlight
 - id: light_rgb_1_setup
   name: Mood Light (full setup)
   component_ids:
+  - onboard_psram
   - moodred
   - moodgreen
   - moodblue
@@ -152,5 +173,5 @@ source:
   type: esphome-devices
   remote_id: lanbon_l8
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/lanbon_l8/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: f22118de5dea812eb5eb318ef5a56850da2537769f0d66e7eee5b15451d74589

@@ -29,6 +29,12 @@ featured_components:
 - id: light_rgbw_1
   component_id: light.rgbw
   fields:
+    effects:
+      value:
+      - random: null
+      - strobe: null
+      - flicker: null
+      locked: true
     red: pwm_r
     green: pwm_g
     blue: pwm_b
@@ -80,5 +86,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Bulb-Duo-RGBW
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Bulb-Duo-RGBW/index.md
-  upstream_revision: 003c7cc2abcfd0f24592769df72f967f362fc962
+  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
   content_hash: 4b29f48d668f018fdd114835bf12fdad1d2cbdb30c6d58b47ade09cb743d95f5
