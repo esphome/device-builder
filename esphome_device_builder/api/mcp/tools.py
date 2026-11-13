@@ -9,10 +9,16 @@ from typing import TYPE_CHECKING, Any
 
 from ...constants import SECRETS_FILENAME, is_device_config_name, is_secrets_file
 from ...controllers.automations.catalog import AUTOMATION_TYPES
-from ...controllers.devices.helpers import scanned_component_entries
+from ...controllers.devices.helpers import (
+    apply_text_edits,
+    persist_if_unchanged,
+    require_hash_unchanged,
+    scanned_component_entries,
+)
 from ...controllers.firmware.follow import job_report
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
+from ...helpers.text import text_hash
 from ...mcp import (
     INTERNAL_ERROR,
     McpToolError,
@@ -25,6 +31,7 @@ from ...mcp import (
 from ...models import LOCATION_TYPES, ErrorCode
 
 if TYPE_CHECKING:
+    from ...controllers.devices import DevicesController
     from ...device_builder import DeviceBuilder
     from ...mcp.tools import ToolHandler
 
@@ -69,6 +76,7 @@ def _tool(
 
 
 _MAX_REFS = 50
+_MAX_EDITS = 64
 _CONFIGURATION = prop(
     "string", "Device YAML filename, e.g. 'living-room.yaml' (from list_devices)."
 )
@@ -83,6 +91,11 @@ _TAIL_LINES = prop(
     default=_DEFAULT_TAIL_LINES,
 )
 _LIMIT = prop("integer", "Max results.", minimum=1, maximum=100, default=20)
+_EXPECTED_HASH = prop(
+    "string",
+    "The sha256 from get_config with with_hash; the write is refused with "
+    "precondition_failed if the file changed since.",
+)
 _INCLUDE_ADVANCED = prop("boolean", "Include advanced and YAML-only fields.", default=False)
 
 
@@ -203,20 +216,30 @@ async def _list_devices(db: DeviceBuilder, _args: dict[str, Any]) -> list[dict[s
     "get_config",
     "Read a device's YAML configuration, or secrets.yaml (its values then enter this "
     "conversation).",
-    {"configuration": _CONFIGURATION},
+    {
+        "configuration": _CONFIGURATION,
+        "with_hash": prop(
+            "boolean",
+            "Return {yaml, sha256} rather than the bare text; pass sha256 as expected_hash "
+            "to update_config or edit_config.",
+            default=False,
+        ),
+    },
     ("configuration",),
     reads_secrets=True,
 )
 async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-    return await _call(db, "devices/get_config", **_only(args, "configuration"))
+    text = await _call(db, "devices/get_config", **_only(args, "configuration"))
+    return {"yaml": text, "sha256": text_hash(text)} if args["with_hash"] else text
 
 
 @_tool(
     "update_config",
-    "Replace a device's YAML configuration with new content. Read it with get_config "
-    "first, pass that text as expected, and change only what is needed; run "
-    "validate_config or compile afterwards. Add or change an automation with "
-    "upsert_automation instead. The previous text stays in the dashboard's version history.",
+    "Replace a device's YAML configuration with new content; prefer edit_config for a "
+    "small change. Read it with get_config first, pass that text as expected or its "
+    "sha256 as expected_hash, and change only what is needed; run validate_config or "
+    "compile afterwards. Add or change an automation with upsert_automation instead. "
+    "When version history is on, the previous text stays in it.",
     {
         "configuration": _CONFIGURATION,
         "content": prop("string", "The complete new YAML."),
@@ -225,12 +248,73 @@ async def _get_config(db: DeviceBuilder, args: dict[str, Any]) -> Any:
             "The text get_config returned, verbatim; the write is refused with "
             "precondition_failed if the file changed since, so nothing is overwritten unseen.",
         ),
+        "expected_hash": _EXPECTED_HASH,
     },
-    ("configuration", "content", "expected"),
+    ("configuration", "content"),
 )
 async def _update_config(db: DeviceBuilder, args: dict[str, Any]) -> str:
-    await _call(db, "devices/update_config", **_only(args, "configuration", "content", "expected"))
-    return f"Saved {args['configuration']}"
+    configuration = args["configuration"]
+    expected_hash = args.get("expected_hash")
+    if ("expected" in args) == (expected_hash is not None):
+        msg = "pass exactly one of expected and expected_hash, both from get_config"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if expected_hash is None:
+        await _call(
+            db, "devices/update_config", **_only(args, "configuration", "content", "expected")
+        )
+    else:
+        await persist_if_unchanged(
+            _devices(db),
+            configuration,
+            args["content"],
+            expected=expected_hash,
+            require=require_hash_unchanged,
+            message=f"Edit {configuration}",
+        )
+    return f"Saved {configuration}"
+
+
+@_tool(
+    "edit_config",
+    "Change part of a device's YAML configuration by exact text replacement, without "
+    "sending the whole file. Read it with get_config with_hash first and pass the sha256 as "
+    "expected_hash. Edits apply in order, each old_text must occur exactly once "
+    "when its turn comes, and if any edit fails nothing is written. Run validate_config "
+    "or compile afterwards. When version history is on, the previous text stays in it. "
+    "Returns {sha256} of the saved text.",
+    {
+        "configuration": _CONFIGURATION,
+        "edits": prop(
+            "array",
+            "The replacements, applied in order.",
+            maxItems=_MAX_EDITS,
+            items=closed_object(
+                {
+                    "old_text": prop(
+                        "string",
+                        "The exact text to replace, with enough context to be unique.",
+                        minLength=1,
+                    ),
+                    "new_text": prop("string", "The text to put in its place; empty deletes."),
+                },
+                ("old_text", "new_text"),
+            ),
+        ),
+        "expected_hash": _EXPECTED_HASH,
+    },
+    ("configuration", "edits", "expected_hash"),
+)
+async def _edit_config(db: DeviceBuilder, args: dict[str, Any]) -> dict[str, str]:
+    configuration = args["configuration"]
+    if not args["edits"]:
+        raise CommandError(ErrorCode.INVALID_ARGS, "edits must not be empty")
+
+    def _rewrite(current: str) -> tuple[str, dict[str, str]]:
+        require_hash_unchanged(current, args["expected_hash"], configuration)
+        new_text = apply_text_edits(current, args["edits"], configuration)
+        return new_text, {"sha256": text_hash(new_text)}
+
+    return await _devices(db).rewrite_yaml(configuration, _rewrite, message=f"Edit {configuration}")
 
 
 @_tool(
@@ -641,6 +725,13 @@ async def _validate_by(
     except Exception:
         _LOGGER.exception("MCP validate of %s failed after the write", configuration)
     return None
+
+
+def _devices(db: DeviceBuilder) -> DevicesController:
+    """Return the devices controller, or raise ``UNAVAILABLE``."""
+    if db.devices is None:
+        raise CommandError(ErrorCode.UNAVAILABLE, "Devices are not loaded")
+    return db.devices
 
 
 def _only(args: dict[str, Any], *names: str) -> dict[str, Any]:
