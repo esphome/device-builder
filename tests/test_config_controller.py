@@ -71,7 +71,7 @@ from esphome_device_builder.controllers.config import (
     set_device_labels,
     set_device_metadata,
 )
-from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
+from esphome_device_builder.controllers.config._preferences_store import PreferencesStore, _decode
 from esphome_device_builder.controllers.config.chip_detect import _CHIP_FAMILY_MAP
 from esphome_device_builder.helpers import metadata_sidecar
 from esphome_device_builder.helpers.api import CommandError
@@ -941,6 +941,66 @@ async def test_set_prefs_toggles_version_history(tmp_path: Path) -> None:
     assert result.version_history_enabled is False
     controller._db.version_history.set_auto_commit.assert_awaited_once_with(enabled=False)
     assert controller.prefs.snapshot().version_history_enabled is False
+
+
+async def test_set_prefs_reconciles_public_firmware_repository_listener(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    repository = SimpleNamespace(configure_public_access=AsyncMock())
+    controller._db.firmware_repository = repository
+
+    result = await controller.set_prefs(
+        firmware_repository_access_enabled=True,
+        firmware_repository_authenticate_public=False,
+    )
+
+    assert result.firmware_repository_access_enabled is True
+    assert result.firmware_repository_authenticate_public is False
+    assert controller.prefs.snapshot().firmware_repository_access_enabled is True
+    repository.configure_public_access.assert_awaited_once_with(
+        enabled=True, authenticate_public=False
+    )
+
+
+async def test_set_prefs_public_firmware_listener_failure_leaves_preference_untouched(
+    tmp_path: Path,
+) -> None:
+    controller = _make_controller(tmp_path)
+    repository = SimpleNamespace(
+        configure_public_access=AsyncMock(side_effect=OSError("bind failed"))
+    )
+    controller._db.firmware_repository = repository
+
+    with pytest.raises(OSError, match="bind failed"):
+        await controller.set_prefs(firmware_repository_access_enabled=True)
+
+    assert controller.prefs.snapshot().firmware_repository_access_enabled is False
+
+
+async def test_firmware_repository_token_commands(tmp_path: Path) -> None:
+    controller = _make_controller(tmp_path)
+    repository = SimpleNamespace(
+        list_access_tokens=AsyncMock(return_value=[{"id": "token-id", "name": "Sensor"}]),
+        add_access_token=AsyncMock(return_value={"id": "token-id", "token": "secret-once"}),
+        delete_access_token=AsyncMock(),
+    )
+    controller._db.firmware_repository = repository
+
+    assert await controller.list_firmware_repository_tokens() == [
+        {"id": "token-id", "name": "Sensor"}
+    ]
+    assert await controller.add_firmware_repository_token(name="Sensor") == {
+        "id": "token-id",
+        "token": "secret-once",
+    }
+    assert await controller.delete_firmware_repository_token(token_id="token-id") == {}
+    repository.delete_access_token.assert_awaited_once_with(token_id="token-id")
+
+
+def test_preferences_decode_migrates_old_firmware_repository_switch() -> None:
+    prefs = _decode(b'{"firmware_repository_public_enabled":true}')
+
+    assert prefs.firmware_repository_access_enabled is True
+    assert prefs.firmware_repository_authenticate_public is True
 
 
 async def test_set_prefs_reconcile_failure_leaves_store_untouched(tmp_path: Path) -> None:

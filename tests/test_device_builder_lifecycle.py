@@ -53,6 +53,7 @@ def test_init_leaves_controllers_unset(make_settings: MakeSettingsFactory) -> No
     assert db.devices is None
     assert db.automations is None
     assert db.firmware is None
+    assert db.firmware_repository is None
     assert db.editor is None
     assert db.command_handlers == {}
     assert db.loop is None
@@ -137,9 +138,30 @@ async def test_start_initialises_all_controllers(
         assert db.devices is not None
         assert db.automations is not None
         assert db.firmware is not None
+        assert db.firmware_repository is not None
         assert db.editor is not None
     finally:
         await db.stop()
+
+
+async def test_firmware_repository_startup_hook_keeps_listener_running(
+    make_settings: MakeSettingsFactory,
+) -> None:
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    db.config = MagicMock()
+    db.config.prefs.snapshot.return_value.firmware_repository_access_enabled = False
+    db.config.prefs.snapshot.return_value.firmware_repository_authenticate_public = True
+    repository = MagicMock()
+    repository.start = AsyncMock()
+    repository.stop = AsyncMock()
+    db.firmware_repository = repository
+
+    await db._start_firmware_repository_site(MagicMock())
+
+    repository.start.assert_awaited_once_with(access_enabled=False, authenticate_public=True)
+    repository.stop.assert_not_awaited()
+    db._executor.shutdown(wait=True)
+    db._executor = None
 
 
 async def test_start_registers_command_handlers_from_every_controller(
@@ -162,9 +184,16 @@ async def test_start_registers_command_handlers_from_every_controller(
         assert "boards/get_boards" in db.command_handlers  # BoardCatalog
         assert "components/get_components" in db.command_handlers  # ComponentCatalog
         assert "config/version" in db.command_handlers  # ConfigController
+        assert "config/list_firmware_repository_tokens" in db.command_handlers
+        assert "config/add_firmware_repository_token" in db.command_handlers
+        assert "config/delete_firmware_repository_token" in db.command_handlers
         assert "devices/list" in db.command_handlers  # DevicesController
         assert "firmware/compile" in db.command_handlers  # FirmwareController
         assert "firmware/analyze_memory" in db.command_handlers
+        assert "firmware_repository/list" in db.command_handlers
+        assert "firmware_repository/save" in db.command_handlers
+        assert "firmware_repository/publish" in db.command_handlers
+        assert "firmware_repository/delete" in db.command_handlers
         assert "editor/validate_yaml" in db.command_handlers  # EditorController
 
         # Built-in commands wired post-loop.
