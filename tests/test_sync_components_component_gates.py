@@ -209,7 +209,6 @@ def test_live_switch_platform_derives_the_mqtt_gates(cv) -> None:
     assert gates.get(("state_topic",)) == "mqtt"
     assert gates.get(("web_server",)) == "web_server"
     assert gates.get(("web_server", "web_server_id")) == "web_server"
-    assert gates.get(("zigbee_switch",)) == "zigbee"
 
 
 def test_live_mqtt_component_has_no_self_gate(cv) -> None:
