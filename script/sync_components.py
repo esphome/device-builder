@@ -462,6 +462,15 @@ _BAUD_RATE_OPTIONS: list[dict[str, str]] = [
 ]
 
 _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
+    # The manual-entry schema exports no field docs; keep its switch reachable
+    # without a BLE server so the user can select the server-free mode.
+    ("ota.adafruit_ble", "ble_trigger"): {
+        "description": (
+            "Enable the BLE service for requesting a bootloader update; "
+            "optional and enabled by default."
+        ),
+        "advanced": False,
+    },
     # ``web_server.sorting_groups`` is accepted only with ``version: 3``
     # — enforced upstream by the custom ``validate_sorting_groups``
     # validator, which the schema bundle can't express. Gate on the
@@ -11153,6 +11162,11 @@ def _convert_automation_action(
     )
     has_else_branch = "else" in (accepts_action_list or [])
     qualified = f"{wire_prefix}.{name}" if top_key != "core" else name
+    if qualified == "ota.adafruit_ble.enter_bootloader" and not docs.text:
+        docs.text = (
+            "Restart into the Adafruit BLE bootloader; "
+            "finish any shutdown actions before calling this action."
+        )
     config_entries, scalar_shorthand_key = _resolve_automation_lambda(
         top_key=top_key,
         name=name,
