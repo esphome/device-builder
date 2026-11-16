@@ -99,5 +99,5 @@ source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-TP29
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Smart-Plug-TP29/index.md
-  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
   content_hash: b805ffec358b3fe6e877a1971b3752b5077a34013ce999b4b7bbff2e54424cba

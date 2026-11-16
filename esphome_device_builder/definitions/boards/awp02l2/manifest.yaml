@@ -69,5 +69,5 @@ source:
   type: esphome-devices
   remote_id: AWP02L2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AWP02L2/index.md
-  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
   content_hash: ce44524e79727437c948ccacd31dfb0c28e587ee538dbac7c820f455c18f0f02
