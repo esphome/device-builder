@@ -683,8 +683,9 @@ ESPHOME_TEST_ENDPOINT_PLATFORMS=esp32,nrf52 \
 python script/check_catalog.py
 ```
 
-This refresh changes only `supported_platforms` on existing Zigbee `endpoint`
-fields. It uses the regular generator's live-schema constraint collector, not
+This refresh updates `supported_platforms` and fills missing descriptions on existing
+Zigbee `endpoint` fields. Existing descriptions are preserved. It uses the regular
+generator's live-schema constraint collector, not
 a hard-coded platform replacement. All proposed changes are validated before
 writing; a missing live constraint aborts the refresh. The remaining catalog, including
 `cluster`, `report` and `use_device_type`, is preserved.

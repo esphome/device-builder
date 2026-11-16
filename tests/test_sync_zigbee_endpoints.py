@@ -26,6 +26,9 @@ def test_endpoint_refresh_uses_schema_and_preserves_other_fields(platforms: list
     body = {"config_entries": [endpoint, {"key": "report", "supported_platforms": ["esp32"]}]}
     expected = copy.deepcopy(body)
     expected["config_entries"][0]["supported_platforms"] = platforms
+    expected["config_entries"][0]["description"] = (
+        "Manually specify the Zigbee endpoint number. Optional; defaults to automatic numbering."
+    )
     schema = cv.Schema(
         {
             cv.Optional("endpoint"): cv.All(
@@ -119,3 +122,26 @@ def test_empty_catalog_is_rejected(tmp_path: Path) -> None:
     module = importlib.import_module("script.sync_zigbee_endpoints")
     with pytest.raises(ValueError, match="No component bodies"):
         module.refresh_catalog(tmp_path, __version__)
+
+
+def test_refresh_persists_description_when_platforms_already_match(tmp_path: Path) -> None:
+    from esphome.const import __version__  # noqa: PLC0415
+
+    from script import sync_components, sync_zigbee_endpoints  # noqa: PLC0415
+
+    body = json.loads((sync_components._OUTPUT_BODIES_DIR / "sensor.template.json").read_bytes())
+    manifest = sync_components._get_esphome_loader().get_platform("sensor", "template")
+    sync_zigbee_endpoints.refresh_body(body, manifest)
+    endpoint = next(entry for entry in body["config_entries"] if entry["key"] == "endpoint")
+    endpoint.pop("description", None)
+    bodies = tmp_path / "components"
+    bodies.mkdir()
+    target = bodies / "sensor.template.json"
+    target.write_text(json.dumps(body))
+    assert sync_zigbee_endpoints.refresh_catalog(tmp_path, __version__) == 1
+    result = json.loads(target.read_bytes())
+    actual = next(entry for entry in result["config_entries"] if entry["key"] == "endpoint")
+    assert actual["description"] == (
+        "Manually specify the Zigbee endpoint number. Optional; defaults to automatic numbering."
+    )
+    assert sync_zigbee_endpoints.refresh_catalog(tmp_path, __version__) == 0

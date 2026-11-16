@@ -1,4 +1,4 @@
-"""Refresh Zigbee endpoint platform metadata from the installed core."""
+"""Refresh Zigbee endpoint platform metadata and field descriptions."""
 
 from __future__ import annotations
 
@@ -59,11 +59,11 @@ def refresh_catalog(definitions_dir: Path, version: str) -> int:
             continue
         if body.get("id") != path.stem:
             raise ValueError(f"Component id does not match filename: {path.name}")
-        before = [entry.get("supported_platforms") for entry in endpoints]
+        before = orjson.dumps(body)
         domain, separator, stem = path.stem.partition(".")
         manifest = loader.get_platform(domain, stem) if separator else loader.get_component(domain)
         refresh_body(body, manifest)
-        if before == [entry.get("supported_platforms") for entry in endpoints]:
+        if before == orjson.dumps(body):
             continue
         ComponentCatalogEntry.from_dict(body)
         updates[path] = orjson.dumps(body, option=orjson.OPT_APPEND_NEWLINE)
@@ -76,7 +76,7 @@ def refresh_catalog(definitions_dir: Path, version: str) -> int:
 
 
 def refresh_body(body: dict[str, Any], manifest: Any) -> None:
-    """Refresh only platform gates on existing Zigbee endpoint fields."""
+    """Refresh platform gates and fill missing Zigbee endpoint descriptions."""
     constraints = _collect_platform_constraints(manifest)
 
     def visit(entry: dict[str, Any], path: tuple[str, ...]) -> None:
@@ -84,6 +84,11 @@ def refresh_body(body: dict[str, Any], manifest: Any) -> None:
             if not (platforms := constraints.get(path)):
                 raise ValueError(f"No live platform constraint for endpoint at {path!r}")
             entry["supported_platforms"] = platforms
+            if not entry.get("description"):
+                entry["description"] = (
+                    "Manually specify the Zigbee endpoint number. "
+                    "Optional; defaults to automatic numbering."
+                )
 
     _walk_catalog_entries(body.get("config_entries", []), visit)
 
