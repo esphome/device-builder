@@ -915,35 +915,7 @@ def main() -> int:
     # Mute that noise; genuine import failures still log at ERROR.
     logging.getLogger("esphome.loader").setLevel(logging.WARNING)
 
-    parser = argparse.ArgumentParser(
-        description=(
-            "Generate components.index.json + per-id body files under "
-            "definitions/components/ from ESPHome's pre-built schema bundle."
-        ),
-    )
-    parser.add_argument(
-        "--version",
-        help="ESPHome release tag to use (e.g. '2026.4.3'). Defaults to the latest GitHub release.",
-    )
-    parser.add_argument(
-        "--include-prereleases",
-        action="store_true",
-        help="When auto-selecting the latest release, also consider prereleases.",
-    )
-    parser.add_argument(
-        "--clean",
-        action="store_true",
-        help="Wipe cached schemas and docs-derived caches before fetching.",
-    )
-    parser.add_argument(
-        "--limit-component",
-        action="append",
-        default=[],
-        help="If given, only emit catalog entries for the listed component "
-        "ids (e.g. ``--limit-component dht --limit-component wifi``). "
-        "For local debugging.",
-    )
-    args = parser.parse_args()
+    args = _parse_args()
 
     if args.clean:
         _clean_caches()
@@ -959,8 +931,8 @@ def main() -> int:
     # or the catalog ships one ESPHome's metadata labelled as another's.
     assert_installed_esphome(version, what="sync_components")
 
-    schema_dir = ensure_schema(version)
-    _LOGGER.info("Schema cached at: %s", schema_dir)
+    schema_dir = args.schema_dir if args.schema_dir is not None else ensure_schema(version)
+    _LOGGER.info("Schema source: %s", schema_dir)
 
     catalog = build_catalog(
         schema_dir=schema_dir,
@@ -1062,6 +1034,49 @@ def main() -> int:
             _MIGRATION_RULES_INDEX_FILE,
         )
     return 0
+
+
+def _parse_args() -> argparse.Namespace:
+    """Parse catalog source and output selection arguments."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate components.index.json + per-id body files under "
+            "definitions/components/ from ESPHome's pre-built schema bundle."
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        help="ESPHome release tag to use (e.g. '2026.4.3'). Defaults to the latest GitHub release.",
+    )
+    parser.add_argument(
+        "--include-prereleases",
+        action="store_true",
+        help="When auto-selecting the latest release, also consider prereleases.",
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Wipe cached schemas and docs-derived caches before fetching.",
+    )
+    parser.add_argument(
+        "--limit-component",
+        action="append",
+        default=[],
+        help="If given, only emit catalog entries for the listed component "
+        "ids (e.g. ``--limit-component dht --limit-component wifi``). "
+        "For local debugging.",
+    )
+    parser.add_argument(
+        "--schema-dir",
+        type=Path,
+        help="Use a local bundle exported by the installed ESPHome checkout instead of downloading "
+        "a release. Requires --version matching that checkout.",
+    )
+    args = parser.parse_args()
+
+    if args.schema_dir is not None and not args.version:
+        parser.error("--schema-dir requires --version")
+    return args
 
 
 # ---------------------------------------------------------------------------

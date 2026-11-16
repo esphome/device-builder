@@ -665,6 +665,56 @@ name.
   workflow for adding or updating a board (edit the manifest, then run
   `python script/update_board.py` to regenerate and validate).
 
+## Catalogs for a custom ESPHome core
+
+The wheel contains a generated catalog; installing a different ESPHome core
+alone does not refresh the Visual Editor's fields. For the nRF52 endpoint fork,
+refresh the existing catalog **at build time using the same core that will be
+packaged**, before building Device Builder's wheel:
+
+```bash
+# Run from this repository, with the intended core checkout at ../esphome.
+python -m pip install -e ../esphome -e '.[test]'
+CORE_VERSION=$(python -c 'from esphome.const import __version__; print(__version__)')
+python -m script.sync_zigbee_endpoints --version "$CORE_VERSION"
+ESPHOME_TEST_CATALOG_DIR=esphome_device_builder/definitions \
+ESPHOME_TEST_ENDPOINT_PLATFORMS=esp32,nrf52 \
+  python -m pytest tests/test_sync_components_zigbee_endpoint.py -k generated
+python script/check_catalog.py
+```
+
+This refresh changes only `supported_platforms` on existing Zigbee `endpoint`
+fields. It uses the regular generator's live-schema constraint collector, not
+a hard-coded platform replacement. All proposed changes are validated before
+writing; a missing live constraint aborts the refresh. The remaining catalog, including
+`cluster`, `report` and `use_device_type`, is preserved.
+
+With `maniekes/esphome` commit `46201efe1aa67fe9bcdc5c4bdd8a2eeb72b0c0d5`
+(`2026.12.0-dev`), endpoints accept ESP32 and nRF52. The field remains an advanced
+integer from 1 through 239, available when `zigbee` is present, for sensor,
+binary sensor, number and switch entities. No frontend patch is needed.
+Official ESPHome 2026.10.2 still produces ESP32-only endpoint metadata; use
+`ESPHOME_TEST_ENDPOINT_PLATFORMS=esp32` for its acceptance test. Never package
+fork-generated metadata with an official core. The checked-in release catalog
+is intentionally unchanged by this feature.
+
+For a complete catalog rebuild from an unreleased core, the regular generator
+also accepts a local bundle:
+
+```bash
+python ../esphome/script/build_language_schema.py --output-path ../local-schema
+python script/sync_components.py --schema-dir ../local-schema --version "$CORE_VERSION"
+```
+
+Export from the same checkout installed in the build venv. Both catalog sync
+commands require an explicit version matching the installed core; a version string cannot
+distinguish forks, so also pin the core commit. A full rebuild can update
+unrelated fields and must pass the catalog regression checks before packaging.
+To test the complete exporter-to-catalog endpoint path, set
+`ESPHOME_TEST_SCHEMA_DIR=../local-schema` and run the endpoint test file without
+`-k generated`. These are source-generation operations: they do not restart the
+dashboard, build an image, or flash firmware.
+
 ## Contributing
 
 Contributions welcome — board definitions especially
