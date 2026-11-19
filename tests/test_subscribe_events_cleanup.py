@@ -26,7 +26,7 @@ from esphome_device_builder.helpers.event_bus import (
     StreamBackpressureError,
 )
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
-from esphome_device_builder.models import DiskUsage, EventType, UserPreferences
+from esphome_device_builder.models import EventType, UserPreferences
 from esphome_device_builder.models.preferences import Theme
 
 from .conftest import FakeWebSocketClient, make_device
@@ -302,25 +302,21 @@ async def test_subscribe_events_includes_receiver_settings_and_jobs_in_initial_s
     await asyncio.gather(handler_task, return_exceptions=True)
 
 
-async def test_subscribe_events_includes_disk_usage_once_measured() -> None:
-    """``initial_state`` carries ``disk_usage`` only after the first measurement."""
+async def test_subscribe_events_merges_disk_usage_initial_state() -> None:
+    """``initial_state`` carries whatever the disk usage controller reports."""
     db = _make_db()
     db.disk_usage = MagicMock()
-    payloads: list[dict[str, Any]] = []
-    for snapshot in (None, DiskUsage(1, 2, 3, 4, 5, 6, 7, 8.0)):
-        db.disk_usage.snapshot = MagicMock(return_value=snapshot)
-        client = FakeWebSocketClient()
-        task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
-        for _ in range(50):
-            await asyncio.sleep(0)
-            if client.events:
-                break
-        payloads.append(next(data for (_m, name, data) in client.events if name == "initial_state"))
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-    assert "disk_usage" not in payloads[0]
-    assert payloads[1]["disk_usage"]["free_bytes"] == 2
-    assert payloads[1]["disk_usage"]["toolchains_bytes"] == 5
+    db.disk_usage.initial_state = MagicMock(return_value={"disk_usage_failed": True})
+    client = FakeWebSocketClient()
+    task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.events:
+            break
+    payload = next(data for (_m, name, data) in client.events if name == "initial_state")
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert payload["disk_usage_failed"] is True
 
 
 async def test_subscribe_events_includes_preferences_in_initial_state() -> None:

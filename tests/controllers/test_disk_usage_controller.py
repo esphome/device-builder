@@ -68,6 +68,7 @@ async def test_finished_job_triggers_a_walk_and_event(harness: Any) -> None:
     await controller.start()
     try:
         assert controller.snapshot() is None
+        assert controller.initial_state() == {}
         bus.fire(EventType.JOB_COMPLETED, {})
         usage = await asyncio.wait_for(fired.get(), _TIMEOUT)
         assert calls == ["full"]
@@ -132,24 +133,57 @@ async def test_unchanged_measurement_fires_nothing(
         await controller.stop()
 
 
-async def test_failed_walk_is_logged_and_the_worker_survives(
+def _boom(*_args: Any) -> DiskUsage:
+    raise OSError("disk went away")
+
+
+async def _settle(controller: DiskUsageController) -> None:
+    await asyncio.sleep(0)
+    await controller._worker.wait_idle()
+
+
+async def test_first_walk_failing_reports_failed_until_one_succeeds(
     harness: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     controller, bus, _calls, fired = harness
-
-    def _boom(*_args: Any) -> DiskUsage:
-        raise OSError("disk went away")
-
+    failures: list[dict[str, Any]] = []
+    bus.add_listener(EventType.DISK_USAGE_FAILED, lambda event: failures.append(event.data))
     monkeypatch.setattr(module, "measure_disk_usage", _boom)
     await controller.start()
     try:
-        bus.fire(EventType.JOB_COMPLETED, {})
-        await asyncio.sleep(0)
-        await controller._worker.wait_idle()
+        for _ in range(2):
+            bus.fire(EventType.JOB_COMPLETED, {})
+            await _settle(controller)
         assert "Disk usage pass" in caplog.text
+        # Once per failure streak, not once per retry.
+        assert failures == [{}]
+        assert controller.measure_failed()
+        assert controller.initial_state() == {"disk_usage_failed": True}
         monkeypatch.setattr(module, "measure_disk_usage", lambda *_a: _usage())
         bus.fire(EventType.JOB_COMPLETED, {})
         assert await asyncio.wait_for(fired.get(), _TIMEOUT) == _usage()
+        assert not controller.measure_failed()
+        assert controller.initial_state() == {"disk_usage": _usage().to_dict()}
+    finally:
+        await controller.stop()
+
+
+async def test_failure_after_a_measurement_keeps_it(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, bus, _calls, fired = harness
+    failures: list[dict[str, Any]] = []
+    bus.add_listener(EventType.DISK_USAGE_FAILED, lambda event: failures.append(event.data))
+    await controller.start()
+    try:
+        bus.fire(EventType.JOB_COMPLETED, {})
+        first = await asyncio.wait_for(fired.get(), _TIMEOUT)
+        monkeypatch.setattr(module, "measure_disk_usage", _boom)
+        bus.fire(EventType.JOB_COMPLETED, {})
+        await _settle(controller)
+        assert failures == []
+        assert not controller.measure_failed()
+        assert controller.snapshot() == first
     finally:
         await controller.stop()
 

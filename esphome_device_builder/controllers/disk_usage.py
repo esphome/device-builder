@@ -5,7 +5,9 @@ Seeded into ``subscribe_events``' ``initial_state`` and re-broadcast as
 ``disk_usage_updated``. A full walk runs shortly after start, after each
 finished firmware job, after a device is removed (archive and delete wipe its
 build) and after the remote-build cleanup sweep reclaims space; in between, a
-periodic pass re-reads only the volumes' free space.
+periodic pass re-reads only the volumes' free space. If a walk fails before
+any measurement exists, ``disk_usage_failed`` fires so clients stop waiting;
+the next pass (a job, or the 15-minute timer) tries again.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from ..helpers.disk_usage import (
     measure_disk_usage,
     refresh_volume_space,
 )
-from ..models import DiskUsage, DiskUsageEventData, EventType
+from ..models import DiskUsage, DiskUsageEventData, DiskUsageFailedEventData, EventType
 from ..models.firmware import TERMINAL_JOB_EVENTS
 from ._wake_worker import WakeWorker
 
@@ -56,6 +58,8 @@ class DiskUsageController:
     def __init__(self, db: DeviceBuilder) -> None:
         self._db = db
         self._snapshot: DiskUsage | None = None
+        # The last pass failed with no snapshot to fall back on.
+        self._failed = False
         self._toolchain_cache = ToolchainSizeCache()
         # Volumes the last full pass found builds on; free-space passes re-read these.
         self._volume_paths: tuple[Path, ...] = ()
@@ -66,6 +70,18 @@ class DiskUsageController:
     def snapshot(self) -> DiskUsage | None:
         """Return the last measurement, or ``None`` before the first walk finishes."""
         return self._snapshot
+
+    def measure_failed(self) -> bool:
+        """Return whether measuring failed and no earlier measurement exists."""
+        return self._failed
+
+    def initial_state(self) -> dict[str, Any]:
+        """Return the ``initial_state`` keys: the measurement, the failure flag, or neither."""
+        if self._snapshot is not None:
+            return {"disk_usage": self._snapshot.to_dict()}
+        if self._failed:
+            return {"disk_usage_failed": True}
+        return {}
 
     def request_measure(self) -> None:
         """Queue a full walk; for code that frees space outside a firmware job."""
@@ -102,12 +118,23 @@ class DiskUsageController:
             self._worker.request(_Pass.FREE_SPACE)
 
     async def _run_pass(self, passes: set[_Pass]) -> None:
-        if _Pass.FULL in passes or self._snapshot is None:
-            devices = self._db.devices
-            filenames = [d.configuration for d in devices.get_devices()] if devices else []
-            usage, self._volume_paths = await run_in_executor(self._measure, filenames)
-        else:
-            usage = await run_in_executor(refresh_volume_space, self._snapshot, self._volume_paths)
+        try:
+            if _Pass.FULL in passes or self._snapshot is None:
+                devices = self._db.devices
+                filenames = [d.configuration for d in devices.get_devices()] if devices else []
+                usage, self._volume_paths = await run_in_executor(self._measure, filenames)
+            else:
+                usage = await run_in_executor(
+                    refresh_volume_space, self._snapshot, self._volume_paths
+                )
+        except Exception:
+            _LOGGER.exception("Disk usage pass %s failed", sorted(passes))
+            # With a snapshot, clients keep showing it; without one they'd wait forever.
+            if self._snapshot is None and not self._failed:
+                self._failed = True
+                self._db.bus.fire(EventType.DISK_USAGE_FAILED, DiskUsageFailedEventData())
+            return
+        self._failed = False
         if usage == self._snapshot:
             return
         self._snapshot = usage
@@ -137,7 +164,4 @@ class _DiskUsageWorker(WakeWorker[_Pass]):
         # Pop rather than swap_pending: a job finishing mid-walk must queue another pass.
         passes = set(self.pending)
         self.pending.clear()
-        try:
-            await self._run_pass(passes)
-        except Exception:
-            _LOGGER.exception("Disk usage pass %s failed", sorted(passes))
+        await self._run_pass(passes)

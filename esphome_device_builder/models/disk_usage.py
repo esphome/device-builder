@@ -39,3 +39,7 @@ class DiskUsageEventData(TypedDict):
     """Payload for ``EventType.DISK_USAGE_UPDATED``."""
 
     disk_usage: DiskUsage
+
+
+class DiskUsageFailedEventData(TypedDict):
+    """Payload for ``EventType.DISK_USAGE_FAILED``; empty, the event itself is the signal."""

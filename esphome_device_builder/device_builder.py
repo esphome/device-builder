@@ -820,8 +820,8 @@ class DeviceBuilder:
                 # Same rows follow_jobs would replay: created_at order,
                 # ``output`` dropped (fetched per-job via follow_job).
                 initial["firmware_jobs"] = self.firmware.jobs_snapshot()
-            if self.disk_usage is not None and (usage := self.disk_usage.snapshot()) is not None:
-                initial["disk_usage"] = usage.to_dict()
+            if self.disk_usage is not None:
+                initial.update(self.disk_usage.initial_state())
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.
