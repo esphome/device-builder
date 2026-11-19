@@ -154,6 +154,54 @@ async def test_failed_walk_is_logged_and_the_worker_survives(
         await controller.stop()
 
 
+async def test_device_removed_triggers_a_walk(harness: Any) -> None:
+    controller, bus, calls, fired = harness
+    await controller.start()
+    try:
+        bus.fire(EventType.DEVICE_REMOVED, {})
+        await asyncio.wait_for(fired.get(), _TIMEOUT)
+        assert calls == ["full"]
+    finally:
+        await controller.stop()
+
+
+async def test_request_measure_queues_a_full_walk(harness: Any) -> None:
+    controller, bus, calls, fired = harness
+    await controller.start()
+    try:
+        bus.fire(EventType.JOB_COMPLETED, {})
+        await asyncio.wait_for(fired.get(), _TIMEOUT)
+        controller.request_measure()
+        await asyncio.wait_for(fired.get(), _TIMEOUT)
+        assert calls == ["full", "full"]
+    finally:
+        await controller.stop()
+
+
+async def test_free_space_pass_reads_the_build_volumes(
+    harness: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, bus, _calls, fired = harness
+    build_volume = tmp_path / "build-volume"
+    monkeypatch.setattr(module, "build_roots", lambda *_a: [build_volume])
+    read: list[tuple[Path, ...]] = []
+
+    def _refresh(usage: DiskUsage, paths: tuple[Path, ...]) -> DiskUsage:
+        read.append(paths)
+        return replace(usage, free_bytes=0)
+
+    monkeypatch.setattr(module, "refresh_volume_space", _refresh)
+    await controller.start()
+    try:
+        bus.fire(EventType.JOB_COMPLETED, {})
+        await asyncio.wait_for(fired.get(), _TIMEOUT)
+        controller._worker.request(module._Pass.FREE_SPACE)
+        await asyncio.wait_for(fired.get(), _TIMEOUT)
+        assert read[0][1:] == (build_volume,)
+    finally:
+        await controller.stop()
+
+
 async def test_stop_unsubscribes(harness: Any) -> None:
     controller, bus, calls, _fired = harness
     await controller.start()

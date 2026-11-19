@@ -2,9 +2,10 @@
 RAM-canonical disk usage snapshot, refreshed in the background.
 
 Seeded into ``subscribe_events``' ``initial_state`` and re-broadcast as
-``disk_usage_updated``. A full walk runs shortly after start and after each
-finished firmware job; in between, a periodic pass re-reads only the
-volume's free space, since the category sizes only move through jobs.
+``disk_usage_updated``. A full walk runs shortly after start, after each
+finished firmware job, after a device is removed (archive and delete wipe its
+build) and after the remote-build cleanup sweep reclaims space; in between, a
+periodic pass re-reads only the volumes' free space.
 """
 
 from __future__ import annotations
@@ -18,7 +19,13 @@ from typing import TYPE_CHECKING, Any
 from esphome.core import CORE
 
 from ..helpers.async_ import drain_tasks, run_in_executor
-from ..helpers.disk_usage import ToolchainSizeCache, measure_disk_usage, refresh_volume_space
+from ..helpers.build_size import resolve_build_dir
+from ..helpers.disk_usage import (
+    ToolchainSizeCache,
+    build_roots,
+    measure_disk_usage,
+    refresh_volume_space,
+)
 from ..models import DiskUsage, DiskUsageEventData, EventType
 from ..models.firmware import TERMINAL_JOB_EVENTS
 from ._wake_worker import WakeWorker
@@ -50,6 +57,8 @@ class DiskUsageController:
         self._db = db
         self._snapshot: DiskUsage | None = None
         self._toolchain_cache = ToolchainSizeCache()
+        # Volumes the last full pass found builds on; free-space passes re-read these.
+        self._volume_paths: tuple[Path, ...] = ()
         self._worker = _DiskUsageWorker(self._run_pass)
         self._timer_task: asyncio.Task[None] | None = None
         self._unsubs: list[Callable[[], None]] = []
@@ -58,11 +67,15 @@ class DiskUsageController:
         """Return the last measurement, or ``None`` before the first walk finishes."""
         return self._snapshot
 
+    def request_measure(self) -> None:
+        """Queue a full walk; for code that frees space outside a firmware job."""
+        self._worker.request(_Pass.FULL)
+
     async def start(self) -> None:
-        """Subscribe to job completions and schedule the first walk."""
+        """Subscribe to the events that move category sizes and schedule the first walk."""
         self._unsubs = [
-            self._db.bus.add_listener(event_type, self._on_job_finished)
-            for event_type in TERMINAL_JOB_EVENTS
+            self._db.bus.add_listener(event_type, self._on_sizes_changed)
+            for event_type in (*TERMINAL_JOB_EVENTS, EventType.DEVICE_REMOVED)
         ]
         self._worker.start()
         self._timer_task = asyncio.create_task(self._run_timer(), name="disk usage timer")
@@ -78,8 +91,8 @@ class DiskUsageController:
             self._timer_task = None
         await self._worker.stop()
 
-    def _on_job_finished(self, _event: Any) -> None:
-        self._worker.request(_Pass.FULL)
+    def _on_sizes_changed(self, _event: Any) -> None:
+        self.request_measure()
 
     async def _run_timer(self) -> None:
         await asyncio.sleep(_INITIAL_DELAY_SECONDS)
@@ -89,19 +102,27 @@ class DiskUsageController:
             self._worker.request(_Pass.FREE_SPACE)
 
     async def _run_pass(self, passes: set[_Pass]) -> None:
-        config_dir = self._db.settings.config_dir
-        data_dir = Path(CORE.data_dir)
         if _Pass.FULL in passes or self._snapshot is None:
-            usage = await run_in_executor(
-                measure_disk_usage, config_dir, data_dir, self._toolchain_cache
-            )
+            devices = self._db.devices
+            filenames = [d.configuration for d in devices.get_devices()] if devices else []
+            usage, self._volume_paths = await run_in_executor(self._measure, filenames)
         else:
-            usage = await run_in_executor(refresh_volume_space, self._snapshot, data_dir)
+            usage = await run_in_executor(refresh_volume_space, self._snapshot, self._volume_paths)
         if usage == self._snapshot:
             return
         self._snapshot = usage
         payload: DiskUsageEventData = {"disk_usage": usage}
         self._db.bus.fire(EventType.DISK_USAGE_UPDATED, payload)
+
+    def _measure(self, filenames: list[str]) -> tuple[DiskUsage, tuple[Path, ...]]:
+        """Executor side: ``CORE.data_dir`` and the StorageJSON build paths touch the disk."""
+        data_dir = Path(CORE.data_dir).resolve()
+        device_dirs = [d for name in filenames if (d := resolve_build_dir(name)) is not None]
+        builds = build_roots(data_dir, device_dirs)
+        usage = measure_disk_usage(
+            self._db.settings.config_dir, data_dir, builds, self._toolchain_cache
+        )
+        return usage, (data_dir, *builds)
 
 
 class _DiskUsageWorker(WakeWorker[_Pass]):

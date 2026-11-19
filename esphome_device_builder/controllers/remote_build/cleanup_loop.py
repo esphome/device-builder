@@ -58,6 +58,8 @@ async def run_cleanup_loop(controller: ReceiverController) -> None:
             )
             if deleted:
                 _LOGGER.info("remote-build cleanup: reclaimed %d cold subtree(s)", deleted)
+                if (disk_usage := controller._db.disk_usage) is not None:
+                    disk_usage.request_measure()
         except Exception:
             _LOGGER.exception("remote-build cleanup sweep failed")
 

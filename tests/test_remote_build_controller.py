@@ -4580,6 +4580,8 @@ async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
     firmware = MagicMock()
     firmware.active_remote_peer_jobs = MagicMock(return_value=iter([in_flight_job]))
     controller.offloader._db.firmware = firmware
+    disk_usage = MagicMock()
+    controller.offloader._db.disk_usage = disk_usage
 
     # Lay down two subtrees, both past TTL. Only the
     # non-in-flight one should be reclaimed.
@@ -4615,6 +4617,8 @@ async def test_run_cleanup_loop_reclaims_cold_subtree_and_skips_in_flight(
     # In-flight subtree survives the cycle; the cold one's gone.
     assert in_flight.subtree(tmp_path).is_dir()
     assert not cold.subtree(tmp_path).exists()
+    # Reclaimed space re-measures the Storage report.
+    disk_usage.request_measure.assert_called_once_with()
 
 
 async def test_run_cleanup_loop_logs_per_cycle_exception_and_continues(

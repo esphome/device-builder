@@ -13,16 +13,17 @@ class DiskUsage(DashboardModel):
     """
     Disk space on the volume holding the ESPHome data dir, and what ESPHome uses of it.
 
-    The ``*_bytes`` categories are disjoint: a file is counted once, in the first
-    category (in field order) whose tree holds it.
+    The ``*_bytes`` categories are disjoint: a file is counted once, in the
+    category whose root is nearest to it (``<data_dir>/build`` counts as builds,
+    not cache).
     """
 
-    # Volume holding ``CORE.data_dir`` (``/data`` on the HA add-on).
+    # Fullest volume holding ``CORE.data_dir`` (``/data`` on the HA add-on) or a build root.
     total_bytes: int
     free_bytes: int
-    # ``<data_dir>/build/``: per-device build trees, orphans included.
+    # The ``ESPHOME_BUILD_PATH`` root (orphans included) and per-device ``build_path``s.
     builds_bytes: int
-    # ``<data_dir>/.remote_builds/``: build-server work for paired dashboards.
+    # ``.remote_builds`` under the data and config dirs: build-server work for peers.
     remote_builds_bytes: int
     # PlatformIO and ESPHome toolchain caches: what Reset build environment wipes.
     toolchains_bytes: int
