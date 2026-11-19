@@ -283,7 +283,7 @@ _OPTION_EXPECTATIONS: list[tuple[str, str, int]] = [
 _GATING_EXPECTATIONS: list[tuple[str, str, str | None]] = [
     # Zigbee + web_server entity options are inherited onto every
     # sensor via ``_SENSOR_SCHEMA``; they must be gated.
-    ("sensor.ct_clamp", "zigbee_sensor", "zigbee"),
+    ("sensor.ct_clamp", "report", "zigbee"),
     ("sensor.ct_clamp", "web_server", "web_server"),
     # MQTT entity options inherited via ``MQTT_COMPONENT_SCHEMA`` /
     # ``MQTT_COMMAND_COMPONENT_SCHEMA`` (#2300).
