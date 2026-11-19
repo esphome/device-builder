@@ -176,7 +176,9 @@ def _signature(roots: Iterable[Path]) -> tuple[tuple[str, int], ...]:
                 for entry in it:
                     try:
                         if entry.is_dir(follow_symlinks=False):
-                            mtime = entry.stat(follow_symlinks=False).st_mtime_ns
+                            # Not entry.stat(): on Windows that is the parent listing's
+                            # copy, which lags behind the directory's real mtime.
+                            mtime = _mtime_ns(Path(entry.path))
                             entries.append((entry.path, mtime))
                             below.append(entry.path)
                     except OSError:
