@@ -209,3 +209,19 @@ async def test_stop_unsubscribes(harness: Any) -> None:
     bus.fire(EventType.JOB_COMPLETED, {})
     await asyncio.sleep(0)
     assert calls == []
+
+
+async def test_timer_walks_once_then_refreshes_free_space(
+    harness: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, _bus, calls, fired = harness
+    monkeypatch.setattr(module, "_INITIAL_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(module, "_FREE_SPACE_INTERVAL_SECONDS", 0.0)
+    await controller.start()
+    try:
+        await asyncio.wait_for(fired.get(), _TIMEOUT)
+        await asyncio.wait_for(fired.get(), _TIMEOUT)
+        assert calls[0] == "full"
+        assert "free_space" in calls[1:]
+    finally:
+        await controller.stop()

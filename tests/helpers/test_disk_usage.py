@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import configparser
+import errno
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -197,3 +201,124 @@ def test_read_volume_space_reports_the_fullest_volume(monkeypatch: pytest.Monkey
     monkeypatch.setattr(disk_usage, "_volume_space", spaces.get)
     assert read_volume_space(spaces) == (500, 50)
     assert read_volume_space(()) == (0, 0)
+
+
+class _FakeEntry:
+    """A ``DirEntry`` stand-in whose type checks or stat can be made to fail."""
+
+    def __init__(
+        self, path: Path, *, is_dir: bool | OSError = False, stat: os.stat_result | None = None
+    ) -> None:
+        self.path = str(path)
+        self._is_dir = is_dir
+        self._stat = stat
+
+    def is_dir(self, *, follow_symlinks: bool = True) -> bool:
+        if isinstance(self._is_dir, BaseException):
+            raise self._is_dir
+        return self._is_dir
+
+    def is_file(self, *, follow_symlinks: bool = True) -> bool:
+        return self._is_dir is False
+
+    def stat(self, *, follow_symlinks: bool = True) -> os.stat_result:
+        if self._stat is None:
+            raise PermissionError(errno.EACCES, "denied", self.path)
+        return self._stat
+
+
+class _FakeScandir:
+    def __init__(self, entries: list[_FakeEntry]) -> None:
+        self._entries = entries
+
+    def __iter__(self) -> Iterator[_FakeEntry]:
+        return iter(self._entries)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+
+def _fake_scandir(monkeypatch: pytest.MonkeyPatch, listing: dict[str, list[_FakeEntry]]) -> None:
+    def _scandir(path: str) -> _FakeScandir:
+        if path not in listing:
+            raise FileNotFoundError(errno.ENOENT, "gone", path)
+        return _FakeScandir(listing[path])
+
+    monkeypatch.setattr(disk_usage.os, "scandir", _scandir)
+
+
+def test_unreadable_entries_are_counted_as_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    denied = PermissionError(errno.EACCES, "denied")
+    _fake_scandir(
+        monkeypatch,
+        {str(tmp_path): [_FakeEntry(tmp_path / "a", is_dir=denied), _FakeEntry(tmp_path / "b")]},
+    )
+    walk = disk_usage._Walk()
+    assert disk_usage._tree_size(tmp_path, (), walk) == 0
+    assert walk.errors == 2
+
+
+def test_zero_inode_entry_is_restatted_for_its_identity(tmp_path: Path) -> None:
+    # Windows' DirEntry.stat reports st_ino 0; the real stat must be used instead.
+    real = _write(tmp_path / "firmware.bin", 123)
+    zeroed = os.stat_result((0o100644, 0, 0, 0, 0, 0, 123, 0, 0, 0))
+    walk = disk_usage._Walk()
+    assert disk_usage._file_size(_FakeEntry(real, stat=zeroed), walk) == 123  # type: ignore[arg-type]
+
+
+def test_signature_tolerates_missing_and_unreadable_dirs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = tmp_path / "missing"
+    assert disk_usage._signature([missing]) == ((str(missing), 0),)
+    denied = PermissionError(errno.EACCES, "denied")
+    _fake_scandir(monkeypatch, {str(tmp_path): [_FakeEntry(tmp_path / "idf", is_dir=denied)]})
+    assert [path for path, _ in disk_usage._signature([tmp_path])] == [str(tmp_path)]
+
+
+def test_volume_space_is_zero_when_no_path_is_readable(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fail(_path: Path) -> None:
+        raise OSError(errno.EIO, "unreadable")
+
+    monkeypatch.setattr(disk_usage.shutil, "disk_usage", _fail)
+    assert read_volume_space([Path("/anywhere")]) == (0, 0)
+
+
+def test_toolchain_dirs_lists_existing_caches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import platformdirs  # noqa: PLC0415
+    from esphome.build_helpers import tools_cache  # noqa: PLC0415
+    from esphome.platformio import toolchain  # noqa: PLC0415
+
+    user_cache = tmp_path / "user-cache"
+    tools = tmp_path / "tools"
+    core = tmp_path / "pio-core"
+    for path in (user_cache, tools, core):
+        path.mkdir()
+    config = configparser.ConfigParser()
+    config["platformio"] = {
+        "core_dir": str(core),
+        "cache_dir": str(tmp_path / "no-cache"),
+        "packages_dir": str(core),
+        "platforms_dir": str(tmp_path / "no-platforms"),
+    }
+    monkeypatch.setattr(platformdirs, "user_cache_dir", lambda *_a, **_k: str(user_cache))
+    monkeypatch.setattr(tools_cache, "TOOLS_CACHE_SPECS", [("x",), ("y",)])
+    monkeypatch.setattr(
+        tools_cache, "tools_cache_path", lambda name: tools if name == "x" else tmp_path / "none"
+    )
+    monkeypatch.setattr(toolchain, "get_platformio_config", lambda: config)
+    assert disk_usage.toolchain_dirs() == [
+        user_cache.resolve(),
+        tools.resolve(),
+        core.resolve(),
+        core.resolve(),
+    ]
+    monkeypatch.setattr(toolchain, "get_platformio_config", lambda: None)
+    assert disk_usage.toolchain_dirs() == [user_cache.resolve(), tools.resolve()]
