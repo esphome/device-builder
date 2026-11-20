@@ -272,7 +272,7 @@ _OPTION_EXPECTATIONS: list[tuple[str, str, int]] = [
 
 
 # Cross-component gating assertions. Catches regressions where
-# infrastructure-dependent fields (zigbee_sensor, web_server) lose
+# infrastructure-dependent fields (zigbee entity options, web_server) lose
 # their ``depends_on_component`` tag and start showing up on the
 # form even when the named component isn't configured on the device.
 # Gates are introspected from the live schema (requires_component /
