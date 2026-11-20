@@ -859,3 +859,24 @@ def test_list_archived_falls_back_to_storage_json_when_yaml_meta_sparse(
     assert rows[0]["name"] == "kitchen"
     assert rows[0]["friendly_name"] == "Kitchen Sensor"
     assert rows[0]["comment"] == "by the sink"
+
+
+async def test_delete_archived_refused_active_path_keeps_the_archive(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A refused (escaping) same-named active path is refused before the archive is touched."""
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    controller = make_controller(tmp_path)
+
+    def _escaping(*parts: str) -> Path:
+        raise CommandError(ErrorCode.INVALID_ARGS, "escapes the config dir")
+
+    controller._db.settings.rel_path = _escaping
+    with pytest.raises(CommandError) as exc_info:
+        await controller._delete_archived_single("kitchen.yaml")
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGS
+    assert (archive_dir / "kitchen.yaml").exists()
