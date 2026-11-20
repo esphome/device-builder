@@ -163,5 +163,5 @@ source:
   type: esphome-devices
   remote_id: USR-EG118
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/USR-EG118/index.md
-  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
   content_hash: 97ea9e3aa03fc8fccba4e779eb3d8de944654fe5565490885c7016bcfe66c10c
