@@ -51,6 +51,7 @@ def _make_db() -> DeviceBuilder:
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.firmware = None
+    db.disk_usage = None
     db.devices = None  # skip the device-snapshot branch
     db.remote_build_offloader = None
     db.remote_build_receiver = None
@@ -156,6 +157,7 @@ async def test_subscribe_events_includes_pairings_snapshot_in_initial_state() ->
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.firmware = None
+    db.disk_usage = None
     db.devices = None  # skip the device-snapshot branch
     # Stub a remote_build with one APPROVED pairing in the
     # snapshot. ``pairings_snapshot()`` is sync; mock it directly.
@@ -205,6 +207,7 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.firmware = None
+    db.disk_usage = None
     db.devices = None
     pending = MagicMock()
     pending.to_dict = lambda: {
@@ -280,6 +283,7 @@ async def test_subscribe_events_includes_receiver_settings_and_jobs_in_initial_s
     firmware = MagicMock()
     firmware.jobs_snapshot = MagicMock(return_value=[{"job_id": "j1", "status": "completed"}])
     db.firmware = firmware
+    db.disk_usage = None
 
     client = FakeWebSocketClient()
     handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
@@ -298,6 +302,23 @@ async def test_subscribe_events_includes_receiver_settings_and_jobs_in_initial_s
     await asyncio.gather(handler_task, return_exceptions=True)
 
 
+async def test_subscribe_events_merges_disk_usage_initial_state() -> None:
+    """``initial_state`` carries whatever the disk usage controller reports."""
+    db = _make_db()
+    db.disk_usage = MagicMock()
+    db.disk_usage.initial_state = MagicMock(return_value={"disk_usage_failed": True})
+    client = FakeWebSocketClient()
+    task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.events:
+            break
+    payload = next(data for (_m, name, data) in client.events if name == "initial_state")
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert payload["disk_usage_failed"] is True
+
+
 async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
     """``_send_initial`` carries the UI-gating preferences in the snapshot.
 
@@ -311,6 +332,7 @@ async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.firmware = None
+    db.disk_usage = None
     db.devices = None
     db.remote_build_offloader = None
     db.remote_build_receiver = None
@@ -347,6 +369,7 @@ async def test_subscribe_events_includes_offloader_settings_in_initial_state() -
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.firmware = None
+    db.disk_usage = None
     db.devices = None
     remote_build = MagicMock()
     remote_build.pairings_snapshot = MagicMock(return_value=[])
@@ -393,6 +416,7 @@ async def test_subscribe_events_includes_hosts_snapshot_in_initial_state() -> No
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.firmware = None
+    db.disk_usage = None
     db.devices = None
     host = MagicMock()
     host.to_dict = lambda: {
@@ -499,6 +523,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
     db.firmware = None
+    db.disk_usage = None
 
     devices_mock = MagicMock()
     devices_mock.get_devices.return_value = []
