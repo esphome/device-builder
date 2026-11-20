@@ -56,5 +56,5 @@ source:
   type: esphome-devices
   remote_id: B1295-SMART-Surface-Mounted-Ceiling-Light-CCT
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/B1295-SMART-Surface-Mounted-Ceiling-Light-CCT/index.md
-  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
   content_hash: 92235f206ff83f1ff9f8265d403d451ef94e184fcb250119494de3800759200c
