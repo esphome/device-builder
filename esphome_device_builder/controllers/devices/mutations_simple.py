@@ -281,6 +281,7 @@ async def rename_device(
             new_content=new_content,
             in_place=in_place,
             old_name=old_name,
+            new_friendly_name=new_friendly_name,
         )
 
     firmware = controller._db.firmware
@@ -302,6 +303,7 @@ async def _config_only_rename(
     new_content: str,
     in_place: bool,
     old_name: str,
+    new_friendly_name: str | None,
 ) -> dict[str, Any]:
     """
     Land the rewritten YAML with no compile or OTA.
@@ -342,6 +344,21 @@ async def _config_only_rename(
         for name in sorted({os.path.normpath(n) for n in (configuration, new_filename)}):
             await locks.enter_async_context(controller._yaml_write_lock(name))
         await run_in_executor(_land)
+        repository = controller._db.firmware_repository
+        if repository is not None:
+            try:
+                await repository.rename_configuration(
+                    configuration,
+                    new_filename,
+                    new_esphome_name=new_name,
+                    new_friendly_name=new_friendly_name,
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "Failed to rename firmware repository entries from %s to %s",
+                    configuration,
+                    new_filename,
+                )
         deployed_name = controller._stamp_deployed_name(
             configuration, old_name=old_name, new_name=new_name
         )

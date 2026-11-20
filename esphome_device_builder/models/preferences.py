@@ -100,6 +100,11 @@ class UserPreferences(DashboardModel):
     # and skips repo creation; the toggle is an expert-only surface.
     version_history_enabled: bool = True
 
+    # Expose the firmware update API on port 6070.
+    firmware_repository_access_enabled: bool = False
+    # Keep update endpoints open, or require an allowlisted token.
+    firmware_repository_authenticate_public: bool = True
+
     # Highest onboarding-flow version the user has acknowledged.
     # Default 0 ⇒ never gone through onboarding; the dashboard
     # surfaces the wizard on next load. See
