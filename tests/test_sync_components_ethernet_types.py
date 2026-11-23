@@ -31,13 +31,28 @@ def _values(options: list[dict]) -> list[str]:
     return [o["value"] for o in options]
 
 
-def test_options_derive_from_live_ethernet_module() -> None:
+def test_options_derive_from_live_ethernet_schema() -> None:
     ethernet = pytest.importorskip("esphome.components.ethernet")
     options = sync_components._ethernet_type_platform_options()
-    assert _values(options["rp2"]) == sorted(ethernet.RP2_ETHERNET_TYPES)
+    rp2 = set(_values(options["rp2"]))
     esp32 = set(_values(options["esp32"]))
-    assert esp32.isdisjoint(set(ethernet.RP2_ETHERNET_TYPES) - set(ethernet.SPI_ETHERNET_TYPES))
     assert {"LAN8720", "W5500", "OPENETH"} <= esp32
+    assert (_RP2_ONLY_TYPES | {"USB"}) & set(ethernet.ETHERNET_TYPES) <= rp2 - esp32
+    assert "DM9051" not in rp2
+    assert rp2 | esp32 == set(ethernet.ETHERNET_TYPES)
+
+
+def test_widened_gate_keeps_type_on_rp2(monkeypatch: pytest.MonkeyPatch) -> None:
+    ethernet = pytest.importorskip("esphome.components.ethernet")
+    both = frozenset({"esp32", "rp2"})
+    gates = {"LAN8720": frozenset({"esp32"}), "DM9051": both, "USB": both}
+    monkeypatch.setattr(sync_components, "_typed_branch_schemas", lambda _: gates)
+    monkeypatch.setattr(sync_components, "_platform_set", lambda gate: gate)
+    monkeypatch.setattr(ethernet, "RP2_ETHERNET_TYPES", set())
+    monkeypatch.setattr(ethernet, "SPI_ETHERNET_TYPES", {"DM9051"})
+    options = sync_components._ethernet_type_platform_options()
+    assert _values(options["esp32"]) == ["DM9051", "LAN8720", "USB"]
+    assert _values(options["rp2"]) == ["USB"]
 
 
 def test_apply_stamps_type_and_component(monkeypatch: pytest.MonkeyPatch) -> None:
