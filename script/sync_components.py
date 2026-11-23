@@ -8436,7 +8436,10 @@ def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
         for t, branch in _typed_branch_schemas(_ethernet.CONFIG_SCHEMA).items()
     }
     esp32 = {t for t, gate in gates.items() if gate is None or "esp32" in gate}
-    rp2 = set(_ethernet.RP2_ETHERNET_TYPES) | (gates.keys() - esp32)
+    spi = set(_ethernet.SPI_ETHERNET_TYPES)
+    rp2 = set(_ethernet.RP2_ETHERNET_TYPES) | {
+        t for t, gate in gates.items() if gate and RP2_CANONICAL_PLATFORM in gate and t not in spi
+    }
     return {
         "esp32": [{"label": t, "value": t} for t in sorted(esp32)],
         RP2_CANONICAL_PLATFORM: [{"label": t, "value": t} for t in sorted(rp2)],
