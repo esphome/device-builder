@@ -31,13 +31,19 @@ def _values(options: list[dict]) -> list[str]:
     return [o["value"] for o in options]
 
 
-def test_options_derive_from_live_ethernet_module() -> None:
+def test_options_derive_from_live_ethernet_schema() -> None:
     ethernet = pytest.importorskip("esphome.components.ethernet")
     options = sync_components._ethernet_type_platform_options()
-    assert _values(options["rp2"]) == sorted(ethernet.RP2_ETHERNET_TYPES)
+    rp2 = set(_values(options["rp2"]))
     esp32 = set(_values(options["esp32"]))
-    assert esp32.isdisjoint(set(ethernet.RP2_ETHERNET_TYPES) - set(ethernet.SPI_ETHERNET_TYPES))
+    assert rp2 >= set(ethernet.RP2_ETHERNET_TYPES)
     assert {"LAN8720", "W5500", "OPENETH"} <= esp32
+    assert esp32.isdisjoint(_RP2_ONLY_TYPES)
+    assert rp2.isdisjoint({"LAN8720", "OPENETH", "DM9051"})
+    assert rp2 | esp32 == set(ethernet.ETHERNET_TYPES)
+    # USB NCM is gated to RP2 only in its schema branch, not in RP2_ETHERNET_TYPES
+    if "USB" in ethernet.ETHERNET_TYPES:
+        assert "USB" in rp2 - esp32
 
 
 def test_apply_stamps_type_and_component(monkeypatch: pytest.MonkeyPatch) -> None:

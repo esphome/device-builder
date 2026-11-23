@@ -8424,15 +8424,22 @@ def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
 
 def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
     """
-    Ethernet's per-platform ``type`` choices from the live module constants.
+    Ethernet's per-platform ``type`` choices from the live schema.
 
-    The schema bundle ships a flat union.
+    The schema bundle ships a flat union. Each type's branch carries its
+    ``cv.only_on`` gate; the ESP32 SPI chips also pass RP2's gate, but
+    ``_validate`` limits RP2 to ``RP2_ETHERNET_TYPES``.
     """
     from esphome.components import ethernet as _ethernet
 
-    rp2 = set(_ethernet.RP2_ETHERNET_TYPES)
-    # Everything except the RP2-only chips.
-    esp32 = set(_ethernet.ETHERNET_TYPES) - (rp2 - set(_ethernet.SPI_ETHERNET_TYPES))
+    gates = {
+        t: _platform_set(branch)
+        for t, branch in (_typed_branch_schemas(_ethernet.CONFIG_SCHEMA) or {}).items()
+    }
+    esp32 = {t for t, gate in gates.items() if gate is None or "esp32" in gate}
+    rp2 = set(_ethernet.RP2_ETHERNET_TYPES) | {
+        t for t, gate in gates.items() if gate == {RP2_CANONICAL_PLATFORM}
+    }
     return {
         "esp32": [{"label": t, "value": t} for t in sorted(esp32)],
         RP2_CANONICAL_PLATFORM: [{"label": t, "value": t} for t in sorted(rp2)],
