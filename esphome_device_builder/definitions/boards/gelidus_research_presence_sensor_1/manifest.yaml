@@ -31,5 +31,5 @@ source:
   type: esphome-devices
   remote_id: Gelidus-Research-Presence-Sensor-1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gelidus-Research-Presence-Sensor-1/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: 80eabf256461c5a79a55c88b0159c38693841b796ca681eb7ba1a06810f6bf56

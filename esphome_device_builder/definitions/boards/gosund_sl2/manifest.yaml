@@ -97,5 +97,5 @@ source:
   type: esphome-devices
   remote_id: Gosund-SL2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gosund-SL2/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: d5952ce034af8850d659f4d66f61e41d2ed98824c0897e41e5011e1c6d911409

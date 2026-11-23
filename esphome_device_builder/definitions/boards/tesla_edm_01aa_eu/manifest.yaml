@@ -56,5 +56,5 @@ source:
   type: esphome-devices
   remote_id: TESLA-EDM-01AA-EU
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/TESLA-EDM-01AA-EU/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: a38e8115b751a9595e2f55f5f66d96057ef1708ff2241caec46690d783e51033
