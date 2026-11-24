@@ -1,1 +1,1 @@
-{"id":"wled","name":"Wled","description":"","category":"misc","docs_url":"https://esphome.io/components/light#wled-effect"}
+{"id":"wled","name":"Wled","description":"","category":"misc","docs_url":"https://esphome.io/components/light#wled-effect","supported_platforms":["esp32","esp8266","rp2","bk72xx","rtl87xx","ln882x"]}
