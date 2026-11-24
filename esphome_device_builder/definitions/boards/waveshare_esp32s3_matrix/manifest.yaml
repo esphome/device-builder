@@ -36,5 +36,5 @@ source:
   type: esphome-devices
   remote_id: Waveshare-ESP32S3-Matrix
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32S3-Matrix/index.md
-  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
   content_hash: a625f1034c4edcd3b46d7d0b57a65347a58e609fdd3d7294c09ec94eae094ff0

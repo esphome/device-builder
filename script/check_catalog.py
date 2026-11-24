@@ -272,7 +272,7 @@ _OPTION_EXPECTATIONS: list[tuple[str, str, int]] = [
 
 
 # Cross-component gating assertions. Catches regressions where
-# infrastructure-dependent fields (zigbee_sensor, web_server) lose
+# infrastructure-dependent fields (zigbee entity options, web_server) lose
 # their ``depends_on_component`` tag and start showing up on the
 # form even when the named component isn't configured on the device.
 # Gates are introspected from the live schema (requires_component /
@@ -283,7 +283,7 @@ _OPTION_EXPECTATIONS: list[tuple[str, str, int]] = [
 _GATING_EXPECTATIONS: list[tuple[str, str, str | None]] = [
     # Zigbee + web_server entity options are inherited onto every
     # sensor via ``_SENSOR_SCHEMA``; they must be gated.
-    ("sensor.ct_clamp", "zigbee_sensor", "zigbee"),
+    ("sensor.ct_clamp", "report", "zigbee"),
     ("sensor.ct_clamp", "web_server", "web_server"),
     # MQTT entity options inherited via ``MQTT_COMPONENT_SCHEMA`` /
     # ``MQTT_COMMAND_COMPONENT_SCHEMA`` (#2300).

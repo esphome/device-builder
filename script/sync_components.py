@@ -462,15 +462,6 @@ _BAUD_RATE_OPTIONS: list[dict[str, str]] = [
 ]
 
 _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
-    # The manual-entry schema exports no field docs; keep its switch reachable
-    # without a BLE server so the user can select the server-free mode.
-    ("ota.adafruit_ble", "ble_trigger"): {
-        "description": (
-            "Enable the BLE service for requesting a bootloader update; "
-            "optional and enabled by default."
-        ),
-        "advanced": False,
-    },
     # ``web_server.sorting_groups`` is accepted only with ``version: 3``
     # — enforced upstream by the custom ``validate_sorting_groups``
     # validator, which the schema bundle can't express. Gate on the
@@ -3371,6 +3362,13 @@ def build_component_entry(
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
 
+    implicit_frameworks, supported_platforms = _apply_framework_constraints(
+        dependencies,
+        (introspection.get("root_frameworks") or {}).get(domain),
+        _platform_arm_alternatives(domain, stem if domain else top_key, dependencies)
+        or _derive_supported_platforms(stem if domain else top_key, dependencies, introspection),
+        component_id=component_id,
+    )
     component = {
         "id": component_id,
         "name": _resolve_name(component_id, stem, docs.name),
@@ -3378,19 +3376,16 @@ def build_component_entry(
         "category": category,
         "docs_url": _strip_anchor(docs.url or ""),
         "image_url": image_map.get(component_id) or image_map.get(stem) or "",
-        "dependencies": _prune_alternative_platform_deps(dependencies, meta),
+        "dependencies": [
+            dep
+            for dep in _prune_alternative_platform_deps(dependencies, meta)
+            if dep not in implicit_frameworks
+        ],
         "multi_conf": (
             introspection.get("multi_conf", False) or component_id in _LIST_SCHEMA_MULTI_CONF
         ),
         "bus_constraints": bus_constraints,
-        "supported_platforms": (
-            _platform_arm_alternatives(domain, stem if domain else top_key, dependencies)
-            or _derive_supported_platforms(
-                stem if domain else top_key,
-                dependencies,
-                introspection,
-            )
-        ),
+        "supported_platforms": supported_platforms,
         # Resolved against referenced classes in ``build_catalog``; the
         # raw class→path map is stashed under ``_impl_class_paths`` until then.
         "provides": [],
@@ -5951,6 +5946,11 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
         "platform_constraints": platform_constraints,
+        "root_frameworks": {
+            domain: frameworks
+            for domain, item in [("", manifest), *platform_manifests_by_domain]
+            if (frameworks := _root_frameworks(getattr(item, "config_schema", None))) is not None
+        },
         "field_ranges": field_ranges,
         "field_range_bleed_keys": field_range_bleed_keys,
         "refined_bleed_keys": refined_bleed_keys,
@@ -8433,15 +8433,22 @@ def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
 
 def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
     """
-    Ethernet's per-platform ``type`` choices from the live module constants.
+    Ethernet's per-platform ``type`` choices from the live schema's gates.
 
-    The schema bundle ships a flat union.
+    The schema bundle ships a flat union. The ESP32 SPI chips also pass
+    RP2's gate, but ``_validate`` limits RP2 to ``RP2_ETHERNET_TYPES``.
     """
     from esphome.components import ethernet as _ethernet
 
-    rp2 = set(_ethernet.RP2_ETHERNET_TYPES)
-    # Everything except the RP2-only chips.
-    esp32 = set(_ethernet.ETHERNET_TYPES) - (rp2 - set(_ethernet.SPI_ETHERNET_TYPES))
+    gates = {
+        t: _platform_set(branch)
+        for t, branch in _typed_branch_schemas(_ethernet.CONFIG_SCHEMA).items()
+    }
+    esp32 = {t for t, gate in gates.items() if gate is None or "esp32" in gate}
+    spi = set(_ethernet.SPI_ETHERNET_TYPES)
+    rp2 = set(_ethernet.RP2_ETHERNET_TYPES) | {
+        t for t, gate in gates.items() if gate and RP2_CANONICAL_PLATFORM in gate and t not in spi
+    }
     return {
         "esp32": [{"label": t, "value": t} for t in sorted(esp32)],
         RP2_CANONICAL_PLATFORM: [{"label": t, "value": t} for t in sorted(rp2)],
@@ -10663,6 +10670,82 @@ def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(expanded))
 
 
+def _root_frameworks(schema: Any) -> frozenset[str] | None:
+    """Read conjunctive framework validators on the component schema."""
+    if isinstance(schema, vol.All):
+        gates = [
+            gate for child in schema.validators if (gate := _root_frameworks(child)) is not None
+        ]
+        return frozenset.intersection(*gates) if gates else None
+    if getattr(schema, "__module__", None) == "esphome.config_validation" and getattr(
+        schema, "__qualname__", ""
+    ).startswith("only_with_framework."):
+        return frozenset(_closure_nonlocals(schema)["frameworks"])
+    return None
+
+
+@cache
+def _platform_framework_pairs() -> tuple[tuple[str, str], ...]:
+    """Read ESPHome's supported platform/framework pairs."""
+    try:
+        from esphome.const import PlatformFramework
+    except ImportError:
+        return ()
+    return tuple(pair.value for pair in PlatformFramework)
+
+
+def _is_framework_dependency(framework: str, platform: str, loader: Any) -> bool:
+    """Check whether the platform auto-loads this framework without a YAML block."""
+    manifest = loader.get_component(framework)
+    target = loader.get_component(platform)
+    return (
+        manifest is not None
+        and getattr(manifest, "config_schema", None) is None
+        and target is not None
+        and framework in _resolve_auto_load(target.auto_load, platform)
+    )
+
+
+def _apply_framework_constraints(
+    dependencies: list[str],
+    frameworks: frozenset[str] | None,
+    platforms: list[str],
+    *,
+    component_id: str,
+) -> tuple[set[str], list[str]]:
+    """Project framework gates onto chips and identify their implicit dependencies."""
+    pairs = _platform_framework_pairs()
+    loader = _get_esphome_loader()
+    if not pairs or loader is None:
+        return set(), platforms
+    implicit_pairs = {
+        (platform, framework)
+        for platform, framework in pairs
+        if framework in dependencies
+        and framework not in _target_platform_names()
+        and _is_framework_dependency(framework, platform, loader)
+    }
+    implicit = {framework for _, framework in implicit_pairs}
+    if frameworks is None and not implicit:
+        return implicit, platforms
+    compatible = _expand_libretiny(
+        platform
+        for platform, framework in pairs
+        if (frameworks is None or framework in frameworks)
+        and (not implicit or (implicit <= {framework} and (platform, framework) in implicit_pairs))
+    )
+    if platforms:
+        compatible = [platform for platform in platforms if platform in compatible]
+    if not compatible:
+        # The per-file exception handler must not swallow a fatal catalog error.
+        raise SystemExit(
+            f"{component_id}: framework and platform constraints are disjoint "
+            f"(frameworks {sorted(frameworks) if frameworks is not None else 'any'}, "
+            f"implicit framework dependencies {sorted(implicit)}, platforms {platforms or 'any'})"
+        )
+    return implicit, compatible
+
+
 def _derive_supported_platforms(
     component_id: str,
     dependencies: list[str],
@@ -11162,11 +11245,6 @@ def _convert_automation_action(
     )
     has_else_branch = "else" in (accepts_action_list or [])
     qualified = f"{wire_prefix}.{name}" if top_key != "core" else name
-    if qualified == "ota.adafruit_ble.enter_bootloader" and not docs.text:
-        docs.text = (
-            "Restart into the Adafruit BLE bootloader; "
-            "finish any shutdown actions before calling this action."
-        )
     config_entries, scalar_shorthand_key = _resolve_automation_lambda(
         top_key=top_key,
         name=name,

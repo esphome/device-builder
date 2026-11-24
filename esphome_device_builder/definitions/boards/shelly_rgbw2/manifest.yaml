@@ -86,5 +86,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-RGBW2
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-RGBW2/index.md
-  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
   content_hash: f97083e5fae595293c58789aadbfb4e2d207378903270fcc5bb32127134f038c
