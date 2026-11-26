@@ -245,16 +245,21 @@ featured_components:
     pin:
       value: 19
       locked: true
+    id:
+      value: rgbpwr
+      locked: true
     enable_time: 5ms
     keep_on_time: 10ms
 - id: rgb_led
   component_id: light.esp32_rmt_led_strip
   name: RGB LED
   description: Onboard WS2812 RGB LED.
+  requires: [rgbpwr]
   fields:
     pin:
       value: 20
       locked: true
+    name: RGB LED
     chipset: ws2812
     channel_colors: GRB
     num_leds: 1
@@ -269,6 +274,7 @@ featured_components:
     pin:
       value: 7
       locked: true
+    name: Status LED
 - id: button
   component_id: binary_sensor.gpio
   name: Button
@@ -283,6 +289,7 @@ featured_components:
         inverted: true
         ignore_strapping_warning: true
       locked: true
+    name: Button
 - id: ir_tx
   component_id: remote_transmitter
   name: IR Transmitter
@@ -291,14 +298,19 @@ featured_components:
     pin:
       value: 3
       locked: true
+    id:
+      value: ir_tx
+      locked: true
     carrier_duty_percent: 50%
 - id: ir_proxy_tx
   component_id: infrared.ir_rf_proxy
   name: IR Proxy Transmitter
+  requires: [ir_tx]
   fields:
     remote_transmitter_id:
       value: ir_tx
       locked: true
+    name: IR Proxy Transmitter
 - id: grove_i2c
   component_id: i2c
   name: Grove I2C
