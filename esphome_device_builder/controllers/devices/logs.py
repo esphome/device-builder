@@ -40,7 +40,8 @@ async def stream_logs(
     ``no_states`` passes ``--no-states`` through to suppress
     component state-publish lines at the source.
     """
-    config_path = str(controller._db.settings.rel_path(configuration))
+    # ``rel_path`` resolves symlinks (blocking) - executor.
+    config_path = str(await run_in_executor(controller._db.settings.rel_path, configuration))
     # Always pass --device; without one ``esphome logs`` enters an
     # interactive port-choice prompt that crashes the stdin-less
     # subprocess with EOFError. (#636)

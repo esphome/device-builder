@@ -140,7 +140,8 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     Returns None on success, else a short failure summary the
     give-up warning can carry.
     """
-    config_path = str(controller._db.settings.rel_path(configuration))
+    # ``rel_path`` resolves symlinks (blocking) - executor.
+    config_path = str(await run_in_executor(controller._db.settings.rel_path, configuration))
     cmd = [*controller.state.esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
     try:
         # Merged streams (the helper's default): esphome safe_prints

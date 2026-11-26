@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import posixpath
 import re
 from collections.abc import Iterable, Iterator
@@ -267,11 +268,16 @@ def _locate(config_dir: Path, rel: str, lexical: str) -> _Located:
     """
     root = config_dir.resolve()
     path = config_dir / rel
+    # os.path.realpath, not Path.resolve: Python 3.12's resolve raises RuntimeError for a
+    # symlink loop, strict or not, where realpath raises OSError when strict and leaves
+    # the loop unresolved otherwise, as resolve does on 3.13+.
     try:
-        folder = path.parent.resolve(strict=True)
+        folder = Path(os.path.realpath(path.parent, strict=True))
     except FileNotFoundError:
         return _Located(lexical, lexical)
-    return _Located(_relative(folder / path.name, root), _relative(path.resolve(), root))
+    return _Located(
+        _relative(folder / path.name, root), _relative(Path(os.path.realpath(path)), root)
+    )
 
 
 def _relative(path: Path, root: Path) -> str | None:

@@ -34,6 +34,8 @@ from .helpers import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .controller import DevicesController
 
 
@@ -75,8 +77,6 @@ async def clone_device(
             "new_name must differ from the source device name",
         )
 
-    source_path = controller._db.settings.rel_path(configuration)
-    new_path = controller._db.settings.rel_path(new_filename)
     if new_friendly_name is None:
         new_friendly_name = friendly_name_slugify(new_name)
     # Generate the fresh key off-loop so the executor work below
@@ -86,14 +86,17 @@ async def clone_device(
     # Source YAML read on the executor; shared-sidecar read goes
     # through the client's sync path inside the same hop so the
     # identity carry-forward piggy-backs.
-    def _gather() -> tuple[str, dict[str, Any]]:
+    def _gather() -> tuple[Path, str, dict[str, Any]]:
+        # ``rel_path`` resolves symlinks (blocking), so it runs here, not on the loop.
+        source_path = controller._db.settings.rel_path(configuration)
+        new_path = controller._db.settings.rel_path(new_filename)
         if new_path.exists():
             raise_device_name_exists(new_filename)
         refuse_nested_name_clash(controller._db.settings.config_dir, new_filename)
         content = read_device_config(source_path, configuration)
-        return content, controller._shared_sidecar.get_sync(configuration)
+        return new_path, content, controller._shared_sidecar.get_sync(configuration)
 
-    source_content, source_meta = await run_in_executor(_gather)
+    new_path, source_content, source_meta = await run_in_executor(_gather)
 
     # Validate the source before rewrite work; the leaf rewrites are
     # structure-preserving or refuse (see rewrite_api_encryption_key), so a

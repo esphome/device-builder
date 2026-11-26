@@ -211,10 +211,11 @@ async def delete_archived_single(controller: DevicesController, configuration: s
 
 async def delete_single(controller: DevicesController, configuration: str) -> None:
     """Delete a single device and all associated files."""
-    config_path = controller._db.settings.rel_path(configuration)
     config_dir = controller._db.settings.config_dir
 
     def _delete_all() -> None:
+        # rel_path resolves symlinks (blocking), so it runs here, not on the loop.
+        config_path = controller._db.settings.rel_path(configuration)
         # Existence check stays inside the executor; Path.exists
         # performs a filesystem stat and would block the event
         # loop otherwise.

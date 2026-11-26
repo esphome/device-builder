@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from functools import partial
@@ -20,7 +21,12 @@ from types import MappingProxyType
 from typing import NamedTuple
 
 from ..helpers.async_ import run_in_executor
-from ..helpers.config_layout import in_devices_dir, iter_device_files, sibling_secrets
+from ..helpers.config_layout import (
+    config_relative,
+    in_devices_dir,
+    iter_device_files,
+    sibling_secrets,
+)
 from ..helpers.device_yaml import (
     BoardIdDeriver,
     LoadBatch,
@@ -520,8 +526,10 @@ class DeviceScanner(WakeWorker[str]):
         """Build ``path → cache_key`` for every device YAML currently on disk."""
         result: dict[Path, _CacheKey] = {}
         batch = LoadBatch(self._config_dir)
+        config_dir = os.fspath(self._config_dir)
         for rel in iter_device_files(self._config_dir):
-            file = self._config_dir / rel
+            # Per file on every scan: one Path from the joined string is cheaper than ``/``.
+            file = Path(os.path.join(config_dir, rel))  # noqa: PTH118
             try:
                 stat = file.stat()
             except OSError:
@@ -544,7 +552,7 @@ class DeviceScanner(WakeWorker[str]):
         get_metadata = self._make_metadata_resolver()
         batch = LoadBatch(self._config_dir)
         for path in paths:
-            configuration = path.relative_to(self._config_dir).as_posix()
+            configuration = config_relative(self._config_dir, path)
             if others := self._duplicates.get(path):
                 keys = _dependency_keys(batch, configuration, ())
                 result[path] = _LoadedDevice(_duplicate_device(configuration, others), keys)
@@ -579,6 +587,7 @@ class DeviceScanner(WakeWorker[str]):
                     dependencies=known,
                     batch=batch,
                     derive_board_id=self._derive_board_id,
+                    configuration=configuration,
                 )
                 # The read's own fstat keys each file, so an edit landing after
                 # the read still flips the next scan.
@@ -593,8 +602,10 @@ def _dependency_keys(
     batch: LoadBatch, configuration: str, dependencies: Iterable[str]
 ) -> _DependencyStatKeys:
     """Stat keys of *dependencies*, plus the secrets file beside a device below ``devices/``."""
-    keys = tuple(batch.stat_key(d) for d in dependencies)
-    if in_devices_dir(configuration):
+    keys = tuple(batch.stat_key(d) for d in dependencies) if dependencies else ()
+    # Runs per device on every scan; a scanned configuration is POSIX-relative, so a
+    # top-level one, the common case, has no "/" and skips the normalising check.
+    if "/" in configuration and in_devices_dir(configuration):
         keys += (batch.stat_key(sibling_secrets(configuration)),)
     return keys
 

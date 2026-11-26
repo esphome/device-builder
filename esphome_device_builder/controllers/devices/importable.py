@@ -119,7 +119,8 @@ async def import_device(
 ) -> dict:
     """Import / adopt a discovered device."""
     configuration = f"{name}.yaml"
-    path = controller._db.settings.rel_path(configuration)
+    # ``rel_path`` resolves symlinks (blocking) - executor.
+    path = await run_in_executor(controller._db.settings.rel_path, configuration)
     # The adopt dialog always imports under the factory broadcast name
     # (frontend applies an edited name via the post-adopt rename flow),
     # so the name-keyed lookup is exact; an absent row falls through to

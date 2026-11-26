@@ -887,8 +887,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                     f"refusing to clear all secrets from {secrets_name} without "
                     "confirmation; pass allow_wipe to confirm",
                 )
+            settings = self._db.settings
             try:
-                validate_secrets_content(content, self._db.settings.rel_path(configuration))
+                # rel_path resolves symlinks and the parse may read !include files: executor.
+                await run_in_executor(
+                    lambda: validate_secrets_content(content, settings.rel_path(configuration))
+                )
             except SecretsContentError as err:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
@@ -1159,7 +1163,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         captured before the next save can overwrite it.
         """
         async with self._yaml_write_lock(configuration):
-            await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
+            # ``rel_path`` resolves symlinks (blocking) - executor.
+            path = await run_in_executor(self._db.settings.rel_path, configuration)
+            await self._write_yaml_atomic_async(path, content)
             await self._commit_history(configuration, message or f"Update {configuration}")
         self._after_yaml_write(configuration)
 

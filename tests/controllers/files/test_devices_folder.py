@@ -264,11 +264,12 @@ async def test_the_scanner_skips_device_folders_no_command_takes(
 
 
 async def test_a_case_variant_of_the_devices_folder_is_not_a_package(
-    tmp_path: Path, repo: tuple[Setup, DeviceScanner, Changes]
+    tmp_path: Path, setup: Setup
 ) -> None:
     """files/* refuses ``Devices/x.yaml`` (it folds case), so files/list_packages leaves it out."""
-    (files, _, _), _, _ = repo
-    write_tree(tmp_path, {"Devices/x.yaml": "logger:\n"})
+    files, _, _ = setup
+    # Not TREE: beside its devices/, a case-insensitive filesystem would put x.yaml in it.
+    write_tree(tmp_path, {"Devices/x.yaml": "logger:\n", "common/base.yaml": "logger:\n"})
 
     assert await files.list_packages() == [{"path": "common/base.yaml"}]
 

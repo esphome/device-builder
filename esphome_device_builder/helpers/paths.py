@@ -15,9 +15,10 @@ def resolve_under_root(target: Path, root: Path) -> Path:
 
     Collapses ``..`` / symlinks via ``Path.resolve()`` before the
     containment check; returns the resolved target. A target that
-    can't be resolved at all (embedded NUL) fails closed as an
-    escape. Blocking (``resolve`` walks the filesystem) — call from
-    executor threads.
+    can't be resolved at all (embedded NUL, or a symlink loop, which
+    Python 3.12's ``resolve()`` raises ``RuntimeError`` for) fails
+    closed as an escape. Blocking (``resolve`` walks the filesystem) - call
+    from executor threads.
     """
     # Explicit NUL gate: POSIX ``resolve()`` raises ``ValueError`` on an
     # embedded NUL but Windows swallows it, so the check can't ride the
@@ -26,7 +27,7 @@ def resolve_under_root(target: Path, root: Path) -> Path:
         raise PathEscapeError(f"{str(target)!r} contains a NUL byte")
     try:
         resolved = target.resolve()
-    except ValueError as err:
+    except (ValueError, RuntimeError) as err:
         raise PathEscapeError(f"{str(target)!r} is unresolvable: {err}") from err
     if not resolved.is_relative_to(root.resolve()):
         # ``!r`` so control characters in a user-controlled filename

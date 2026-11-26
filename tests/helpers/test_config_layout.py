@@ -14,6 +14,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.config_layout import (
     canonical_configuration,
     canonical_rel,
+    config_relative,
     in_devices_dir,
     is_canonical_configuration,
     is_device_config_name,
@@ -29,6 +30,7 @@ from esphome_device_builder.helpers.config_layout import (
     refuse_nested_name_clash,
     refuse_path_in_name,
     resolved_rel,
+    sibling_secrets,
 )
 from esphome_device_builder.models import ErrorCode
 
@@ -222,6 +224,21 @@ def test_canonical_rel() -> None:
     assert canonical_rel("kitchen.yaml") == "kitchen.yaml"
 
 
+def test_config_relative(tmp_path: Path) -> None:
+    assert config_relative(tmp_path, tmp_path / "kitchen.yaml") == "kitchen.yaml"
+    assert config_relative(tmp_path, tmp_path / "devices/lights/desk.yaml") == (
+        "devices/lights/desk.yaml"
+    )
+    for outside in (tmp_path, tmp_path.parent / "x.yaml", tmp_path.with_name("other") / "x.yaml"):
+        with pytest.raises(ValueError, match="is not below"):
+            config_relative(tmp_path, outside)
+
+
+def test_sibling_secrets() -> None:
+    assert sibling_secrets("kitchen.yaml") == "secrets.yaml"
+    assert sibling_secrets("devices/lights/desk.yaml") == "devices/lights/secrets.yaml"
+
+
 def test_name_shared_by_another_device(tmp_path: Path) -> None:
     for rel in ("lamp.yaml", "devices/a/lamp.yaml", "devices/b/desk.yaml", "common/desk.yaml"):
         _write(tmp_path, rel)
@@ -313,7 +330,6 @@ def test_iter_device_files_walks_top_level_and_devices_folder(tmp_path: Path) ->
         "devices/.drafts/draft.yaml",
         "devices/lights/.x.yaml",
         "common/base.yaml",
-        "Devices/upper.yaml",
         "archive/old.yaml",
         ".esphome/build/z.yaml",
     ):
@@ -328,6 +344,22 @@ def test_iter_device_files_walks_top_level_and_devices_folder(tmp_path: Path) ->
         "kitchen.yaml",
         "porch.yml",
     ]
+
+
+def test_iter_device_files_matches_the_devices_folder_name_exactly(tmp_path: Path) -> None:
+    # Its own tree: beside devices/, a case-insensitive filesystem would put the file in it.
+    _write(tmp_path, "Devices/upper.yaml")
+
+    assert iter_device_files(tmp_path) == []
+
+
+@posix_only
+def test_iter_device_files_lists_past_a_symlink_loop(tmp_path: Path) -> None:
+    # Python 3.12's Path.resolve raises RuntimeError for the loop, even when not strict.
+    _write(tmp_path, "devices/plug.yaml")
+    (tmp_path / "devices/loop.yaml").symlink_to("loop.yaml")
+
+    assert "devices/plug.yaml" in iter_device_files(tmp_path)
 
 
 @posix_only

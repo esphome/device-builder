@@ -142,6 +142,30 @@ async def test_rename_reports_a_reference_through_a_symlink_loop_as_unresolved(
     assert (tmp_path / "office.yaml").read_text() == office
 
 
+@posix_only
+async def test_rename_reports_a_yaml_that_is_a_symlink_loop_as_unresolved(
+    tmp_path: Path, setup: Setup
+) -> None:
+    # Python 3.12's Path.resolve raises RuntimeError for the loop, even when not strict.
+    files, devices, _ = setup
+    write_tree(tmp_path, {"kitchen.yaml": KITCHEN, "common/base.yaml": "logger:\n"})
+    (tmp_path / "loop.yaml").symlink_to("loop.yaml")
+
+    with patch.object(devices, "get_devices", return_value=[]):
+        usage = await files.usage(path="common/base.yaml")
+        result = await files.rename(path="common/base.yaml", new_path="common/main.yaml")
+
+    assert usage["referenced_by"] == ["kitchen.yaml"]
+    assert result == {
+        "path": "common/main.yaml",
+        "rewritten": ["kitchen.yaml"],
+        "unresolved": ["loop.yaml"],
+    }
+    assert (
+        tmp_path / "kitchen.yaml"
+    ).read_text() == "packages:\n  base: !include common/main.yaml\n"
+
+
 async def test_rename_rewrites_nested_hidden_and_upper_case_extension_referrers(
     tmp_path: Path, setup: Setup
 ) -> None:

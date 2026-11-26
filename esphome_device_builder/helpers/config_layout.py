@@ -58,8 +58,25 @@ def in_devices_dir(rel: str) -> bool:
     return len(parts) > 1 and parts[0].casefold() == DEVICES_DIR
 
 
+def config_relative(config_dir: Path, path: Path) -> str:
+    """
+    Return *path*, a file below *config_dir*, as a config-relative POSIX string.
+
+    Lexical, like ``Path.relative_to``, which the per-device scan avoids for its cost.
+    Raises ``ValueError`` when *path* is not below *config_dir*.
+    """
+    root = config_dir.parts
+    parts = path.parts
+    if len(parts) <= len(root) or parts[: len(root)] != root:
+        msg = f"{str(path)!r} is not below {str(config_dir)!r}"
+        raise ValueError(msg)
+    return "/".join(parts[len(root) :])
+
+
 def sibling_secrets(configuration: str) -> str:
     """Return the config-relative secrets file that ``!secret`` in *configuration* reads."""
+    if "/" not in configuration:
+        return SECRETS_FILENAME  # the common, top-level case, once per device per scan
     return posixpath.join(posixpath.dirname(configuration), SECRETS_FILENAME)
 
 
@@ -171,7 +188,11 @@ def iter_device_files(config_dir: Path) -> list[str]:
 
     A failure listing *config_dir* itself raises; one below it is logged and skipped.
     """
-    return sorted(rel for rel in _walk(config_dir, _descend_devices) if is_device_path(rel))
+    # The walk only yields visible YAMLs at the top level or below devices/, the rest of
+    # is_device_path, so only the secrets check is left: this runs per file on every scan.
+    return sorted(
+        rel for rel in _walk(config_dir, _descend_devices) if not is_secrets_like_name(rel)
+    )
 
 
 def _descend_devices(top: bool, name: str) -> bool:  # noqa: FBT001 - _walk's callback shape
@@ -269,22 +290,26 @@ def _walk(
 
     # os.walk does not descend into symlinked dirs (followlinks=False).
     for dirpath, dirnames, filenames in os.walk(config_dir, onerror=_on_error):
-        rel_dir = Path(dirpath).relative_to(config_dir)
-        top = rel_dir == Path()
+        # Plain string slicing, not Path: this runs for every file of every scan. os.walk
+        # joins each dirpath onto top_dir, so the rest is the folder's config-relative path.
+        rel_dir = dirpath[len(top_dir) :].lstrip(os.sep).replace(os.sep, "/")
+        top = not rel_dir
+        prefix = f"{rel_dir}/" if rel_dir else ""
         dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and descend(top, d))
         for name in filenames:
             hidden = name.startswith(".")
             if (hidden and not hidden_files) or not name.lower().endswith(YAML_SUFFIXES):
                 continue
-            full = Path(dirpath, name)
             # A visible top-level YAML is taken as is, symlink or not, as esphome's own
             # listing does.
-            if (hidden or not top) and full.is_symlink():
-                try:
-                    resolve_under_root(full, root)
-                except PathEscapeError:
-                    continue
-            yield (rel_dir / name).as_posix()
+            if hidden or not top:
+                full = Path(dirpath, name)
+                if full.is_symlink():
+                    try:
+                        resolve_under_root(full, root)
+                    except PathEscapeError:
+                        continue
+            yield prefix + name
 
 
 def _is_canonical_segment(part: str) -> bool:

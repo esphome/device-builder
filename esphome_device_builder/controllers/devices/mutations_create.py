@@ -28,6 +28,8 @@ from .helpers import (
 from .mutations_yaml import PackageWarning, packages_block_span
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .controller import DevicesController
 
 # A wifi credential of ``!secret wifi_ssid`` is a caller passing the YAML
@@ -101,7 +103,11 @@ async def create_device(  # noqa: C901, PLR0912
     filename = f"{name}.yaml"
     if is_secrets_file(filename):
         raise CommandError(ErrorCode.INVALID_ARGS, f"{filename} is reserved for secrets")
-    config_path = controller._db.settings.rel_path(filename)
+
+    def _probe() -> tuple[Path, bool]:
+        # ``rel_path`` resolves symlinks (blocking), so it runs here, not on the loop.
+        path = controller._db.settings.rel_path(filename)
+        return path, path.exists()
 
     # Fast collision check before the (~hundreds of ms) validator
     # round-trip so a duplicate-name attempt fails on the right
@@ -109,7 +115,7 @@ async def create_device(  # noqa: C901, PLR0912
     # frontend can offer an overwrite instead of a dead-end error. The
     # write further down is the actual race-safe path; this is a UX
     # optimisation.
-    file_existed = await run_in_executor(config_path.exists)
+    config_path, file_existed = await run_in_executor(_probe)
     if file_existed and not overwrite:
         msg = f"Configuration {filename} already exists"
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg)

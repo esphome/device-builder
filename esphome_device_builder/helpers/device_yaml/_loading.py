@@ -99,6 +99,7 @@ def load_device_from_storage(
     dependencies: tuple[str, ...] | None = None,
     batch: LoadBatch | None = None,
     derive_board_id: BoardIdDeriver | None = None,
+    configuration: str | None = None,
 ) -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
@@ -153,14 +154,16 @@ def load_device_from_storage(
     used when the parse is skipped (shallow) or fails; a deep load
     discovers the current list itself. *batch* carries the state the
     devices of one scan batch share; ``Device.configuration`` is *path* relative to
-    its config dir.
+    its config dir, or *configuration* when the caller already has that form.
 
     *derive_board_id* maps ``(platform, board, variant)`` to a catalog id
     when *board_id* is empty.
     """
     batch = batch or LoadBatch(path.parent)
     # Config-dir relative: a bare name at the top level, ``devices/<folder>/<name>`` below.
-    filename = path.relative_to(batch.config_dir).as_posix()
+    filename = (
+        path.relative_to(batch.config_dir).as_posix() if configuration is None else configuration
+    )
     storage = StorageJSON.load(resolve_storage_path(filename))
 
     yaml_stat, yaml_text, secrets_key = _snapshot_source_files(path, filename, batch)

@@ -6,6 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.ansi import redact_concealed
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import ESPHOME_CONFIG_TIMEOUT
 
 if TYPE_CHECKING:
@@ -37,7 +38,8 @@ async def validate_config(
     runs are stripped from each line before it leaves the
     WS handler.
     """
-    config_path = str(controller._db.settings.rel_path(configuration))
+    # ``rel_path`` resolves symlinks (blocking) - executor.
+    config_path = str(await run_in_executor(controller._db.settings.rel_path, configuration))
     cmd = [*controller.state.esphome_cmd, "--dashboard", "config", config_path]
     line_transform: Callable[[str], str] | None = None
     if show_secrets:
