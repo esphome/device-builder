@@ -317,6 +317,26 @@ def test_local_addresses_drops_hyperv_virtual_switch_by_nice_name(
 
 
 @pytest.mark.parametrize(
+    "description",
+    ["Hyper-V Virtual Ethernet Adapter", "Hyper-V Virtual Ethernet Adapter #2"],
+)
+def test_local_addresses_drops_hyperv_driver_description(
+    monkeypatch: pytest.MonkeyPatch, description: str
+) -> None:
+    """Filter the GUID/driver-description pairs returned by ifaddr on Windows."""
+    adapters = [
+        _adapter(
+            "{5AF29459-8823-4447-89FA-81034AD5B60F}",
+            nice_name=description,
+            ips=["172.30.32.1"],
+        ),
+        _adapter("Ethernet", nice_name="Intel Ethernet Controller", ips=["172.30.33.2"]),
+    ]
+    monkeypatch.setattr(dashboard_advertise.ifaddr, "get_adapters", lambda: adapters)
+    assert _local_addresses() == ["172.30.33.2"]
+
+
+@pytest.mark.parametrize(
     "lan_bridge_name",
     ["br-lan", "br-guest", "br-wan", "br-iot"],
 )
