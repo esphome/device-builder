@@ -186,6 +186,22 @@ async def test_seeded_mdns_dark_device_probes_once_for_live_identity(
     assert src._select_targets() == []
 
 
+async def test_seeded_mdns_dark_device_cools_down_when_probe_returns_no_identity() -> None:
+    """A probe returning no identity leaves a seeded device due and cools it down."""
+    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    src = monitor.api_info
+
+    src._run_worker = AsyncMock(return_value={"noise": False})  # type: ignore[method-assign]
+    await src._fetch(device)
+
+    assert device.runtime_state.deployed_identity_live is False
+    assert "kitchen" in src._cooldown
+    assert src._is_due(device)
+    assert src._select_targets() == []
+
+
 # ----------------------------------------------------------------------
 # _candidate_addresses
 # ----------------------------------------------------------------------

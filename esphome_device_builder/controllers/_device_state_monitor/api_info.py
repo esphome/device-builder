@@ -337,8 +337,8 @@ class ApiInfoSource(ApiSweepSource):
             self._warned_systemic = True
             _LOGGER.warning(
                 "Native API info fallback is failing for %d devices; MAC/version "
-                "may stay blank — check device API reachability, encryption keys, "
-                "and the api.port setting",
+                "may stay blank or unverified — check device API reachability, "
+                "encryption keys, and the api.port setting",
                 failing,
             )
 
