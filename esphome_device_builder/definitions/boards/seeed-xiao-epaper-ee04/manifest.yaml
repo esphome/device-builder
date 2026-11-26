@@ -30,6 +30,12 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Seeed-XIAO-ePaper-EE04/ee04-board.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Seeed-XIAO-ePaper-EE04/ee04-overview.png
 featured_components:
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: epaper_spi
   component_id: spi
   fields:
@@ -76,6 +82,7 @@ featured_components:
       locked: true
   requires:
   - epaper_spi
+  - onboard_psram
 - id: button_key0
   component_id: binary_sensor.gpio
   name: KEY0 Button
@@ -114,6 +121,7 @@ featured_bundles:
   name: ePaper Display (full setup)
   description: SPI bus plus the 24-pin waveshare_epaper display.
   component_ids:
+  - onboard_psram
   - epaper_spi
   - epaper_display
 - id: buttons_setup
