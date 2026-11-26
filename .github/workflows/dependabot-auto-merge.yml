@@ -9,40 +9,49 @@ name: Dependabot auto-merge
 # no app key is exposed to them. The cost is that a Dependabot merge doesn't
 # trigger `push` workflows; the release drafter catches up on the next push.
 # Dependabot runs on `pull_request` get a read-only token unless `permissions:` raises it.
-# The workflow comes from the PR merge commit, so the action a bump proposes
-# runs only in the read-only `metadata` job; the write job runs no action.
-# A bump of fetch-metadata itself is left for a human, so it can't classify its own update.
+# The workflow comes from the PR merge commit, so it runs no action a bump
+# could propose; the classifier is fetched from the default branch instead.
 
 on: pull_request
 
 permissions: {}
 
 jobs:
-  metadata:
-    name: Fetch Dependabot metadata
+  classify:
+    name: Classify the update
     runs-on: ubuntu-latest
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]'
       && github.repository == github.event.pull_request.head.repo.full_name
       && github.actor == 'dependabot[bot]'
-      && !startsWith(github.head_ref, 'dependabot/github_actions/dependabot/fetch-metadata-')
     permissions:
-      contents: read  # fetch-metadata reads the PR's commit messages
-      pull-requests: read  # fetch-metadata reads the PR
+      contents: read  # fetch the classifier script from the default branch
+      pull-requests: read  # read the PR diff
     outputs:
-      update-type: ${{ steps.metadata.outputs.update-type }}
+      update-type: ${{ steps.classify.outputs.update-type }}
     steps:
-      - name: Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@v3.1.0
-        with:
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Classify the version bump from the PR diff
+        id: classify
+        run: |
+          gh api -H "Accept: application/vnd.github.raw" \
+            "repos/$GITHUB_REPOSITORY/contents/script/dependabot_update_type.py?ref=$DEFAULT_BRANCH" \
+            > "$RUNNER_TEMP/dependabot_update_type.py"
+          gh pr diff "$PR_URL" > "$RUNNER_TEMP/pr.diff"
+          update_type=$(python3 -I "$RUNNER_TEMP/dependabot_update_type.py" < "$RUNNER_TEMP/pr.diff")
+          echo "Update type: $update_type"
+          echo "update-type=$update_type" >> "$GITHUB_OUTPUT"
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   auto-merge:
     name: Enable auto-merge
     runs-on: ubuntu-latest
-    needs: metadata
-    if: needs.metadata.outputs.update-type != 'version-update:semver-major'
+    needs: classify
+    if: >-
+      needs.classify.outputs.update-type == 'minor'
+      || needs.classify.outputs.update-type == 'patch'
     permissions:
       contents: write  # gh pr merge --auto needs write on the repo contents
       pull-requests: write  # enabling auto-merge edits the pull request
