@@ -142,6 +142,18 @@ async def test_reset_without_firmware_acks_not_ready(tmp_path: Path) -> None:
     assert ack["reason"] == "not_ready"
 
 
+async def test_receiver_handle_reset_build_env_delegates_to_handler(tmp_path: Path) -> None:
+    """The receiver controller's frame handler runs the reset flow end to end."""
+    handles = _make_handles(tmp_path)
+    firmware = _wire_firmware(handles, active_jobs=[])
+    session = _make_session()
+
+    await handles.receiver.handle_reset_build_env(session, _frame())
+
+    assert _sent_ack(session)["accepted"] is True
+    firmware._enqueue.assert_awaited_once()
+
+
 async def test_reset_malformed_frame_acks_and_terminates(tmp_path: Path) -> None:
     """A frame missing ``job_id`` acks invalid_frame + terminates the session."""
     handles = _make_handles(tmp_path)

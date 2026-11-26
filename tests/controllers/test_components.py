@@ -1275,3 +1275,15 @@ def test_index_entry_loads_unlisted_platform_domain() -> None:
         }
     )
     assert entry.category == "brand_new_domain"
+
+
+async def test_resolve_network_components_skips_unknown_featured_record() -> None:
+    """A network featured entry with no catalog record is skipped."""
+    cat = ComponentCatalog()
+    cat._featured._view = FeaturedView({}, {})
+    board = SimpleNamespace(
+        id="no-record",
+        featured_components=[FeaturedComponent(id="eth", component_id="ethernet")],
+    )
+
+    assert await cat.resolve_network_components(board) == []

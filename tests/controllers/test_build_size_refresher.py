@@ -140,51 +140,39 @@ async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> N
 
 
 async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -> None:
-    """Refresh returning ``None`` (cache hit) → no ``on_refreshed`` invoke.
-
-    Single-request shape so the assertion isn't sensitive to
-    ``set.pop()`` ordering: a cache-hit refresh returns ``None``
-    and the worker has to take the ``if result is None:
-    continue`` branch *without* invoking the callback. A
-    ``refresh_done`` event fires after the executor returns, so
-    the test can drive ``stop()`` deterministically once the
-    short-circuit has actually been exercised.
-    """
+    """A cache-hit refresh (``None``) fires no ``on_refreshed``; the next request still drains."""
     refreshed: list[str] = []
+    fresh_done = asyncio.Event()
+    cached_started = asyncio.Event()
+    loop = asyncio.get_running_loop()
 
     def _on_refreshed(configuration: str) -> None:
         refreshed.append(configuration)
+        fresh_done.set()
 
-    refresh_done = asyncio.Event()
-    loop = asyncio.get_running_loop()
+    def _refresh(configuration: str, _cached: Any) -> BuildSizeRefreshResult | None:
+        if configuration == "cached.yaml":
+            loop.call_soon_threadsafe(cached_started.set)
+            return None
+        return BuildSizeRefreshResult(
+            size_bytes=1024,
+            signal=BuildDirSignal(dir_mtime=10, info_mtime=20),
+        )
 
-    def _refresh(_configuration: str, _cached: Any):
-        # ``call_soon_threadsafe`` only guarantees the event
-        # gets scheduled to fire on the loop — the worker may
-        # not have resumed yet when ``refresh_done.wait()``
-        # returns. The follow-up ``await asyncio.sleep(0)``
-        # cedes control back to the worker so the
-        # ``if result is None: continue`` branch actually
-        # executes before ``stop()`` cancels.
-        loop.call_soon_threadsafe(refresh_done.set)
-
-    refresher, _, _ = _make(tmp_path, on_refreshed=_on_refreshed)
+    refresher, _, persisted = _make(tmp_path, on_refreshed=_on_refreshed)
     with patch(
         "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
         side_effect=_refresh,
     ):
         refresher.start()
         refresher.request("cached.yaml")
-        await asyncio.wait_for(refresh_done.wait(), timeout=_TIMEOUT)
-        # Yield once so the worker actually executes the
-        # ``continue`` branch before stop() cancels it.
-        await asyncio.sleep(0)
+        await asyncio.wait_for(cached_started.wait(), timeout=_TIMEOUT)
+        refresher.request("fresh.yaml")
+        await asyncio.wait_for(fresh_done.wait(), timeout=_TIMEOUT)
         await refresher.stop()
 
-    # The cache-hit branch must short-circuit without firing the
-    # callback. A regression that drops the ``if result is None:
-    # continue`` guard would invoke ``on_refreshed`` here.
-    assert refreshed == []
+    assert refreshed == ["fresh.yaml"]
+    assert [configuration for configuration, _ in persisted] == ["fresh.yaml"]
 
 
 async def test_worker_logs_and_continues_on_refresh_exception(tmp_path: Path, caplog: Any) -> None:

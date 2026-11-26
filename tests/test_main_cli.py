@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import builtins
 import logging
+import runpy
 import sys
 import threading
+import warnings
 from collections.abc import Generator
 from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError
@@ -492,3 +494,54 @@ def test_warn_if_unprotected_warns_standalone_without_password(
         main_module._warn_if_unprotected(settings)
 
     assert any("WITHOUT AUTHENTICATION" in r.getMessage() for r in caplog.records)
+
+
+def test_warn_if_unprotected_skips_when_password_set(
+    make_settings: MakeSettingsFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A configured password means no banner."""
+    settings = make_settings()
+    settings.using_password = True
+
+    with caplog.at_level("WARNING", logger=main_module._LOGGER_NAME):
+        main_module._warn_if_unprotected(settings)
+
+    assert not any("WITHOUT AUTHENTICATION" in r.getMessage() for r in caplog.records)
+
+
+def test_warn_if_unprotected_skips_ingress_addon(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The default add-on shape (ingress is the auth boundary) gets no banner."""
+    monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
+    settings = make_settings()
+    settings.on_ha_addon = True
+    settings.using_password = False
+
+    with caplog.at_level("WARNING", logger=main_module._LOGGER_NAME):
+        main_module._warn_if_unprotected(settings)
+
+    assert not any("WITHOUT AUTHENTICATION" in r.getMessage() for r in caplog.records)
+
+
+def test_setup_logging_writes_to_log_file(tmp_path: Path, _isolated_logging_globals: None) -> None:
+    """A ``log_file`` is opened by the rotating file handler."""
+    log_file = tmp_path / "builder.log"
+    main_module._setup_logging("info", str(log_file))
+
+    assert log_file.exists()
+
+
+def test_module_run_as_script_invokes_main() -> None:
+    """Running ``esphome_device_builder.__main__`` as a script calls ``main()``."""
+    with (
+        patch.object(sys, "argv", ["esphome-device-builder", "--help"]),
+        warnings.catch_warnings(),
+        pytest.raises(SystemExit) as excinfo,
+    ):
+        warnings.simplefilter("ignore", RuntimeWarning)
+        runpy.run_module("esphome_device_builder.__main__", run_name="__main__")
+    assert excinfo.value.code == 0

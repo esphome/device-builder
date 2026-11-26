@@ -41,6 +41,7 @@ from esphome_device_builder.helpers.config_hash import read_build_info_hash
 from esphome_device_builder.helpers.remote_artifacts_materialise import (
     MaterialiseError,
     _force_idedata_cache_hit,
+    _remap_idedata_build_paths,
     _remap_to_offloader,
     materialise_remote_artifacts,
 )
@@ -1213,3 +1214,13 @@ def test_force_idedata_cache_hit_noop_when_files_missing(tmp_path: Path) -> None
         platformio_ini=tmp_path / "missing.ini",
         cached_idedata=tmp_path / "missing.json",
     )
+
+
+def test_remap_idedata_build_paths_ignores_non_string_paths() -> None:
+    """Non-string prog_path / flash image paths are left untouched."""
+    data: dict[str, Any] = {
+        "prog_path": 5,
+        "extra": {"flash_images": [{"path": None}]},
+    }
+    _remap_idedata_build_paths(data, PurePosixPath("/r/build"), Path("/o/build"))
+    assert data == {"prog_path": 5, "extra": {"flash_images": [{"path": None}]}}

@@ -519,3 +519,20 @@ def test_register_frontend_lists_all_missing_entries(tmp_path: Path) -> None:
         DeviceBuilder._register_frontend(app, frontend)
     assert "index.html" in str(exc.value)
     assert "assets/" in str(exc.value)
+
+
+async def test_register_frontend_oserror_on_stat_404s_asset(
+    tmp_path: Path, aiohttp_client: AiohttpClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ``OSError`` while resolving a top-level bundle is treated as not found."""
+    client = await aiohttp_client(_make_app(_make_frontend(tmp_path)))
+    real_is_file = Path.is_file
+
+    def _is_file(self: Path) -> bool:
+        if self.name == "app.abc123def4567890.js":
+            raise OSError("stat failed")
+        return real_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", _is_file)
+    resp = await client.get("/app.abc123def4567890.js")
+    assert resp.status == 404

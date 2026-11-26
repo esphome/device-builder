@@ -590,3 +590,34 @@ async def test_stop_is_safe_without_start(make_settings: MakeSettingsFactory) ->
     # Pool still gets drained even on the early-exit path so the
     # process can exit cleanly.
     assert db._executor is None
+
+
+def test_install_default_executor_requires_loop(make_settings: MakeSettingsFactory) -> None:
+    """Installing the executor before ``start()`` set the loop raises."""
+    db = DeviceBuilder(make_settings())
+    db.loop = None
+    with pytest.raises(RuntimeError, match="loop is not set"):
+        db._install_default_executor()
+
+
+async def test_install_default_executor_requires_live_executor(
+    make_settings: MakeSettingsFactory,
+) -> None:
+    """Installing after the executor was shut down raises."""
+    db = DeviceBuilder(make_settings())
+    db.loop = asyncio.get_running_loop()
+    db._executor = None
+    with pytest.raises(RuntimeError, match="already shut down"):
+        db._install_default_executor()
+
+
+async def test_ping_command_returns_pong(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """The registered ``ping`` handler answers ``pong``."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    try:
+        assert await db.command_handlers["ping"]() == {"pong": True}
+    finally:
+        await db.stop()

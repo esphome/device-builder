@@ -4557,3 +4557,10 @@ def test_load_device_yaml_drops_removed_keys(tmp_path: Path) -> None:
     assert config is not None
     assert "mqtt" not in config
     assert config["api"] == {}
+
+
+def test_wifi_block_lines_omit_fallback_ap_on_platform_without_captive_portal() -> None:
+    """A platform outside the captive-portal set gets only a blank separator after wifi."""
+    lines = device_yaml._generation._wifi_block_lines("net", "pw", "ap", "esp32h2")
+    assert lines[-1] == ""
+    assert "  ap:" not in lines
