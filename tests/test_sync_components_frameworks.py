@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from esphome import config_validation as cv
+from esphome import const
 from esphome.const import Framework
 
 from script import sync_components as sync
@@ -92,6 +94,47 @@ def test_conflicting_framework_constraints_abort_catalog(
         sync.build_catalog(schema_dir=tmp_path, limit={"sensor.template"})
 
 
+@pytest.mark.parametrize("drift", ["renamed-freevar", "empty-cell"])
+def test_unreadable_framework_validator_aborts_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    gate = cv.only_with_framework(Framework.ZEPHYR)
+    freevars = gate.__code__.co_freevars
+    if drift == "renamed-freevar":
+        gate.__code__ = gate.__code__.replace(
+            co_freevars=tuple(
+                "allowed_frameworks" if name == "frameworks" else name for name in freevars
+            )
+        )
+    else:
+        assert gate.__closure__ is not None
+        del gate.__closure__[freevars.index("frameworks")].cell_contents
+    schema = cv.All(cv.Schema({}), gate)
+    monkeypatch.setattr(
+        sync,
+        "_enumerate_platform_manifests_by_domain",
+        lambda *_: [("sensor", SimpleNamespace(config_schema=schema))],
+    )
+    monkeypatch.setattr(sync, "load_index", lambda _: sync.SchemaIndex({}))
+    monkeypatch.setattr(
+        sync, "load_image_map", lambda: dict.fromkeys(sync._IMAGE_MAP_SENTINELS, "image.svg")
+    )
+    monkeypatch.setattr(
+        sync,
+        "_fold_component_aliases",
+        lambda *a, **kw: pytest.fail("Catalog generation continued"),
+    )
+    (tmp_path / "template.json").write_text(
+        json.dumps({"template.sensor": _section()}), encoding="utf-8"
+    )
+
+    with pytest.raises(
+        SystemExit,
+        match=r"sensor\.template: esphome\.config_validation\.only_with_framework.*frameworks",
+    ):
+        sync.build_catalog(schema_dir=tmp_path, limit={"sensor.template"})
+
+
 @pytest.mark.parametrize(
     ("framework", "platforms", "expected"),
     [
@@ -114,7 +157,9 @@ def test_projects_frameworks_onto_chip_platforms(
         ("nrf52", Framework.ZEPHYR),
     )
     monkeypatch.setattr(sync, "_platform_framework_pairs", lambda: pairs)
-    frameworks = sync._root_frameworks(cv.All(cv.only_with_framework(framework)))
+    frameworks = sync._root_frameworks(
+        cv.All(cv.only_with_framework(framework)), component_id="template"
+    )
     assert sync._apply_framework_constraints(
         [], frameworks, platforms, component_id="template"
     ) == (set(), expected)
@@ -144,14 +189,32 @@ def test_framework_gates_stay_with_their_manifest_and_schema_level(
     assert _component(tmp_path, "template.text_sensor", [])["supported_platforms"] == []
 
 
-@pytest.mark.parametrize(
-    ("missing", "value"),
-    [("_get_esphome_loader", None), ("_platform_framework_pairs", ())],
-)
-def test_missing_framework_introspection_preserves_catalog_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str, value: tuple | None
+def test_missing_loader_preserves_catalog_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(sync, missing, lambda: value)
+    monkeypatch.setattr(sync, "_get_esphome_loader", lambda: None)
     component = _component(tmp_path, "zephyr_pwm.output", ["zephyr", "nrf52"])
     assert component["dependencies"] == ["zephyr", "nrf52"]
     assert component["supported_platforms"] == ["nrf52"]
+
+
+def test_missing_platform_framework_import_warns_once_and_preserves_catalog_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    sync._platform_framework_pairs.cache_clear()
+    try:
+        with monkeypatch.context() as missing:
+            missing.delattr(const, "PlatformFramework", raising=False)
+            assert sync._platform_framework_pairs() == ()
+        component = _component(tmp_path, "zephyr_pwm.output", ["zephyr", "nrf52"])
+        assert component["dependencies"] == ["zephyr", "nrf52"]
+        assert component["supported_platforms"] == ["nrf52"]
+        assert sync._platform_framework_pairs() == ()
+        assert sync._platform_framework_pairs.cache_info().misses == 1
+        assert [
+            level
+            for logger, level, message in caplog.record_tuples
+            if logger == "sync_components" and "esphome.const.PlatformFramework" in message
+        ] == [logging.WARNING]
+    finally:
+        sync._platform_framework_pairs.cache_clear()

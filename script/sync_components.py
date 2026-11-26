@@ -5949,7 +5949,13 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "root_frameworks": {
             domain: frameworks
             for domain, item in [("", manifest), *platform_manifests_by_domain]
-            if (frameworks := _root_frameworks(getattr(item, "config_schema", None))) is not None
+            if (
+                frameworks := _root_frameworks(
+                    getattr(item, "config_schema", None),
+                    component_id=f"{domain}.{component_id}" if domain else component_id,
+                )
+            )
+            is not None
         },
         "field_ranges": field_ranges,
         "field_range_bleed_keys": field_range_bleed_keys,
@@ -10670,17 +10676,27 @@ def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(expanded))
 
 
-def _root_frameworks(schema: Any) -> frozenset[str] | None:
+def _root_frameworks(schema: Any, *, component_id: str) -> frozenset[str] | None:
     """Read conjunctive framework validators on the component schema."""
     if isinstance(schema, vol.All):
         gates = [
-            gate for child in schema.validators if (gate := _root_frameworks(child)) is not None
+            gate
+            for child in schema.validators
+            if (gate := _root_frameworks(child, component_id=component_id)) is not None
         ]
         return frozenset.intersection(*gates) if gates else None
     if getattr(schema, "__module__", None) == "esphome.config_validation" and getattr(
         schema, "__qualname__", ""
     ).startswith("only_with_framework."):
-        return frozenset(_closure_nonlocals(schema)["frameworks"])
+        try:
+            frameworks = _closure_nonlocals(schema)["frameworks"]
+        except (KeyError, ValueError) as exc:
+            # SystemExit bypasses build_catalog's per-file exception handler.
+            raise SystemExit(
+                f"{component_id}: {schema.__module__}.{schema.__qualname__} "
+                f"has an unreadable 'frameworks' closure ({exc}). Update _root_frameworks."
+            ) from exc
+        return frozenset(frameworks)
     return None
 
 
@@ -10689,7 +10705,12 @@ def _platform_framework_pairs() -> tuple[tuple[str, str], ...]:
     """Read ESPHome's supported platform/framework pairs."""
     try:
         from esphome.const import PlatformFramework
-    except ImportError:
+    except ImportError as exc:
+        _LOGGER.warning(
+            "Cannot import esphome.const.PlatformFramework (%s). "
+            "Skipping framework-based catalog constraints.",
+            exc,
+        )
         return ()
     return tuple(pair.value for pair in PlatformFramework)
 
