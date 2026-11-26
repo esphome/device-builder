@@ -6,6 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from esphome_device_builder.controllers.version_history.git_repo import GitRepo
 
 _GIT = shutil.which("git") or "git"
@@ -55,3 +57,18 @@ def test_deleted_files_lists_a_deleted_nested_device_but_not_a_package(tmp_path:
         repo.commit_paths([path], f"Delete {path.name}")
 
     assert repo.deleted_files() == ["devices/lights/desk.yaml"]
+
+
+@pytest.mark.parametrize(
+    "rel",
+    ["secrets.ci.yaml", "secrets.prod.yml", "devices/garage/secrets.ci.yaml", "a/secrets.x.yml"],
+)
+def test_a_fresh_repo_ignores_every_secrets_like_name(tmp_path: Path, rel: str) -> None:
+    """The default ``.gitignore`` keeps ``secrets.<x>.yaml`` out of history at any depth."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    path = tmp_path / rel
+    _write(tmp_path, {rel: "wifi_password: hunter2\n"})
+
+    assert repo.commit_paths([path], f"Create {rel}") is None
+    assert rel not in _tracked(tmp_path)

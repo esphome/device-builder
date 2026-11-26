@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
-from ...helpers.config_layout import is_device_config_name
+from ...helpers.config_layout import is_device_config_name, name_shared_by_another_device
 from ...helpers.device_yaml import UnreadableDependencyError, read_source_fingerprint
 from ...helpers.esphome_env import esphome_subprocess_env
 from ...helpers.subprocess import run_subprocess_capture
@@ -76,6 +76,17 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         async with controller._regenerate_lock:
             current = await _current_digest(controller, configuration, config_path)
             if current is None:
+                return
+            # Checked here, under the lock and right before a spawn, so a save, a retry
+            # and an already pending run are all covered: a device sharing its file name
+            # with another would write their shared StorageJSON and build state.
+            if await run_in_executor(
+                name_shared_by_another_device, controller._db.settings.config_dir, configuration
+            ):
+                _LOGGER.debug(
+                    "Storage regenerate for %s skipped: another device shares its file name",
+                    configuration,
+                )
                 return
             stamp = _fresh_stamp(
                 controller._metadata_store.get(configuration), current, time.time()

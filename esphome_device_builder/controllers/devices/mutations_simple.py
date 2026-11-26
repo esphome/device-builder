@@ -14,6 +14,7 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.config_layout import (
+    name_shared_by_another_device,
     refuse_nested_device,
     refuse_nested_name_clash,
     refuse_path_in_name,
@@ -319,7 +320,8 @@ async def _config_only_rename(
 
     Validates *new_content* before touching disk, writes the new file
     atomically, removes the old, records the pre-rename hostname, and
-    migrates the StorageJSON + sidecar metadata. Refuses with
+    migrates the StorageJSON (unless another device shares its file name)
+    + sidecar metadata. Refuses with
     ``PRECONDITION_FAILED`` when the file no longer
     holds *content*, and never replaces a target another writer created.
     Returns ``job: None`` (nothing is queued). When *in_place*
@@ -339,6 +341,9 @@ async def _config_only_rename(
         old_path = controller._db.settings.rel_path(configuration)
         new_path = controller._db.settings.rel_path(new_filename)
         require_unchanged(read_device_config(old_path, configuration), content, configuration)
+        # A device sharing the file name owns the file-name keyed StorageJSON too; leave it
+        # to that twin, and let the renamed device's own state regenerate from scratch.
+        shared = name_shared_by_another_device(controller._db.settings.config_dir, configuration)
         if in_place:
             write_user_yaml(new_path, new_content)
         else:
@@ -348,7 +353,8 @@ async def _config_only_rename(
                 raise_device_name_exists(new_filename, from_exc=err)
             old_path.unlink(missing_ok=True)
         # The YAML is already renamed; storage migration is best-effort (logs on failure).
-        _migrate_storage_json(configuration, new_filename, new_name)
+        if not shared:
+            _migrate_storage_json(configuration, new_filename, new_name)
 
     async with AsyncExitStack() as locks:
         # Both filenames, in a stable order, until the metadata has moved: a rename of the

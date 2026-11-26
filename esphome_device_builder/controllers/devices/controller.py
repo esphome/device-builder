@@ -926,6 +926,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     ) -> None:
         """Write a version-history-restored YAML back to disk; recreates a deleted file."""
         await self._refuse_name_twin(configuration)
+
+        def _recreate_folder() -> None:
+            # A nested device's folder may have gone with it. ``rel_path`` refuses a path
+            # outside the config dir, so only a folder inside it is (re)created.
+            self._db.settings.rel_path(configuration).parent.mkdir(parents=True, exist_ok=True)
+
+        await run_in_executor(_recreate_folder)
         await self._persist_yaml_mutation(
             configuration, content, message=f"Restore {configuration} to {restored_from}"
         )

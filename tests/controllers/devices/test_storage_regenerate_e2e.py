@@ -237,6 +237,32 @@ def test_added_device_schedules_a_regen_unless_its_name_is_shared(
     assert scheduled == ([] if shared_with else [configuration])
 
 
+@pytest.mark.parametrize("shared", [False, True])
+async def test_saving_a_device_sharing_its_name_spawns_no_regen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    shared: bool,
+) -> None:
+    """A save reaches the regen too, so the run itself skips a device whose name is shared."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _index(controller, "lamp.yaml")
+    (tmp_path / "lamp.yaml").write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    if shared:
+        nested = tmp_path / "devices" / "plugs" / "lamp.yaml"
+        nested.parent.mkdir(parents=True)
+        nested.write_text("esphome:\n  name: plug-lamp\n", encoding="utf-8")
+    spawned = AsyncMock(return_value=None)
+    monkeypatch.setattr(DevicesController, "_spawn_only_generate", spawned)
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+
+    await controller.update_config(configuration="lamp.yaml", content="esphome:\n  name: lamp2\n")
+    await _drain(controller)
+
+    assert spawned.await_count == (0 if shared else 1)
+    assert controller.state.regen.pending == set()
+
+
 # ---------------------------------------------------------------------------
 # Early-return guards
 # ---------------------------------------------------------------------------

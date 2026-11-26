@@ -34,7 +34,11 @@ from pathlib import Path
 
 from esphome_device_builder.constants import SECRETS_FILENAMES
 from esphome_device_builder.helpers.atomic_io import atomic_write
-from esphome_device_builder.helpers.config_layout import is_device_path, iter_device_files
+from esphome_device_builder.helpers.config_layout import (
+    YAML_SUFFIXES,
+    is_device_path,
+    iter_device_files,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -119,6 +123,8 @@ _DEFAULT_GITIGNORE = "".join(
         "# was not already a git repository. Edit freely; it won't be regenerated.\n",
         *(f"{pattern}\n" for pattern in _MANAGED_EXCLUDES),
         *(f"{name}\n" for name in SECRETS_FILENAMES),
+        # The other secrets-like names (``secrets.ci.yaml``), as is_secrets_like_name has them.
+        *(f"secrets.*{suffix}\n" for suffix in YAML_SUFFIXES),
     ]
 )
 

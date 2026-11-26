@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from esphome import yaml_util
 from esphome.core import CORE
 
 from esphome_device_builder.api.ws import WebSocketClient
@@ -175,3 +176,24 @@ async def test_a_nested_device_without_its_secrets_file_gets_a_load_error(
 
     assert _by_configuration(scanner)[ALARM].load_error == ""
     assert changes == [(ScanChange.UPDATED, ALARM)]
+
+
+async def test_a_sibling_secrets_yml_is_not_read_like_esphome(
+    tmp_path: Path, repo: tuple[Setup, DeviceScanner, Changes]
+) -> None:
+    """ESPHome's ``!secret`` reads only ``secrets.yaml`` beside the config, so we do too."""
+    _, scanner, _ = repo
+    write_tree(
+        tmp_path,
+        {
+            ALARM: "esphome:\n  name: alarm\nwifi:\n  password: !secret wifi_pw\n",
+            "devices/other/secrets.yml": "wifi_pw: hunter2\n",
+        },
+    )
+
+    await scanner.scan()
+
+    assert yaml_util.SECRET_YAML == "secrets.yaml"
+    assert _by_configuration(scanner)[ALARM].load_error == (
+        "Uses !secret, but devices/other/secrets.yaml does not exist"
+    )

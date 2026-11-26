@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.config_layout import refuse_nested_name_clash, refuse_path_in_name
+from ...helpers.config_layout import (
+    refuse_nested_device,
+    refuse_nested_name_clash,
+    refuse_path_in_name,
+)
 from ...helpers.device_config import read_device_config
 from ...helpers.device_yaml import (
     configuration_stem,
@@ -89,6 +93,8 @@ async def clone_device(
     def _gather() -> tuple[Path, str, dict[str, Any]]:
         # ``rel_path`` resolves symlinks (blocking), so it runs here, not on the loop.
         source_path = controller._db.settings.rel_path(configuration)
+        # The clone lands at the top level, where the source's relative includes break.
+        refuse_nested_device(controller._db.settings.config_dir, configuration, "Cloning")
         new_path = controller._db.settings.rel_path(new_filename)
         if new_path.exists():
             raise_device_name_exists(new_filename)
