@@ -233,6 +233,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--mcp-token-file",
+        default=None,
+        help=(
+            "File holding the bearer token Home Assistant presents to the HA "
+            "Ingress site's MCP endpoint; a random token is written to it when "
+            "missing or empty (only used with --ha-addon)"
+        ),
+    )
+    parser.add_argument(
         "--remote-build-port",
         type=int,
         # ``SUPPRESS`` keeps ``ArgumentDefaultsHelpFormatter`` from
