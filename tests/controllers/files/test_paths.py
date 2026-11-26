@@ -11,12 +11,12 @@ from unittest.mock import patch
 import pytest
 
 from esphome_device_builder.controllers.files.paths import (
-    iter_subfolder_yamls,
     list_archived_devices,
     list_package_files,
     parse_file_path,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.config_layout import iter_config_yamls
 from esphome_device_builder.models import ErrorCode
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges")
@@ -29,6 +29,7 @@ posix_only = pytest.mark.skipif(sys.platform == "win32", reason="symlinks need p
         ("common//sub/x.yml", "common/sub/x.yml"),
         ("common/archive/x.yaml", "common/archive/x.yaml"),
         ("Common/Base.YAML", "Common/Base.YAML"),
+        ("common/devices/x.yaml", "common/devices/x.yaml"),
     ],
 )
 def test_parse_accepts_subfolder_yaml(path: str, expected: str) -> None:
@@ -52,6 +53,13 @@ def test_parse_accepts_subfolder_yaml(path: str, expected: str) -> None:
         "common/x",
         "common/secrets.yaml",
         "common/SECRETS.yml",
+        "common/secrets.ci.yaml",
+        "devices/x.yaml",
+        "devices/lights/desk.yaml",
+        "devices//lights/desk.yaml",
+        # Case aliases of devices/ reach the device on a case-insensitive filesystem.
+        "DEVICES/lights/desk.yaml",
+        "Devices/x.yaml",
         "archive/old.yaml",
         "Archive/old.yaml",
         "common\\x.yaml",
@@ -72,13 +80,15 @@ def test_folder_secrets_are_walked_but_are_not_packages(tmp_path: Path) -> None:
         (tmp_path / "common" / name).write_text("x: 1\n", encoding="utf-8")
 
     assert list_package_files(tmp_path) == ["common/base.yaml"]
-    assert sorted(iter_subfolder_yamls(tmp_path)) == ["common/base.yaml", "common/secrets.yaml"]
+    assert sorted(iter_config_yamls(tmp_path)) == ["common/base.yaml", "common/secrets.yaml"]
 
 
 def test_parse_top_level_allowed_outside_subfolder_mode() -> None:
     assert parse_file_path("kitchen.yaml", in_subfolder=False) == "kitchen.yaml"
-    with pytest.raises(CommandError):
-        parse_file_path("secrets.yaml", in_subfolder=False)
+    assert parse_file_path("devices/a/b.yaml", in_subfolder=False) == "devices/a/b.yaml"
+    for path in ("secrets.yaml", "secrets.ci.yaml"):
+        with pytest.raises(CommandError):
+            parse_file_path(path, in_subfolder=False)
 
 
 @pytest.mark.parametrize(
@@ -126,8 +136,12 @@ def test_list_package_files_applies_skip_rules(tmp_path: Path) -> None:
         "common/sub/x.yml",
         "common/archive/kept.yaml",
         "common/secrets.yaml",
+        "common/secrets.ci.yaml",
         "common/.hidden.yaml",
         "common/notes.txt",
+        "devices/plug.yaml",
+        "devices/lights/desk.yaml",
+        "common/devices/frag.yaml",
         "archive/old.yaml",
         ".esphome/build/z.yaml",
         ".git/x.yaml",
@@ -137,6 +151,7 @@ def test_list_package_files_applies_skip_rules(tmp_path: Path) -> None:
     assert list_package_files(tmp_path) == [
         "common/archive/kept.yaml",
         "common/base.yaml",
+        "common/devices/frag.yaml",
         "common/sub/x.yml",
     ]
 

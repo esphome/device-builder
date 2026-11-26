@@ -51,6 +51,19 @@ async def test_compile_returns_queued_job_with_compile_type(
     assert job.configuration == "kitchen.yaml"
 
 
+async def test_compile_queues_a_device_below_the_devices_folder(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A nested device's config-relative configuration passes the boundary unchanged."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "devices" / "lights").mkdir(parents=True)
+    (tmp_path / "devices" / "lights" / "desk.yaml").write_text("")
+
+    job = await controller.compile(configuration="devices/lights/desk.yaml")
+
+    assert job.configuration == "devices/lights/desk.yaml"
+
+
 async def test_compile_rejects_traversal_configuration(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:

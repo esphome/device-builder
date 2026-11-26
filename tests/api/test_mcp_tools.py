@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+from pathlib import Path
 from typing import Any
 from unittest.mock import ANY, AsyncMock
 
@@ -38,6 +40,8 @@ from .conftest import (
     mcp_call_json,
     validate_stub,
 )
+
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges")
 
 _DUMMY_ARGUMENT = {"string": "x", "object": {}, "integer": 1, "boolean": True, "array": []}
 
@@ -88,16 +92,29 @@ _SECRET_REFUSING_TOOLS = [
         "sub/kitchen.yaml",
     ],
 )
-def test_check_configuration_refuses_every_secrets_spelling(name: str) -> None:
+async def test_check_configuration_refuses_every_secrets_spelling(
+    mcp_db: McpStubDeviceBuilder, name: str
+) -> None:
     with pytest.raises(CommandError) as excinfo:
-        _check_configuration(name, allow_secrets=False)
+        await _check_configuration(mcp_db, name, allow_secrets=False)
     assert excinfo.value.code is ErrorCode.INVALID_ARGS
-    _check_configuration("kitchen.yaml", allow_secrets=False)
-    _check_configuration(None, allow_secrets=False)
+    await _check_configuration(mcp_db, "kitchen.yaml", allow_secrets=False)
+    await _check_configuration(mcp_db, None, allow_secrets=False)
 
 
-def test_check_configuration_can_allow_the_secrets_file_but_never_another_type() -> None:
-    _check_configuration("secrets.yaml", allow_secrets=True)
+async def test_check_configuration_takes_a_device_below_the_devices_folder(
+    mcp_db: McpStubDeviceBuilder,
+) -> None:
+    await _check_configuration(mcp_db, "devices/lights/desk.yaml", allow_secrets=False)
+    for refused in ("common/base.yaml", "secrets.ci.yaml", "devices/garage/secrets.yaml"):
+        with pytest.raises(CommandError):
+            await _check_configuration(mcp_db, refused, allow_secrets=False)
+
+
+async def test_check_configuration_can_allow_the_secrets_file_but_never_another_type(
+    mcp_db: McpStubDeviceBuilder,
+) -> None:
+    await _check_configuration(mcp_db, "secrets.yaml", allow_secrets=True)
     for refused in (
         "notes.txt",
         "packages/secrets.yaml",
@@ -106,7 +123,92 @@ def test_check_configuration_can_allow_the_secrets_file_but_never_another_type()
         "secrets.yml",
     ):
         with pytest.raises(CommandError):
-            _check_configuration(refused, allow_secrets=True)
+            await _check_configuration(mcp_db, refused, allow_secrets=True)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "devices./lights/desk.yaml",
+        "devices /lights/desk.yaml",
+        "devices/lights./desk.yaml",
+        "devices/li:ghts/desk.yaml",
+        "devices/li\x00ghts/desk.yaml",
+        "devices//lights/desk.yaml",
+        "devices/./lights/desk.yaml",
+        "devices/x/../lights/desk.yaml",
+        "devices/.hidden/desk.yaml",
+        "devices\\lights\\desk.yaml",
+        "/devices/lights/desk.yaml",
+    ],
+)
+async def test_get_config_refuses_a_non_canonical_spelling_of_a_nested_device(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, spelling: str
+) -> None:
+    handler = AsyncMock(return_value="logger:\n")
+    mcp_db.command_handlers["devices/get_config"] = handler
+    is_error, text = await mcp_call(mcp_client, "get_config", {"configuration": spelling})
+    assert is_error
+    assert text == "invalid_args: configuration must be a device .yaml filename"
+    handler.assert_not_awaited()
+
+
+@posix_only
+@pytest.mark.parametrize(
+    ("link", "target"),
+    [
+        ("devices/s.yaml", "../secrets.yaml"),
+        ("devices/garage/s.yaml", "secrets.yaml"),
+        ("devices/old.yaml", "../archive/old.yaml"),
+        ("devices/base.yaml", "../common/base.yaml"),
+        ("devices/arch", "../archive"),
+        ("devices/escape.yaml", "/etc/hostname"),
+        ("hidden.yaml", ".esphome/build.yaml"),
+        # A top-level symlink is a device to the scanner, but a tool would edit the package.
+        ("pkg.yaml", "common/base.yaml"),
+    ],
+)
+async def test_a_symlink_cannot_point_a_tool_at_another_config_file(
+    mcp_client: Any,
+    mcp_db: McpStubDeviceBuilder,
+    tmp_path: Path,
+    link: str,
+    target: str,
+) -> None:
+    for rel in ("secrets.yaml", "devices/garage/secrets.yaml", "archive/old.yaml"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("wifi_password: hunter2\n", encoding="utf-8")
+    for rel in ("common/base.yaml", ".esphome/build.yaml"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("logger:\n", encoding="utf-8")
+    (tmp_path / link).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / link).symlink_to(target)
+    configuration = "devices/arch/old.yaml" if link == "devices/arch" else link
+    handler = AsyncMock(return_value="wifi_password: hunter2\n")
+    mcp_db.command_handlers["devices/get_config"] = handler
+
+    is_error, text = await mcp_call(mcp_client, "get_config", {"configuration": configuration})
+
+    assert is_error
+    assert text == "invalid_args: configuration must be a device .yaml filename"
+    handler.assert_not_awaited()
+
+
+@posix_only
+async def test_a_symlink_to_another_device_reaches_the_tool(
+    mcp_client: Any, mcp_db: McpStubDeviceBuilder, tmp_path: Path
+) -> None:
+    (tmp_path / "devices/lights").mkdir(parents=True)
+    (tmp_path / "devices/lights/desk.yaml").write_text("logger:\n", encoding="utf-8")
+    (tmp_path / "desk-link.yaml").symlink_to("devices/lights/desk.yaml")
+    handler = AsyncMock(return_value="logger:\n")
+    mcp_db.command_handlers["devices/get_config"] = handler
+
+    for configuration in ("devices/lights/desk.yaml", "desk-link.yaml"):
+        is_error, _ = await mcp_call(mcp_client, "get_config", {"configuration": configuration})
+        assert not is_error
+
+    assert handler.await_count == 2
 
 
 @pytest.mark.parametrize("spelling", ["secrets.yaml", "secrets.yml", "SECRETS.YAML"])

@@ -182,8 +182,17 @@ class Device(DashboardModel):
 
     name: str
     friendly_name: str
-    configuration: str  # filename (e.g. "my_device.yaml")
+    # Config-dir relative POSIX path: a bare name at the top level
+    # ("my_device.yaml"), the folders below ``devices/`` kept otherwise
+    # ("devices/lights/desk.yaml").
+    configuration: str
     comment: str | None = None
+    # Why the dashboard could not load this config as a device (e.g. its file
+    # name is shared with another device file); empty when it loaded.
+    load_error: str = ""
+    # The other device files with this file name. Their StorageJSON and build
+    # cache are one, so firmware jobs and storage regen are refused while set.
+    name_shared_with: tuple[str, ...] = field(default=(), metadata={"serialize": "omit"})
     # Optional ``esphome.area`` from the YAML — a free-form room /
     # location label (Home Assistant uses the same key as a device-area
     # hint). Empty string when the YAML doesn't carry an ``area:`` line.

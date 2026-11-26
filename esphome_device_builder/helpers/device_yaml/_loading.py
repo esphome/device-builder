@@ -18,10 +18,11 @@ from esphome.const import CONF_ID, CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
-from ...constants import SECRETS_FILENAME, is_secrets_file
+from ...constants import is_secrets_file, secret_ref_names
 from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..atomic_io import read_text_with_stat
+from ..config_layout import in_devices_dir, sibling_secrets
 from ..mac_addresses import derive_interface_macs
 from ..migrations import has_pending_migrations
 from ..storage_path import resolve_storage_path
@@ -151,16 +152,18 @@ def load_device_from_storage(
     *dependencies* is the last known list of files the YAML pulls in,
     used when the parse is skipped (shallow) or fails; a deep load
     discovers the current list itself. *batch* carries the state the
-    devices of one scan batch share.
+    devices of one scan batch share; ``Device.configuration`` is *path* relative to
+    its config dir.
 
     *derive_board_id* maps ``(platform, board, variant)`` to a catalog id
     when *board_id* is empty.
     """
-    filename = path.name
+    batch = batch or LoadBatch(path.parent)
+    # Config-dir relative: a bare name at the top level, ``devices/<folder>/<name>`` below.
+    filename = path.relative_to(batch.config_dir).as_posix()
     storage = StorageJSON.load(resolve_storage_path(filename))
 
-    batch = batch or LoadBatch(path.parent)
-    yaml_stat, yaml_text, secrets_key = _snapshot_source_files(path, batch)
+    yaml_stat, yaml_text, secrets_key = _snapshot_source_files(path, filename, batch)
     yaml_content = yaml_text or ""
     yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     # Full resolved config (``!include`` / packages / ``!secret``
@@ -427,6 +430,7 @@ def load_device_from_storage(
         # mqtt for dashboard discovery" the way ``"api"`` does.
         uses_mqtt=uses_mqtt,
         mqtt_extract=mqtt_extract,
+        load_error=_missing_secrets_error(filename, yaml_content, secrets_key),
         uses_deep_sleep=has_top_level_block(resolved_config, yaml_content, "deep_sleep"),
         name_add_mac_suffix=name_add_mac_suffix_enabled(resolved_config, yaml_content),
         mdns_disabled=mdns_disabled_enabled(resolved_config, yaml_content),
@@ -476,10 +480,10 @@ def _read_sources(
 
 
 def _snapshot_source_files(
-    path: Path, batch: LoadBatch
+    path: Path, configuration: str, batch: LoadBatch
 ) -> tuple[os.stat_result | None, str | None, tuple[int, int]]:
     """
-    Read the YAML off one handle and stamp the secrets mtime before the esphome parse.
+    Read the YAML off one handle and stamp its secrets file's mtime before the esphome parse.
 
     An open failure degrades to a bare ``stat`` with ``None`` content.
     """
@@ -493,7 +497,18 @@ def _snapshot_source_files(
             yaml_stat = path.stat()
         except OSError:
             yaml_stat = None
-    return yaml_stat, yaml_content, batch.stat_key(SECRETS_FILENAME)
+    return yaml_stat, yaml_content, batch.stat_key(sibling_secrets(configuration))
+
+
+def _missing_secrets_error(
+    configuration: str, yaml_content: str, secrets_key: tuple[int, int]
+) -> str:
+    """Return the load error of a ``devices/`` YAML using ``!secret`` with no secrets file by it."""
+    if secrets_key != (0, 0) or not in_devices_dir(configuration):
+        return ""
+    if not secret_ref_names(yaml_content):
+        return ""
+    return f"Uses !secret, but {sibling_secrets(configuration)} does not exist"
 
 
 def compute_has_pending_changes(
@@ -584,7 +599,11 @@ def load_device_yaml_tracked(
         if known is None:
             return config, None, False
         loaded.extend(batch.path_of(dependency) for dependency in known)
-    return config, normalize_dependencies(path, loaded, batch.data_dir_prefix()), complete
+    return (
+        config,
+        normalize_dependencies(path, loaded, batch.data_dir_prefix(), batch.config_dir),
+        complete,
+    )
 
 
 def load_device_yaml(path: Path) -> dict | None:

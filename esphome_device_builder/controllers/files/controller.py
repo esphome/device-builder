@@ -15,7 +15,7 @@ from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode
 from ..devices.file_change import commit_file_change
 from ..devices.helpers import refuse_empty_write
-from .paths import dependency_key, list_package_files, parse_file_path
+from .paths import dependency_key, list_package_files, parse_file_path, resolve_file_path
 from .rename import RenamePlan, find_referrers, plan_rename
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ class FilesController:
 
     @api_command("files/list_packages")
     async def list_packages(self, **kwargs: Any) -> list[dict[str, str]]:
-        """Return every package YAML (a YAML in a subfolder), sorted by path."""
+        """Return every package YAML (a subfolder YAML outside ``devices/``), sorted by path."""
         paths = await run_in_executor(list_package_files, self._db.settings.config_dir)
         return [{"path": path} for path in paths]
 
@@ -55,12 +55,12 @@ class FilesController:
         settings = self._db.settings
 
         def _check() -> None:
-            # rel_path resolves symlinks (blocking), so it runs here, not on the loop.
-            if settings.rel_path(rel).exists():
+            # Resolving symlinks blocks, so it runs here, not on the loop.
+            if resolve_file_path(settings, rel).exists():
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{rel!r} already exists")
 
         def _create() -> None:
-            target = settings.rel_path(rel)
+            target = resolve_file_path(settings, rel)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
             except (FileExistsError, NotADirectoryError) as err:
@@ -89,7 +89,7 @@ class FilesController:
         settings = self._db.settings
 
         def _check() -> None:
-            target = settings.rel_path(rel)
+            target = resolve_file_path(settings, rel)
             if target.is_dir():
                 raise CommandError(ErrorCode.INVALID_ARGS, f"{rel!r} is a folder")
             if not target.exists():
@@ -97,7 +97,7 @@ class FilesController:
 
         def _delete() -> None:
             try:
-                settings.rel_path(rel).unlink()
+                resolve_file_path(settings, rel).unlink()
             except FileNotFoundError as err:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{rel!r} not found") from err
 
@@ -134,9 +134,9 @@ class FilesController:
 
         def _check() -> None:
             nonlocal plan
-            if not settings.rel_path(old).is_file():
+            if not resolve_file_path(settings, old).is_file():
                 raise CommandError(ErrorCode.NOT_FOUND, f"{old!r} not found")
-            if settings.rel_path(new).exists():
+            if resolve_file_path(settings, new).exists():
                 raise CommandError(ErrorCode.ALREADY_EXISTS, f"{new!r} already exists")
             plan = plan_rename(settings.config_dir, old, new, skipped)
             if not plan.texts.keys() <= set(touched):

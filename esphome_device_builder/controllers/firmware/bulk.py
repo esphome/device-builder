@@ -125,7 +125,7 @@ async def compile_bulk(
     ``force_local=True`` keeps every job LOCAL (otherwise paired-build
     auto-routing may send some REMOTE).
     """
-    await controller._validate_configurations_boundary(configurations)
+    configurations = await controller._validate_configurations_boundary(configurations)
 
     async def _enqueue_one(config: str) -> FirmwareJob:
         return await factories.enqueue_compile(
@@ -150,7 +150,7 @@ async def install_bulk(
     rather than N silent skips.
     """
     _validate_port(port)
-    await controller._validate_configurations_boundary(configurations)
+    configurations = await controller._validate_configurations_boundary(configurations)
 
     async def _enqueue_one(config: str) -> FirmwareJob:
         # A chain (COMPILE + dependent UPLOAD) per device, same as single

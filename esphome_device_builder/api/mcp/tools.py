@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
-from ...constants import SECRETS_FILENAME, is_device_config_name, is_secrets_file
+from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...controllers.automations.catalog import AUTOMATION_TYPES
 from ...controllers.devices.helpers import scanned_component_entries
 from ...controllers.firmware.follow import job_report
 from ...helpers.ansi import plain_lines
 from ...helpers.api import CollectingClient, CommandError
+from ...helpers.async_ import run_in_executor
+from ...helpers.config_layout import is_device_config_name, resolved_rel
 from ...mcp import (
     INTERNAL_ERROR,
     McpToolError,
@@ -59,7 +61,7 @@ def _tool(
 
     def register(handler: ToolHandler[DeviceBuilder]) -> ToolHandler[DeviceBuilder]:
         async def guarded(db: DeviceBuilder, args: dict[str, Any]) -> Any:
-            _check_configuration(args.get("configuration"), allow_secrets=reads_secrets)
+            await _check_configuration(db, args.get("configuration"), allow_secrets=reads_secrets)
             return await handler(db, args)
 
         TOOLS.tool(name, description, properties, required)(guarded)
@@ -648,8 +650,15 @@ def _only(args: dict[str, Any], *names: str) -> dict[str, Any]:
     return {name: args[name] for name in names if name in args}
 
 
-def _check_configuration(configuration: str | None, *, allow_secrets: bool) -> None:
-    """Refuse a non-YAML name and, unless *allow_secrets*, the secrets file in any spelling."""
+async def _check_configuration(
+    db: DeviceBuilder, configuration: str | None, *, allow_secrets: bool
+) -> None:
+    """
+    Refuse a non-device name and, unless *allow_secrets*, the secrets file in any spelling.
+
+    The name must be a device's both as spelled and as it resolves, so a symlink below
+    ``devices/`` can't reach a secrets file, ``archive/`` or a package.
+    """
     if configuration is None:
         return
     if is_secrets_file(configuration):
@@ -661,7 +670,14 @@ def _check_configuration(configuration: str | None, *, allow_secrets: bool) -> N
             "secrets.yaml is read with get_config and changed with set_secret",
         )
     if not is_device_config_name(configuration):
-        raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a device .yaml filename")
+        _refuse_configuration()
+    target = await run_in_executor(resolved_rel, db.settings.config_dir, configuration)
+    if target is None or not is_device_config_name(target):
+        _refuse_configuration()
+
+
+def _refuse_configuration() -> NoReturn:
+    raise CommandError(ErrorCode.INVALID_ARGS, "configuration must be a device .yaml filename")
 
 
 def _visible(value: Any, *, include_advanced: bool) -> Any:

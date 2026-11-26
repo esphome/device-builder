@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import re
-from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
-from ...constants import is_secrets_file
 from ...helpers.api import CommandError
+from ...helpers.config_layout import (
+    ARCHIVE_DIR,
+    YAML_SUFFIXES,
+    in_devices_dir,
+    is_package_path,
+    is_secrets_like_name,
+    iter_config_yamls,
+)
 from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...models import ErrorCode
 
-_LOGGER = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from ..config.settings import DashboardSettings
 
-# The dashboard's archived device YAMLs live here; they are devices, not packages.
-ARCHIVE_DIR = "archive"
-_YAML_SUFFIXES = (".yaml", ".yml")
 # Whitespace, comment, quote and flow characters anywhere (``:`` is refused for
 # all paths), ``$`` (ESPHome expands ``$var`` in an include path), or a segment
 # not starting with a letter, digit or ``_`` (``@``, ``!``, ``&``, ``*`` … can't
@@ -31,10 +34,10 @@ def parse_file_path(path: Any, *, in_subfolder: bool, plain_name: bool = False) 
     Validate a config-relative YAML *path* from the wire; return its POSIX form.
 
     Refused with ``INVALID_ARGS``: absolute paths, ``..``, hidden segments,
-    non-YAML names, secrets files, the archive folder, with *in_subfolder*
-    a top-level file (that is a device) and, with *plain_name*, names that
-    can't be written verbatim in an ``!include``. Symlink escapes are left to
-    ``DashboardSettings.rel_path``.
+    non-YAML names, secrets files (``secrets.<x>.yaml`` too), the archive folder,
+    with *in_subfolder* a device path (top level or under ``devices/``) and,
+    with *plain_name*, names that can't be written verbatim in an ``!include``.
+    Symlinks are left to :func:`resolve_file_path`.
     """
     if not isinstance(path, str) or not path or "\\" in path or ":" in path or "\x00" in path:
         _invalid(path)
@@ -43,45 +46,36 @@ def parse_file_path(path: Any, *, in_subfolder: bool, plain_name: bool = False) 
     if (
         pure.is_absolute()
         or any(part == ".." or part.startswith(".") for part in parts)
-        or pure.suffix.lower() not in _YAML_SUFFIXES
-        or is_secrets_file(pure.name)
+        or pure.suffix.lower() not in YAML_SUFFIXES
+        or is_secrets_like_name(pure.name)
         or (len(parts) > 1 and parts[0].casefold() == ARCHIVE_DIR)
-        or (in_subfolder and len(parts) < 2)
+        or (in_subfolder and (len(parts) < 2 or in_devices_dir(pure.as_posix())))
         or (plain_name and (_YAML_SIGNIFICANT_RE.search(path) or not path.isprintable()))
     ):
         _invalid(path)
     return pure.as_posix()
 
 
+def resolve_file_path(settings: DashboardSettings, rel: str) -> Path:
+    """
+    Return ``settings.rel_path(rel)`` for a *rel* :func:`parse_file_path` took. Blocking.
+
+    Refused with ``INVALID_ARGS`` unless the file it resolves to through symlinks passes
+    the same guards, so a symlinked folder inside the config dir can't reach a device,
+    a secrets file, ``archive/`` or a hidden folder.
+    """
+    target = settings.rel_path(rel)
+    real = target.resolve().relative_to(settings.config_dir.resolve()).as_posix()
+    try:
+        parse_file_path(real, in_subfolder=True)
+    except CommandError:
+        _invalid(rel)
+    return target
+
+
 def list_package_files(config_dir: Path) -> list[str]:
-    """Return every YAML below a subfolder of *config_dir*, POSIX-relative and sorted. Blocking."""
-    return sorted(rel for rel in iter_subfolder_yamls(config_dir) if not is_secrets_file(rel))
-
-
-def iter_subfolder_yamls(config_dir: Path) -> Iterator[str]:
-    """Yield every YAML below a subfolder of *config_dir*, secrets files included. Blocking."""
-    root = config_dir.resolve()
-    # os.walk does not descend into symlinked dirs (followlinks=False).
-    for dirpath, dirnames, filenames in os.walk(config_dir, onerror=_log_walk_error):
-        rel_dir = Path(dirpath).relative_to(config_dir)
-        top = rel_dir == Path()
-        dirnames[:] = [
-            d
-            for d in dirnames
-            if not d.startswith(".") and not (top and d.casefold() == ARCHIVE_DIR)
-        ]
-        if top:
-            continue
-        for name in filenames:
-            if name.startswith(".") or not name.lower().endswith(_YAML_SUFFIXES):
-                continue
-            full = Path(dirpath, name)
-            if full.is_symlink():
-                try:
-                    resolve_under_root(full, root)
-                except PathEscapeError:
-                    continue
-            yield (rel_dir / name).as_posix()
+    """Return every package YAML of *config_dir*, POSIX-relative and sorted. Blocking."""
+    return sorted(rel for rel in iter_config_yamls(config_dir) if is_package_path(rel))
 
 
 def list_archived_devices(config_dir: Path) -> list[str]:
@@ -89,23 +83,12 @@ def list_archived_devices(config_dir: Path) -> list[str]:
     archive = config_dir / ARCHIVE_DIR
     if not archive.is_dir():
         return []
-    names = _contained_yamls(archive, config_dir, hidden=False)
-    return [f"{ARCHIVE_DIR}/{name}" for name in names]
-
-
-def list_hidden_yamls(config_dir: Path) -> list[str]:
-    """Return every top-level YAML whose name starts with a dot, sorted. Blocking."""
-    return _contained_yamls(config_dir, config_dir, hidden=True)
-
-
-def _contained_yamls(folder: Path, config_dir: Path, *, hidden: bool) -> list[str]:
-    """Return the sorted names of *folder*'s (hidden or visible) YAMLs inside *config_dir*."""
     root = config_dir.resolve()
     found: list[str] = []
-    for path in folder.iterdir():
+    for path in archive.iterdir():
         if (
-            path.name.startswith(".") != hidden
-            or not path.name.lower().endswith(_YAML_SUFFIXES)
+            path.name.startswith(".")
+            or not path.name.lower().endswith(YAML_SUFFIXES)
             or not path.is_file()
         ):
             continue
@@ -113,17 +96,13 @@ def _contained_yamls(folder: Path, config_dir: Path, *, hidden: bool) -> list[st
             resolve_under_root(path, root)
         except PathEscapeError:
             continue
-        found.append(path.name)
+        found.append(f"{ARCHIVE_DIR}/{path.name}")
     return sorted(found)
 
 
 def dependency_key(path: str) -> str:
     """*path* in the form ``Device.dependencies`` stores (case-folded on Windows)."""
     return os.path.normcase(path).replace(os.sep, "/")
-
-
-def _log_walk_error(err: OSError) -> None:
-    _LOGGER.warning("Can't list %s for packages: %s", err.filename, err)
 
 
 def _invalid(path: Any) -> NoReturn:

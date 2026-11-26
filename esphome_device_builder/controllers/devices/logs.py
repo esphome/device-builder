@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, registered_stream
+from ...helpers.async_ import run_in_executor
+from ...helpers.esphome_env import esphome_subprocess_env
 from ...helpers.process import kill_subtree_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...helpers.windows_job_object import WindowsJobObject
@@ -148,7 +149,7 @@ async def _run_streaming(
     idle_timeout: float | None,
 ) -> int | None:
     """Spawn *cmd* and forward its lines; ``None`` when a swallowed cancel ended the run."""
-    env = {**os.environ, "PLATFORMIO_FORCE_ANSI": "true"}
+    env = await run_in_executor(esphome_subprocess_env, "", {"PLATFORMIO_FORCE_ANSI": "true"})
     loop = asyncio.get_running_loop()
     proc: asyncio.subprocess.Process | None = None
     win_job: WindowsJobObject | None = None

@@ -13,6 +13,11 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.config_layout import (
+    refuse_nested_device,
+    refuse_nested_name_clash,
+    refuse_path_in_name,
+)
 from ...helpers.device_config import (
     raise_device_not_found,
     read_device_config,
@@ -20,6 +25,7 @@ from ...helpers.device_config import (
 )
 from ...helpers.device_yaml import (
     configuration_filename,
+    configuration_stem,
     parse_esphome_meta,
     resolved_device_name,
     retarget_fallback_ap_ssid,
@@ -86,7 +92,7 @@ async def update_device(
     # pick up the sidecar write and a DEVICE_UPDATED event fires for clients.
     await controller._scanner.reload(configuration)
     meta = await controller._shared_sidecar.get(configuration)
-    name = configuration.removesuffix(".yaml")
+    name = configuration_stem(configuration)
     return UpdateDeviceResponse(
         name=name,
         friendly_name=meta.get("friendly_name", name),
@@ -220,6 +226,8 @@ async def rename_device(
     device's own file) is always config-only since the OTA chain needs a
     new filename to compile against.
     """
+    # A path-bearing name would move the device into a folder, past the name-clash check.
+    refuse_path_in_name(new_name)
     new_filename = configuration_filename(new_name)
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
@@ -234,7 +242,11 @@ async def rename_device(
     in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
 
     def _read_and_probe() -> tuple[str, bool]:
-        return read_device_config(old_path, configuration), not in_place and new_path.exists()
+        refuse_nested_device(controller._db.settings.config_dir, configuration, "Renaming")
+        content = read_device_config(old_path, configuration)
+        if not in_place:
+            refuse_nested_name_clash(controller._db.settings.config_dir, new_filename)
+        return content, not in_place and new_path.exists()
 
     content, target_taken = await run_in_executor(_read_and_probe)
     old_meta = parse_esphome_meta(content)
@@ -316,6 +328,8 @@ async def _config_only_rename(
     and the old-file / old-sidecar removals are skipped so the just-written
     file isn't deleted.
     """
+    # A path-bearing name would move the device into a folder, past the name-clash check.
+    refuse_path_in_name(new_name)
     new_filename = configuration_filename(new_name)
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)

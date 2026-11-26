@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import posixpath
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -11,6 +12,7 @@ from esphome.upload_targets import PortType, get_port_type
 
 from ...helpers.api import CommandError
 from ...helpers.build_scheduler import BuildPath, inputs_for_job_type, pick_build_path
+from ...helpers.config_layout import in_devices_dir
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     OTA_PORT,
@@ -206,7 +208,11 @@ async def enqueue_install_or_defer(
             ErrorCode.INVALID_ARGS,
             "Bootloader update requires the device online",
         )
-    build_source = controller._resolve_install_source(force_local=force_local)
+    # esphome bundle leaves out files outside the YAML's folder, so a nested device builds
+    # here; *configuration* is the boundary's canonical form, so any spelling is caught.
+    build_source = controller._resolve_install_source(
+        force_local=force_local or in_devices_dir(configuration)
+    )
     if offline and port == OTA_PORT:
         _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
         job = create_job(
@@ -241,7 +247,11 @@ async def enqueue_compile(
     job_type: JobType = JobType.COMPILE,
 ) -> FirmwareJob:
     """Enqueue one compiling job with build-scheduler routing; the single/bulk shared core."""
-    build_source = controller._resolve_install_source(force_local=force_local, job_type=job_type)
+    # esphome bundle leaves out files outside the YAML's folder, so a nested device builds
+    # here; *configuration* is the boundary's canonical form, so any spelling is caught.
+    build_source = controller._resolve_install_source(
+        force_local=force_local or in_devices_dir(configuration), job_type=job_type
+    )
     job = create_job(controller, configuration, job_type, build_source=build_source)
     return await controller._enqueue(job)
 
@@ -271,6 +281,8 @@ async def commit_chain(
     """
     jobs = [dependent, head] if dependent is not None else [head]
     try:
+        for job in jobs:
+            check_device_loadable(controller, job)
         check_rename_lock(controller, lock_job or head, exclude_job_ids=lock_exclude)
         if stage is not None:
             await stage()
@@ -285,6 +297,26 @@ async def commit_chain(
             supersede_configuration, exclude_job_ids={job.job_id for job in jobs}
         )
     await controller._persist_jobs()
+
+
+def check_device_loadable(controller: FirmwareController, job: FirmwareJob) -> None:
+    """
+    Reject *job* when its device shares its file name, and so its build state, with another.
+
+    Keyed on the file name, the way StorageJSON is, of the canonical configuration the
+    firmware boundary hands the job, so no other spelling (``x.yaml/``, an absolute path)
+    gets past. Case-sensitive like the scanner's own clash check: on a case-sensitive
+    filesystem ``Desk.yaml`` and ``desk.yaml`` are two names. A job built for a peer
+    dashboard builds that dashboard's device, not ours.
+    """
+    devices = controller._db.devices
+    if devices is None or job.remote_peer:
+        return
+    name = posixpath.basename(job.configuration)
+    for device in devices.get_devices():
+        # Only the shared name: the missing-secrets load error is a text scan, so esphome decides.
+        if device.name_shared_with and posixpath.basename(device.configuration) == name:
+            raise CommandError(ErrorCode.INVALID_ARGS, device.load_error)
 
 
 def check_rename_lock(

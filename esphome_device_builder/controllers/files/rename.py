@@ -6,11 +6,11 @@ import logging
 import posixpath
 import re
 from collections.abc import Iterable, Iterator
+from enum import Enum
 from pathlib import Path
 from typing import NamedTuple
 
 import yaml
-from esphome import util
 from yaml.tokens import (
     BlockEndToken,
     BlockMappingStartToken,
@@ -26,14 +26,9 @@ from yaml.tokens import (
     ValueToken,
 )
 
-from ...constants import SECRETS_FILENAMES, is_secrets_file
+from ...helpers.config_layout import is_secrets_like_name, iter_referrer_yamls, resolved_rel
 from ...helpers.yaml import FastestSafeLoader
-from .paths import (
-    dependency_key,
-    iter_subfolder_yamls,
-    list_archived_devices,
-    list_hidden_yamls,
-)
+from .paths import dependency_key, list_archived_devices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,8 +48,10 @@ class RenamePlan(NamedTuple):
     ``texts`` maps each changed config-relative YAML to its new text and
     ``originals`` to its current one. ``remaining`` lists the scanned files
     that may still reference the old file after the rewrite: they name it,
-    can't be read, or have an unreadable or substitution-built include
-    target. ``stale`` is the part of it that certainly still includes the old file.
+    can't be read, have an unreadable or substitution-built include target,
+    or are a symlink to the old file that the rename leaves dangling.
+    ``stale`` is the part of it that certainly still includes the old file,
+    or includes it through such a symlink, or through a path that can't be resolved.
     """
 
     texts: dict[str, str]
@@ -96,18 +93,55 @@ class _Doc(NamedTuple):
     scalars: list[str]
 
 
-def rewrite_includes(text: str, *, folder: str, old: str, new: str) -> str:
+class _Reach(Enum):
+    """How an include reaches the file a rename moves."""
+
+    # Names its directory entry: rewriting the file name follows the rename.
+    ENTRY = "entry"
+    # Loads it through a symlink of another name, which the rename leaves dangling.
+    ALIAS = "alias"
+    # Lexically names it, but a symlink on the way can't be resolved.
+    UNKNOWN = "unknown"
+
+
+class _Located(NamedTuple):
+    """Where a config-relative path's directory entry sits and which file it loads."""
+
+    entry: str | None
+    file: str | None
+
+
+class _Source(NamedTuple):
+    """The file a rename moves, located once for every candidate."""
+
+    config_dir: Path
+    path: str
+    located: _Located
+
+
+def rewrite_includes(text: str, *, config_dir: Path, folder: str, old: str, new: str) -> str:
     """
     Return *text*, read from a file in *folder*, with includes of *old* pointing at *new*.
 
     *old* and *new* share a folder, so only the file name in each reference
-    changes. Substitution-built, absolute and out-of-tree references are left alone.
+    changes. Substitution-built, absolute and out-of-tree references are left
+    alone, as is a reference whose path, resolved through symlinks in *config_dir*,
+    is not *old*'s. Blocking.
     """
+    return _rewrite(text, _source(config_dir, old), folder, new)
+
+
+def _rewrite(text: str, source: _Source, folder: str, new: str) -> str:
+    """Return *text* with the references that name *source*'s entry pointing at *new*."""
     doc = _parse(text)
     if doc is None:
         return text
     new_name = posixpath.basename(new)
-    spans = sorted(t.span for t in _includes_of(doc, folder, old) if t.span is not None)
+    spans = sorted(
+        t.span
+        for t, reach in _reaches(doc, source, folder)
+        if reach is _Reach.ENTRY and t.span is not None
+    )
     # Right to left, so earlier spans keep their offsets.
     for start, end in reversed(spans):
         # Windows also takes ``\\`` as a separator; elsewhere a matched reference has none.
@@ -125,24 +159,24 @@ def plan_rename(
     remaining: set[str] = set()
     stale: set[str] = set()
     old_name = _name_pattern(old)
+    source = _source(config_dir, old)
     for rel, folder in _candidates(config_dir):
+        if _is_alias(source, rel):
+            # Left as it is; the rename leaves it dangling, so its users are reported.
+            _LOGGER.warning("%s links to %s; renaming leaves it dangling", rel, old)
+            remaining.add(rel)
         if rel in skip:
             continue
         if (text := _read(config_dir / rel)) is None:
             remaining.add(rel)  # can't be checked
             continue
-        # Secrets files are only checked: rewriting them would need the secrets lock.
-        updated = (
-            text
-            if is_secrets_file(rel)
-            else rewrite_includes(text, folder=folder, old=old, new=new)
-        )
+        updated = text if _check_only(config_dir, rel) else _rewrite(text, source, folder, new)
         if updated != text:
             texts[rel], originals[rel] = updated, text
         doc = _parse(updated)
         if doc is None or _may_still_name(doc, old_name):
             remaining.add(rel)
-        if doc is not None and any(_includes_of(doc, folder, old)):
+        if doc is not None and any(_reaches(doc, source, folder)):
             stale.add(rel)
     return RenamePlan(texts, originals, remaining, stale)
 
@@ -152,14 +186,16 @@ def find_referrers(config_dir: Path, path: str) -> Referrers:
     Return the scanned YAMLs whose ``!include`` names *path*, sorted. Blocking.
 
     ``rewritable`` are the ones ``plan_rename`` rewrites for *path*; secrets
-    files are left out. Best effort: a substitution-built include isn't resolved.
+    files (``secrets.<x>.yaml`` too) are left out. Best effort: a substitution-built
+    include isn't resolved.
     """
     found: list[str] = []
     rewritable: list[str] = []
     unreadable: list[str] = []
     name = _name_pattern(path)
+    source = _source(config_dir, path)
     for rel, folder in _candidates(config_dir):
-        if is_secrets_file(rel):
+        if is_secrets_like_name(rel):
             continue
         text = _read(config_dir / rel)
         doc = None if text is None else _parse(text)
@@ -167,10 +203,10 @@ def find_referrers(config_dir: Path, path: str) -> Referrers:
             if text is None or name.search(text):
                 unreadable.append(rel)
             continue
-        targets = list(_includes_of(doc, folder, path))
+        targets = [t for t, reach in _reaches(doc, source, folder) if reach is _Reach.ENTRY]
         if targets:
             found.append(rel)
-        if any(t.span is not None for t in targets):
+        if any(t.span is not None for t in targets) and not _check_only(config_dir, rel):
             rewritable.append(rel)
     return Referrers(sorted(found), sorted(rewritable), sorted(unreadable))
 
@@ -182,15 +218,76 @@ def _name_pattern(path: str) -> re.Pattern[str]:
     return re.compile(r"(?<![\w.-])" + re.escape(posixpath.basename(path)) + r"(?![\w.-])", flags)
 
 
-def _includes_of(doc: _Doc, folder: str, path: str) -> Iterator[_Target]:
-    """Yield the targets in *doc*, read from a file in *folder*, that resolve to *path*."""
-    key = dependency_key(path)
-    return (
-        t
-        for t in doc.targets
-        if t.value is not None
-        and (resolved := _resolve(folder, t.value)) is not None
-        and dependency_key(resolved) == key
+def _reaches(doc: _Doc, source: _Source, folder: str) -> Iterator[tuple[_Target, _Reach]]:
+    """Yield each target in *doc*, read from a file in *folder*, that reaches *source*. Blocking."""
+    for target in doc.targets:
+        if target.value is None or (lexical := _resolve(folder, target.value)) is None:
+            continue
+        reach = _reach(source, lexical, posixpath.join(folder, dependency_key(target.value)))
+        if reach is not None:
+            yield target, reach
+
+
+def _reach(source: _Source, lexical: str, joined: str) -> _Reach | None:
+    """
+    How the include at config-relative *joined* (*lexical* once normalised) reaches *source*.
+
+    Resolved through symlinks, since ``..`` after a symlinked folder leaves that folder's
+    target, not the folder the text names. Blocking.
+    """
+    try:
+        located = _locate(source.config_dir, joined, lexical)
+    except OSError:
+        # A symlink loop or an unreadable folder on the way: esphome decides.
+        return _Reach.UNKNOWN if _same(lexical, source.path) else None
+    if _same(located.entry, source.located.entry):
+        return _Reach.ENTRY
+    if _same(located.file, source.located.file):
+        return _Reach.ALIAS
+    return None
+
+
+def _source(config_dir: Path, path: str) -> _Source:
+    """Locate *path*, the file a rename moves, for :func:`_reach`. Blocking."""
+    try:
+        located = _locate(config_dir, path, path)
+    except OSError:
+        located = _Located(path, path)
+    return _Source(config_dir, path, located)
+
+
+def _locate(config_dir: Path, rel: str, lexical: str) -> _Located:
+    """
+    Resolve config-relative *rel* through symlinks; ``None`` parts resolve outside. Blocking.
+
+    ``entry`` is the folder resolved plus *rel*'s own name, where a rename finds it;
+    ``file`` follows a symlinked file too. A missing folder holds no symlink, so *rel*
+    is taken as its normalised form *lexical*. Raises ``OSError`` for a folder that
+    can't be resolved (a symlink loop, no permission).
+    """
+    root = config_dir.resolve()
+    path = config_dir / rel
+    try:
+        folder = path.parent.resolve(strict=True)
+    except FileNotFoundError:
+        return _Located(lexical, lexical)
+    return _Located(_relative(folder / path.name, root), _relative(path.resolve(), root))
+
+
+def _relative(path: Path, root: Path) -> str | None:
+    return path.relative_to(root).as_posix() if path.is_relative_to(root) else None
+
+
+def _same(rel: str | None, other: str | None) -> bool:
+    return rel is not None and other is not None and dependency_key(rel) == dependency_key(other)
+
+
+def _is_alias(source: _Source, rel: str) -> bool:
+    """Whether candidate *rel* is a symlink of another name onto *source*'s file. Blocking."""
+    # The walk found *rel*, so its folder resolves.
+    located = _locate(source.config_dir, rel, rel)
+    return _same(located.file, source.located.file) and not _same(
+        located.entry, source.located.entry
     )
 
 
@@ -293,14 +390,22 @@ def _read(path: Path) -> str | None:
         return None
 
 
+def _check_only(config_dir: Path, rel: str) -> bool:
+    """
+    Whether candidate *rel* is only checked, never rewritten. Blocking.
+
+    A secrets file (``secrets.<x>.yaml`` too) would need the secrets lock and must stay
+    out of version history. A symlink, or a file reached through one, would be replaced
+    by a regular file holding its target's text, so it is left as it is too.
+    """
+    return is_secrets_like_name(rel) or resolved_rel(config_dir, rel) != rel
+
+
 def _candidates(config_dir: Path) -> Iterable[tuple[str, str]]:
     """Each scanned YAML, with the folder its includes resolve from."""
-    for path in util.list_yaml_files([config_dir]):
-        yield path.name, ""
-    yield from ((name, "") for name in SECRETS_FILENAMES if (config_dir / name).is_file())
-    # A folder's own secrets.yaml is included: ``!secret`` in that folder reads it.
-    yield from ((rel, posixpath.dirname(rel)) for rel in iter_subfolder_yamls(config_dir))
-    # Hidden files aren't devices or packages, but devices can include them.
-    yield from ((rel, "") for rel in list_hidden_yamls(config_dir))
+    # Devices, packages and secrets files at any depth (``!secret`` in a folder reads
+    # that folder's own secrets.yaml), and hidden files: no device or package, but
+    # devices can include them.
+    yield from ((rel, posixpath.dirname(rel)) for rel in iter_referrer_yamls(config_dir))
     # Unarchiving moves a device back to the top level, so its includes resolve from there.
     yield from ((rel, "") for rel in list_archived_devices(config_dir))

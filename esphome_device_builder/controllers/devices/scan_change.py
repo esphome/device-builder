@@ -110,7 +110,9 @@ def _schedule_regen_if_needed(
     # previously stamped YAML; one that cancelled an armed retry
     # respawns regardless — the edit invalidated the stamp the timer
     # was waiting out.
-    if kind not in (ScanChange.ADDED, ScanChange.UPDATED):
+    if kind not in (ScanChange.ADDED, ScanChange.UPDATED) or device.name_shared_with:
+        # A device that could not load (a file name another device shares) has
+        # nothing a regen could fill in, and would write the shared StorageJSON.
         return
     reasons = []
     if not device.loaded_integrations:

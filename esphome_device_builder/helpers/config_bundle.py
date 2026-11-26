@@ -49,6 +49,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .async_ import run_in_executor
+from .esphome_env import esphome_subprocess_env
 from .sibling_cli import find_esphome_cmd
 from .subprocess import run_subprocess_capture
 
@@ -106,7 +107,7 @@ async def build_yaml_bundle(
     # stage the post-subprocess read + unlink through their own
     # hops so the dashboard's other tasks keep moving on slow
     # disks.
-    cmd, output_path = await run_in_executor(_prepare_build_bundle, yaml_path)
+    cmd, output_path, env = await run_in_executor(_prepare_build_bundle, yaml_path)
     try:
         result = await run_subprocess_capture(
             *cmd,
@@ -116,6 +117,7 @@ async def build_yaml_bundle(
             str(output_path),
             timeout=_BUNDLE_BUILD_TIMEOUT_SECONDS,
             on_line=on_output,
+            env=env,
         )
         output = result.stdout.decode("utf-8", errors="replace").strip()
         if result.timed_out:
@@ -130,8 +132,8 @@ async def build_yaml_bundle(
         await run_in_executor(_unlink_quietly, output_path)
 
 
-def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:
-    """Sync prep step: validate YAML exists, resolve esphome cmd, reserve temp path.
+def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path, dict[str, str]]:
+    """Sync prep step: validate YAML exists, resolve esphome cmd and env, reserve temp path.
 
     Bundles every upfront blocking syscall into one executor
     hop. Raises :class:`FileNotFoundError` if *yaml_path*
@@ -140,7 +142,7 @@ def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:
     if not yaml_path.is_file():
         msg = f"YAML not found: {yaml_path}"
         raise FileNotFoundError(msg)
-    return find_esphome_cmd(), _allocate_temp_bundle_path()
+    return find_esphome_cmd(), _allocate_temp_bundle_path(), esphome_subprocess_env()
 
 
 def _allocate_temp_bundle_path() -> Path:

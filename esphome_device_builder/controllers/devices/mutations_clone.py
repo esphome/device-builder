@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.config_layout import refuse_nested_name_clash, refuse_path_in_name
 from ...helpers.device_config import read_device_config
 from ...helpers.device_yaml import (
     configuration_stem,
@@ -60,6 +61,8 @@ async def clone_device(
     new_name = new_name.strip()
     if not new_name:
         raise CommandError(ErrorCode.INVALID_ARGS, "new_name is required")
+    # A path-bearing name would place the clone in a folder, past the name-clash check.
+    refuse_path_in_name(new_name)
     new_filename = f"{new_name}.yaml"
     # Compare on the *stem* so cloning ``kitchen.yml`` to
     # ``new_name=kitchen`` is rejected even though the filenames
@@ -86,6 +89,7 @@ async def clone_device(
     def _gather() -> tuple[str, dict[str, Any]]:
         if new_path.exists():
             raise_device_name_exists(new_filename)
+        refuse_nested_name_clash(controller._db.settings.config_dir, new_filename)
         content = read_device_config(source_path, configuration)
         return content, controller._shared_sidecar.get_sync(configuration)
 

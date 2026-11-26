@@ -189,23 +189,26 @@ def test_pop_leaves_sibling_in_shared_name_bucket() -> None:
 
 
 # ---------------------------------------------------------------------------
-# find_path_by_filename / cache_key — read accessors
+# find_path_by_configuration / cache_key - read accessors
 # ---------------------------------------------------------------------------
 
 
-def test_find_path_by_filename_returns_matching_path() -> None:
-    """``find_path_by_filename`` matches by ``Path.name``, not full path string."""
+def test_find_path_by_configuration_returns_matching_path() -> None:
+    """``find_path_by_configuration`` matches the Device's config-relative path."""
     index = _DeviceIndex()
     path = Path("/cfg/kitchen.yaml")
+    nested = Path("/cfg/devices/lights/kitchen.yaml")
     index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0, ()))
+    index.set(nested, _device("kitchen", "devices/lights/kitchen.yaml"), (0, 0, 0.0, 0, ()))
 
-    assert index.find_path_by_filename("kitchen.yaml") == path
+    assert index.find_path_by_configuration("kitchen.yaml") == path
+    assert index.find_path_by_configuration("devices/lights/kitchen.yaml") == nested
 
 
-def test_find_path_by_filename_returns_none_when_missing() -> None:
+def test_find_path_by_configuration_returns_none_when_missing() -> None:
     """No match returns ``None`` — the caller treats it as "not tracked"."""
     index = _DeviceIndex()
-    assert index.find_path_by_filename("ghost.yaml") is None
+    assert index.find_path_by_configuration("ghost.yaml") is None
 
 
 # ---------------------------------------------------------------------------

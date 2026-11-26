@@ -16,6 +16,11 @@ from ...helpers.build_artifacts import (
     unlink_storage_sidecar,
     wipe_device_build_dir,
 )
+from ...helpers.config_layout import (
+    name_shared_by_another_device,
+    refuse_nested_device,
+    refuse_nested_name_clash,
+)
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.validated_config_cache import unlink_validated_cache
@@ -58,9 +63,12 @@ async def _archive_locks(controller: DevicesController, configuration: str) -> A
 
 async def archive_single(controller: DevicesController, configuration: str) -> None:
     """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe build artifacts."""
-    _validate_archive_configuration(configuration)
     settings = controller._db.settings
     config_dir = settings.config_dir
+    if isinstance(configuration, str) and configuration:
+        # Ahead of the basename check, so a nested device gets the message that says why.
+        await run_in_executor(refuse_nested_device, config_dir, configuration, "Archiving")
+    _validate_archive_configuration(configuration)
 
     def _archive_sync() -> None:
         # rel_path resolves symlinks (blocking), so it runs here, not on the loop.
@@ -84,10 +92,14 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         # per-filename keyed, so a future same-name device would
         # otherwise inherit the archived device's stale
         # firmware_bin_path / loaded_integrations / target_platform.
-        wipe_device_build_dir(configuration)
+        # A device file sharing the name owns the file-name keyed state; leave it alone.
+        shared = name_shared_by_another_device(config_dir, configuration)
+        if not shared:
+            wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
-        unlink_storage_sidecar(configuration)
-        unlink_validated_cache(configuration)
+        if not shared:
+            unlink_storage_sidecar(configuration)
+            unlink_validated_cache(configuration)
 
     # Hold both per-file write locks across the move + history commit so a
     # concurrent editor save to the same config can't interleave with the
@@ -123,6 +135,7 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
                 f"with the same name already exists"
             )
             raise FileExistsError(msg)
+        refuse_nested_name_clash(config_dir, configuration)
         shutil.move(str(archive_path), str(target))
 
     async with _archive_locks(controller, configuration):
@@ -177,7 +190,7 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         active_path = settings.rel_path(configuration)
         require_file_exists(archive_path, configuration, archived=True)
         archive_path.unlink()
-        if active_path.exists():
+        if active_path.exists() or name_shared_by_another_device(config_dir, configuration):
             # An active config with the same filename owns the
             # sidecars now; leave them alone.
             return False
@@ -206,9 +219,13 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
         # performs a filesystem stat and would block the event
         # loop otherwise.
         require_file_exists(config_path, configuration)
-        # Wipe build dir first (inside the helper) so a partial failure
-        # later leaves the user able to retry the delete.
-        remove_device_files(config_path, configuration)
+        if name_shared_by_another_device(config_dir, configuration):
+            # The file-name keyed build state is the other device's too; keep it.
+            config_path.unlink()
+        else:
+            # Wipe build dir first (inside the helper) so a partial failure
+            # later leaves the user able to retry the delete.
+            remove_device_files(config_path, configuration)
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
         (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...helpers.build_scheduler import build_source_for_pairing
+from ...helpers.config_layout import in_devices_dir
 from ...models import FirmwareJob, JobType
 from ...models.remote_build import PeerStatus
 
@@ -21,7 +22,7 @@ async def clean(controller: FirmwareController, *, configuration: str) -> Firmwa
     REMOTE clean jobs surface through the firmware-jobs ``subscribe_events``
     stream, not the WS reply.
     """
-    await controller._validate_configuration_boundary(configuration)
+    configuration = await controller._validate_configuration_boundary(configuration)
     local_job = controller._create_job(configuration, JobType.CLEAN)
     enqueued = await controller._enqueue(local_job)
     await _fan_out_clean_to_connected_peers(controller, configuration)
@@ -34,10 +35,12 @@ async def _fan_out_clean_to_connected_peers(
     """
     Queue one REMOTE clean job per APPROVED+connected paired peer.
 
-    Silently skips PENDING pairings and disconnected approved peers.
+    Silently skips PENDING pairings and disconnected approved peers, and a device
+    below ``devices/`` (*configuration* is canonical): it always builds here, and a
+    receiver refuses its path.
     """
     offloader = controller._db.remote_build_offloader
-    if offloader is None:
+    if offloader is None or in_devices_dir(configuration):
         return
     snapshot = offloader.build_scheduler_snapshot()
     # ``build_scheduler_snapshot`` ``dict(self._pairings)``-copies

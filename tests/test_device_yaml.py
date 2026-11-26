@@ -2706,7 +2706,9 @@ def test_snapshot_degrades_to_a_bare_stat_when_open_fails(
         return real_open(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", _denied)
-    yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(path, LoadBatch(path.parent))
+    yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(
+        path, path.name, LoadBatch(path.parent)
+    )
 
     assert yaml_content is None
     assert yaml_stat is not None

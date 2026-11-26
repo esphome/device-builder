@@ -90,7 +90,7 @@ def _is_valid_esphome_name(value: str) -> bool:
 
 def configuration_stem(configuration: str) -> str:
     """
-    Strip the ``.yaml`` / ``.yml`` extension off a configuration filename.
+    Strip the folder and the ``.yaml`` / ``.yml`` extension off a configuration.
 
     The stem is the device's identity for almost every comparison
     we care about — it drives the mDNS hostname (``<stem>.local``),
@@ -99,7 +99,7 @@ def configuration_stem(configuration: str) -> str:
     uses ``.yml``; comparing stems treats both extensions as the
     same device.
     """
-    return configuration.removesuffix(".yaml").removesuffix(".yml")
+    return configuration.rsplit("/", 1)[-1].removesuffix(".yaml").removesuffix(".yml")
 
 
 def configuration_filename(name: str) -> str:

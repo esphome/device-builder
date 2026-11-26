@@ -20,6 +20,7 @@ from esphome.core import EsphomeError
 from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
+from ...helpers.config_layout import refuse_nested_name_clash
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
 from ...helpers.secrets_state import merge_secrets_file
 from ...helpers.yaml import ESPHOME_FRIENDLY_NAME_PATH, read_yaml_scalar, write_user_yaml
@@ -134,6 +135,7 @@ def _stage_bundle(
 
         config_filename = manifest.config_filename
         _validate_archive_configuration(config_filename)
+        refuse_nested_name_clash(config_dir, config_filename)
         main_existed = (config_dir / config_filename).exists()
 
         staging = tmp_path / "staging"

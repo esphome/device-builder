@@ -21,10 +21,9 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome.util import list_yaml_files
-
 from ..helpers.api import api_command
 from ..helpers.async_ import run_in_executor
+from ..helpers.config_layout import iter_device_files
 from ..models import (
     ExperienceLevel,
     OnboardingState,
@@ -162,9 +161,8 @@ def _has_device_configs(config_dir: Path) -> bool:
     """
     Return True when the config dir holds any user device YAML.
 
-    Uses the canonical ``list_yaml_files`` rule (.yaml + .yml, secrets
-    and dotfiles excluded) so it can't drift from the device scanner;
-    only the dashboard sentinel needs excluding on top.
+    Uses the device scanner's own listing so the two can't drift; only
+    the dashboard sentinel needs excluding on top.
 
     A missing dir is a genuinely fresh install (return False). A dir that
     exists but can't be read fails *safe for existing users*: assume it
@@ -172,7 +170,7 @@ def _has_device_configs(config_dir: Path) -> bool:
     install as fresh and re-pop the wizard.
     """
     try:
-        return any(p.name != _DASHBOARD_SENTINEL_FILE for p in list_yaml_files([config_dir]))
+        return any(rel != _DASHBOARD_SENTINEL_FILE for rel in iter_device_files(config_dir))
     except FileNotFoundError:
         return False
     except OSError:

@@ -217,6 +217,26 @@ async def test_out_of_band_edit_spawns_only_generate(
     ]
 
 
+@pytest.mark.parametrize("shared_with", [(), ("devices/switches/lamp.yaml",)])
+def test_added_device_schedules_a_regen_unless_its_name_is_shared(
+    tmp_path: Path, make_controller: MakeControllerFactory, shared_with: tuple[str, ...]
+) -> None:
+    """A never-compiled ADDED device regens; one sharing its file name with another does not."""
+    controller = make_controller(
+        tmp_path, with_state_monitor=True, with_regenerate_state=True, esphome_cmd=["esphome"]
+    )
+    scheduled: list[str] = []
+    controller._schedule_storage_regenerate = scheduled.append  # type: ignore[method-assign]
+    configuration = "devices/plugs/lamp.yaml"
+
+    controller._on_scan_change(
+        ScanChange.ADDED,
+        make_device(name="lamp", configuration=configuration, name_shared_with=shared_with),
+    )
+
+    assert scheduled == ([] if shared_with else [configuration])
+
+
 # ---------------------------------------------------------------------------
 # Early-return guards
 # ---------------------------------------------------------------------------
@@ -266,6 +286,74 @@ def test_regenerate_skips_subfolder_include(
 
     assert controller._spawned_tasks == []  # type: ignore[attr-defined]
     assert controller.state.regen.pending == set()
+
+
+@pytest.mark.parametrize("configuration", [".shared.yaml", "devices/lights/.desk.yaml"])
+def test_regenerate_skips_a_hidden_fragment(
+    tmp_path: Path, make_controller: MakeControllerFactory, configuration: str
+) -> None:
+    """A hidden YAML is no device the scanner lists, only an include; regen is a no-op."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+
+    controller._schedule_storage_regenerate(configuration)
+
+    assert controller._spawned_tasks == []  # type: ignore[attr-defined]
+    assert controller.state.regen.pending == set()
+
+
+@pytest.mark.parametrize("package_changed", [True, False])
+async def test_regenerate_of_a_nested_device_digests_config_dir_relative_dependencies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    package_changed: bool,
+) -> None:
+    """A device under ``devices/`` regens, keyed on dependencies relative to the config dir."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    configuration = "devices/lights/desk.yaml"
+    yaml_path = tmp_path / configuration
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(
+        "esphome:\n  name: desk\npackages:\n  base: !include ../../common/base.yaml\n",
+        encoding="utf-8",
+    )
+    package = tmp_path / "common" / "base.yaml"
+    package.parent.mkdir()
+    package.write_text("logger:\n  level: INFO\n", encoding="utf-8")
+    dependencies = ("common/base.yaml",)
+    controller._scanner.devices = [
+        make_device(name="desk", configuration=configuration, dependencies=dependencies)
+    ]
+    _seed_store(
+        controller,
+        configuration,
+        regen_failed_content_fingerprint=await asyncio.to_thread(
+            read_source_fingerprint, yaml_path, dependencies, tmp_path
+        ),
+        regen_failed_at=time.time() - 5.0,
+        regen_failed_attempts=storage_regen._MAX_REGEN_ATTEMPTS,
+    )
+    if package_changed:
+        package.write_text("logger:\n  level: DEBUG\n", encoding="utf-8")
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> CapturedSubprocess:
+        spawn_calls.append(args)
+        return _capture_result(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+
+    controller._schedule_storage_regenerate(configuration)
+    await _drain(controller)
+
+    assert len(spawn_calls) == (1 if package_changed else 0)
+    if package_changed:
+        assert str(yaml_path) in spawn_calls[0]
+    controller.state.regen.cancel_retry(configuration)
 
 
 def test_regenerate_skips_duplicate_schedule(
@@ -1369,12 +1457,12 @@ async def test_regenerate_warns_when_yaml_unreadable(
     real_read = storage_regen.read_source_fingerprint
     denials = 2
 
-    def _flaky_read(config_path: Path, dependencies: tuple[str, ...]) -> str:
+    def _flaky_read(config_path: Path, dependencies: tuple[str, ...], config_dir: Path) -> str:
         nonlocal denials
         if denials:
             denials -= 1
             raise PermissionError("denied")
-        return real_read(config_path, dependencies)
+        return real_read(config_path, dependencies, config_dir)
 
     monkeypatch.setattr(storage_regen, "read_source_fingerprint", _flaky_read)
 

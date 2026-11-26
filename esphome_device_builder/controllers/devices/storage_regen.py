@@ -9,11 +9,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ...constants import is_device_config_name
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
+from ...helpers.config_layout import is_device_config_name
 from ...helpers.device_yaml import UnreadableDependencyError, read_source_fingerprint
+from ...helpers.esphome_env import esphome_subprocess_env
 from ...helpers.subprocess import run_subprocess_capture
 from ._metadata_store import stored_str_tuple
 
@@ -48,7 +49,7 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     min-age, TTL), and ``_regenerate_lock`` serialising the subprocess.
     """
     if not is_device_config_name(configuration):
-        # secrets.yaml or a subfolder include: not a buildable config, so
+        # A secrets file or a package: not a buildable config, so
         # --only-generate would fail or only warn about a missing hash.
         return
     if not controller.state.esphome_cmd:
@@ -145,7 +146,8 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
         # Merged streams (the helper's default): esphome safe_prints
         # validation errors to stdout while load errors log to stderr;
         # the summary needs both.
-        result = await run_subprocess_capture(*cmd, timeout=_ONLY_GENERATE_TIMEOUT_SECONDS)
+        env = await run_in_executor(esphome_subprocess_env, configuration)
+        result = await run_subprocess_capture(*cmd, timeout=_ONLY_GENERATE_TIMEOUT_SECONDS, env=env)
     except Exception as err:
         _LOGGER.debug("Storage regenerate failed for %s", configuration, exc_info=True)
         return f"subprocess error: {err!r}"
@@ -268,7 +270,12 @@ async def _current_digest(
             or ()
         )
     try:
-        current = await run_in_executor(read_source_fingerprint, config_path, dependencies)
+        current = await run_in_executor(
+            read_source_fingerprint,
+            config_path,
+            dependencies,
+            controller._db.settings.config_dir,
+        )
     except FileNotFoundError:
         _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
         regen.clear_strikes(configuration)

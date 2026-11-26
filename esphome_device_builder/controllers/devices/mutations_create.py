@@ -11,6 +11,7 @@ from esphome.storage_json import StorageJSON
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.config_layout import refuse_nested_name_clash
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
@@ -112,6 +113,8 @@ async def create_device(  # noqa: C901, PLR0912
     if file_existed and not overwrite:
         msg = f"Configuration {filename} already exists"
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
+    # Not ALREADY_EXISTS: overwriting the top-level file would not clear this clash.
+    await run_in_executor(refuse_nested_name_clash, controller._db.settings.config_dir, filename)
 
     # Surface user-correctable failures (unknown board) as typed
     # ``INVALID_ARGS`` so the wizard can show a specific message.

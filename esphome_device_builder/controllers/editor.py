@@ -19,6 +19,7 @@ from fnv_hash_fast import fnv1a_32
 from ..helpers.api import api_command
 from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.device_yaml import extract_component_source_fingerprint
+from ..helpers.esphome_env import esphome_subprocess_env
 from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.migrations import render_migrations
 from ..helpers.process import kill_quietly
@@ -195,6 +196,7 @@ class EditorController:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
             limit=_STDOUT_LINE_LIMIT,
+            env=await run_in_executor(esphome_subprocess_env),
         )
 
         # Drain the initial {"type": "version", ...} line so the next read

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.constants import DecodeUnavailable
 from esphome_device_builder.controllers.devices import backtrace
@@ -87,6 +89,31 @@ async def test_decode_backtrace_returns_decoded_frames(
     request = loads(calls[0])
     assert request["lines"] == _CRASH_LINES
     assert request["storage_path"].endswith("kitchen.yaml.json")
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_pins_the_data_dir_for_the_decoder(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The decoder child runs with ``ESPHOME_DATA_DIR`` at the dashboard's data dir."""
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    envs: list[Mapping[str, str] | None] = []
+
+    async def _fake(*args: str, env: Mapping[str, str] | None = None, **kwargs: Any):
+        envs.append(env)
+        return CapturedSubprocess(returncode=0, stdout=dumps(_DECODED_REPLY), timed_out=False)
+
+    monkeypatch.setattr(backtrace, "run_subprocess_capture", _fake)
+
+    await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert envs[0] is not None
+    assert envs[0]["ESPHOME_DATA_DIR"] == str(Path(CORE.data_dir))
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
