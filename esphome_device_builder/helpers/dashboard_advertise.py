@@ -144,6 +144,7 @@ _VIRTUAL_BRIDGE_PREFIXES: tuple[str, ...] = (
     "virbr",  # libvirt default bridges
     "podman",  # Podman netavark bridges (podman0, podman1, ...)
     "vethernet",  # Windows Hyper-V virtual switches
+    "hyper-v virtual ethernet",  # ifaddr exposes the driver description on Windows
 )
 
 # Docker user-defined networks: ``br-`` plus a 12-hex-char network
