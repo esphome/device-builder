@@ -6,6 +6,11 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.config_layout import (
+    refuse_nested_device,
+    refuse_nested_name_clash,
+    refuse_path_in_name,
+)
 from ...helpers.device_config import read_device_config
 from ...helpers.device_yaml import (
     configuration_stem,
@@ -33,6 +38,8 @@ from .helpers import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .controller import DevicesController
 
 
@@ -60,6 +67,8 @@ async def clone_device(
     new_name = new_name.strip()
     if not new_name:
         raise CommandError(ErrorCode.INVALID_ARGS, "new_name is required")
+    # A path-bearing name would place the clone in a folder, past the name-clash check.
+    refuse_path_in_name(new_name)
     new_filename = f"{new_name}.yaml"
     # Compare on the *stem* so cloning ``kitchen.yml`` to
     # ``new_name=kitchen`` is rejected even though the filenames
@@ -72,8 +81,6 @@ async def clone_device(
             "new_name must differ from the source device name",
         )
 
-    source_path = controller._db.settings.rel_path(configuration)
-    new_path = controller._db.settings.rel_path(new_filename)
     if new_friendly_name is None:
         new_friendly_name = friendly_name_slugify(new_name)
     # Generate the fresh key off-loop so the executor work below
@@ -83,13 +90,19 @@ async def clone_device(
     # Source YAML read on the executor; shared-sidecar read goes
     # through the client's sync path inside the same hop so the
     # identity carry-forward piggy-backs.
-    def _gather() -> tuple[str, dict[str, Any]]:
+    def _gather() -> tuple[Path, str, dict[str, Any]]:
+        # ``rel_path`` resolves symlinks (blocking), so it runs here, not on the loop.
+        source_path = controller._db.settings.rel_path(configuration)
+        # The clone lands at the top level, where the source's relative includes break.
+        refuse_nested_device(controller._db.settings.config_dir, configuration, "Cloning")
+        new_path = controller._db.settings.rel_path(new_filename)
         if new_path.exists():
             raise_device_name_exists(new_filename)
+        refuse_nested_name_clash(controller._db.settings.config_dir, new_filename)
         content = read_device_config(source_path, configuration)
-        return content, controller._shared_sidecar.get_sync(configuration)
+        return new_path, content, controller._shared_sidecar.get_sync(configuration)
 
-    source_content, source_meta = await run_in_executor(_gather)
+    new_path, source_content, source_meta = await run_in_executor(_gather)
 
     # Validate the source before rewrite work; the leaf rewrites are
     # structure-preserving or refuse (see rewrite_api_encryption_key), so a

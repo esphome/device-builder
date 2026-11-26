@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.helpers import config_bundle
 from esphome_device_builder.helpers.config_bundle import (
@@ -63,6 +64,22 @@ async def test_build_yaml_bundle_returns_subprocess_output(
     )
 
     assert await build_yaml_bundle(yaml_path) == b"GZIPPED-TAR-BYTES"
+
+
+async def test_build_yaml_bundle_pins_the_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bundle subprocess runs with ``ESPHOME_DATA_DIR`` at the dashboard's data dir."""
+    yaml_path = _write_yaml(tmp_path)
+    _install_fake_esphome(
+        monkeypatch,
+        tmp_path,
+        "import os\n"
+        f"assert os.environ['ESPHOME_DATA_DIR'] == {str(Path(CORE.data_dir))!r}\n"
+        "open(out, 'wb').write(b'OK')\n",
+    )
+
+    assert await build_yaml_bundle(yaml_path) == b"OK"
 
 
 async def test_build_yaml_bundle_streams_output_to_callback(

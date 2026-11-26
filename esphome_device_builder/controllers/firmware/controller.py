@@ -25,6 +25,7 @@ from esphome.const import __version__ as _installed_esphome_version
 from ...controllers.remote_build.env_provisioner import EnvProvisionError
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
+from ...helpers.config_layout import canonical_configuration, refuse_path_in_name
 from ...helpers.device_yaml import configuration_filename
 from ...helpers.event_bus import Event
 from ...helpers.sibling_cli import find_esphome_cmd
@@ -228,7 +229,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         and the artifacts stage back locally for the frontend's
         "Download firmware binary" button.
         """
-        await self._validate_configuration_boundary(configuration)
+        configuration = await self._validate_configuration_boundary(configuration)
         return await factories.enqueue_compile(
             self, configuration=configuration, force_local=force_local
         )
@@ -247,7 +248,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         the app (``esphome upload --bootloader``); OTA targets only.
         """
         _validate_upload_target(port, bootloader=bootloader)
-        await self._validate_configuration_boundary(configuration)
+        configuration = await self._validate_configuration_boundary(configuration)
         job = self._create_job(
             configuration, JobType.UPLOAD, port=port, flash_bootloader=bootloader
         )
@@ -264,7 +265,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     @api_command("firmware/analyze_memory")
     async def analyze_memory(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
         """Queue ``esphome analyze-memory`` for one device; paired-receiver auto-routing."""
-        await self._validate_configuration_boundary(configuration)
+        configuration = await self._validate_configuration_boundary(configuration)
         return await factories.enqueue_compile(
             self, configuration=configuration, job_type=JobType.ANALYZE_MEMORY
         )
@@ -272,7 +273,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     @api_command("firmware/clear_queued_update")
     async def clear_queued_update(self, *, configuration: str, **kwargs: Any) -> None:
         """Manually clear the queued_update flag for a device."""
-        await self._validate_configuration_boundary(configuration)
+        configuration = await self._validate_configuration_boundary(configuration)
 
         devices = self._db.devices
         device = self._device_for_configuration(configuration)
@@ -332,7 +333,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         --bootloader``); OTA targets only, device must be reachable.
         """
         _validate_upload_target(port, bootloader=bootloader)
-        await self._validate_configuration_boundary(configuration)
+        configuration = await self._validate_configuration_boundary(configuration)
 
         # Install is a compile + a dependent local upload. The compile (local
         # or dispatched to a receiver) materialises the binary locally; the
@@ -368,7 +369,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         then drops the old YAML. A failed / cancelled chain deletes the new
         YAML so the old device is untouched.
         """
-        await self._validate_configuration_boundary(configuration)
+        configuration = await self._validate_configuration_boundary(configuration)
+        refuse_path_in_name(new_name)
         # Validate the derived ``<new_name>.yaml`` filename at the WS
         # boundary so a direct request can't pass a traversal-shaped
         # name and surface as a failed job later.
@@ -700,24 +702,31 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # Internals — job management
     # ------------------------------------------------------------------
 
-    def _sync_validate_configuration_boundary(self, configuration: str) -> None:
+    def _sync_validate_configuration_boundary(self, configuration: str) -> str:
         """
-        Sync ``rel_path`` traversal check; raise ``CommandError`` on bad input.
+        Sync ``rel_path`` traversal check; return the canonical configuration.
 
-        Empty strings raise too — only ``reset_build_env`` wants the
-        empty value, and it bypasses this validator entirely. Must
-        NOT be called from the event loop directly; ``rel_path``
-        calls blocking ``Path.resolve``.
+        Raises ``CommandError`` on bad input. Empty strings raise too —
+        only ``reset_build_env`` wants the empty value, and it bypasses
+        this validator entirely. The return value is
+        :func:`canonical_configuration`: every spelling of one device
+        file (``./x.yaml``, an absolute path, a folder symlink) maps to
+        the configuration the device list uses, so the jobs, the
+        shared-name guard and the nested-device routing all key on one
+        form. Must NOT be called from the event loop directly;
+        ``rel_path`` calls blocking ``Path.resolve``.
         """
         if not configuration:
             raise CommandError(ErrorCode.INVALID_ARGS, "configuration must not be empty")
-        self._db.settings.rel_path(configuration)
+        settings = self._db.settings
+        settings.rel_path(configuration)
+        return canonical_configuration(settings.config_dir, configuration)
 
-    async def _validate_configuration_boundary(self, configuration: str) -> None:
-        """Validate one ``configuration`` inside an executor."""
-        await run_in_executor(self._sync_validate_configuration_boundary, configuration)
+    async def _validate_configuration_boundary(self, configuration: str) -> str:
+        """Validate one ``configuration`` inside an executor; return its canonical form."""
+        return await run_in_executor(self._sync_validate_configuration_boundary, configuration)
 
-    async def _validate_configurations_boundary(self, configurations: list[str]) -> None:
+    async def _validate_configurations_boundary(self, configurations: list[str]) -> list[str]:
         """
         Validate every config in one executor task; raise ``INVALID_ARGS`` on any bad entry.
 
@@ -728,11 +737,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         handled separately by the bulk handlers' skip-and-continue.
         """
 
-        def _validate_all() -> None:
-            for config in configurations:
-                self._sync_validate_configuration_boundary(config)
+        def _validate_all() -> list[str]:
+            return [self._sync_validate_configuration_boundary(c) for c in configurations]
 
-        await run_in_executor(_validate_all)
+        return await run_in_executor(_validate_all)
 
     def _create_job(
         self,

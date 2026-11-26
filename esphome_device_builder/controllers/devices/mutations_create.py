@@ -11,6 +11,7 @@ from esphome.storage_json import StorageJSON
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.config_layout import refuse_nested_name_clash
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
@@ -27,6 +28,8 @@ from .helpers import (
 from .mutations_yaml import PackageWarning, packages_block_span
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .controller import DevicesController
 
 # A wifi credential of ``!secret wifi_ssid`` is a caller passing the YAML
@@ -100,7 +103,11 @@ async def create_device(  # noqa: C901, PLR0912
     filename = f"{name}.yaml"
     if is_secrets_file(filename):
         raise CommandError(ErrorCode.INVALID_ARGS, f"{filename} is reserved for secrets")
-    config_path = controller._db.settings.rel_path(filename)
+
+    def _probe() -> tuple[Path, bool]:
+        # ``rel_path`` resolves symlinks (blocking), so it runs here, not on the loop.
+        path = controller._db.settings.rel_path(filename)
+        return path, path.exists()
 
     # Fast collision check before the (~hundreds of ms) validator
     # round-trip so a duplicate-name attempt fails on the right
@@ -108,10 +115,12 @@ async def create_device(  # noqa: C901, PLR0912
     # frontend can offer an overwrite instead of a dead-end error. The
     # write further down is the actual race-safe path; this is a UX
     # optimisation.
-    file_existed = await run_in_executor(config_path.exists)
+    config_path, file_existed = await run_in_executor(_probe)
     if file_existed and not overwrite:
         msg = f"Configuration {filename} already exists"
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
+    # Not ALREADY_EXISTS: overwriting the top-level file would not clear this clash.
+    await run_in_executor(refuse_nested_name_clash, controller._db.settings.config_dir, filename)
 
     # Surface user-correctable failures (unknown board) as typed
     # ``INVALID_ARGS`` so the wizard can show a specific message.

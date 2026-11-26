@@ -109,9 +109,9 @@ from .conftest import UNREWRITABLE_INCLUDES, write_tree
         ),
     ],
 )
-def test_rewrite_includes(text: str, folder: str, expected: str) -> None:
+def test_rewrite_includes(tmp_path: Path, text: str, folder: str, expected: str) -> None:
     rewritten = rewrite_includes(
-        text, folder=folder, old="common/base.yaml", new="common/main.yaml"
+        text, config_dir=tmp_path, folder=folder, old="common/base.yaml", new="common/main.yaml"
     )
     assert rewritten == expected
 
@@ -290,9 +290,9 @@ _LOOKALIKES = [
 def test_lookalike_includes_are_left_alone(tmp_path: Path, text: str) -> None:
     write_tree(tmp_path, {"kitchen.yaml": text})
 
-    assert rewrite_includes(text, folder="", old="common/base.yaml", new="common/main.yaml") == (
-        text
-    )
+    assert rewrite_includes(
+        text, config_dir=tmp_path, folder="", old="common/base.yaml", new="common/main.yaml"
+    ) == (text)
     assert find_referrers(tmp_path, "common/base.yaml") == ([], [], [])
 
 
@@ -356,7 +356,7 @@ def test_includes_inside_multiline_flow_collections(
     write_tree(tmp_path, {"common/wrapper.yaml": text})
 
     assert rewrite_includes(
-        text, folder="common", old="common/base.yaml", new="common/main.yaml"
+        text, config_dir=tmp_path, folder="common", old="common/base.yaml", new="common/main.yaml"
     ) == (expected)
     assert find_referrers(tmp_path, "common/base.yaml").rewritable == ["common/wrapper.yaml"]
 
@@ -463,23 +463,27 @@ def test_unrewritable_includes_are_referrers_but_not_rewritable(tmp_path: Path, 
     ],
 )
 def test_rewrite_positions_match_with_either_scanner(
-    monkeypatch: pytest.MonkeyPatch, loader: type
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, loader: type
 ) -> None:
     monkeypatch.setattr(rename_module, "FastestSafeLoader", loader)
     text = '\ufeffname: "Küche ✓"\r\nb: !include {vars: {t: "ä"}, file: common/base.yaml}\r\n'
 
-    rewritten = rewrite_includes(text, folder="", old="common/base.yaml", new="common/main.yaml")
+    rewritten = rewrite_includes(
+        text, config_dir=tmp_path, folder="", old="common/base.yaml", new="common/main.yaml"
+    )
 
     assert rewritten == text.replace("common/base.yaml", "common/main.yaml")
 
 
 def test_rewrite_keeps_the_folder_of_a_windows_style_include(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(rename_module, "dependency_key", lambda path: path.replace("\\", "/"))
 
     rewritten = rewrite_includes(
         "b: !include common\\base.yaml\n",
+        config_dir=tmp_path,
         folder="",
         old="common/base.yaml",
         new="common/main.yaml",
@@ -497,12 +501,16 @@ def test_rewrite_keeps_the_folder_of_a_windows_style_include(
     ],
 )
 def test_rewrite_normalizes_windows_style_includes(
-    monkeypatch: pytest.MonkeyPatch, ref: str, expected: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ref: str, expected: str
 ) -> None:
     monkeypatch.setattr(rename_module, "dependency_key", lambda path: path.replace("\\", "/"))
 
     rewritten = rewrite_includes(
-        f"b: !include {ref}\n", folder="common", old="common/base.yaml", new="common/main.yaml"
+        f"b: !include {ref}\n",
+        config_dir=tmp_path,
+        folder="common",
+        old="common/base.yaml",
+        new="common/main.yaml",
     )
 
     assert rewritten == f"b: !include {expected}\n"

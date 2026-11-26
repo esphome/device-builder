@@ -32,8 +32,13 @@ from dataclasses import dataclass, field
 from itertools import batched
 from pathlib import Path
 
-from esphome_device_builder.constants import SECRETS_FILENAMES, is_secrets_file
+from esphome_device_builder.constants import SECRETS_FILENAMES
 from esphome_device_builder.helpers.atomic_io import atomic_write
+from esphome_device_builder.helpers.config_layout import (
+    YAML_SUFFIXES,
+    is_device_path,
+    iter_device_files,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,17 +92,14 @@ _EXCLUDE_MARKER = "# >>> ESPHome Device Builder (managed) >>>"
 _EXCLUDE_END = "# <<< ESPHome Device Builder (managed) <<<"
 
 # The seed must never capture the user's secrets file (credentials don't
-# belong in a repo that may be pushed to a remote); ``is_secrets_file``
-# filters it out. The CORE sentinel (``controllers/config/settings.py``) is
+# belong in a repo that may be pushed to a remote); ``iter_device_files``
+# leaves secrets files out. The CORE sentinel (``controllers/config/settings.py``) is
 # a virtual ``CORE.config_path`` value, never written to disk, so it can't
 # be globbed and needs no filter.
 
 # Fields ``git check-ignore -v -z`` emits per input path: source, linenum,
 # pattern, pathname. A non-empty pattern marks that path ignored.
 _CHECK_IGNORE_FIELDS = 4
-
-# Glob patterns for the YAML configs this feature versions.
-_YAML_GLOBS = ("*.yaml", "*.yml")
 
 # Min age before a leftover ``index.lock`` counts as stale and is cleared;
 # younger than this a live git may still hold it, so we leave it alone.
@@ -121,6 +123,8 @@ _DEFAULT_GITIGNORE = "".join(
         "# was not already a git repository. Edit freely; it won't be regenerated.\n",
         *(f"{pattern}\n" for pattern in _MANAGED_EXCLUDES),
         *(f"{name}\n" for name in SECRETS_FILENAMES),
+        # The other secrets-like names (``secrets.ci.yaml``), as is_secrets_like_name has them.
+        *(f"secrets.*{suffix}\n" for suffix in YAML_SUFFIXES),
     ]
 )
 
@@ -294,20 +298,14 @@ class GitRepo:
         self._commit_index("Initialize version history")
 
     def _seed_paths(self) -> list[str]:
-        """Top-level YAML configs (+ our ``.gitignore``) to stage on first init.
+        """Device YAML configs (+ our ``.gitignore``) to stage on first init.
 
-        Top-level only and YAML-only by design: matches the dashboard's
-        unit of versioning and keeps logs / databases / images out of
-        history. ``secrets.yaml`` is left out — credentials don't belong
-        in a repo that may later be pushed to a remote.
+        Device YAMLs only by design: matches the dashboard's unit of
+        versioning and keeps logs / databases / images out of history.
+        Secrets files are left out: credentials don't belong in a repo
+        that may later be pushed to a remote.
         """
-        names = [".gitignore"]
-        for pattern in _YAML_GLOBS:
-            names += [
-                path.name
-                for path in sorted(self.config_dir.glob(pattern))
-                if not is_secrets_file(path)
-            ]
+        names = [".gitignore", *iter_device_files(self.config_dir)]
         return [name for name in names if (self.config_dir / name).exists()]
 
     def _ensure_local_excludes(self) -> None:
@@ -485,9 +483,9 @@ class GitRepo:
         """Return repo-relative paths once committed but absent from the work tree.
 
         Drives the "restore a deleted device" view: a file that has
-        history but no working-tree copy. Restricted to top-level
-        configs with *suffixes* so archived copies and nested includes
-        don't show up as deletable devices.
+        history but no working-tree copy. Restricted to device configs
+        with *suffixes* so archived copies and packages don't show up as
+        deletable devices.
         """
         if not self.enabled:
             return []
@@ -506,8 +504,7 @@ class GitRepo:
             if not rel or rel in seen:
                 continue
             seen.add(rel)
-            # Top-level configs only — no nested path segments.
-            if "/" in rel or not rel.endswith(suffixes):
+            if not is_device_path(rel) or not rel.endswith(suffixes):
                 continue
             if not (self.toplevel / rel).exists():
                 deleted.append(rel)

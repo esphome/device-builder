@@ -23,6 +23,7 @@ from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
+from ...helpers.config_layout import refuse_device_name_clash
 from ...helpers.device_config import read_device_config, read_device_config_async
 from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
@@ -886,8 +887,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                     f"refusing to clear all secrets from {secrets_name} without "
                     "confirmation; pass allow_wipe to confirm",
                 )
+            settings = self._db.settings
             try:
-                validate_secrets_content(content, self._db.settings.rel_path(configuration))
+                # rel_path resolves symlinks and the parse may read !include files: executor.
+                await run_in_executor(
+                    lambda: validate_secrets_content(content, settings.rel_path(configuration))
+                )
             except SecretsContentError as err:
                 raise CommandError(
                     ErrorCode.INVALID_ARGS,
@@ -909,12 +914,25 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                 self, configuration, content, expected=expected, message=message
             )
             return
+        await self._refuse_name_twin(configuration)
         await self._persist_yaml_mutation(configuration, content, message=message)
+
+    async def _refuse_name_twin(self, configuration: str) -> None:
+        """Refuse a write that creates a device file another device's name already has."""
+        await run_in_executor(refuse_device_name_clash, self._db.settings.config_dir, configuration)
 
     async def apply_restored_yaml(
         self, configuration: str, content: str, *, restored_from: str
     ) -> None:
         """Write a version-history-restored YAML back to disk; recreates a deleted file."""
+        await self._refuse_name_twin(configuration)
+
+        def _recreate_folder() -> None:
+            # A nested device's folder may have gone with it. ``rel_path`` refuses a path
+            # outside the config dir, so only a folder inside it is (re)created.
+            self._db.settings.rel_path(configuration).parent.mkdir(parents=True, exist_ok=True)
+
+        await run_in_executor(_recreate_folder)
         await self._persist_yaml_mutation(
             configuration, content, message=f"Restore {configuration} to {restored_from}"
         )
@@ -1152,7 +1170,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         captured before the next save can overwrite it.
         """
         async with self._yaml_write_lock(configuration):
-            await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
+            # ``rel_path`` resolves symlinks (blocking) - executor.
+            path = await run_in_executor(self._db.settings.rel_path, configuration)
+            await self._write_yaml_atomic_async(path, content)
             await self._commit_history(configuration, message or f"Update {configuration}")
         self._after_yaml_write(configuration)
 

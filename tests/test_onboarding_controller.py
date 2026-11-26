@@ -233,10 +233,7 @@ def test_has_device_configs_unreadable_dir_assumes_preexisting(tmp_path: Path) -
     A transient read error must not reclassify a real install as fresh and
     re-pop the wizard, so it assumes configs are present.
     """
-    with patch(
-        "esphome_device_builder.controllers.onboarding.list_yaml_files",
-        side_effect=PermissionError("denied"),
-    ):
+    with patch("os.scandir", side_effect=PermissionError(13, "denied", str(tmp_path))):
         assert _has_device_configs(tmp_path) is True
 
 

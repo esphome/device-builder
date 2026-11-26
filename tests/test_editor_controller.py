@@ -37,6 +37,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.controllers import editor as editor_module
 from esphome_device_builder.controllers.editor import (
@@ -504,6 +505,8 @@ async def test_ensure_subprocess_spawns_with_the_stdout_line_limit(
     await controller._ensure_subprocess(session, "")
 
     assert spawn_kwargs["limit"] == _STDOUT_LINE_LIMIT
+    # Pinned so a validated ``devices/`` YAML caches packages in the dashboard's data dir.
+    assert spawn_kwargs["env"]["ESPHOME_DATA_DIR"] == str(Path(CORE.data_dir))
 
 
 async def test_validate_yaml_lets_a_fingerprint_bug_surface(

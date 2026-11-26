@@ -140,7 +140,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
         )
         _LOGGER.debug("Running: %s", " ".join(cmd))
 
-        env = controller._compose_subprocess_env(job)
+        env = await run_in_executor(controller._compose_subprocess_env, job)
         has_error_in_output = False
         # Captured at append time because the in-flight trim can
         # elide the offending line before the post-exit handler

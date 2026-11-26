@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
 from ...helpers.async_ import run_in_executor
-from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
+from ...helpers.esphome_env import esphome_subprocess_env
 from ...helpers.sibling_cli import find_esptool_cmd
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.version_compat import release_line_at_least
@@ -41,22 +38,8 @@ def effective_skip_bootloader(job: FirmwareJob) -> bool:
 
 
 def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
-    """
-    Return the env dict for *job*'s ``esphome`` subprocess.
-
-    Layers ``os.environ`` + :data:`ESPHOME_SUBPROCESS_ENV`, then
-    for receiver-side remote-build jobs pins ``ESPHOME_DATA_DIR``
-    to the per-build subtree under ``CORE.data_dir`` and drops the
-    ``ESPHOME_IS_HA_ADDON`` marker so the override is honoured.
-    """
-    env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
-    remote_build_path = parse_remote_build_path(job.configuration)
-    if remote_build_path is not None:
-        env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(Path(CORE.data_dir)))
-        # esphome's CORE.data_dir prefers is_ha_addon() over ESPHOME_DATA_DIR; an
-        # add-on receiver would write artefacts to /data and ignore the override.
-        env.pop("ESPHOME_IS_HA_ADDON", None)
-    return env
+    """Return the env dict for *job*'s ``esphome`` subprocess; blocking (stats the data dir)."""
+    return esphome_subprocess_env(job.configuration, ESPHOME_SUBPROCESS_ENV)
 
 
 def build_command(

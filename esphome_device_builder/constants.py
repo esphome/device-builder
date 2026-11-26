@@ -62,24 +62,9 @@ def secret_ref_names(text: str) -> list[str]:
     return names
 
 
-# No NTFS stream suffix (``::$DATA``); the extension rules out the 8.3 alias ``SECRET~1.YAM``.
-_DEVICE_CONFIG_NAME_RE = re.compile(r"[^:\x00]+\.ya?ml")
-
-
 def is_secrets_file(configuration: str | Path) -> bool:
     """Return True when *configuration* names a secrets file (``secrets.yaml`` or ``.yml``)."""
     return _config_basename(configuration) in SECRETS_FILENAMES
-
-
-def is_device_config_name(configuration: str | Path) -> bool:
-    """Return True for a bare device YAML filename: no directory, secrets file or Win32 alias."""
-    raw = str(configuration)
-    name = _config_basename(raw)
-    return (
-        cross_os_basename(raw).rstrip(". ") == raw
-        and name not in SECRETS_FILENAMES
-        and _DEVICE_CONFIG_NAME_RE.fullmatch(name) is not None
-    )
 
 
 def _config_basename(configuration: str | Path) -> str:

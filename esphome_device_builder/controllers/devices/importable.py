@@ -13,6 +13,7 @@ from esphome import const
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.config_layout import refuse_nested_name_clash
 from ...helpers.device_yaml import (
     generate_adoption_yaml,
     get_ota_encryption_key,
@@ -118,7 +119,8 @@ async def import_device(
 ) -> dict:
     """Import / adopt a discovered device."""
     configuration = f"{name}.yaml"
-    path = controller._db.settings.rel_path(configuration)
+    # ``rel_path`` resolves symlinks (blocking) - executor.
+    path = await run_in_executor(controller._db.settings.rel_path, configuration)
     # The adopt dialog always imports under the factory broadcast name
     # (frontend applies an edited name via the post-adopt rename flow),
     # so the name-keyed lookup is exact; an absent row falls through to
@@ -137,6 +139,8 @@ async def import_device(
             api_encryption_key=pending["key"] if pending else None,
         )
         content = source.content
+        config_dir = controller._db.settings.config_dir
+        await run_in_executor(refuse_nested_name_clash, config_dir, configuration)
         try:
             await run_in_executor(atomic_write_exclusive, path, content.encode("utf-8"))
         except FileExistsError as exc:

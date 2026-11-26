@@ -34,6 +34,7 @@ def read_device_config(path: Path, configuration: str) -> str:
 
 async def read_device_config_async(settings: DashboardSettings, configuration: str) -> str:
     """Read *configuration*'s YAML off the loop; ``NOT_FOUND`` when it is missing."""
+    # ``rel_path`` resolves symlinks (blocking), so it runs in the executor too.
     return await run_in_executor(
-        read_device_config, settings.rel_path(configuration), configuration
+        lambda: read_device_config(settings.rel_path(configuration), configuration)
     )

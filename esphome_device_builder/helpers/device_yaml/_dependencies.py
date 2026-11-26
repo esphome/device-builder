@@ -136,16 +136,19 @@ def track_loaded_files() -> Iterator[list[str]]:
         _RECORDER.loaded = outer
 
 
-def normalize_dependencies(path: Path, loaded: Iterable[str], data_prefix: str) -> tuple[str, ...]:
+def normalize_dependencies(
+    path: Path, loaded: Iterable[str], data_prefix: str, config_dir: Path | None = None
+) -> tuple[str, ...]:
     """
-    Sorted, deduplicated *loaded* paths, relative to *path*'s directory or absolute.
+    Sorted, deduplicated *loaded* paths, relative to *config_dir* or absolute.
 
-    Drops *path* itself and anything under *data_prefix* (``CORE.data_dir``, the git
-    package cache). Paths compare lexically: every file the loader reports descends
-    from *path*.
+    *config_dir* defaults to *path*'s directory. Drops *path* itself and anything under
+    *data_prefix* (``CORE.data_dir``, the git package cache). Paths compare lexically:
+    every file the loader reports descends from *path*.
     """
     own = os.path.normcase(os.path.abspath(path))  # noqa: PTH100
-    config_prefix = os.path.dirname(own) + os.sep  # noqa: PTH120
+    root = os.path.dirname(own) if config_dir is None else os.path.abspath(config_dir)  # noqa: PTH100, PTH120
+    config_prefix = os.path.normcase(root).rstrip(os.sep) + os.sep
     dependencies: set[str] = set()
     for raw in set(loaded):
         normalized = os.path.normcase(os.path.abspath(raw))  # noqa: PTH100
@@ -203,10 +206,18 @@ def source_fingerprint(config_dir: Path, dependencies: tuple[str, ...], yaml_con
     return extract_config_content_fingerprint(yaml_content, sources.lines)
 
 
-def read_source_fingerprint(config_path: Path, dependencies: tuple[str, ...]) -> str:
-    """``source_fingerprint`` of *config_path*'s text; raises when a file cannot be read."""
+def read_source_fingerprint(
+    config_path: Path, dependencies: tuple[str, ...], config_dir: Path | None = None
+) -> str:
+    """
+    ``source_fingerprint`` of *config_path*'s text; raises when a file cannot be read.
+
+    *dependencies* are relative to *config_dir*, which defaults to *config_path*'s directory.
+    """
     content = read_text_with_stat(config_path)[1]
-    return source_fingerprint(config_path.parent, dependencies, content)
+    return source_fingerprint(
+        config_path.parent if config_dir is None else config_dir, dependencies, content
+    )
 
 
 def _read(batch: LoadBatch, dependency: str) -> Source:

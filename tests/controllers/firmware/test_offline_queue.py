@@ -60,6 +60,7 @@ def mock_device() -> MagicMock:
     # MagicMock version attributes.
     mock.update_available = False
     mock.has_pending_changes = False
+    mock.name_shared_with = ()
     return mock
 
 

@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from ..async_ import run_in_executor
+from ..esphome_env import esphome_subprocess_env
 from ..subprocess import create_subprocess_exec, kill_quietly
 from ..yaml import FastestSafeLoader
 
@@ -82,6 +84,7 @@ async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
+                env=await run_in_executor(esphome_subprocess_env),
             )
         except OSError as exc:
             _LOGGER.warning("esphome config spawn failed for %s: %s", config_path, exc)

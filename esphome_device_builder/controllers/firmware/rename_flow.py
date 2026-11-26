@@ -10,6 +10,7 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import remove_device_files
+from ...helpers.config_layout import refuse_nested_device, refuse_nested_name_clash
 from ...helpers.device_config import read_device_config
 from ...helpers.device_yaml import (
     configuration_filename,
@@ -58,6 +59,8 @@ async def begin_rename(
 
     # ``rel_path`` resolves symlinks (blocking) — executor, like the runner.
     def _read() -> tuple[Path, str]:
+        refuse_nested_device(settings.config_dir, configuration, "Renaming")
+        refuse_nested_name_clash(settings.config_dir, new_filename)
         new_path = settings.rel_path(new_filename)
         if content is not None:
             return new_path, content

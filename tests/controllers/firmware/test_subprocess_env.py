@@ -1,9 +1,8 @@
 """Tests for ``FirmwareController._compose_subprocess_env``.
 
 The env composition forks on the job's ``configuration`` shape:
-local jobs inherit the dashboard's deployment-mode context
-unchanged, receiver-side remote-build jobs pin
-``ESPHOME_DATA_DIR`` to a per-dashboard subdirectory of
+local jobs pin ``ESPHOME_DATA_DIR`` to the dashboard's own data
+dir, receiver-side remote-build jobs pin it to a per-dashboard subdirectory of
 ``CORE.data_dir`` so esphome writes storage / idedata / build
 under one ``dashboard_id``-keyed directory on the same volume
 the dashboard already uses for its own builds (``/data`` on
@@ -16,7 +15,6 @@ rejects on every install.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,20 +43,28 @@ def _make_job(
     )
 
 
-def test_local_job_env_does_not_override_data_dir(
-    firmware_controller_factory: FirmwareControllerFactory,
+@pytest.mark.parametrize(
+    ("configuration", "nested"),
+    [
+        ("kitchen.yaml", False),
+        ("./kitchen.yaml", False),
+        ("devices/lights/desk.yaml", True),
+        # Other spellings that reach the same nested file.
+        ("./devices/lights/desk.yaml", True),
+        ("common/../devices/lights/desk.yaml", True),
+        ("DEVICES/lights/desk.yaml", True),
+    ],
+)
+def test_local_job_env_pins_data_dir_to_dashboard_data_dir(
+    firmware_controller_factory: FirmwareControllerFactory, configuration: str, nested: bool
 ) -> None:
-    """A bare-basename configuration leaves the dashboard's data_dir alone.
-
-    The local-build subprocess inherits whatever ``ESPHOME_DATA_DIR``
-    the dashboard process is running under (unset in default
-    mode, ``/data`` in HA-addon mode). We only set the env var
-    for receiver-side remote-build jobs.
-    """
+    """A local job, flat or below ``devices/``, builds into the dashboard's own data dir."""
     controller = firmware_controller_factory(with_settings=True)
-    env = controller._compose_subprocess_env(_make_job(configuration="kitchen.yaml"))
+    env = controller._compose_subprocess_env(_make_job(configuration=configuration))
 
-    assert env.get("ESPHOME_DATA_DIR") == os.environ.get("ESPHOME_DATA_DIR")
+    assert env["ESPHOME_DATA_DIR"] == str(Path(CORE.data_dir))
+    # Only a nested device's compile skips writing a ``.gitignore`` beside its YAML.
+    assert env.get("ESPHOME_NOGITIGNORE") == ("1" if nested else None)
     # ``ESPHOME_SUBPROCESS_ENV`` overlays land regardless.
     for key, value in ESPHOME_SUBPROCESS_ENV.items():
         assert env[key] == value
@@ -172,15 +178,14 @@ def test_malformed_remote_build_path_falls_through_to_local(
     — a 4-segment shorthand like
     ``.esphome/.remote_builds/<dir_id>/kitchen.yaml`` (no device
     subtree) doesn't qualify and the env override skips. Pins
-    the contract that ``ESPHOME_DATA_DIR`` is only pinned when
-    we know we're looking at the canonical layout the writer
-    produces.
+    the contract that ``ESPHOME_DATA_DIR`` only moves to a
+    per-build subtree for the canonical layout the writer produces.
     """
     controller = firmware_controller_factory(with_settings=True)
     configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen.yaml"
     env = controller._compose_subprocess_env(_make_job(configuration=configuration))
 
-    assert env.get("ESPHOME_DATA_DIR") == os.environ.get("ESPHOME_DATA_DIR")
+    assert env["ESPHOME_DATA_DIR"] == str(Path(CORE.data_dir))
 
 
 def test_subprocess_env_forces_utf8() -> None:

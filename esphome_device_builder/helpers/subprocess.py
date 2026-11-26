@@ -13,7 +13,7 @@ the same pattern in ``esphome.dashboard.util.subprocess``.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -95,6 +95,7 @@ async def run_subprocess_capture(
     stdin_data: bytes | None = None,
     merge_stderr: bool = True,
     on_line: Callable[[str], None] | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> CapturedSubprocess:
     """Spawn *args*, await completion (or *timeout*), capture stdout.
 
@@ -112,7 +113,8 @@ async def run_subprocess_capture(
     JSON payload). *on_line*, when given, streams each output chunk
     (split via :func:`iter_lines_with_progress`, terminators kept) to
     the callback as it arrives instead of capturing — ``stdout`` on the
-    result is then empty; the callback owns retention.
+    result is then empty; the callback owns retention. *env*, when given,
+    replaces the inherited environment.
 
     Timeout handling: on expiry we :func:`kill_quietly` the process,
     await its ``wait()`` so the OS resources release, and return
@@ -138,6 +140,7 @@ async def run_subprocess_capture(
         stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.DEVNULL,
+        env=env,
     )
     # A dedicated writer task preserves ``communicate()``'s deadlock
     # avoidance: the child may not drain stdin until its stdout is read.

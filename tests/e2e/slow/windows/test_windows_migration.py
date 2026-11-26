@@ -22,6 +22,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from esphome.core import CORE
 
 from esphome_device_builder.controllers.firmware.cli import compose_subprocess_env
 from esphome_device_builder.helpers import windows_build_paths as wbp
@@ -58,6 +59,9 @@ def test_compiled_tree_survives_migration_from_original_dir(
     config_dir.mkdir(parents=True)
     config = config_dir / "probe.yaml"
     config.write_text(_CONFIG, encoding="utf-8")
+    # As DashboardSettings does: compose_subprocess_env pins ESPHOME_DATA_DIR to CORE.data_dir,
+    # which is <config>/.esphome only once CORE is anchored on the dashboard's config dir.
+    monkeypatch.setattr(CORE, "config_path", config_dir / "___DASHBOARD_SENTINEL___.yaml")
 
     suffix = wbp._safe_suffix(get_or_create_dashboard_id(config_dir))
     nested = Path("C:\\esphb") / suffix

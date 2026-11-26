@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from functools import partial
@@ -19,12 +20,17 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
 
-from esphome import util
-
 from ..helpers.async_ import run_in_executor
+from ..helpers.config_layout import (
+    config_relative,
+    in_devices_dir,
+    iter_device_files,
+    sibling_secrets,
+)
 from ..helpers.device_yaml import (
     BoardIdDeriver,
     LoadBatch,
+    configuration_stem,
     load_device_from_storage,
 )
 from ..models import Device
@@ -161,10 +167,10 @@ class _DeviceIndex:
         # and a single broadcast must fan out to all of them.
         self._devices_by_name: dict[str, list[Device]] = {}
         # Configuration-keyed shadow index; firmware jobs and metadata
-        # mutations resolve a Device by its YAML filename and need an
+        # mutations resolve a Device by its configuration and need an
         # O(1) lookup instead of a linear scan of every configured YAML.
-        # Unlike the name index this is 1:1 — a ``configuration`` filename
-        # (``path.name``) is unique per tracked path.
+        # Unlike the name index this is 1:1: a ``configuration`` (the
+        # config-relative path) is unique per tracked path.
         self._devices_by_configuration: dict[str, Device] = {}
         self._cache_keys: dict[Path, _CacheKey] = {}
 
@@ -190,12 +196,16 @@ class _DeviceIndex:
         return list(bucket) if bucket else []
 
     def get_by_configuration(self, configuration: str) -> Device | None:
-        """Return the Device whose YAML filename equals *configuration*, or ``None``."""
+        """Return the Device whose configuration equals *configuration*, or ``None``."""
         return self._devices_by_configuration.get(configuration)
 
     def poisoned_configurations(self) -> list[str]:
-        """Filenames carrying the poisoned cache key."""
-        return [p.name for p, key in self._cache_keys.items() if key == _POISONED_CACHE_KEY]
+        """Return the configurations carrying the poisoned cache key."""
+        return [
+            self._devices[p].configuration
+            for p, key in self._cache_keys.items()
+            if key == _POISONED_CACHE_KEY
+        ]
 
     def cache_key(self, path: Path) -> _CacheKey:
         """Return the change-detection cache key for a tracked *path*.
@@ -204,7 +214,7 @@ class _DeviceIndex:
         non-Optional return is the lockstep invariant in API form:
         every path in ``_devices`` has a cache key, and the only
         legitimate caller is one that just verified *path* is
-        tracked (e.g. the result of ``find_path_by_filename`` or
+        tracked (e.g. the result of ``find_path_by_configuration`` or
         a key in ``by_path``). A miss here is an invariant break,
         not a "look before you leap" miss — surface it loudly
         instead of returning ``None`` (which a caller could pass
@@ -213,9 +223,9 @@ class _DeviceIndex:
         """
         return self._cache_keys[path]
 
-    def find_path_by_filename(self, filename: str) -> Path | None:
-        """Locate the tracked path whose ``Path.name`` equals *filename*."""
-        return next((p for p in self._devices if p.name == filename), None)
+    def find_path_by_configuration(self, configuration: str) -> Path | None:
+        """Locate the tracked path whose Device's ``configuration`` equals *configuration*."""
+        return next((p for p, d in self._devices.items() if d.configuration == configuration), None)
 
     def set(self, path: Path, device: Device, cache_key: _CacheKey) -> None:
         """Insert / update *device* and refresh its cache key.
@@ -224,9 +234,8 @@ class _DeviceIndex:
         ``_unindex_name`` first — handles both the same-name update
         path (drop from current bucket so the resort can place the
         fresh Device) and the rename path (drop from the OLD name's
-        bucket before bucketing under the new name). Configuration
-        filenames are unique per path (the scanner's
-        ``util.list_yaml_files`` walk is non-recursive), so once
+        bucket before bucketing under the new name). Configurations
+        are config-relative paths, unique per path, so once
         *previous* is gone the sorted-position insert never
         collides with an existing entry.
         """
@@ -235,7 +244,7 @@ class _DeviceIndex:
             self._unindex_name(previous)
         self._devices[path] = device
         self._cache_keys[path] = cache_key
-        # 1:1 by filename, so a same-path in-place edit overwrites its own entry.
+        # 1:1 by configuration, so a same-path in-place edit overwrites its own entry.
         self._devices_by_configuration[device.configuration] = device
         bucket = self._devices_by_name.setdefault(device.name, [])
         insert_at = 0
@@ -320,6 +329,8 @@ class DeviceScanner(WakeWorker[str]):
         self._on_change = on_change
         self._index = _DeviceIndex()
         self._lock = asyncio.Lock()
+        # Device paths sharing their file name with others, mapped to those others.
+        self._duplicates: dict[Path, tuple[str, ...]] = {}
 
     @property
     def devices(self) -> list[Device]:
@@ -353,11 +364,11 @@ class DeviceScanner(WakeWorker[str]):
         return self._index.get_by_name(name)
 
     def get_by_configuration(self, configuration: str) -> Device | None:
-        """Return the configured device for YAML filename *configuration*, or ``None``."""
+        """Return the configured device for *configuration*, or ``None``."""
         return self._index.get_by_configuration(configuration)
 
     def poisoned_configurations(self) -> list[str]:
-        """Filenames whose last reload failed and await a re-read."""
+        """Return the configurations whose last reload failed and await a re-read."""
         return self._index.poisoned_configurations()
 
     async def scan(self, *, shallow: bool = False) -> None:
@@ -370,7 +381,7 @@ class DeviceScanner(WakeWorker[str]):
         async with self._lock:
             await self._do_scan(shallow=shallow)
 
-    async def reload(self, filename: str) -> bool:
+    async def reload(self, configuration: str) -> bool:
         """
         Force-reload a single device's state from disk.
 
@@ -386,7 +397,7 @@ class DeviceScanner(WakeWorker[str]):
         re-read changed any field (the YAML itself is unchanged here).
         """
         async with self._lock:
-            path = self._index.find_path_by_filename(filename)
+            path = self._index.find_path_by_configuration(configuration)
             if path is None:
                 return False
             # Snapshot the existing cache key *before* any ``await``
@@ -396,7 +407,7 @@ class DeviceScanner(WakeWorker[str]):
             # ``cache_key`` returns ``_CacheKey`` (raises ``KeyError``
             # if the path isn't tracked) — the lockstep invariant
             # makes a miss here impossible since
-            # ``find_path_by_filename`` just located *path*.
+            # ``find_path_by_configuration`` just located *path*.
             previous_cache_key = self._index.cache_key(path)
             previous = self._index.by_path[path]
             loaded = await run_in_executor(self._load_devices, {path})
@@ -407,7 +418,7 @@ class DeviceScanner(WakeWorker[str]):
                 # seed would otherwise stay shallow forever.
                 self._index.set(path, previous, _POISONED_CACHE_KEY)
                 # ``_load_devices`` already warned for this failure.
-                _LOGGER.debug("Reload of %s failed; will retry on the next scan", filename)
+                _LOGGER.debug("Reload of %s failed; will retry on the next scan", configuration)
                 return False
             device, dependency_keys = entry
             # Refresh the cache key; if the YAML disappears in the
@@ -463,9 +474,15 @@ class DeviceScanner(WakeWorker[str]):
         removed_paths = old_paths - new_paths
         added_paths = new_paths - old_paths
         possibly_updated = old_paths & new_paths
+        # A device whose file-name clash appeared, changed or went away re-loads too.
+        duplicates = _duplicate_names(self._config_dir, new_paths)
         updated_paths = {
-            p for p in possibly_updated if path_to_cache_key[p] != self._index.cache_key(p)
+            p
+            for p in possibly_updated
+            if path_to_cache_key[p] != self._index.cache_key(p)
+            or duplicates.get(p) != self._duplicates.get(p)
         }
+        self._duplicates = duplicates
 
         paths_to_load = added_paths | updated_paths
         if paths_to_load:
@@ -506,10 +523,13 @@ class DeviceScanner(WakeWorker[str]):
     def _build_cache_keys(
         self, deps_by_path: Mapping[Path, tuple[str, ...]]
     ) -> dict[Path, _CacheKey]:
-        """Build ``path → cache_key`` for every YAML file currently on disk."""
+        """Build ``path → cache_key`` for every device YAML currently on disk."""
         result: dict[Path, _CacheKey] = {}
         batch = LoadBatch(self._config_dir)
-        for file in util.list_yaml_files([self._config_dir]):
+        config_dir = os.fspath(self._config_dir)
+        for rel in iter_device_files(self._config_dir):
+            # Per file on every scan: one Path from the joined string is cheaper than ``/``.
+            file = Path(os.path.join(config_dir, rel))  # noqa: PTH118
             try:
                 stat = file.stat()
             except OSError:
@@ -520,7 +540,7 @@ class DeviceScanner(WakeWorker[str]):
                 stat.st_dev,
                 stat.st_mtime,
                 stat.st_size,
-                tuple(batch.stat_key(d) for d in dependencies) if dependencies else (),
+                _dependency_keys(batch, rel, dependencies or ()),
             )
         return result
 
@@ -532,8 +552,13 @@ class DeviceScanner(WakeWorker[str]):
         get_metadata = self._make_metadata_resolver()
         batch = LoadBatch(self._config_dir)
         for path in paths:
+            configuration = config_relative(self._config_dir, path)
+            if others := self._duplicates.get(path):
+                keys = _dependency_keys(batch, configuration, ())
+                result[path] = _LoadedDevice(_duplicate_device(configuration, others), keys)
+                continue
             try:
-                metadata = get_metadata(self._config_dir, path.name)
+                metadata = get_metadata(self._config_dir, configuration)
                 previous = self._index.by_path.get(path)
                 known = (
                     previous.dependencies
@@ -562,14 +587,58 @@ class DeviceScanner(WakeWorker[str]):
                     dependencies=known,
                     batch=batch,
                     derive_board_id=self._derive_board_id,
+                    configuration=configuration,
                 )
                 # The read's own fstat keys each file, so an edit landing after
                 # the read still flips the next scan.
-                dependency_keys = tuple(batch.stat_key(d) for d in device.dependencies or ())
+                dependency_keys = _dependency_keys(batch, configuration, device.dependencies or ())
                 result[path] = _LoadedDevice(device, dependency_keys)
             except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep
-                _LOGGER.warning("Failed to load device from %s", path.name)
+                _LOGGER.warning("Failed to load device from %s", configuration)
         return result
+
+
+def _dependency_keys(
+    batch: LoadBatch, configuration: str, dependencies: Iterable[str]
+) -> _DependencyStatKeys:
+    """Stat keys of *dependencies*, plus the secrets file beside a device below ``devices/``."""
+    keys = tuple(batch.stat_key(d) for d in dependencies) if dependencies else ()
+    # Runs per device on every scan; a scanned configuration is POSIX-relative, so a
+    # top-level one, the common case, has no "/" and skips the normalising check.
+    if "/" in configuration and in_devices_dir(configuration):
+        keys += (batch.stat_key(sibling_secrets(configuration)),)
+    return keys
+
+
+def _duplicate_names(config_dir: Path, paths: Iterable[Path]) -> dict[Path, tuple[str, ...]]:
+    """Map each of *paths* sharing its file name with another to the others' configurations."""
+    by_name: dict[str, list[Path]] = {}
+    for path in sorted(paths):
+        by_name.setdefault(path.name, []).append(path)
+    return {
+        path: tuple(o.relative_to(config_dir).as_posix() for o in group if o != path)
+        for group in by_name.values()
+        if len(group) > 1
+        for path in group
+    }
+
+
+def _duplicate_device(configuration: str, others: tuple[str, ...]) -> Device:
+    """Build a placeholder Device for *configuration*, whose file name *others* share."""
+    # StorageJSON and the validated-config cache are keyed by file name, so
+    # no sharer may read or claim them.
+    stem = configuration_stem(configuration)
+    return Device(
+        name=stem,
+        friendly_name=stem,
+        configuration=configuration,
+        address=f"{stem}.local",
+        name_shared_with=others,
+        load_error=(
+            f"Another device file has the same file name ({', '.join(others)}); "
+            "rename one so every device file name is unique"
+        ),
+    )
 
 
 def _with_dependency_keys(key: _CacheKey, dependency_keys: _DependencyStatKeys) -> _CacheKey:

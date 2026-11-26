@@ -16,6 +16,7 @@ from ...helpers.api import CommandError, ErrorCode
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.config_hash import read_build_info_hash
+from ...helpers.esphome_env import esphome_subprocess_env
 from ...helpers.json import JSONDecodeError, dumps, loads
 from ...helpers.sibling_cli import helper_cli_cmd
 from ...helpers.storage_path import resolve_idedata_path, resolve_storage_path
@@ -230,6 +231,7 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
     embellishment on a crash report, so a broken helper must not take the
     report down with it.
     """
+    env = await run_in_executor(esphome_subprocess_env, configuration)
     try:
         # Held around the spawn only: the coercion below is pure CPU and
         # holding through it would stall a queued decode for nothing.
@@ -240,6 +242,7 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
                 timeout=_HELPER_TIMEOUT_S,
                 stdin_data=request,
                 merge_stderr=False,
+                env=env,
             )
     except OSError:
         _LOGGER.warning("Could not spawn the backtrace decoder for %s", configuration)

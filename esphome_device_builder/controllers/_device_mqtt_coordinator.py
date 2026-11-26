@@ -26,9 +26,9 @@ from typing import Any
 import yaml
 from esphome.core import EsphomeError
 
-from ..constants import SECRETS_FILENAME
 from ..helpers.async_ import run_in_executor
 from ..helpers.atomic_io import read_text_with_stat
+from ..helpers.config_layout import sibling_secrets
 from ..helpers.device_yaml import (
     _UNRESOLVED_SUBSTITUTION_RE,
     _UNRESOLVED_WHOLE_TOKEN_RE,
@@ -304,8 +304,8 @@ class DeviceMqttCoordinator:
             self._conflict_logged.clear()
             self._broker_cache.clear()
             return [], []
-        secrets_map = _load_secrets(self._config_dir)
-        secrets_key = safe_stat_key(self._config_dir / SECRETS_FILENAME)
+        # Each device reads the secrets file in its own folder; read each once.
+        secrets_by_file: dict[str, tuple[dict[str, Any], tuple[int, int]]] = {}
         seen: dict[BrokerKey, MqttBrokerConfig] = {}
         seen_devices: set[str] = set()
         client_cert_devices: set[str] = set()
@@ -322,6 +322,14 @@ class DeviceMqttCoordinator:
                 _LOGGER.debug(_UNREADABLE_DEBUG, device.configuration)
                 continue
             extract = device.mqtt_extract
+            secrets_file = sibling_secrets(device.configuration)
+            if secrets_file not in secrets_by_file:
+                secrets_path = self._config_dir / secrets_file
+                secrets_by_file[secrets_file] = (
+                    _load_secrets(secrets_path),
+                    safe_stat_key(secrets_path),
+                )
+            secrets_map, secrets_key = secrets_by_file[secrets_file]
             try:
                 source = _mqtt_block_for(extract, yaml_path, yaml_stat, secrets_key)
             except OSError:
@@ -341,7 +349,7 @@ class DeviceMqttCoordinator:
                     # Skip silently — no warn-gate consumption.
                     needs_reload.append(device.configuration)
                     continue
-                broker = self._resolve_from_seed(yaml_path.name, extract, cache_key)
+                broker = self._resolve_from_seed(device.configuration, extract, cache_key)
             self._track_outcome(device.configuration, broker, seen, client_cert_devices, conflicts)
         # Drop tracking for devices no longer declaring ``mqtt:`` and
         # logins that no longer conflict, so a recurrence re-warns.
@@ -626,8 +634,7 @@ def _broker_from_block(
     )
 
 
-def _load_secrets(config_dir: Path) -> dict[str, Any]:
-    secrets_path = config_dir / SECRETS_FILENAME
+def _load_secrets(secrets_path: Path) -> dict[str, Any]:
     if not secrets_path.exists():
         return {}
     try:

@@ -13,6 +13,12 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
+from ...helpers.config_layout import (
+    name_shared_by_another_device,
+    refuse_nested_device,
+    refuse_nested_name_clash,
+    refuse_path_in_name,
+)
 from ...helpers.device_config import (
     raise_device_not_found,
     read_device_config,
@@ -20,6 +26,7 @@ from ...helpers.device_config import (
 )
 from ...helpers.device_yaml import (
     configuration_filename,
+    configuration_stem,
     parse_esphome_meta,
     resolved_device_name,
     retarget_fallback_ap_ssid,
@@ -86,7 +93,7 @@ async def update_device(
     # pick up the sidecar write and a DEVICE_UPDATED event fires for clients.
     await controller._scanner.reload(configuration)
     meta = await controller._shared_sidecar.get(configuration)
-    name = configuration.removesuffix(".yaml")
+    name = configuration_stem(configuration)
     return UpdateDeviceResponse(
         name=name,
         friendly_name=meta.get("friendly_name", name),
@@ -220,23 +227,28 @@ async def rename_device(
     device's own file) is always config-only since the OTA chain needs a
     new filename to compile against.
     """
+    # A path-bearing name would move the device into a folder, past the name-clash check.
+    refuse_path_in_name(new_name)
     new_filename = configuration_filename(new_name)
-    old_path = controller._db.settings.rel_path(configuration)
-    new_path = controller._db.settings.rel_path(new_filename)
+    settings = controller._db.settings
 
-    # When the slugified target filename is the device's own file, the rename
-    # changes ``esphome.name`` without moving the file — the OTA chain needs
-    # a distinct new filename to compile against, so route it in place.
-    # Compare lexically-normalized paths so a configuration with redundant
-    # segments (``./x.yaml``) still reads as the same file, without the
-    # blocking filesystem access ``Path.resolve()`` would do in this async
-    # path.
-    in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
+    def _read_and_probe() -> tuple[bool, str, bool]:
+        # ``rel_path`` resolves symlinks (blocking), so it runs here, not on the loop.
+        old_path = settings.rel_path(configuration)
+        new_path = settings.rel_path(new_filename)
+        # When the slugified target filename is the device's own file, the rename
+        # changes ``esphome.name`` without moving the file - the OTA chain needs
+        # a distinct new filename to compile against, so route it in place.
+        # Compare lexically-normalized paths so a configuration with redundant
+        # segments (``./x.yaml``) still reads as the same file.
+        in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
+        refuse_nested_device(settings.config_dir, configuration, "Renaming")
+        content = read_device_config(old_path, configuration)
+        if not in_place:
+            refuse_nested_name_clash(settings.config_dir, new_filename)
+        return in_place, content, not in_place and new_path.exists()
 
-    def _read_and_probe() -> tuple[str, bool]:
-        return read_device_config(old_path, configuration), not in_place and new_path.exists()
-
-    content, target_taken = await run_in_executor(_read_and_probe)
+    in_place, content, target_taken = await run_in_executor(_read_and_probe)
     old_meta = parse_esphome_meta(content)
 
     # Reject same-name renames up-front. Compare against the device's real
@@ -308,7 +320,8 @@ async def _config_only_rename(
 
     Validates *new_content* before touching disk, writes the new file
     atomically, removes the old, records the pre-rename hostname, and
-    migrates the StorageJSON + sidecar metadata. Refuses with
+    migrates the StorageJSON (unless another device shares its file name)
+    + sidecar metadata. Refuses with
     ``PRECONDITION_FAILED`` when the file no longer
     holds *content*, and never replaces a target another writer created.
     Returns ``job: None`` (nothing is queued). When *in_place*
@@ -316,15 +329,21 @@ async def _config_only_rename(
     and the old-file / old-sidecar removals are skipped so the just-written
     file isn't deleted.
     """
+    # A path-bearing name would move the device into a folder, past the name-clash check.
+    refuse_path_in_name(new_name)
     new_filename = configuration_filename(new_name)
-    old_path = controller._db.settings.rel_path(configuration)
-    new_path = controller._db.settings.rel_path(new_filename)
 
     # Validate before any disk change so a bad rewrite never lands on disk.
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")
 
     def _land() -> None:
+        # ``rel_path`` resolves symlinks (blocking), so it runs here, not on the loop.
+        old_path = controller._db.settings.rel_path(configuration)
+        new_path = controller._db.settings.rel_path(new_filename)
         require_unchanged(read_device_config(old_path, configuration), content, configuration)
+        # A device sharing the file name owns the file-name keyed StorageJSON too; leave it
+        # to that twin, and let the renamed device's own state regenerate from scratch.
+        shared = name_shared_by_another_device(controller._db.settings.config_dir, configuration)
         if in_place:
             write_user_yaml(new_path, new_content)
         else:
@@ -334,7 +353,8 @@ async def _config_only_rename(
                 raise_device_name_exists(new_filename, from_exc=err)
             old_path.unlink(missing_ok=True)
         # The YAML is already renamed; storage migration is best-effort (logs on failure).
-        _migrate_storage_json(configuration, new_filename, new_name)
+        if not shared:
+            _migrate_storage_json(configuration, new_filename, new_name)
 
     async with AsyncExitStack() as locks:
         # Both filenames, in a stable order, until the metadata has moved: a rename of the

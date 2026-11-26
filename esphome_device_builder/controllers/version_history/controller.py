@@ -239,7 +239,8 @@ class VersionHistoryController:
 
     async def record_configuration(self, configuration: str, message: str) -> str | None:
         """Commit one config by name; return the sha (``None`` no-op), raise on failure."""
-        path = self._db.settings.rel_path(configuration)
+        # ``rel_path`` resolves symlinks (blocking) - executor.
+        path = await run_in_executor(self._db.settings.rel_path, configuration)
         return await self.commit([path], message)
 
     def discard_pending(self, configuration: str) -> None:
@@ -311,7 +312,8 @@ class VersionHistoryController:
         updates via events and the restore itself is committed.
         """
         self._require_enabled()
-        path = self._db.settings.rel_path(configuration)
+        # ``rel_path`` resolves symlinks (blocking) - executor.
+        path = await run_in_executor(self._db.settings.rel_path, configuration)
         # Commit any queued external edit first, so restoring over it
         # still leaves that just-overwritten version recoverable.
         await self._flush_pending()

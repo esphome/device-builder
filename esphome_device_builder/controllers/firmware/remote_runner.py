@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -66,7 +65,6 @@ from ..remote_build.peer_link_client import (
 )
 from . import lifecycle
 from .bundle_phase import run_bundle_phase
-from .constants import ESPHOME_SUBPROCESS_ENV
 from .helpers import (
     _fire_job_progress,
     _ingest_notice_line,
@@ -780,7 +778,7 @@ async def _fetch_and_run_local_upload(
     ]
     _LOGGER.debug("Remote upload subprocess: %s", " ".join(cmd))
 
-    env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
+    env = await run_in_executor(controller._compose_subprocess_env, job)
     exit_code = await _run_upload_subprocess(
         controller=controller,
         job=job,

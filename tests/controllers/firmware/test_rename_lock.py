@@ -167,6 +167,7 @@ def test_running_rename_blocks_install(
 
 
 async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
+    tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """A rename-locked device in a bulk request must not abort the others.
@@ -195,7 +196,8 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
             "settings": type(
                 "Settings",
                 (),
-                {"rel_path": lambda self, *parts: None},
+                # The boundary also maps each configuration to its canonical form.
+                {"rel_path": lambda self, *parts: None, "config_dir": tmp_path},
             )(),
             # ``install`` resolves its source via the scheduler,
             # which reads ``_db.remote_build_offloader`` — match production's
