@@ -27,9 +27,8 @@ tags:
 docs_url: https://esphome.io/components/display/waveshare_epaper/
 product_url: https://www.seeedstudio.com/XIAO-ePaper-Display-Board-EE04-p-6560.html
 images:
-- https://files.seeedstudio.com/wiki/Epaper/EE04/EE04_2.jpg
-- https://files.seeedstudio.com/wiki/Epaper/EE04/EE04_1.jpg
-- https://files.seeedstudio.com/wiki/Epaper/EE04/hardwareoview.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Seeed-XIAO-ePaper-EE04/ee04-board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Seeed-XIAO-ePaper-EE04/ee04-overview.png
 featured_components:
 - id: epaper_spi
   component_id: spi
