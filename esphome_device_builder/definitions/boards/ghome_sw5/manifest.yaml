@@ -67,5 +67,5 @@ source:
   type: esphome-devices
   remote_id: Ghome-SW5
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Ghome-SW5/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: df97ff471449e4454453a0d0eb7a124c6f6c89db638fb1ab95799d446a0cfb82

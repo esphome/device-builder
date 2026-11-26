@@ -90,5 +90,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-The-Pill
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-The-Pill/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: b58539c8702547e138c9d68d17bd157fbaf4b47c121c75a86e6479687568405c

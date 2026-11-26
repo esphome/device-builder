@@ -52,5 +52,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Pro-EM-50
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Pro-EM-50/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: e2faf4fe04c90d5b448bcfdf314ef2be0f4954c793dd73de2d647b00036e30cc

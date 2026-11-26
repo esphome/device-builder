@@ -57,5 +57,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-DY-CK400A-Garage-Door-Opener
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-DY-CK400A-Garage-Door-Opener/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: f727dbfaed5cfbcded5446442a59ef31ed3c45ef182dcb2bd65bf4cdbfbaf7ee

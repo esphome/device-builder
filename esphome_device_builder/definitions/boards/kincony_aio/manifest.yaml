@@ -626,5 +626,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-AIO
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-AIO/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: 45c42e7fc2c6a5b0d8e9bac576cf802882c6e7aefe78a55f7d6ed6ff534f21eb

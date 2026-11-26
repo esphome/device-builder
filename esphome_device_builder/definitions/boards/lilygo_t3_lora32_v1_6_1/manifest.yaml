@@ -56,5 +56,5 @@ source:
   type: esphome-devices
   remote_id: LILYGO-T3-LoRa32-V1.6.1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LILYGO-T3-LoRa32-V1.6.1/index.md
-  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
+  upstream_revision: ee4ae97596b6452ab9d242ff6974f4c245b5c40e
   content_hash: a7a6b50ed76cd79d21310d96df326bd89e1a8bfd8581f80614a61eb2a3911e29
