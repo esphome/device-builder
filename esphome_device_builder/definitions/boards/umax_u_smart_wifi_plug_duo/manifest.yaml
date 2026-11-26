@@ -101,5 +101,5 @@ source:
   type: esphome-devices
   remote_id: UMAX-U-Smart-Wifi-Plug-Duo
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UMAX-U-Smart-Wifi-Plug-Duo/index.md
-  upstream_revision: e772dce49ab9e10b1e40793df3523927313e3bb6
+  upstream_revision: bf399851c611c1d7cd2c2cb6f33e13c324ad5a5a
   content_hash: ec49befff6c591386d4fbfffc0204edf6bb93fb676aa929dea8302f5fcf748ab
