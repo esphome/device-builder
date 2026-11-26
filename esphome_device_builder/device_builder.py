@@ -37,6 +37,7 @@ from .controllers.config import (
 from .controllers.desktop import DesktopController
 from .controllers.devices import DevicesController
 from .controllers.devices.import_upload import http_import_bundle as devices_http_import_bundle
+from .controllers.disk_usage import DiskUsageController
 from .controllers.editor import EditorController
 from .controllers.files import FilesController
 from .controllers.firmware import FirmwareController
@@ -260,6 +261,7 @@ class DeviceBuilder:
         self.components: ComponentCatalog | None = None
         self.config: ConfigController | None = None
         self.devices: DevicesController | None = None
+        self.disk_usage: DiskUsageController | None = None
         self.automations: AutomationsController | None = None
         self.firmware: FirmwareController | None = None
         self.editor: EditorController | None = None
@@ -490,6 +492,7 @@ class DeviceBuilder:
         self.config = ConfigController(self)
         self.desktop = DesktopController(self)
         self.devices = DevicesController(self)
+        self.disk_usage = DiskUsageController(self)
         self.automations = AutomationsController(self)
         self.firmware = FirmwareController(self)
         self.editor = EditorController(self)
@@ -511,6 +514,7 @@ class DeviceBuilder:
         self._mark_startup_phase("devices")
         await self.firmware.start()
         self._mark_startup_phase("firmware")
+        await self.disk_usage.start()
         await self.editor.start()
         self._mark_startup_phase("editor")
         await self.version_history.start()
@@ -669,6 +673,8 @@ class DeviceBuilder:
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""
+        if self.disk_usage is not None:
+            await self.disk_usage.stop()
         if self.firmware is not None:
             self.firmware.stop()  # sync — no await; see FirmwareController.stop()
         if self.editor is not None:
@@ -818,6 +824,8 @@ class DeviceBuilder:
                 # Same rows follow_jobs would replay: created_at order,
                 # ``output`` dropped (fetched per-job via follow_job).
                 initial["firmware_jobs"] = self.firmware.jobs_snapshot()
+            if self.disk_usage is not None:
+                initial.update(self.disk_usage.initial_state())
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.

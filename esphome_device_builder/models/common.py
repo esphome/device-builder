@@ -97,6 +97,11 @@ class EventType(StrEnum):
     LABEL_UPDATED = "label_updated"
     LABEL_DELETED = "label_deleted"
 
+    # Disk usage remeasured (after a build / clean / reset, or free space moved)
+    DISK_USAGE_UPDATED = "disk_usage_updated"
+    # The first disk measurement failed (no ``DiskUsage`` to show yet)
+    DISK_USAGE_FAILED = "disk_usage_failed"
+
     # Firmware job lifecycle
     JOB_QUEUED = "job_queued"
     JOB_STARTED = "job_started"
