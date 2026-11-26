@@ -1,0 +1,194 @@
+id: seeed-xiao-epaper-ee04
+name: Seeed Studio XIAO ePaper Driver Board (EE04)
+description: >-
+  Seeed Studio XIAO ePaper Driver Board EE04: a XIAO ESP32-S3 Plus (16MB
+  flash, 8MB PSRAM) carrier with two 0.5mm FPC connectors for 24-pin
+  (1.54"-7.5", monochrome and tri-color) or 50-pin (7.3" Spectra6) ePaper
+  panels, selected by an onboard jumper. Three programmable buttons, a
+  JST 2.0 battery connector with charging IC, and USB-C. The featured
+  display component below wires the fixed 24-pin SPI interface; pick the
+  `model` matching the panel actually connected.
+manufacturer: Seeed Studio
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- compact
+- usb-c
+- display
+docs_url: https://esphome.io/components/display/waveshare_epaper/
+product_url: https://www.seeedstudio.com/XIAO-ePaper-Display-Board-EE04-p-6560.html
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Seeed-XIAO-ePaper-EE04/ee04-board.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Seeed-XIAO-ePaper-EE04/ee04-overview.png
+featured_components:
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
+- id: epaper_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 7
+      locked: true
+    mosi_pin:
+      value: 9
+      locked: true
+    id:
+      value: epaper_spi
+      locked: true
+- id: epaper_display
+  component_id: display.waveshare_epaper
+  name: ePaper Display (24-pin)
+  description: 24-pin FPC panel, 1.54" to 7.5" mono/tri-color. Set model to match the attached panel.
+  fields:
+    spi_id:
+      value: epaper_spi
+      locked: true
+    cs_pin:
+      value: 44
+      locked: true
+    dc_pin:
+      value: 10
+      locked: true
+    busy_pin:
+      value: 4
+      locked: true
+    reset_pin:
+      value: 38
+      locked: true
+    model:
+      suggestions:
+      - 1.54inv2
+      - 2.13inv2
+      - 2.90inv2
+      - 4.20in
+      - 5.83inv2
+      - 7.50inv2
+      value: 7.50inv2
+    id:
+      value: epaper_display
+      locked: true
+  requires:
+  - epaper_spi
+  - onboard_psram
+- id: button_key0
+  component_id: binary_sensor.gpio
+  name: KEY0 Button
+  fields:
+    name: Key0
+    pin:
+      value:
+        number: 2
+        inverted: true
+      locked: true
+    id: button_key0
+- id: button_key1
+  component_id: binary_sensor.gpio
+  name: KEY1 Button
+  fields:
+    name: Key1
+    pin:
+      value:
+        number: 3
+        inverted: true
+      locked: true
+    id: button_key1
+- id: button_key2
+  component_id: binary_sensor.gpio
+  name: KEY2 Button
+  fields:
+    name: Key2
+    pin:
+      value:
+        number: 5
+        inverted: true
+      locked: true
+    id: button_key2
+featured_bundles:
+- id: epaper_setup
+  name: ePaper Display (full setup)
+  description: SPI bus plus the 24-pin waveshare_epaper display.
+  component_ids:
+  - onboard_psram
+  - epaper_spi
+  - epaper_display
+- id: buttons_setup
+  name: Buttons (full setup)
+  component_ids:
+  - button_key0
+  - button_key1
+  - button_key2
+pins:
+- gpio: 7
+  label: GPIO7
+  features:
+  - spi_clk
+  available: false
+  occupied_by: ePaper SPI CLK
+- gpio: 9
+  label: GPIO9
+  features:
+  - spi_mosi
+  available: false
+  occupied_by: ePaper SPI MOSI
+- gpio: 44
+  label: GPIO44
+  available: false
+  occupied_by: ePaper CS
+- gpio: 10
+  label: GPIO10
+  available: false
+  occupied_by: ePaper DC
+- gpio: 4
+  label: GPIO4
+  available: false
+  occupied_by: ePaper BUSY
+- gpio: 38
+  label: GPIO38
+  available: false
+  occupied_by: ePaper RESET
+- gpio: 2
+  label: GPIO2
+  features:
+  - adc
+  available: false
+  occupied_by: KEY0 button
+  notes: User button, active low
+- gpio: 3
+  label: GPIO3
+  features:
+  - adc
+  available: false
+  occupied_by: KEY1 button
+  notes: User button, active low
+- gpio: 5
+  label: GPIO5
+  features:
+  - adc
+  available: false
+  occupied_by: KEY2 button
+  notes: User button, active low
+- gpio: 1
+  label: GPIO1
+  features:
+  - adc
+  available: false
+  occupied_by: Battery voltage sense (A0)
+  notes: Reads battery voltage through a divider; the divider must be enabled via GPIO6 first
+- gpio: 6
+  label: GPIO6
+  available: false
+  occupied_by: Battery ADC enable (A5)
+  notes: Enables the battery-voltage divider before reading GPIO1
