@@ -9,28 +9,43 @@ name: Dependabot auto-merge
 # no app key is exposed to them. The cost is that a Dependabot merge doesn't
 # trigger `push` workflows; the release drafter catches up on the next push.
 # Dependabot runs on `pull_request` get a read-only token unless `permissions:` raises it.
+# The workflow comes from the PR merge commit, so the action a bump proposes
+# runs only in the read-only `metadata` job; the write job runs no action.
 
 on: pull_request
 
-permissions:
-  contents: write  # gh pr merge --auto needs write on the repo contents
-  pull-requests: write  # enabling auto-merge edits the pull request
+permissions: {}
 
 jobs:
-  dependabot:
+  metadata:
+    name: Fetch Dependabot metadata
     runs-on: ubuntu-latest
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]'
       && github.repository == github.event.pull_request.head.repo.full_name
       && github.actor == 'dependabot[bot]'
+    permissions:
+      contents: read  # fetch-metadata reads the PR's commit messages
+      pull-requests: read  # fetch-metadata reads the PR
+    outputs:
+      update-type: ${{ steps.metadata.outputs.update-type }}
     steps:
       - name: Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@v3.1.0
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+  auto-merge:
+    name: Enable auto-merge
+    runs-on: ubuntu-latest
+    needs: metadata
+    if: needs.metadata.outputs.update-type != 'version-update:semver-major'
+    permissions:
+      contents: write  # gh pr merge --auto needs write on the repo contents
+      pull-requests: write  # enabling auto-merge edits the pull request
+    steps:
       - name: Enable auto-merge for Dependabot PRs
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
