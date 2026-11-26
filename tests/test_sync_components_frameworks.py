@@ -110,10 +110,15 @@ def test_unreadable_framework_validator_aborts_catalog(
         assert gate.__closure__ is not None
         del gate.__closure__[freevars.index("frameworks")].cell_contents
     schema = cv.All(cv.Schema({}), gate)
+    enumerate_manifests = sync._enumerate_platform_manifests_by_domain
     monkeypatch.setattr(
         sync,
         "_enumerate_platform_manifests_by_domain",
-        lambda *_: [("sensor", SimpleNamespace(config_schema=schema))],
+        lambda loader, cid: (
+            [("sensor", SimpleNamespace(config_schema=schema))]
+            if cid == "template"
+            else enumerate_manifests(loader, cid)
+        ),
     )
     monkeypatch.setattr(sync, "load_index", lambda _: sync.SchemaIndex({}))
     monkeypatch.setattr(
