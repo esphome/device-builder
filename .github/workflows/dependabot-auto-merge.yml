@@ -11,6 +11,7 @@ name: Dependabot auto-merge
 # Dependabot runs on `pull_request` get a read-only token unless `permissions:` raises it.
 # The workflow comes from the PR merge commit, so the action a bump proposes
 # runs only in the read-only `metadata` job; the write job runs no action.
+# A bump of fetch-metadata itself is left for a human, so it can't classify its own update.
 
 on: pull_request
 
@@ -24,6 +25,7 @@ jobs:
       github.event.pull_request.user.login == 'dependabot[bot]'
       && github.repository == github.event.pull_request.head.repo.full_name
       && github.actor == 'dependabot[bot]'
+      && !startsWith(github.head_ref, 'dependabot/github_actions/dependabot/fetch-metadata-')
     permissions:
       contents: read  # fetch-metadata reads the PR's commit messages
       pull-requests: read  # fetch-metadata reads the PR
