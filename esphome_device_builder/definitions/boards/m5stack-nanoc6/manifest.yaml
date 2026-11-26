@@ -266,6 +266,9 @@ featured_components:
     power_supply:
       value: rgbpwr
       locked: true
+    rmt_symbols:
+      value: 48
+      locked: true
 - id: status_led
   component_id: light.status_led
   name: Status LED
@@ -302,6 +305,9 @@ featured_components:
       value: ir_tx
       locked: true
     carrier_duty_percent: 50%
+    rmt_symbols:
+      value: 48
+      locked: true
 - id: ir_proxy_tx
   component_id: infrared.ir_rf_proxy
   name: IR Proxy Transmitter
