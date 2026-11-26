@@ -3680,3 +3680,31 @@ async def test_coordinator_resume_clears_the_stop_latch(
     coord.resume()
     await coord.reconcile()
     assert coord.active_brokers == 1
+
+
+async def test_coordinator_reconcile_warns_when_paho_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Without paho a reconcile warns about mqtt devices and starts no monitors."""
+    monkeypatch.setattr(monitor_module, "paho_mqtt", None)
+    devices = [write_mqtt_device(tmp_path, "mq", "mqtt:\n  broker: b.local\n")]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+    with caplog.at_level("WARNING"):
+        await coord.reconcile()
+    assert coord.active_brokers == 0
+    assert "paho-mqtt not installed" in caplog.text
+
+
+async def test_coordinator_reconcile_silent_when_paho_missing_and_no_mqtt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Without paho and without mqtt devices a reconcile returns quietly."""
+    monkeypatch.setattr(monitor_module, "paho_mqtt", None)
+    coord = make_mqtt_coordinator(tmp_path, [write_mqtt_device(tmp_path, "plain", None)])
+    with caplog.at_level("WARNING"):
+        await coord.reconcile()
+    assert "paho-mqtt not installed" not in caplog.text

@@ -246,3 +246,13 @@ def test_revisit_importable_skips_ignored_devices() -> None:
     monitor.importable.revisit_importable("kitchen-1a2b3c")
 
     assert _added(callbacks) == []
+
+
+def test_importable_helpers_without_discovery_are_noops() -> None:
+    """Before discovery starts, no importable exists and a refire does nothing."""
+    monitor, callbacks = make_state_monitor_with_callbacks([])
+    monitor.importable._import_discovery = None
+
+    assert monitor.importable._has_importable("kitchen") is False
+    monitor.importable._refire_importable_for("kitchen")
+    assert _added(callbacks) == []

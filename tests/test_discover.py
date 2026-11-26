@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import logging
 import re
 from collections.abc import Coroutine
@@ -490,3 +491,27 @@ def test_build_parser_accepts_verbose_flag() -> None:
     assert long_args.verbose is True
     default_args = parser.parse_args([])
     assert default_args.verbose is False
+
+
+def test_column_widths_match_column_names() -> None:
+    """Every named column has exactly one width parsed from ``_FORMAT``."""
+    from esphome_device_builder import discover  # noqa: PLC0415
+
+    assert len(discover._COLUMN_WIDTHS) == len(discover._COLUMN_NAMES)
+
+
+def test_module_import_rejects_format_width_mismatch() -> None:
+    """Importing ``discover`` raises when ``_FORMAT`` widths disagree with ``_COLUMN_NAMES``."""
+    from esphome_device_builder import discover  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        "esphome_device_builder._discover_width_mismatch", discover.__file__
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    with (
+        patch.object(re, "findall", return_value=["1"]),
+        pytest.raises(RuntimeError, match="_FORMAT width count must match _COLUMN_NAMES"),
+    ):
+        spec.loader.exec_module(module)

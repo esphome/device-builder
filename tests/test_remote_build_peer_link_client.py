@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import logging
 import secrets
 import tarfile
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator
@@ -5025,6 +5026,38 @@ async def test_submit_job_raises_no_session_error_when_session_closed() -> None:
         )
 
 
+async def test_submit_job_header_send_failure_raises_session_lost() -> None:
+    """A failed header ``send_frame`` raises :class:`SubmitJobSessionLostError`."""
+    client = _make_offloader_client(EventBus())
+    channel = MagicMock()
+    channel.send_frame = AsyncMock(return_value=False)
+    client._active_channel = channel
+
+    with pytest.raises(SubmitJobSessionLostError, match="header send failed"):
+        await client.submit_job(
+            job_id="j-1",
+            configuration_filename="kitchen.yaml",
+            target="compile",
+            bundle_bytes=b"some-bundle-bytes",
+        )
+
+
+async def test_submit_job_chunk_send_failure_raises_session_lost() -> None:
+    """A failed chunk ``send_frame`` raises :class:`SubmitJobSessionLostError`."""
+    client = _make_offloader_client(EventBus())
+    channel = MagicMock()
+    channel.send_frame = AsyncMock(side_effect=[True, False])
+    client._active_channel = channel
+
+    with pytest.raises(SubmitJobSessionLostError, match="chunk 0 send failed"):
+        await client.submit_job(
+            job_id="j-1",
+            configuration_filename="kitchen.yaml",
+            target="compile",
+            bundle_bytes=b"some-bundle-bytes",
+        )
+
+
 async def test_submit_job_sends_header_chunks_and_returns_ack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5251,6 +5284,48 @@ async def test_dispatch_submit_job_ack_drops_already_done_future() -> None:
     )
     # First result wins; the second ack does not raise InvalidStateError.
     assert fut.result()["accepted"] is True
+
+
+async def test_dispatch_submit_job_ack_drops_spurious_reason_on_accept() -> None:
+    """A ``reason`` on an accepted ack is off-contract: dropped from the resolved ack."""
+    client = _make_offloader_client(EventBus())
+    fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._submit_job_acks["j-1"] = fut
+
+    client._dispatch_submit_job_ack(
+        {"type": "submit_job_ack", "job_id": "j-1", "accepted": True, "reason": "huh"}
+    )
+
+    assert fut.result() == {"type": "submit_job_ack", "job_id": "j-1", "accepted": True}
+
+
+def test_client_exposes_pin_sha256() -> None:
+    """The ``pin_sha256`` property returns the pin the client was built with."""
+    assert _make_offloader_client(EventBus(), pin_sha256="c" * 64).pin_sha256 == "c" * 64
+
+
+def test_client_log_malformed_debug_logs_frame(caplog: pytest.LogCaptureFixture) -> None:
+    """``_log_malformed`` debug-logs the frame type and payload."""
+    client = _make_offloader_client(EventBus())
+    with caplog.at_level(
+        logging.DEBUG,
+        logger="esphome_device_builder.controllers.remote_build.peer_link_client._dispatch",
+    ):
+        client._log_malformed("job_output", {"bogus": 1})
+    assert "malformed job_output frame" in caplog.text
+
+
+def test_client_fire_queue_status_fires_bus_event() -> None:
+    """``_fire_queue_status`` fires ``OFFLOADER_QUEUE_STATUS_CHANGED`` with the snapshot."""
+    bus = EventBus()
+    captured = capture_events(bus, EventType.OFFLOADER_QUEUE_STATUS_CHANGED)
+    client = _make_offloader_client(bus, pin_sha256="d" * 64)
+    client._fire_queue_status(idle=False, running=True, queue_depth=3)
+    assert len(captured) == 1
+    assert captured[0]["pin_sha256"] == "d" * 64
+    assert captured[0]["idle"] is False
+    assert captured[0]["running"] is True
+    assert captured[0]["queue_depth"] == 3
 
 
 async def test_dispatch_job_output_drops_malformed_frame() -> None:
@@ -6286,6 +6361,25 @@ async def test_reset_peer_build_env_not_connected_raises_precondition(
     with pytest.raises(CommandError) as excinfo:
         await offloader.reset_peer_build_env(pin_sha256=pin)
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+
+
+async def test_reset_peer_build_env_without_firmware_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """A pre-start offloader with no firmware controller refuses with PRECONDITION_FAILED."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    offloader._lookup_open_peer_link_client = (  # type: ignore[method-assign]
+        lambda pin_sha256, label: MagicMock()
+    )
+    offloader._db.firmware = None
+
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "firmware controller" in excinfo.value.message
 
 
 async def test_reset_peer_build_env_enqueues_server_bound_mirror_job(

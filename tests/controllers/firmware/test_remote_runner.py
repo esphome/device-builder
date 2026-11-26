@@ -2092,6 +2092,44 @@ async def test_remote_reset_dispatches_frame_and_finalises_on_completed(
     client.download_artifacts.assert_not_called()
 
 
+async def test_remote_reset_lookup_failure_fails_job(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A reset with no reachable peer-link client finalises FAILED without dispatching."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = capture_local_events(controller)
+    _wire_remote_build(
+        controller,
+        lookup_error=CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected"),
+    )
+    job = _make_reset_job()
+
+    await asyncio.wait_for(remote_runner.run_remote_job(controller, job), timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None and "session not connected" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_reset_lookup_failure_with_cancel_finalises_cancelled(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Cancel intent wins over the lookup failure: the reset lands CANCELLED."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = capture_local_events(controller)
+    _wire_remote_build(
+        controller,
+        lookup_error=CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected"),
+    )
+    job = _make_reset_job()
+    _request_remote_cancel(controller, job)
+
+    await asyncio.wait_for(remote_runner.run_remote_job(controller, job), timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert captured[EventType.JOB_FAILED] == []
+
+
 async def test_remote_reset_busy_reject_fails_with_retry_message(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:

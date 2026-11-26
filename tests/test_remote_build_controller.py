@@ -91,6 +91,7 @@ from esphome_device_builder.models import (
     RejectReason,
     RemoteBuildPeer,
     RemoteBuildPeerSource,
+    RemoteBuildSettings,
     RemoteBuildSettingsView,
     StoredPairing,
     StoredPeer,
@@ -1440,6 +1441,25 @@ async def test_set_settings_round_trips(tmp_path: Path) -> None:
     assert written == RemoteBuildSettingsView(enabled=True)
     read = await controller.receiver.get_settings()
     assert read == RemoteBuildSettingsView(enabled=True)
+
+
+async def test_receiver_to_view_projects_settings(tmp_path: Path) -> None:
+    """``_to_view`` projects a ``RemoteBuildSettings`` to its wire view."""
+    controller = _make_controller(config_dir=tmp_path)
+    view = controller.receiver._to_view(RemoteBuildSettings(enabled=False))
+    assert view == RemoteBuildSettingsView(enabled=False)
+
+
+async def test_receiver_modify_settings_applies_mutator_and_persists(tmp_path: Path) -> None:
+    """``_modify_settings`` runs the mutator and the result reads back."""
+
+    def _disable(settings: RemoteBuildSettings) -> None:
+        settings.enabled = False
+
+    controller = _make_controller(config_dir=tmp_path)
+    written = await controller.receiver._modify_settings(_disable)
+    assert written == RemoteBuildSettingsView(enabled=False)
+    assert await controller.receiver.get_settings() == RemoteBuildSettingsView(enabled=False)
 
 
 async def test_settings_snapshot_tracks_ram_canonical_settings(tmp_path: Path) -> None:
@@ -5188,3 +5208,89 @@ def test_pairing_summary_surfaces_enabled_field(tmp_path: Path) -> None:
 
     assert summaries["a" * 64].enabled is True
     assert summaries["b" * 64].enabled is False
+
+
+def _lookup_pairing(pin: str, *, status: PeerStatus = PeerStatus.APPROVED) -> StoredPairing:
+    return StoredPairing(
+        receiver_hostname="r.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        static_x25519_pub=b"\x01" * 32,
+        label="r",
+        paired_at=1.0,
+        status=status,
+    )
+
+
+def _lookup_reason(controller: RemoteBuildController, pin: str) -> str:
+    with pytest.raises(CommandError) as excinfo:
+        controller.offloader._lookup_open_peer_link_client(pin, label="op")
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    return excinfo.value.message
+
+
+async def test_lookup_open_peer_link_client_reports_not_ready_reasons(tmp_path: Path) -> None:
+    """Each not-ready state raises PRECONDITION_FAILED carrying its distinguishing reason."""
+    controller = _make_controller(config_dir=tmp_path)
+    state = controller.offloader.state
+    pin = "a" * 64
+
+    state.pairings[pin] = _lookup_pairing(pin, status=PeerStatus.PENDING)
+    assert "not APPROVED" in _lookup_reason(controller, pin)
+
+    state.pairings[pin] = _lookup_pairing(pin)
+    assert "not yet spawned" in _lookup_reason(controller, pin)
+
+    done_task = asyncio.create_task(asyncio.sleep(0))
+    await done_task
+    client = MagicMock()
+    client.is_session_open = False
+    state.peer_link_clients[pin] = PeerLinkClientHandle(client=client, task=done_task)
+    assert "orphaned" in _lookup_reason(controller, pin)
+
+    live_task = asyncio.create_task(asyncio.sleep(3600))
+    state.peer_link_clients[pin] = PeerLinkClientHandle(client=client, task=live_task)
+    try:
+        assert "not connected" in _lookup_reason(controller, pin)
+        client.is_session_open = True
+        assert controller.offloader._lookup_open_peer_link_client(pin, label="op") is client
+    finally:
+        live_task.cancel()
+
+
+async def test_sweep_keeps_other_endpoint_pairing_and_alerts(tmp_path: Path) -> None:
+    """The sweep leaves pairings and alerts at other endpoints, or under the kept pin."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    state = controller.offloader.state
+    keep_pin = "b" * 64
+    other_pin = "c" * 64
+    alert_pin = "d" * 64
+    state.pairings[other_pin] = _lookup_pairing(other_pin)
+    state.pairings[other_pin].receiver_hostname = "elsewhere.local"
+    base_alert = {"kind": "pin_mismatch", "receiver_label": "r", "expected_pin": "x"}
+    state.offloader_alerts[keep_pin] = {  # type: ignore[assignment]
+        **base_alert,
+        "receiver_hostname": "r.local",
+        "receiver_port": 6055,
+        "pin_sha256": keep_pin,
+    }
+    state.offloader_alerts[other_pin] = {  # type: ignore[assignment]
+        **base_alert,
+        "receiver_hostname": "elsewhere.local",
+        "receiver_port": 6055,
+        "pin_sha256": other_pin,
+    }
+    state.offloader_alerts[alert_pin] = {  # type: ignore[assignment]
+        **base_alert,
+        "receiver_hostname": "r.local",
+        "receiver_port": 6055,
+        "pin_sha256": alert_pin,
+    }
+
+    controller.offloader._sweep_stale_pairings_at_endpoint(
+        "r.local", 6055, keep_pin_sha256=keep_pin
+    )
+
+    assert other_pin in state.pairings
+    assert set(state.offloader_alerts) == {keep_pin, other_pin}

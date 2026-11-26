@@ -1956,6 +1956,20 @@ def test_unregister_peer_link_session_removes_when_current(tmp_path: Path) -> No
     assert controller.receiver.state.peer_link_sessions == {}
 
 
+def test_unregister_peer_link_session_discards_artifacts_download_state(tmp_path: Path) -> None:
+    """Unregistering the current session drops its in-flight artifacts download."""
+    controller = _make_controller(config_dir=tmp_path)
+    sender = MagicMock()
+    controller.receiver.state.artifacts_download_sender = sender
+    session = MagicMock(spec=PeerLinkSession)
+    session.dashboard_id = "alpha"
+    controller.receiver.state.peer_link_sessions["alpha"] = session
+
+    controller.receiver.unregister_peer_link_session(session)
+
+    sender.discard_session.assert_called_once_with("alpha")
+
+
 async def test_send_app_frame_returns_false_on_unserialisable_payload(tmp_path: Path) -> None:
     """A payload with a non-JSON-encodable value short-circuits before encrypting."""
     _initiator, responder = _noise_pair()

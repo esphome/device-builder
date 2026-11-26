@@ -1388,3 +1388,11 @@ async def test_converge_awaiting_lock_no_ops_when_shutdown_wins(tmp_path: Path) 
         lifecycle._stopped = True
     assert await task is False
     assert lifecycle._runner is None
+
+
+async def test_maybe_start_noop_without_loop(make_settings: MakeSettingsFactory) -> None:
+    """``maybe_start`` before the loop is attached returns without binding."""
+    db = DeviceBuilder(make_settings())
+    db.loop = None
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None

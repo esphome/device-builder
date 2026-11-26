@@ -29,6 +29,7 @@ import random
 import string
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -63,7 +64,13 @@ from esphome_device_builder.helpers.yaml import (
     upsert_yaml_leaf_under_top_block,
     write_user_yaml,
 )
-from esphome_device_builder.helpers.yaml.component import _first_defined_id, _list_item_indent
+from esphome_device_builder.helpers.yaml import component as yaml_component
+from esphome_device_builder.helpers.yaml.component import (
+    _first_defined_id,
+    _format_flow_yaml_value,
+    _line_defined_id,
+    _list_item_indent,
+)
 from esphome_device_builder.helpers.yaml.scalar import (
     ESPHOME_YAML_INDENT,
     _plain_is_fast_safe,
@@ -1246,6 +1253,23 @@ def test_generate_component_yaml_preserves_lambda_filter_tag() -> None:
     loader.add_constructor("!lambda", lambda ldr, node: ldr.construct_scalar(node))
     loaded = yaml.load(result, Loader=loader)  # noqa: S506 - scoped test loader
     assert loaded["sensor"][0]["filters"][0]["multiply"] == "return 0.01;"
+
+
+def test_generate_component_yaml_quotes_flow_significant_list_items() -> None:
+    """List items holding ``,`` or brackets round-trip as single flow-sequence elements."""
+    component = _component(component_id="sensor.template", category="sensor")
+    items = ["a,b", "x]", "{y", "[z", "w}", "plain"]
+
+    result = generate_component_yaml(component, {"name": "Test Sensor", "tags": items})
+
+    assert yaml.safe_load(result)["sensor"][0]["tags"] == items
+
+
+def test_format_flow_yaml_value_quotes_unquoted_flow_significant_string() -> None:
+    """A flow-significant string the scalar formatter left plain gets quoted."""
+    with patch.object(yaml_component, "_format_yaml_value", side_effect=str):
+        assert _format_flow_yaml_value("a,b") == '"a,b"'
+        assert _format_flow_yaml_value("plain") == "plain"
 
 
 def test_generate_component_yaml_preserves_direct_lambda_field_tag() -> None:
@@ -2577,3 +2601,16 @@ def test_split_value_and_comment_treats_a_quote_inside_a_plain_scalar_as_literal
     assert _split_value_and_comment(' !secret "my # pass" # c') == (' !secret "my # pass"', " # c")
     assert _split_value_and_comment(" &a 'x # y'  # c") == (" &a 'x # y'", "  # c")
     assert _split_value_and_comment(" !secret pw  # c") == (" !secret pw", "  # c")
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        pytest.param("id: 'my_id'", "my_id", id="single_quoted"),
+        pytest.param('  - id: "my_id"', "my_id", id="double_quoted_list_item"),
+        pytest.param("id: my_id  # note", "my_id", id="trailing_comment"),
+    ],
+)
+def test_line_defined_id_strips_quotes_and_comments(line: str, expected: str) -> None:
+    """Quoted or comment-trailing id values resolve to the bare identifier."""
+    assert _line_defined_id(line) == expected

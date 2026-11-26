@@ -88,9 +88,10 @@ def test_serve_until_stop_swallows_error_when_stop_requested(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A teardown error during a pending stop is a clean exit, not a crash."""
-    monkeypatch.setattr(main_module, "_stop_requested", True)
+    monkeypatch.setattr(main_module, "_stop_requested", False)
 
     def _boom() -> None:
+        monkeypatch.setattr(main_module, "_stop_requested", True)
         raise RuntimeError("half-started teardown failure")
 
     main_module._serve_until_stop(SimpleNamespace(run=_boom))  # type: ignore[arg-type]

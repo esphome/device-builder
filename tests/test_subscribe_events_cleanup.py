@@ -641,3 +641,9 @@ async def test_subscribe_events_terminates_on_overflow_uniformly(
     # for any event type.
     with pytest.raises(StreamBackpressureError):
         await asyncio.wait_for(handler_task, timeout=2.0)
+
+
+async def test_subscribe_events_without_client_is_noop() -> None:
+    """A dispatch with no connected client returns without subscribing."""
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    assert await db._cmd_subscribe_events(client=None, message_id="1") is None

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
-from esphome_device_builder.helpers.async_ import create_eager_task, create_logged_task
+from esphome_device_builder.helpers.async_ import (
+    create_eager_task,
+    create_logged_task,
+    log_gather_failures,
+)
 
 
 async def test_eager_task_runs_synchronously_until_first_await() -> None:
@@ -93,3 +98,17 @@ async def test_logged_task_logs_a_crash_before_the_first_await(
         await asyncio.sleep(0)
 
     assert any("instant casualty crashed" in r.getMessage() for r in caplog.records)
+
+
+def test_log_gather_failures_logs_exceptions(caplog: pytest.LogCaptureFixture) -> None:
+    """An ``Exception`` result is logged at WARNING and siblings are still processed."""
+    with caplog.at_level(logging.WARNING):
+        log_gather_failures([ValueError("boom"), "ok"], "item failed")
+
+    assert [r.getMessage() for r in caplog.records] == ["item failed"]
+
+
+def test_log_gather_failures_reraises_base_exception() -> None:
+    """A cancellation result is re-raised rather than swallowed."""
+    with pytest.raises(asyncio.CancelledError):
+        log_gather_failures([asyncio.CancelledError()], "item failed")

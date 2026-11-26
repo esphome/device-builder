@@ -34,6 +34,7 @@ from esphome_device_builder.controllers.devices.add_component import _entry_gate
 from esphome_device_builder.controllers.devices.helpers import (
     _apply_featured_presets,
     _drop_unconfigured_dependent_fields,
+    _is_catalog_default_echo,
 )
 from esphome_device_builder.definitions import (
     _coerce_field_preset,
@@ -1343,3 +1344,9 @@ def test_drop_unconfigured_dependent_fields_keeps_self_domain() -> None:
         "esphome:\n  name: x\napi:\n",
     )
     assert out == {"broker": "host", "discovery": True}
+
+
+@pytest.mark.parametrize("value", [{"a": 1}, [1], None])
+def test_catalog_default_echo_rejects_unequal_containers_and_none(value: Any) -> None:
+    """A dict/list/None value that differs from the default is never an echo."""
+    assert _is_catalog_default_echo(value, "x") is False

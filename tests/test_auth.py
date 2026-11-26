@@ -824,3 +824,28 @@ async def test_ws_auth_alias_command_works(tmp_path: Path) -> None:
 async def _advance_clock(seconds: float) -> None:
     """Block briefly so ``time.time()`` reads a fresh value."""
     await asyncio.sleep(seconds)
+
+
+async def test_auth_controller_login_without_client_raises(tmp_path: Path) -> None:
+    auth, _ = _make_controller(tmp_path)
+
+    with pytest.raises(AuthError) as exc:
+        await auth.login(client=None, username="admin", password="hunter2")
+    assert exc.value.code == ErrorCode.INTERNAL_ERROR
+
+
+async def test_auth_controller_logout_without_client(tmp_path: Path) -> None:
+    auth, _ = _make_controller(tmp_path)
+
+    assert await auth.logout(client=None) == {"logged_out": True}
+
+
+async def test_auth_controller_refresh_expired_session_raises(tmp_path: Path) -> None:
+    auth, _ = _make_controller(tmp_path)
+    client = _make_client()
+    client.token = "expired-token"
+
+    with pytest.raises(AuthError) as exc:
+        await auth.refresh(client=client)
+    assert exc.value.code == ErrorCode.NOT_AUTHENTICATED
+    assert "expired" in exc.value.message.lower()

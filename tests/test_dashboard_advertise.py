@@ -1140,3 +1140,25 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
         await db.stop()
         if adv is not None:
             adv.unregister.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+async def test_refresh_loop_swallows_tick_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A raising ``refresh`` tick is logged and the loop keeps running."""
+    advertiser = _make_advertiser()
+    calls = 0
+
+    async def _sleep(_delay: float) -> None:
+        nonlocal calls
+        calls += 1
+        if calls > 2:
+            raise asyncio.CancelledError
+
+    async def _refresh() -> bool:
+        raise RuntimeError("zeroconf glitch")
+
+    monkeypatch.setattr("esphome_device_builder.helpers.dashboard_advertise.asyncio.sleep", _sleep)
+    monkeypatch.setattr(advertiser, "refresh", _refresh)
+
+    with pytest.raises(asyncio.CancelledError):
+        await advertiser._refresh_loop()
+    assert calls == 3

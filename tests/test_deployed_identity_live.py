@@ -237,3 +237,31 @@ async def test_verify_without_zeroconf_is_a_noop() -> None:
 
     assert device.runtime_state.deployed_identity_live is True
     assert callbacks.calls_for("on_deployed_identity_live_change") == []
+
+
+def test_apply_ip_addresses_unknown_name_is_a_noop() -> None:
+    """An announce for a name with no configured device never forwards."""
+    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
+
+    assert monitor.apply_ip_addresses("unknown", ["10.0.0.1"]) is False
+    assert callbacks.calls_for("on_ip_change") == []
+
+
+def test_apply_api_encryption_unwired_is_a_noop() -> None:
+    """A monitor built without the encryption callback never forwards."""
+    device = _device()
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: [device],
+        on_state_change=lambda *_a: None,
+        on_ip_change=lambda *_a: None,
+    )
+
+    assert monitor.apply_api_encryption("kitchen", "Noise_X") is False
+
+
+def test_get_address_records_without_zeroconf_is_empty() -> None:
+    """With no zeroconf instance the address cache lookup returns nothing."""
+    monitor, _callbacks = make_state_monitor_with_callbacks([_device()])
+    monitor.mdns._zeroconf = None
+
+    assert monitor.mdns._get_address_records("kitchen") == []
