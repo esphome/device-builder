@@ -209,11 +209,12 @@ class ApiInfoSource(ApiSweepSource):
         Report whether *device* needs an API probe, ignoring cooldown.
 
         Due means: online, exposes a Native API, reachable by IP, and either
-        still missing a field, flagged for a forced re-probe (post-flash
-        version verification, which probes even when both fields are filled),
-        or deployed encrypted firmware still reading plaintext. Only the
-        latter two defer to mDNS ownership — the announce carries the
-        fields, so the re-probe is redundant there. The missing-field case
+        still missing a field, holding unverified identity
+        (``deployed_identity_live`` false), flagged for a forced re-probe
+        (post-flash version verification), or deployed encrypted firmware
+        still reading plaintext. Only the latter three defer to mDNS
+        ownership — the announce vouches for the identity and carries the
+        fields, so the probe is redundant there. The missing-field case
         deliberately doesn't: ownership proves an announce resolved once, not
         that its TXT payload was ever applied (#1910), and the sweep's cache
         reconcile has already run, so reaching here means the cache can't fill
@@ -227,7 +228,11 @@ class ApiInfoSource(ApiSweepSource):
             and (
                 not (device.mac_address and runtime.deployed_version)
                 or (
-                    (device.name in self._force_reprobe or _reads_stale_plaintext(device))
+                    (
+                        not runtime.deployed_identity_live
+                        or device.name in self._force_reprobe
+                        or _reads_stale_plaintext(device)
+                    )
                     and monitor.priority_for(device.name) != ReachabilitySource.MDNS
                 )
             )
@@ -295,12 +300,13 @@ class ApiInfoSource(ApiSweepSource):
         # is a real miss → cool the device down.
         if apply_worker_info(monitor, device.name, info):
             return
-        # A forced re-probe that connected (``info`` truthy) but changed
-        # nothing confirmed the existing version — a success, not a miss, so
-        # don't cool it down. The normal path still cools down here: it was
-        # due *because* a field was missing, so "nothing newly filled" is a
-        # real miss to retry later.
-        if forced and info:
+        # A probe that confirmed existing fields (forced re-probe, or a
+        # seeded device whose live identity just stamped and cleared ``_is_due``)
+        # succeeded and shouldn't cool down. Any remaining reason to be due
+        # (still-missing field, stale plaintext, mDNS-refused stamp) is a miss.
+        if info and (
+            forced or (device.runtime_state.deployed_identity_live and not self._is_due(device))
+        ):
             return
         self._record_failure(device)
 
@@ -331,8 +337,8 @@ class ApiInfoSource(ApiSweepSource):
             self._warned_systemic = True
             _LOGGER.warning(
                 "Native API info fallback is failing for %d devices; MAC/version "
-                "may stay blank — check device API reachability, encryption keys, "
-                "and the api.port setting",
+                "may stay blank or unverified — check device API reachability, "
+                "encryption keys, and the api.port setting",
                 failing,
             )
 

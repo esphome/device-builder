@@ -194,7 +194,7 @@ async def test_sweep_heals_blank_device_from_cache_end_to_end() -> None:
     """The #1910 shape: blank record + populated cache → one sweep fills it, no API connect."""
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _seed_txt_cache(
         monitor,
         [_txt_record({"version": "2026.6.4", "config_hash": "abcd1234", "mac": "94c9601f8cf1"})],
@@ -208,7 +208,7 @@ async def test_sweep_heals_blank_device_from_cache_end_to_end() -> None:
     assert device.runtime_state.deployed_config_hash == "abcd1234"
     assert device.mac_address == "94:C9:60:1F:8C:F1"
     assert device.runtime_state.state == DeviceState.ONLINE
-    assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
     # The esphomelib TXT never vouches for the _http._tcp identity.
     assert device.runtime_state.deployed_identity_live is False
     fetch.assert_not_called()

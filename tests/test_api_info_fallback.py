@@ -58,6 +58,7 @@ def test_select_targets_skips_when_both_fields_present() -> None:
     """MDNS already supplied both → never connect."""
     devices = [make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")]
     monitor, _ = make_state_monitor_with_callbacks(devices)
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     assert monitor.api_info._select_targets() == []
 
 
@@ -124,6 +125,7 @@ def _stuck_plaintext_device(**overrides: Any) -> Device:
         "api_encryption_active": "",
         "expected_config_hash": "abcd1234",
         "deployed_config_hash": "abcd1234",
+        "deployed_identity_live": True,
     }
     base.update(overrides)
     return make_online_api_device(**base)
@@ -160,6 +162,44 @@ def test_select_targets_picks_when_online_via_ping_not_mdns() -> None:
     monitor, _ = make_state_monitor_with_callbacks(devices)
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
     assert [d.name for d in monitor.api_info._select_targets()] == ["kitchen"]
+
+
+@pytest.mark.parametrize("owner", [ReachabilitySource.PING, ReachabilitySource.MQTT])
+async def test_seeded_mdns_dark_device_probes_once_for_live_identity(
+    owner: ReachabilitySource,
+) -> None:
+    """A restarted ping/mqtt-owned API device probes once to stamp live identity."""
+    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = owner
+    src = monitor.api_info
+    assert [d.name for d in src._select_targets()] == ["kitchen"]
+
+    src._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1"}
+    )
+    await src._fetch(device)
+
+    assert device.runtime_state.deployed_identity_live is True
+    assert "kitchen" not in src._cooldown
+    assert not src._is_due(device)
+    assert src._select_targets() == []
+
+
+async def test_seeded_mdns_dark_device_cools_down_when_probe_returns_no_identity() -> None:
+    """A probe returning no identity leaves a seeded device due and cools it down."""
+    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    src = monitor.api_info
+
+    src._run_worker = AsyncMock(return_value={"noise": False})  # type: ignore[method-assign]
+    await src._fetch(device)
+
+    assert device.runtime_state.deployed_identity_live is False
+    assert "kitchen" in src._cooldown
+    assert src._is_due(device)
+    assert src._select_targets() == []
 
 
 # ----------------------------------------------------------------------
@@ -503,6 +543,7 @@ async def test_systemic_warning_rearms_after_recovery(monkeypatch: Any) -> None:
     for device in devices:
         device.mac_address = "94:C9:60:1F:8C:F1"
         device.runtime_state.deployed_version = "2026.6.1"
+        monitor.state.state_source[device.name] = ReachabilitySource.MDNS
     src._evaluate_systemic_health()
     assert src._warned_systemic is False
 
@@ -704,6 +745,7 @@ async def test_sweep_skips_api_probe_when_cache_reconcile_fills_fields() -> None
     """A device the zeroconf cache repairs drops out before the API-connect stage."""
     device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
 
     def _fill(_name: str) -> None:
         device.mac_address = "94:C9:60:1F:8C:F1"
@@ -769,6 +811,7 @@ async def test_sweep_reconciles_unknown_encryption_state_even_when_fields_full()
         mac_address="94:C9:60:1F:8C:F1",
         deployed_version="2026.6.4",
         deployed_config_hash="abcd1234",
+        deployed_identity_live=True,
     )
     assert device.runtime_state.api_encryption_active is None
     monitor, _ = make_state_monitor_with_callbacks([device])
@@ -786,7 +829,10 @@ async def test_sweep_reconciles_unknown_encryption_state_even_when_fields_full()
 async def test_sweep_reconciles_missing_config_hash_even_when_not_api_due() -> None:
     """mac+version present but no config_hash → cache reconcile runs, API probe doesn't."""
     device = make_online_api_device(
-        mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.4", deployed_config_hash=""
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.6.4",
+        deployed_config_hash="",
+        deployed_identity_live=True,
     )
     monitor, _ = make_state_monitor_with_callbacks([device])
     reconciled: list[str] = []
@@ -1064,7 +1110,11 @@ def test_log_task_exit_logs_crash(caplog: Any) -> None:
 
 def test_request_reprobe_makes_filled_device_due() -> None:
     """A forced re-probe overrides the mac+version guard that would skip the device."""
-    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    device = make_online_api_device(
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.6.1",
+        deployed_identity_live=True,
+    )
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor.api_info
     assert src._select_targets() == []  # both fields present → normally skipped
