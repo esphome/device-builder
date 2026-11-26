@@ -3362,6 +3362,13 @@ def build_component_entry(
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
 
+    implicit_frameworks, supported_platforms = _apply_framework_constraints(
+        dependencies,
+        (introspection.get("root_frameworks") or {}).get(domain),
+        _platform_arm_alternatives(domain, stem if domain else top_key, dependencies)
+        or _derive_supported_platforms(stem if domain else top_key, dependencies, introspection),
+        component_id=component_id,
+    )
     component = {
         "id": component_id,
         "name": _resolve_name(component_id, stem, docs.name),
@@ -3369,19 +3376,16 @@ def build_component_entry(
         "category": category,
         "docs_url": _strip_anchor(docs.url or ""),
         "image_url": image_map.get(component_id) or image_map.get(stem) or "",
-        "dependencies": _prune_alternative_platform_deps(dependencies, meta),
+        "dependencies": [
+            dep
+            for dep in _prune_alternative_platform_deps(dependencies, meta)
+            if dep not in implicit_frameworks
+        ],
         "multi_conf": (
             introspection.get("multi_conf", False) or component_id in _LIST_SCHEMA_MULTI_CONF
         ),
         "bus_constraints": bus_constraints,
-        "supported_platforms": (
-            _platform_arm_alternatives(domain, stem if domain else top_key, dependencies)
-            or _derive_supported_platforms(
-                stem if domain else top_key,
-                dependencies,
-                introspection,
-            )
-        ),
+        "supported_platforms": supported_platforms,
         # Resolved against referenced classes in ``build_catalog``; the
         # raw class→path map is stashed under ``_impl_class_paths`` until then.
         "provides": [],
@@ -5942,6 +5946,17 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
         "platform_constraints": platform_constraints,
+        "root_frameworks": {
+            domain: frameworks
+            for domain, item in [("", manifest), *platform_manifests_by_domain]
+            if (
+                frameworks := _root_frameworks(
+                    getattr(item, "config_schema", None),
+                    component_id=f"{domain}.{component_id}" if domain else component_id,
+                )
+            )
+            is not None
+        },
         "field_ranges": field_ranges,
         "field_range_bleed_keys": field_range_bleed_keys,
         "refined_bleed_keys": refined_bleed_keys,
@@ -10659,6 +10674,97 @@ def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
         for name in (_libretiny_families() if platform == "libretiny" else (platform,))
     )
     return list(dict.fromkeys(expanded))
+
+
+def _root_frameworks(schema: Any, *, component_id: str) -> frozenset[str] | None:
+    """Read conjunctive framework validators on the component schema."""
+    if isinstance(schema, vol.All):
+        gates = [
+            gate
+            for child in schema.validators
+            if (gate := _root_frameworks(child, component_id=component_id)) is not None
+        ]
+        return frozenset.intersection(*gates) if gates else None
+    if getattr(schema, "__module__", None) == "esphome.config_validation" and getattr(
+        schema, "__qualname__", ""
+    ).startswith("only_with_framework."):
+        try:
+            frameworks = _closure_nonlocals(schema)["frameworks"]
+        except (KeyError, ValueError) as exc:
+            # SystemExit bypasses build_catalog's per-file exception handler.
+            raise SystemExit(
+                f"{component_id}: {schema.__module__}.{schema.__qualname__} "
+                f"has an unreadable 'frameworks' closure ({exc}). Update _root_frameworks."
+            ) from exc
+        return frozenset(frameworks)
+    return None
+
+
+@cache
+def _platform_framework_pairs() -> tuple[tuple[str, str], ...]:
+    """Read ESPHome's supported platform/framework pairs."""
+    try:
+        from esphome.const import PlatformFramework
+    except ImportError as exc:
+        _LOGGER.warning(
+            "Cannot import esphome.const.PlatformFramework (%s). "
+            "Skipping framework-based catalog constraints.",
+            exc,
+        )
+        return ()
+    return tuple(pair.value for pair in PlatformFramework)
+
+
+def _is_framework_dependency(framework: str, platform: str, loader: Any) -> bool:
+    """Check whether the platform auto-loads this framework without a YAML block."""
+    manifest = loader.get_component(framework)
+    target = loader.get_component(platform)
+    return (
+        manifest is not None
+        and getattr(manifest, "config_schema", None) is None
+        and target is not None
+        and framework in _resolve_auto_load(target.auto_load, platform)
+    )
+
+
+def _apply_framework_constraints(
+    dependencies: list[str],
+    frameworks: frozenset[str] | None,
+    platforms: list[str],
+    *,
+    component_id: str,
+) -> tuple[set[str], list[str]]:
+    """Project framework gates onto chips and identify their implicit dependencies."""
+    pairs = _platform_framework_pairs()
+    loader = _get_esphome_loader()
+    if not pairs or loader is None:
+        return set(), platforms
+    implicit_pairs = {
+        (platform, framework)
+        for platform, framework in pairs
+        if framework in dependencies
+        and framework not in _target_platform_names()
+        and _is_framework_dependency(framework, platform, loader)
+    }
+    implicit = {framework for _, framework in implicit_pairs}
+    if frameworks is None and not implicit:
+        return implicit, platforms
+    compatible = _expand_libretiny(
+        platform
+        for platform, framework in pairs
+        if (frameworks is None or framework in frameworks)
+        and (not implicit or (implicit <= {framework} and (platform, framework) in implicit_pairs))
+    )
+    if platforms:
+        compatible = [platform for platform in platforms if platform in compatible]
+    if not compatible:
+        # The per-file exception handler must not swallow a fatal catalog error.
+        raise SystemExit(
+            f"{component_id}: framework and platform constraints are disjoint "
+            f"(frameworks {sorted(frameworks) if frameworks is not None else 'any'}, "
+            f"implicit framework dependencies {sorted(implicit)}, platforms {platforms or 'any'})"
+        )
+    return implicit, compatible
 
 
 def _derive_supported_platforms(
