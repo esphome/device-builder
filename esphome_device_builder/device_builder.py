@@ -41,6 +41,10 @@ from .controllers.editor import EditorController
 from .controllers.files import FilesController
 from .controllers.firmware import FirmwareController
 from .controllers.firmware.download import http_download as firmware_http_download
+from .controllers.firmware_repository import FirmwareRepositoryController
+from .controllers.firmware_repository import (
+    http_repository_download as firmware_repository_http_download,
+)
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
@@ -262,6 +266,7 @@ class DeviceBuilder:
         self.devices: DevicesController | None = None
         self.automations: AutomationsController | None = None
         self.firmware: FirmwareController | None = None
+        self.firmware_repository: FirmwareRepositoryController | None = None
         self.editor: EditorController | None = None
         self.files: FilesController | None = None
         self.labels: LabelsController | None = None
@@ -424,6 +429,7 @@ class DeviceBuilder:
             self.devices,
             self.automations,
             self.firmware,
+            self.firmware_repository,
             self.editor,
             self.files,
             self.labels,
@@ -492,6 +498,7 @@ class DeviceBuilder:
         self.devices = DevicesController(self)
         self.automations = AutomationsController(self)
         self.firmware = FirmwareController(self)
+        self.firmware_repository = FirmwareRepositoryController(self)
         self.editor = EditorController(self)
         self.files = FilesController(self)
         self.labels = LabelsController(self)
@@ -640,6 +647,8 @@ class DeviceBuilder:
         # runner after this teardown and leak a listener past
         # shutdown.
         await self._remote_build_lifecycle.shutdown()
+        if self.firmware_repository is not None:
+            await self.firmware_repository.stop()
         # Cancel the remote-build browser BEFORE devices.stop()
         # closes the zeroconf socket the browser is using. Same
         # ordering rule as the dashboard advertise just below.
@@ -934,6 +943,7 @@ class DeviceBuilder:
         # the ingress site). HTTP, not WS, so a large firmware.elf isn't capped
         # by a proxy's WebSocket max_msg_size.
         app.router.add_get("/api/firmware/download", firmware_http_download)
+        app.router.add_get("/api/firmware_repository/download", firmware_repository_http_download)
 
         # HTTP bundle upload. HTTP, not WS, so a large bundle isn't capped by a
         # proxy's WebSocket max_msg_size; its capability token is the auth (see
@@ -963,6 +973,7 @@ class DeviceBuilder:
 
         if with_lifecycle:
             app.on_startup.append(self._on_startup)
+            app.on_startup.append(self._start_firmware_repository_site)
             # After init_ws_app's close_active_websockets so WS handlers unwind
             # before the network teardown.
             app.on_shutdown.append(self._on_shutdown)
@@ -979,6 +990,18 @@ class DeviceBuilder:
 
     async def _on_startup(self, app: web.Application) -> None:
         await self.start()
+
+    async def _start_firmware_repository_site(self, app: web.Application) -> None:
+        if self.firmware_repository is not None:
+            preferences = self.config.prefs.snapshot() if self.config is not None else None
+            await self.firmware_repository.start(
+                access_enabled=(
+                    preferences.firmware_repository_access_enabled if preferences else False
+                ),
+                authenticate_public=(
+                    preferences.firmware_repository_authenticate_public if preferences else True
+                ),
+            )
 
     async def _on_cleanup(self, app: web.Application) -> None:
         await self.stop()
