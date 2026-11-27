@@ -10,6 +10,7 @@ import pytest
 from esphome_device_builder.helpers.async_ import (
     create_eager_task,
     create_logged_task,
+    drain_uncancellable,
     log_gather_failures,
     run_to_completion,
 )
@@ -166,3 +167,27 @@ async def test_run_to_completion_returns_and_raises_like_the_coroutine() -> None
     assert await run_to_completion(ok(), name="ok") == 7
     with pytest.raises(ValueError, match="nope"):
         await run_to_completion(bad(), name="bad")
+
+
+async def test_drain_uncancellable_waits_for_a_task_its_caller_abandoned() -> None:
+    release = asyncio.Event()
+    finished: list[str] = []
+
+    async def work() -> None:
+        await release.wait()
+        finished.append("done")
+
+    caller = asyncio.create_task(run_to_completion(work(), name="work"))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    asyncio.get_running_loop().call_soon(release.set)
+
+    await drain_uncancellable(timeout=5)
+
+    assert finished == ["done"]
+
+
+async def test_drain_uncancellable_returns_at_once_when_nothing_runs() -> None:
+    await asyncio.wait_for(drain_uncancellable(timeout=5), timeout=1)

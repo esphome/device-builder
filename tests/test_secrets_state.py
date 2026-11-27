@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import stat
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -384,6 +385,27 @@ async def test_write_secrets_locked_runs_under_the_lock_and_returns() -> None:
     assert not task.done()  # blocked on the held lock
     lock.release()
     assert await task == "done"
+
+
+async def test_a_cancelled_write_secrets_locked_keeps_the_lock_until_it_lands() -> None:
+    lock = asyncio.Lock()
+    entered, release = threading.Event(), threading.Event()
+
+    def _slow() -> str:
+        entered.set()
+        release.wait(5)
+        return "done"
+
+    caller = asyncio.create_task(write_secrets_locked(lock, _slow))
+    await asyncio.to_thread(entered.wait, 5)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert lock.locked()
+    release.set()
+    async with asyncio.timeout(5):
+        async with lock:
+            pass
 
 
 @pytest.mark.parametrize("key", ["wifi_ssid", "_x", "ABC123", "a"])

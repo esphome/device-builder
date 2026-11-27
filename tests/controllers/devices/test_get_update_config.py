@@ -601,6 +601,37 @@ async def test_update_config_writes_valid_secrets_yaml(
     assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
 
 
+async def test_a_cancelled_secrets_save_keeps_the_secrets_lock_until_it_lands(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    release = asyncio.Event()
+    real_write = controller._write_yaml_atomic_async
+
+    async def _slow_write(path: Path, content: str) -> None:
+        await release.wait()
+        await real_write(path, content)
+
+    controller._write_yaml_atomic_async = _slow_write  # type: ignore[method-assign]
+    content = "wifi_ssid: home\nwifi_password: hunter2\n"
+    caller = asyncio.create_task(
+        controller.update_config(configuration="secrets.yaml", content=content)
+    )
+    for _ in range(50):
+        if controller._db.secrets_write_lock.locked():
+            break
+        await asyncio.sleep(0.01)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert controller._db.secrets_write_lock.locked()
+    release.set()
+
+    async with asyncio.timeout(5), controller._db.secrets_write_lock:
+        assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
+
+
 async def test_update_config_rejects_invalid_secrets_yaml(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

@@ -47,7 +47,7 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.discovery import start_discovery as start_peer_discovery
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
-from .helpers.async_ import create_eager_task, drain_tasks, log_task_exit
+from .helpers.async_ import create_eager_task, drain_tasks, drain_uncancellable, log_task_exit
 from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
@@ -89,6 +89,9 @@ _BACKGROUND_POLL_INTERVAL_SECONDS = 5
 # normal handler latency in this codebase and tight enough that a
 # bug in a slow handler can't silently extend shutdown to a minute.
 _SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
+# Bounds the shutdown wait for config writes a cancelled caller left running.
+_WRITE_DRAIN_TIMEOUT = 30.0
 
 # Upper bound on the advertise chain's wait for ``notify_serving``.
 # Every production path opens the gate within milliseconds of
@@ -652,6 +655,8 @@ class DeviceBuilder:
         if self._dashboard_advertiser is not None:
             await self._dashboard_advertiser.unregister()
             self._dashboard_advertiser = None
+        # A config write a cancelled caller left running still scans and commits.
+        await drain_uncancellable(_WRITE_DRAIN_TIMEOUT)
         if self.devices is not None:
             await self.devices.stop()
         # Latch only after a full pass, so a partial teardown (a step raising in
@@ -669,6 +674,7 @@ class DeviceBuilder:
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""
+        await drain_uncancellable(_WRITE_DRAIN_TIMEOUT)
         if self.firmware is not None:
             self.firmware.stop()  # sync — no await; see FirmwareController.stop()
         if self.editor is not None:

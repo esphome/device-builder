@@ -182,12 +182,12 @@ async def create_device(  # noqa: C901, PLR0912
         msg = f"Configuration {filename} already exists"
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg) from exc
 
-    overwriting = overwrite and file_existed
-
     async def _land() -> None:
         # The write lock covers the write and its history commit, so a guarded
         # save that read the old text can't interleave with an overwrite.
         async with controller._yaml_write_lock(filename):
+            # Rechecked under the lock: the file may have appeared or gone since.
+            overwriting = overwrite and await run_in_executor(config_path.exists)
             if overwriting:
                 # Atomic in-place rewrite (stage + move) so a crash can't leave a
                 # half-written config; the user explicitly confirmed the overwrite.

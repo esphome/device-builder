@@ -168,25 +168,48 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
-async def test_import_bundle_overwrite_writes_under_the_main_config_write_lock(
+async def test_import_bundle_overwrite_writes_each_file_under_its_write_lock(
     tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "kitchen.yaml").write_text("OLD\n", "utf-8")
-    bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
-    locked_at_write: list[bool] = []
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common" / "wifi.yaml").write_text("OLD\n", "utf-8")
+    bundle = _make_bundle(
+        {"kitchen.yaml": MAIN_YAML, "common/wifi.yaml": "wifi:\n  ssid: home\n"},
+        config_filename="kitchen.yaml",
+    )
+    locked_at_write: dict[str, bool] = {}
 
     def _write(path: Path, content: bytes) -> None:
-        locked_at_write.append(ctrl._yaml_write_lock("kitchen.yaml").locked())
+        rel = path.relative_to(tmp_path).as_posix()
+        locked_at_write[rel] = ctrl._yaml_write_lock(rel).locked()
         write_user_yaml(path, content)
 
     monkeypatch.setattr(mutations_import_bundle, "write_user_yaml", _write)
 
-    result = await ctrl.import_bundle(bundle_bytes=bundle, overwrite=["kitchen.yaml"])
+    result = await ctrl.import_bundle(
+        bundle_bytes=bundle, overwrite=["kitchen.yaml", "common/wifi.yaml"]
+    )
 
     assert result.status == "imported"
-    assert locked_at_write == [True]
+    assert locked_at_write == {"common/wifi.yaml": True, "kitchen.yaml": True}
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
+
+
+@pytest.mark.parametrize("name", ["secrets.yaml", "Secrets.YML"])
+async def test_import_bundle_refuses_a_secrets_file_as_its_main_config(
+    tmp_path: Path, make_controller: MakeControllerFactory, name: str
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    bundle = _make_bundle({name: "wifi_password: x\n"}, config_filename=name)
+
+    with pytest.raises(CommandError) as err:
+        await ctrl.import_bundle(bundle_bytes=bundle)
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / name).exists()
+    assert ctrl._scanner.calls == []
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")

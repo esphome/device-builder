@@ -896,10 +896,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             # Hold the shared lock so a whole-file save can't interleave with a
             # per-key config/set_secret. A full save still replaces the document
             # (last-write-wins by design); the lock only prevents torn writes.
-            async with self._db.secrets_write_lock:
-                await self._persist_yaml_mutation(
-                    configuration, content, message=f"Edit {configuration}"
-                )
+
+            async def _save_secrets() -> None:
+                async with self._db.secrets_write_lock:
+                    await self._persist_yaml_mutation(
+                        configuration, content, message=f"Edit {configuration}"
+                    )
+
+            await run_to_completion(_save_secrets(), name=f"write {configuration}")
             return
         if is_empty:
             refuse_empty_write(configuration)

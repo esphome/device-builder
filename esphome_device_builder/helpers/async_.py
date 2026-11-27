@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import logging
-from asyncio import AbstractEventLoop, CancelledError, Task, gather, get_running_loop, shield
+from asyncio import (
+    AbstractEventLoop,
+    CancelledError,
+    Task,
+    gather,
+    get_running_loop,
+    shield,
+    wait,
+)
 from collections.abc import Callable, Coroutine, Iterable
 from functools import partial
 from typing import Any
@@ -86,6 +94,12 @@ async def run_to_completion[T](coro: Coroutine[Any, Any, T], *, name: str) -> T:
     except CancelledError:
         task.add_done_callback(partial(log_task_exit, name))
         raise
+
+
+async def drain_uncancellable(timeout: float) -> None:
+    """Wait up to *timeout* seconds for every ``run_to_completion`` task to finish."""
+    if pending := set(_UNCANCELLABLE):
+        await wait(pending, timeout=timeout)
 
 
 def create_logged_task[T](

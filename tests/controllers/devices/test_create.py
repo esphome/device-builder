@@ -1252,6 +1252,28 @@ async def test_create_device_overwrite_writes_under_the_file_write_lock(
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == VALID_FILE_CONTENT
 
 
+async def test_create_device_overwrite_rechecks_existence_under_the_lock(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    real = ctrl._yaml_content_for_create
+
+    async def _appears_meanwhile(*args: Any) -> Any:
+        await asyncio.to_thread(
+            (tmp_path / "kitchen.yaml").write_text, "esphome:\n  name: kitchen\n", "utf-8"
+        )
+        return await real(*args)
+
+    ctrl._yaml_content_for_create = _appears_meanwhile  # type: ignore[method-assign]
+
+    result = await ctrl.create_device(
+        name="kitchen", file_content=VALID_FILE_CONTENT, overwrite=True
+    )
+
+    assert result.configuration == "kitchen.yaml"
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == VALID_FILE_CONTENT
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
 async def test_create_device_overwrite_preserves_operator_mode(
     tmp_path: Path, make_controller: MakeControllerFactory

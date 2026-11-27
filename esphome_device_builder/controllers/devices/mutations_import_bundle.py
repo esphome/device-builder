@@ -10,14 +10,16 @@ which to replace, then re-uploads with ``overwrite`` set.
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome.core import EsphomeError
 
-from ...constants import SECRETS_FILENAME
+from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor, run_to_completion
 from ...helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
@@ -27,10 +29,9 @@ from ...helpers.yaml import ESPHOME_FRIENDLY_NAME_PATH, read_yaml_scalar, write_
 from ...models import ErrorCode, ImportBundleResponse
 from .helpers import _validate_archive_configuration
 from .mutations_create import init_device_storage
+from .write_locks import yaml_write_locks
 
 if TYPE_CHECKING:
-    from esphome.bundle import BundleManifest
-
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,30 +55,11 @@ async def import_bundle(
     as a full one.
     """
     _validate_raw_bundle(bundle_bytes)
-    config_dir = controller._db.settings.config_dir
-    configuration = await run_in_executor(_bundle_config_filename, bundle_bytes)
-
-    async def _land() -> _Outcome:
-        # The main config's write lock covers the overwrite and its history
-        # commit, so a guarded save can't interleave with either.
-        async with controller._yaml_write_lock(configuration):
-            # Staging writes the bundle's files (secrets, !include fragments, packages,
-            # external_components). Funnel through the shared lock + editor-cache drop so
-            # any of those overwrites refreshes an open editor's lint, not just secrets.
-            outcome = await controller._db.write_secrets_locked(
-                _stage_bundle, bundle_bytes, config_dir, overwrite
-            )
-            if outcome.conflicts is None:
-                # The YAML is on disk; register it the same way create_device does.
-                # Overwriting a live device preserves its labels / comment / board_id.
-                await controller._register_new_device(
-                    outcome.configuration,
-                    f"Import bundle {outcome.configuration}",
-                    clear_metadata=not outcome.main_existed,
-                )
-            return outcome
-
-    outcome = await run_to_completion(_land(), name=f"import bundle {configuration}")
+    tmp_path = Path(await run_in_executor(partial(tempfile.mkdtemp, prefix="esphb-import-")))
+    # Shielded as a whole, so the temp tree outlives a placement a cancelled caller left running.
+    outcome = await run_to_completion(
+        _import(controller, bundle_bytes, tmp_path, overwrite), name="import bundle"
+    )
     if outcome.conflicts is not None:
         return ImportBundleResponse(
             status="conflicts",
@@ -98,8 +80,18 @@ async def import_bundle(
 
 
 @dataclass
+class _Plan:
+    """The extracted bundle: its manifest fields and the files it would place."""
+
+    configuration: str
+    has_secrets: bool
+    esphome_version: str
+    placements: list[tuple[str, Path]]
+
+
+@dataclass
 class _Outcome:
-    """Result of the executor-side staging step.
+    """Result of the executor-side placement step.
 
     ``conflicts is None`` means the tree was placed; a list (possibly
     empty only on the resolved second pass) means nothing was written.
@@ -119,107 +111,137 @@ class _Outcome:
     kept: list[str] = field(default_factory=list)
 
 
-def _stage_bundle(
-    bundle_bytes: bytes | bytearray, config_dir: Path, overwrite: list[str] | None
+async def _import(
+    controller: DevicesController,
+    bundle_bytes: bytes | bytearray,
+    tmp_path: Path,
+    overwrite: list[str] | None,
 ) -> _Outcome:
-    """Extract the bundle to a temp dir, then plan or place the files (blocking)."""
-    # Lazy: keeps esphome.bundle off cold import.
-    from esphome.bundle import MANIFEST_FILENAME, extract_bundle  # noqa: PLC0415
-
-    overwrite_set = set(overwrite or [])
-
-    with tempfile.TemporaryDirectory(prefix="esphb-import-") as tmp:
-        tmp_path = Path(tmp)
-        bundle_path = tmp_path / "upload.esphomebundle.tar.gz"
-        bundle_path.write_bytes(bundle_bytes)
-        manifest = _read_manifest(bundle_path)
-        config_filename = manifest.config_filename
-        main_existed = (config_dir / config_filename).exists()
-
-        staging = tmp_path / "staging"
-        try:
-            extract_bundle(bundle_path, staging)
-        except EsphomeError as exc:
-            raise CommandError(ErrorCode.INVALID_ARGS, f"Couldn't extract bundle: {exc}") from exc
-
-        # Refuse a non-text main config before anything is placed, so a
-        # corrupt bundle is a clean error rather than a half-written tree
-        # with a degraded sidecar.
-        try:
-            (staging / config_filename).read_text("utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"The bundle's main config {config_filename} isn't valid UTF-8 text.",
-            ) from exc
-
-        placements = [
-            (rel, src)
-            for src in sorted(staging.rglob("*"))
-            if src.is_file() and (rel := src.relative_to(staging).as_posix()) != MANIFEST_FILENAME
-        ]
-        conflicts = sorted(
-            rel for rel, _ in placements if rel != SECRETS_FILENAME and (config_dir / rel).exists()
-        )
-        if conflicts and overwrite is None:
-            return _Outcome(
-                configuration=config_filename,
-                conflicts=conflicts,
-                has_secrets=manifest.has_secrets,
-                esphome_version=manifest.esphome_version,
-                main_existed=main_existed,
+    """Extract into *tmp_path*, then place the files under their write locks."""
+    config_dir = controller._db.settings.config_dir
+    try:
+        plan = await run_in_executor(_plan_bundle, bundle_bytes, tmp_path)
+        # Every destination's write lock (secrets.yaml has its own), held across the
+        # placement and the history commit, so a guarded save can't interleave with
+        # either. Taken before the secrets lock, the order every other writer uses.
+        destinations = [rel for rel, _ in plan.placements if not is_secrets_file(rel)]
+        async with yaml_write_locks(controller, destinations):
+            # Placement writes the bundle's files (secrets, !include fragments, packages,
+            # external_components). Funnel through the shared lock + editor-cache drop so
+            # any of those overwrites refreshes an open editor's lint, not just secrets.
+            outcome = await controller._db.write_secrets_locked(
+                _place_bundle, plan, config_dir, overwrite
             )
-
-        written: list[str] = []
-        kept: list[str] = []
-        for rel, src in placements:
-            dest = config_dir / rel
-            if rel == SECRETS_FILENAME:
-                merge_secrets_file(src, dest)
-                continue
-            # A conflicting file the user didn't pick is left as-is; record
-            # it so the caller can tell a partial import from a full one.
-            if dest.exists() and rel not in overwrite_set:
-                kept.append(rel)
-                continue
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            write_user_yaml(dest, src.read_bytes())
-            written.append(rel)
-
-        # A new device gets a fresh sidecar; overwriting a live one keeps
-        # its existing StorageJSON (build state) and dashboard metadata.
-        if not main_existed:
-            _init_bundle_storage(config_dir, config_filename)
-        return _Outcome(
-            configuration=config_filename,
-            conflicts=None,
-            written=sorted(written),
-            kept=sorted(kept),
-            has_secrets=manifest.has_secrets,
-            esphome_version=manifest.esphome_version,
-            main_existed=main_existed,
-        )
+            if outcome.conflicts is None:
+                # The YAML is on disk; register it the same way create_device does.
+                # Overwriting a live device preserves its labels / comment / board_id.
+                await controller._register_new_device(
+                    outcome.configuration,
+                    f"Import bundle {outcome.configuration}",
+                    clear_metadata=not outcome.main_existed,
+                )
+            return outcome
+    finally:
+        await run_in_executor(partial(shutil.rmtree, tmp_path, ignore_errors=True))
 
 
-def _bundle_config_filename(bundle_bytes: bytes | bytearray) -> str:
-    """Return the main config filename the bundle's manifest names (blocking)."""
-    with tempfile.TemporaryDirectory(prefix="esphb-import-") as tmp:
-        bundle_path = Path(tmp) / "upload.esphomebundle.tar.gz"
-        bundle_path.write_bytes(bundle_bytes)
-        return str(_read_manifest(bundle_path).config_filename)
-
-
-def _read_manifest(bundle_path: Path) -> BundleManifest:
-    """Read and check the bundle's manifest; ``INVALID_ARGS`` when it isn't one."""
+def _plan_bundle(bundle_bytes: bytes | bytearray, tmp_path: Path) -> _Plan:
+    """Extract the bundle under *tmp_path* and list the files it would place (blocking)."""
     # Lazy: keeps esphome.bundle off cold import.
-    from esphome.bundle import read_bundle_manifest  # noqa: PLC0415
+    from esphome.bundle import (  # noqa: PLC0415
+        MANIFEST_FILENAME,
+        extract_bundle,
+        read_bundle_manifest,
+    )
 
+    bundle_path = tmp_path / "upload.esphomebundle.tar.gz"
+    bundle_path.write_bytes(bundle_bytes)
     try:
         manifest = read_bundle_manifest(bundle_path)
     except EsphomeError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, f"Not a valid ESPHome bundle: {exc}") from exc
-    _validate_archive_configuration(manifest.config_filename)
-    return manifest
+
+    config_filename = manifest.config_filename
+    _validate_archive_configuration(config_filename)
+    if is_secrets_file(config_filename):
+        msg = f"The bundle's main config can't be {config_filename}, the secrets file."
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+    staging = tmp_path / "staging"
+    try:
+        extract_bundle(bundle_path, staging)
+    except EsphomeError as exc:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"Couldn't extract bundle: {exc}") from exc
+
+    # Refuse a non-text main config before anything is placed, so a
+    # corrupt bundle is a clean error rather than a half-written tree
+    # with a degraded sidecar.
+    try:
+        (staging / config_filename).read_text("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            f"The bundle's main config {config_filename} isn't valid UTF-8 text.",
+        ) from exc
+
+    return _Plan(
+        configuration=config_filename,
+        has_secrets=manifest.has_secrets,
+        esphome_version=manifest.esphome_version,
+        placements=[
+            (rel, src)
+            for src in sorted(staging.rglob("*"))
+            if src.is_file() and (rel := src.relative_to(staging).as_posix()) != MANIFEST_FILENAME
+        ],
+    )
+
+
+def _place_bundle(plan: _Plan, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
+    """Report the conflicts, or place the planned files into *config_dir* (blocking)."""
+    overwrite_set = set(overwrite or [])
+    config_filename = plan.configuration
+    main_existed = (config_dir / config_filename).exists()
+    conflicts = sorted(
+        rel for rel, _ in plan.placements if rel != SECRETS_FILENAME and (config_dir / rel).exists()
+    )
+    if conflicts and overwrite is None:
+        return _Outcome(
+            configuration=config_filename,
+            conflicts=conflicts,
+            has_secrets=plan.has_secrets,
+            esphome_version=plan.esphome_version,
+            main_existed=main_existed,
+        )
+
+    written: list[str] = []
+    kept: list[str] = []
+    for rel, src in plan.placements:
+        dest = config_dir / rel
+        if rel == SECRETS_FILENAME:
+            merge_secrets_file(src, dest)
+            continue
+        # A conflicting file the user didn't pick is left as-is; record
+        # it so the caller can tell a partial import from a full one.
+        if dest.exists() and rel not in overwrite_set:
+            kept.append(rel)
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        write_user_yaml(dest, src.read_bytes())
+        written.append(rel)
+
+    # A new device gets a fresh sidecar; overwriting a live one keeps
+    # its existing StorageJSON (build state) and dashboard metadata.
+    if not main_existed:
+        _init_bundle_storage(config_dir, config_filename)
+    return _Outcome(
+        configuration=config_filename,
+        conflicts=None,
+        written=sorted(written),
+        kept=sorted(kept),
+        has_secrets=plan.has_secrets,
+        esphome_version=plan.esphome_version,
+        main_existed=main_existed,
+    )
 
 
 def _validate_raw_bundle(raw: bytes | bytearray) -> None:
