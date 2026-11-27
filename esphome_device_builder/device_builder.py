@@ -47,13 +47,7 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.discovery import start_discovery as start_peer_discovery
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
-from .helpers.async_ import (
-    create_eager_task,
-    drain_tasks,
-    drain_uncancellable,
-    log_task_exit,
-    run_to_completion,
-)
+from .helpers.async_ import create_eager_task, drain_tasks, log_task_exit
 from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
@@ -66,6 +60,11 @@ from .helpers.presence_gated_loop import PresenceGatedLoop
 from .helpers.secrets_state import write_secrets_locked
 from .helpers.startup_timing import StartupTimer
 from .helpers.subscriber_presence import SubscriberPresence
+from .helpers.uncancellable import (
+    quiesce_uncancellable,
+    resume_uncancellable,
+    run_to_completion,
+)
 from .models import EventType
 from .models.common import DashboardModel
 
@@ -96,7 +95,8 @@ _BACKGROUND_POLL_INTERVAL_SECONDS = 5
 # bug in a slow handler can't silently extend shutdown to a minute.
 _SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
-# Bounds the shutdown wait for config writes a cancelled caller left running.
+# Bounds the whole shutdown's wait for config writes still in flight; both
+# teardown passes share it.
 _WRITE_DRAIN_TIMEOUT = 30.0
 
 # Upper bound on the advertise chain's wait for ``notify_serving``.
@@ -489,6 +489,8 @@ class DeviceBuilder:
         self.loop = asyncio.get_running_loop()
         # Re-arm the network-teardown latch so a restart-in-place teardown runs.
         self._network_stopped = False
+        # Reopen the config writes a previous teardown on this loop quiesced.
+        resume_uncancellable()
         # Pool itself was constructed in ``__init__`` (so callers
         # probing ``self._executor`` pre-start see the right value);
         # here we just register it as the loop's default. See
@@ -636,9 +638,6 @@ class DeviceBuilder:
         """Tear down network-facing resources (remote-build, mDNS) once a full pass completes."""
         if self._network_stopped:
             return
-        # First: a config write a cancelled caller left running still scans,
-        # commits and schedules follow-up background tasks.
-        await drain_uncancellable(_WRITE_DRAIN_TIMEOUT)
         if self._bg_task:
             await drain_tasks((self._bg_task,), log_exceptions=True)
         if self._bg_poll is not None:
@@ -646,6 +645,10 @@ class DeviceBuilder:
         if self.devices is not None:
             # An expiring regen retry would schedule into the drained set.
             self.devices.state.regen.cancel_all_retry_timers()
+        await drain_tasks(self._background_tasks)
+        # Refuse new config writes and let the in-flight ones land (a task drained
+        # above may have abandoned one mid-way), then drain what they scheduled.
+        await quiesce_uncancellable(_WRITE_DRAIN_TIMEOUT)
         await drain_tasks(self._background_tasks)
         # Tear down the remote-build listener (if it was bound)
         # before the controller it depends on. Order matters less
@@ -685,8 +688,9 @@ class DeviceBuilder:
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""
-        await drain_uncancellable(_WRITE_DRAIN_TIMEOUT)
-        # A write that finished just now may have scheduled follow-up work.
+        # Catches a write that outlived the network pass's wait (same deadline), or
+        # a stop() whose network pass failed before reaching it.
+        await quiesce_uncancellable(_WRITE_DRAIN_TIMEOUT)
         await drain_tasks(self._background_tasks)
         if self.firmware is not None:
             self.firmware.stop()  # sync — no await; see FirmwareController.stop()

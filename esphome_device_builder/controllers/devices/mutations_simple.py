@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor, run_to_completion
+from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_config import (
     raise_device_not_found,
@@ -25,6 +25,7 @@ from ...helpers.device_yaml import (
 )
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
+from ...helpers.uncancellable import run_to_completion
 from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     rewrite_rename_content,

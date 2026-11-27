@@ -41,6 +41,7 @@ from esphome_device_builder.controllers.devices import controller as devices_con
 from esphome_device_builder.controllers.devices.helpers import persist_if_unchanged
 from esphome_device_builder.controllers.devices.write_locks import yaml_write_locks
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.uncancellable import quiesce_uncancellable
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
@@ -276,6 +277,21 @@ async def test_yaml_write_locks_takes_a_case_variant_pair_once(
             return controller._yaml_write_lock("kitchen.yaml").locked()
 
     assert await asyncio.wait_for(_hold(), timeout=5) is True
+
+
+async def test_update_config_is_refused_once_writes_are_quiesced(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("a: 1\n", encoding="utf-8")
+
+    await quiesce_uncancellable(timeout=1)
+
+    with pytest.raises(CommandError) as err:
+        await controller.update_config(configuration="kitchen.yaml", content="b: 2\n")
+    assert err.value.code == ErrorCode.UNAVAILABLE
+    assert path.read_text(encoding="utf-8") == "a: 1\n"
 
 
 async def test_a_cancelled_rewrite_keeps_the_lock_until_its_write_lands(

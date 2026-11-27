@@ -27,8 +27,10 @@ import pytest
 from esphome_device_builder.api.ws import close_active_websockets
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.device_builder import DeviceBuilder
-from esphome_device_builder.helpers.async_ import run_to_completion
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.orphan_reaper import OrphanReaperLoop
+from esphome_device_builder.helpers.uncancellable import quiesce_uncancellable, run_to_completion
+from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeSettingsFactory
 
@@ -110,7 +112,7 @@ async def test_write_secrets_locked_runs_fn_then_invalidates(
     assert invalidations == 1
 
 
-async def test_a_cancelled_write_secrets_locked_still_invalidates(
+async def test_a_cancelled_secrets_write_keeps_the_lock_and_still_invalidates(
     make_settings: MakeSettingsFactory,
 ) -> None:
     db = DeviceBuilder(make_settings(with_core_path=True))
@@ -132,6 +134,7 @@ async def test_a_cancelled_write_secrets_locked_still_invalidates(
     caller.cancel()
     with pytest.raises(asyncio.CancelledError):
         await caller
+    assert db.secrets_write_lock.locked()
     release.set()
 
     await asyncio.wait_for(invalidated.wait(), timeout=5)
@@ -467,6 +470,33 @@ async def test_stop_drains_follow_up_work_of_a_write_finishing_during_shutdown(
     await db.stop()
 
     assert follow_up_cancelled.is_set()
+
+
+async def test_a_secrets_write_after_stop_is_refused(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    await db.stop()
+    ran: list[str] = []
+
+    with pytest.raises(CommandError) as err:
+        await db.write_secrets_locked(lambda: ran.append("ran"))
+
+    assert err.value.code == ErrorCode.UNAVAILABLE
+    assert ran == []
+
+
+async def test_start_reopens_config_writes_a_previous_teardown_quiesced(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    await quiesce_uncancellable(timeout=1)
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    try:
+        assert await db.write_secrets_locked(lambda: "ran") == "ran"
+    finally:
+        await db.stop()
 
 
 async def test_stop_detaches_background_poll_wake_callback(

@@ -6,7 +6,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor, run_to_completion
+from ...helpers.async_ import run_in_executor
+from ...helpers.uncancellable import run_to_completion
 from ...models import ErrorCode
 from ..version_history import GIT_COMMIT_ERRORS
 from .write_locks import yaml_write_locks

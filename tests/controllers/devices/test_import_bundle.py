@@ -9,6 +9,8 @@ import json
 import stat
 import sys
 import tarfile
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -195,6 +197,43 @@ async def test_import_bundle_overwrite_writes_each_file_under_its_write_lock(
     assert result.status == "imported"
     assert locked_at_write == {"common/wifi.yaml": True, "kitchen.yaml": True}
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_import_bundle_extracts_one_bundle_at_a_time(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    real_plan = mutations_import_bundle._plan_bundle
+    guard = threading.Lock()
+    active = peak = 0
+
+    def _plan(bundle_bytes: bytes, tmp: Path) -> object:
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.2)
+        try:
+            return real_plan(bundle_bytes, tmp)
+        finally:
+            with guard:
+                active -= 1
+
+    monkeypatch.setattr(mutations_import_bundle, "_plan_bundle", _plan)
+    porch = MAIN_YAML.replace("kitchen", "porch").replace("Kitchen", "Porch")
+
+    results = await asyncio.gather(
+        ctrl.import_bundle(
+            bundle_bytes=_make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
+        ),
+        ctrl.import_bundle(
+            bundle_bytes=_make_bundle({"porch.yaml": porch}, config_filename="porch.yaml")
+        ),
+    )
+
+    assert [r.status for r in results] == ["imported", "imported"]
+    assert peak == 1
 
 
 @pytest.mark.parametrize("name", ["secrets.yaml", "Secrets.YML"])

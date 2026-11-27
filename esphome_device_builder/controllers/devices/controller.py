@@ -20,7 +20,7 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor, run_to_completion
+from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_config import read_device_config, read_device_config_async
 from ...helpers.device_yaml import board_requires_wifi
@@ -34,6 +34,7 @@ from ...helpers.secrets_state import (
 )
 from ...helpers.sibling_cli import find_esphome_cmd
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
+from ...helpers.uncancellable import run_to_completion
 from ...helpers.yaml import write_user_yaml
 from ...models import (
     OTA_PORT,
@@ -165,6 +166,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # awaiting. Negligible in practice (a real fleet reuses filenames);
         # only churn through many unique names grows it.
         self._yaml_write_locks: dict[str, asyncio.Lock] = {}
+        # One bundle import at a time: each extracts a staging tree of up to the
+        # 500 MB extract cap and holds it until its files are placed.
+        self._bundle_import_lock = asyncio.Lock()
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
         # validates a YAML and writes its ``StorageJSON`` without doing
@@ -893,11 +897,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                     ErrorCode.INVALID_ARGS,
                     f"refusing to save invalid {secrets_name}: {err}",
                 ) from err
-            # Hold the shared lock so a whole-file save can't interleave with a
-            # per-key config/set_secret. A full save still replaces the document
-            # (last-write-wins by design); the lock only prevents torn writes.
 
             async def _save_secrets() -> None:
+                # Hold the shared lock so a whole-file save can't interleave with a
+                # per-key config/set_secret. A full save still replaces the document
+                # (last-write-wins by design); the lock only prevents torn writes.
                 async with self._db.secrets_write_lock:
                     await self._persist_yaml_mutation(
                         configuration, content, message=f"Edit {configuration}"

@@ -12,7 +12,7 @@ from esphome.storage_json import StorageJSON
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import mutations_simple
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.async_ import drain_uncancellable
+from esphome_device_builder.helpers.uncancellable import quiesce_uncancellable
 from esphome_device_builder.helpers.yaml import read_yaml_scalar
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
@@ -182,7 +182,7 @@ async def test_a_cancelled_rename_still_moves_the_metadata(
         await caller
     assert controller._yaml_write_lock("kitchen.yaml").locked()
     release.set()
-    await drain_uncancellable(timeout=5)
+    await quiesce_uncancellable(timeout=5)
 
     assert migrated == [("kitchen.yaml", "livingroom.yaml")]
     assert not controller._yaml_write_lock("kitchen.yaml").locked()

@@ -3,25 +3,12 @@
 from __future__ import annotations
 
 import logging
-from asyncio import (
-    AbstractEventLoop,
-    CancelledError,
-    Task,
-    gather,
-    get_running_loop,
-    wait,
-)
+from asyncio import AbstractEventLoop, Task, gather, get_running_loop
 from collections.abc import Callable, Coroutine, Iterable
 from functools import partial
-from traceback import format_tb
 from typing import Any
 
-from .api import CommandError
-
 _LOGGER = logging.getLogger(__name__)
-
-# Strong refs: the loop only weakly references a task a cancelled caller stopped awaiting.
-_UNCANCELLABLE: set[Task[Any]] = set()
 
 
 def log_task_exit(label: str, task: Task[Any]) -> None:
@@ -82,31 +69,6 @@ async def run_in_executor[T](fn: Callable[..., T], *args: Any) -> T:
     return await get_running_loop().run_in_executor(None, fn, *args)
 
 
-async def run_to_completion[T](coro: Coroutine[Any, Any, T], *, name: str) -> T:
-    """
-    Await *coro* in a task that finishes even if the caller is cancelled.
-
-    A cancelled caller still gets ``CancelledError``; the task's later failure is logged
-    without its message, which can carry config text.
-    """
-    task = create_eager_task(coro, name=name)
-    _UNCANCELLABLE.add(task)
-    task.add_done_callback(_UNCANCELLABLE.discard)
-    try:
-        # Not ``shield``: on 3.14 it logs an abandoned failure with its message.
-        await wait((task,))
-    except CancelledError:
-        task.add_done_callback(partial(_log_abandoned_failure, name))
-        raise
-    return task.result()
-
-
-async def drain_uncancellable(timeout: float) -> None:
-    """Wait up to *timeout* seconds for every ``run_to_completion`` task to finish."""
-    if pending := set(_UNCANCELLABLE):
-        await wait(pending, timeout=timeout)
-
-
 def create_logged_task[T](
     coro: Coroutine[Any, Any, T],
     *,
@@ -135,17 +97,3 @@ def create_eager_task[T](
     if loop is None:
         loop = get_running_loop()
     return Task(coro, loop=loop, name=name, eager_start=True)
-
-
-def _log_abandoned_failure(name: str, task: Task[Any]) -> None:
-    """Log a failure nobody awaits without its message, which can hold secrets."""
-    if task.cancelled() or (exc := task.exception()) is None:
-        return
-    if isinstance(exc, CommandError):
-        # A refusal (a stale precondition, say) is an outcome, not a crash.
-        _LOGGER.warning("%s was refused after its caller was cancelled: %s", name, exc.code)
-        return
-    stack = "".join(format_tb(exc.__traceback__))
-    _LOGGER.error(
-        "%s failed after its caller was cancelled: %s\n%s", name, type(exc).__name__, stack
-    )

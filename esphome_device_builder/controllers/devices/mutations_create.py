@@ -10,10 +10,11 @@ from esphome.storage_json import StorageJSON
 
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor, run_to_completion
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
+from ...helpers.uncancellable import run_to_completion
 from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode, WizardResponse
 from ..editor import IMPORT_VALIDATE_TIMEOUT

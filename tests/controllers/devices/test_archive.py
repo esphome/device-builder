@@ -30,9 +30,9 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.devices import archive as archive_module
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.async_ import drain_uncancellable
 from esphome_device_builder.helpers.build_artifacts import unlink_storage_sidecar
 from esphome_device_builder.helpers.metadata_sidecar import _load_metadata, _save_metadata
+from esphome_device_builder.helpers.uncancellable import quiesce_uncancellable
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
 
@@ -80,7 +80,7 @@ async def test_a_cancelled_archive_still_records_its_history_commit(
         await caller
     assert controller._yaml_write_lock("kitchen.yaml").locked()
     release.set()
-    await drain_uncancellable(timeout=5)
+    await quiesce_uncancellable(timeout=5)
 
     assert committed == ["Archive kitchen.yaml"]
     assert (tmp_path / "archive" / "kitchen.yaml").exists()

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor, run_to_completion
+from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import (
     remove_device_files,
     unlink_storage_sidecar,
@@ -18,6 +18,7 @@ from ...helpers.build_artifacts import (
 )
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
+from ...helpers.uncancellable import run_to_completion
 from ...helpers.validated_config_cache import unlink_validated_cache
 from ...models import ErrorCode
 from .helpers import _validate_archive_configuration, require_file_exists

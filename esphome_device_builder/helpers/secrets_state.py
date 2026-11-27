@@ -34,7 +34,7 @@ from ruamel.yaml import YAML
 from ..constants import SECRETS_FILENAME, SECRETS_FILENAMES
 from ..models import ErrorCode
 from .api import CommandError
-from .async_ import run_in_executor, run_to_completion
+from .async_ import run_in_executor
 from .cross_os_path import cross_os_basename
 from .yaml import _split_value_and_comment, load_yaml_fast_then_esphome, write_user_yaml
 from .yaml.marks import parse_marks, trim_marks
@@ -54,12 +54,8 @@ async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *arg
 
     Pre-bind keyword args with ``functools.partial``.
     """
-
-    async def _locked() -> T:
-        async with lock:
-            return await run_in_executor(fn, *args)
-
-    return await run_to_completion(_locked(), name="secrets.yaml write")
+    async with lock:
+        return await run_in_executor(fn, *args)
 
 
 def read_secrets_yaml(config_dir: Path) -> dict | None:

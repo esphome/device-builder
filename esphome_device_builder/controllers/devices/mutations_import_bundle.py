@@ -21,10 +21,11 @@ from esphome.core import EsphomeError
 
 from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor, run_to_completion
+from ...helpers.async_ import run_in_executor
 from ...helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
 from ...helpers.secrets_state import merge_secrets_file
+from ...helpers.uncancellable import run_to_completion
 from ...helpers.yaml import ESPHOME_FRIENDLY_NAME_PATH, read_yaml_scalar, write_user_yaml
 from ...models import ErrorCode, ImportBundleResponse
 from .helpers import _validate_archive_configuration
@@ -55,7 +56,7 @@ async def import_bundle(
     as a full one.
     """
     _validate_raw_bundle(bundle_bytes)
-    # Shielded as a whole, so the temp tree outlives a placement a cancelled caller left running.
+    # One protected task from temp-dir creation to cleanup, so a cancel strands neither.
     outcome = await run_to_completion(
         _import(controller, bundle_bytes, overwrite), name="import bundle"
     )
@@ -115,38 +116,43 @@ async def _import(
     bundle_bytes: bytes | bytearray,
     overwrite: list[str] | None,
 ) -> _Outcome:
-    """Extract into a temp dir, then place the files under their write locks."""
+    """Extract into a temp dir, then place the files under their write locks; one at a time."""
     config_dir = controller._db.settings.config_dir
-    tmp_path = Path(await run_in_executor(partial(tempfile.mkdtemp, prefix="esphb-import-")))
-    try:
-        plan = await run_in_executor(_plan_bundle, bundle_bytes, tmp_path)
-        # Every YAML destination's write lock (secrets.yaml has its own; no guarded
-        # writer takes other files), held across the placement and the history commit,
-        # so a guarded save can't interleave with either. Taken before the secrets
-        # lock, the order every other writer uses.
-        destinations = [
-            rel
-            for rel, _ in plan.placements
-            if rel.lower().endswith((".yaml", ".yml")) and not is_secrets_file(rel)
-        ]
-        async with yaml_write_locks(controller, destinations):
-            # Placement writes the bundle's files (secrets, !include fragments, packages,
-            # external_components). Funnel through the shared lock + editor-cache drop so
-            # any of those overwrites refreshes an open editor's lint, not just secrets.
-            outcome = await controller._db.write_secrets_locked(
-                _place_bundle, plan, config_dir, overwrite
-            )
-            if outcome.conflicts is None:
-                # The YAML is on disk; register it the same way create_device does.
-                # Overwriting a live device preserves its labels / comment / board_id.
-                await controller._register_new_device(
-                    outcome.configuration,
-                    f"Import bundle {outcome.configuration}",
-                    clear_metadata=not outcome.main_existed,
+    async with controller._bundle_import_lock:
+        tmp_path = Path(await run_in_executor(partial(tempfile.mkdtemp, prefix="esphb-import-")))
+        try:
+            plan = await run_in_executor(_plan_bundle, bundle_bytes, tmp_path)
+            # The write lock of the main config and every other YAML destination
+            # (secrets files answer to the secrets lock; no guarded writer takes other
+            # files), held across the placement and the history commit so a guarded
+            # save can't interleave with either. Taken before the secrets lock, the
+            # order every other writer uses.
+            destinations = [
+                plan.configuration,
+                *(
+                    rel
+                    for rel, _ in plan.placements
+                    if rel.lower().endswith((".yaml", ".yml")) and not is_secrets_file(rel)
+                ),
+            ]
+            async with yaml_write_locks(controller, destinations):
+                # Placement writes the bundle's files (secrets, !include fragments, packages,
+                # external_components). Funnel through the shared lock + editor-cache drop so
+                # any of those overwrites refreshes an open editor's lint, not just secrets.
+                outcome = await controller._db.write_secrets_locked(
+                    _place_bundle, plan, config_dir, overwrite
                 )
-            return outcome
-    finally:
-        await run_in_executor(partial(shutil.rmtree, tmp_path, ignore_errors=True))
+                if outcome.conflicts is None:
+                    # The YAML is on disk; register it the same way create_device does.
+                    # Overwriting a live device preserves its labels / comment / board_id.
+                    await controller._register_new_device(
+                        outcome.configuration,
+                        f"Import bundle {outcome.configuration}",
+                        clear_metadata=not outcome.main_existed,
+                    )
+                return outcome
+        finally:
+            await run_in_executor(partial(shutil.rmtree, tmp_path, ignore_errors=True))
 
 
 def _plan_bundle(bundle_bytes: bytes | bytearray, tmp_path: Path) -> _Plan:
