@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
@@ -18,9 +18,11 @@ from ...helpers.build_artifacts import (
 )
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
+from ...helpers.uncancellable import run_to_completion
 from ...helpers.validated_config_cache import unlink_validated_cache
 from ...models import ErrorCode
 from .helpers import _validate_archive_configuration, require_file_exists
+from .write_locks import yaml_write_locks
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
@@ -49,10 +51,7 @@ def _translate_archive_fs_errors(configuration: str, *, archived: bool = False) 
 @asynccontextmanager
 async def _archive_locks(controller: DevicesController, configuration: str) -> AsyncIterator[None]:
     """Hold the write locks of *configuration* and its archived copy, in sorted order."""
-    async with AsyncExitStack() as locks:
-        # Sorted like ``commit_file_change``, which a package rename uses on ``archive/`` paths.
-        for name in sorted((configuration, f"archive/{configuration}")):
-            await locks.enter_async_context(controller._yaml_write_lock(name))
+    async with yaml_write_locks(controller, (configuration, f"archive/{configuration}")):
         yield
 
 
@@ -92,19 +91,22 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
     # Hold both per-file write locks across the move + history commit so a
     # concurrent editor save to the same config can't interleave with the
     # archive's removal commit (same serialisation as ``_persist_yaml_mutation``).
-    async with _archive_locks(controller, configuration):
-        with _translate_archive_fs_errors(configuration):
-            await run_in_executor(_archive_sync)
-        # Drop volatile fields across both stores: live mDNS state and
-        # build-dir caches in the data_dir store, plus ``mac_address``
-        # in the shared sidecar (intrinsic to the physical board, but
-        # volatile across YAML → board re-bindings on unarchive).
-        # Identity fields (board_id / friendly_name / comment / labels)
-        # survive so unarchive restores user-visible state.
-        await controller._clear_volatile_device_metadata(configuration)
-        # The active YAML left the config dir; record it as a removal so
-        # the pre-archive content is restorable from history.
-        await controller._commit_history(configuration, f"Archive {configuration}")
+    async def _locked() -> None:
+        async with _archive_locks(controller, configuration):
+            with _translate_archive_fs_errors(configuration):
+                await run_in_executor(_archive_sync)
+            # Drop volatile fields across both stores: live mDNS state and
+            # build-dir caches in the data_dir store, plus ``mac_address``
+            # in the shared sidecar (intrinsic to the physical board, but
+            # volatile across YAML → board re-bindings on unarchive).
+            # Identity fields (board_id / friendly_name / comment / labels)
+            # survive so unarchive restores user-visible state.
+            await controller._clear_volatile_device_metadata(configuration)
+            # The active YAML left the config dir; record it as a removal so
+            # the pre-archive content is restorable from history.
+            await controller._commit_history(configuration, f"Archive {configuration}")
+
+    await run_to_completion(_locked(), name=f"archive {configuration}")
 
 
 async def unarchive_single(controller: DevicesController, configuration: str) -> None:
@@ -125,9 +127,12 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
             raise FileExistsError(msg)
         shutil.move(str(archive_path), str(target))
 
-    async with _archive_locks(controller, configuration):
-        with _translate_archive_fs_errors(configuration, archived=True):
-            await run_in_executor(_unarchive_sync)
+    async def _locked() -> None:
+        async with _archive_locks(controller, configuration):
+            with _translate_archive_fs_errors(configuration, archived=True):
+                await run_in_executor(_unarchive_sync)
+
+    await run_to_completion(_locked(), name=f"unarchive {configuration}")
 
 
 def list_archived_sync(controller: DevicesController) -> list[dict[str, Any]]:
@@ -185,15 +190,18 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         unlink_validated_cache(configuration)
         return True
 
-    async with _archive_locks(controller, configuration):
-        with _translate_archive_fs_errors(configuration, archived=True):
-            sidecars_purged = await run_in_executor(_delete_all)
-        if sidecars_purged:
-            # Drop the per-device metadata entry (both the store +
-            # shared identity sidecar) on the event loop side and
-            # flush immediately; a quick restart after the delete
-            # mustn't resurrect a stale entry.
-            await controller._delete_device_metadata(configuration)
+    async def _locked() -> None:
+        async with _archive_locks(controller, configuration):
+            with _translate_archive_fs_errors(configuration, archived=True):
+                sidecars_purged = await run_in_executor(_delete_all)
+            if sidecars_purged:
+                # Drop the per-device metadata entry (both the store +
+                # shared identity sidecar) on the event loop side and
+                # flush immediately; a quick restart after the delete
+                # mustn't resurrect a stale entry.
+                await controller._delete_device_metadata(configuration)
+
+    await run_to_completion(_locked(), name=f"delete archived {configuration}")
 
 
 async def delete_single(controller: DevicesController, configuration: str) -> None:
@@ -215,12 +223,15 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
     # Per-file write lock so the removal commit can't interleave with a
     # concurrent editor save's commit on the same config (uniform with
     # ``_persist_yaml_mutation``).
-    async with controller._yaml_write_lock(configuration):
-        await run_in_executor(_delete_all)
-        await controller._delete_device_metadata(configuration)
-        # Record the removal in git so the YAML stays restorable from
-        # history even though its (regenerable) build artifacts are gone.
-        await controller._commit_history(configuration, f"Delete {configuration}")
+    async def _locked() -> None:
+        async with controller._yaml_write_lock(configuration):
+            await run_in_executor(_delete_all)
+            await controller._delete_device_metadata(configuration)
+            # Record the removal in git so the YAML stays restorable from
+            # history even though its (regenerable) build artifacts are gone.
+            await controller._commit_history(configuration, f"Delete {configuration}")
+
+    await run_to_completion(_locked(), name=f"delete {configuration}")
 
 
 async def run_bulk_per_device(

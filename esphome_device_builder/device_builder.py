@@ -60,6 +60,11 @@ from .helpers.presence_gated_loop import PresenceGatedLoop
 from .helpers.secrets_state import write_secrets_locked
 from .helpers.startup_timing import StartupTimer
 from .helpers.subscriber_presence import SubscriberPresence
+from .helpers.uncancellable import (
+    quiesce_uncancellable,
+    resume_uncancellable,
+    run_to_completion,
+)
 from .models import EventType
 from .models.common import DashboardModel
 
@@ -89,6 +94,10 @@ _BACKGROUND_POLL_INTERVAL_SECONDS = 5
 # normal handler latency in this codebase and tight enough that a
 # bug in a slow handler can't silently extend shutdown to a minute.
 _SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
+# Bounds the whole shutdown's wait for config writes still in flight; both
+# teardown passes share it.
+_WRITE_DRAIN_TIMEOUT = 30.0
 
 # Upper bound on the advertise chain's wait for ``notify_serving``.
 # Every production path opens the gate within milliseconds of
@@ -351,9 +360,13 @@ class DeviceBuilder:
         couples the cache invalidation to the write, so a new secrets path can't
         forget that an open editor's ``!secret`` lint just went stale.
         """
-        result = await write_secrets_locked(self.secrets_write_lock, fn, *args)
-        self.invalidate_editor_cache()
-        return result
+
+        async def _write_then_invalidate() -> T:
+            result = await write_secrets_locked(self.secrets_write_lock, fn, *args)
+            self.invalidate_editor_cache()
+            return result
+
+        return await run_to_completion(_write_then_invalidate(), name="secrets.yaml write")
 
     def _install_default_executor(self) -> None:
         """Register the dashboard's executor as the loop's default.
@@ -476,6 +489,8 @@ class DeviceBuilder:
         self.loop = asyncio.get_running_loop()
         # Re-arm the network-teardown latch so a restart-in-place teardown runs.
         self._network_stopped = False
+        # Reopen the config writes a previous teardown on this loop quiesced.
+        resume_uncancellable()
         # Pool itself was constructed in ``__init__`` (so callers
         # probing ``self._executor`` pre-start see the right value);
         # here we just register it as the loop's default. See
@@ -631,6 +646,10 @@ class DeviceBuilder:
             # An expiring regen retry would schedule into the drained set.
             self.devices.state.regen.cancel_all_retry_timers()
         await drain_tasks(self._background_tasks)
+        # Refuse new config writes and let the in-flight ones land (a task drained
+        # above may have abandoned one mid-way), then drain what they scheduled.
+        await quiesce_uncancellable(_WRITE_DRAIN_TIMEOUT)
+        await drain_tasks(self._background_tasks)
         # Tear down the remote-build listener (if it was bound)
         # before the controller it depends on. Order matters less
         # here than for zeroconf, but doing it first keeps the
@@ -669,6 +688,10 @@ class DeviceBuilder:
 
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""
+        # Catches a write that outlived the network pass's wait (same deadline), or
+        # a stop() whose network pass failed before reaching it.
+        await quiesce_uncancellable(_WRITE_DRAIN_TIMEOUT)
+        await drain_tasks(self._background_tasks)
         if self.firmware is not None:
             self.firmware.stop()  # sync — no await; see FirmwareController.stop()
         if self.editor is not None:

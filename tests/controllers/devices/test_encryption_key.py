@@ -14,6 +14,7 @@ import pytest
 from esphome import espota2
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
+from esphome_device_builder.controllers.devices import encryption_key
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices.encryption_key import _locate_and_stat
 from esphome_device_builder.helpers.api import CommandError
@@ -1190,3 +1191,28 @@ async def test_set_encryption_key_old_key_vouch_covers_dependencies(
     new_yaml = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     expected_old_key = OTHER_KEY if stamp == "match" else THIRD_KEY
     assert new_yaml.endswith(f'    encryption:\n      old_key: "{expected_old_key}"\n')
+
+
+async def test_a_cancelled_handoff_still_finishes_its_bookkeeping(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctrl = make_controller(tmp_path)
+    release = asyncio.Event()
+    finished: list[str] = []
+
+    async def _handoff(_controller: object, *, name: str, key: str, mac: str) -> dict:
+        await release.wait()
+        finished.append(name)
+        return {}
+
+    monkeypatch.setattr(encryption_key, "set_encryption_key", _handoff)
+    caller = asyncio.create_task(ctrl.set_encryption_key(name="kitchen", key=KEY))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    release.set()
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    assert finished == ["kitchen"]

@@ -32,6 +32,7 @@ from esphome_device_builder.controllers.devices import archive as archive_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_artifacts import unlink_storage_sidecar
 from esphome_device_builder.helpers.metadata_sidecar import _load_metadata, _save_metadata
+from esphome_device_builder.helpers.uncancellable import quiesce_uncancellable
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
 
@@ -56,6 +57,33 @@ def _ext_storage_for_archive(redirect_storage_path: None) -> None:
 # ---------------------------------------------------------------------------
 # archive
 # ---------------------------------------------------------------------------
+
+
+async def test_a_cancelled_archive_still_records_its_history_commit(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", "utf-8")
+    entered, release = asyncio.Event(), asyncio.Event()
+    committed: list[str] = []
+
+    async def _commit(configuration: str, message: str) -> None:
+        entered.set()
+        await release.wait()
+        committed.append(message)
+
+    monkeypatch.setattr(controller, "_commit_history", _commit)
+    caller = asyncio.create_task(controller._archive_single("kitchen.yaml"))
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert controller._yaml_write_lock("kitchen.yaml").locked()
+    release.set()
+    await quiesce_uncancellable(timeout=5)
+
+    assert committed == ["Archive kitchen.yaml"]
+    assert (tmp_path / "archive" / "kitchen.yaml").exists()
 
 
 async def test_archive_moves_yaml_to_archive_dir(

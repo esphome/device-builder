@@ -19,6 +19,7 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.devices import mutations_import_bundle
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.yaml import write_user_yaml
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
@@ -164,6 +165,84 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
     assert result.written == ["kitchen.yaml"]
     assert result.kept == ["common/wifi.yaml"]
     assert ctrl._scanner.calls == [("scan", False)]
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_import_bundle_overwrite_writes_each_file_under_its_write_lock(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text("OLD\n", "utf-8")
+    (tmp_path / "common").mkdir()
+    (tmp_path / "common" / "wifi.yaml").write_text("OLD\n", "utf-8")
+    (tmp_path / "common" / "ota.inc").write_text("OLD\n", "utf-8")
+    bundle = _make_bundle(
+        {
+            "kitchen.yaml": MAIN_YAML,
+            "common/wifi.yaml": "wifi:\n  ssid: home\n",
+            "common/ota.inc": "password: x\n",
+        },
+        config_filename="kitchen.yaml",
+    )
+    locked_at_write: dict[str, bool] = {}
+
+    def _write(path: Path, content: bytes) -> None:
+        rel = path.relative_to(tmp_path).as_posix()
+        locked_at_write[rel] = ctrl._yaml_write_lock(rel).locked()
+        write_user_yaml(path, content)
+
+    monkeypatch.setattr(mutations_import_bundle, "write_user_yaml", _write)
+
+    result = await ctrl.import_bundle(
+        bundle_bytes=bundle, overwrite=["kitchen.yaml", "common/wifi.yaml", "common/ota.inc"]
+    )
+
+    assert result.status == "imported"
+    assert locked_at_write == {
+        "common/ota.inc": True,
+        "common/wifi.yaml": True,
+        "kitchen.yaml": True,
+    }
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_a_second_concurrent_import_is_refused_not_queued(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    porch = MAIN_YAML.replace("kitchen", "porch").replace("Kitchen", "Porch")
+
+    results = await asyncio.gather(
+        ctrl.import_bundle(
+            bundle_bytes=_make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
+        ),
+        ctrl.import_bundle(
+            bundle_bytes=_make_bundle({"porch.yaml": porch}, config_filename="porch.yaml")
+        ),
+        return_exceptions=True,
+    )
+
+    assert results[0].status == "imported"
+    assert isinstance(results[1], CommandError)
+    assert results[1].code == ErrorCode.UNAVAILABLE
+    assert not (tmp_path / "porch.yaml").exists()
+    assert not ctrl._bundle_import_lock.locked()
+
+
+@pytest.mark.parametrize("name", ["secrets.yaml", "Secrets.YML"])
+async def test_import_bundle_refuses_a_secrets_file_as_its_main_config(
+    tmp_path: Path, make_controller: MakeControllerFactory, name: str
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    bundle = _make_bundle({name: "wifi_password: x\n"}, config_filename=name)
+
+    with pytest.raises(CommandError) as err:
+        await ctrl.import_bundle(bundle_bytes=bundle)
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / name).exists()
+    assert ctrl._scanner.calls == []
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")

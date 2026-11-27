@@ -529,6 +529,7 @@ def make_controller() -> Iterator[MakeControllerFactory]:
         controller.state = DevicesState()
         controller.import_tokens = UploadTokens()
         controller._yaml_write_locks = {}
+        controller._bundle_import_lock = asyncio.Lock()
         controller._db.secrets_write_lock = asyncio.Lock()
         wire_secrets_writer(controller._db)
         controller._db.settings.config_dir = config_dir

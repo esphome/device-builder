@@ -26,8 +26,10 @@ Coverage targets:
 
 from __future__ import annotations
 
+import asyncio
 import stat
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,7 +38,10 @@ import pytest
 from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices import controller as devices_controller
+from esphome_device_builder.controllers.devices.helpers import persist_if_unchanged
+from esphome_device_builder.controllers.devices.write_locks import yaml_write_locks
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.uncancellable import quiesce_uncancellable
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
@@ -258,7 +263,67 @@ def test_every_spelling_of_a_path_shares_one_write_lock(
     lock = controller._yaml_write_lock("kitchen.yaml")
     assert controller._yaml_write_lock("foo/../kitchen.yaml") is lock
     assert controller._yaml_write_lock("./kitchen.yaml") is lock
+    assert controller._yaml_write_lock("Kitchen.YAML") is lock
     assert controller._yaml_write_lock("porch.yaml") is not lock
+
+
+async def test_yaml_write_locks_takes_a_case_variant_pair_once(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+
+    async def _hold() -> bool:
+        async with yaml_write_locks(controller, ("Kitchen.yaml", "kitchen.yaml")):
+            return controller._yaml_write_lock("kitchen.yaml").locked()
+
+    assert await asyncio.wait_for(_hold(), timeout=5) is True
+
+
+async def test_update_config_is_refused_once_writes_are_quiesced(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("a: 1\n", encoding="utf-8")
+
+    await quiesce_uncancellable(timeout=1)
+
+    with pytest.raises(CommandError) as err:
+        await controller.update_config(configuration="kitchen.yaml", content="b: 2\n")
+    assert err.value.code == ErrorCode.UNAVAILABLE
+    assert path.read_text(encoding="utf-8") == "a: 1\n"
+
+
+async def test_a_cancelled_rewrite_keeps_the_lock_until_its_write_lands(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("a: 1\n", encoding="utf-8")
+    entered, release = threading.Event(), threading.Event()
+
+    def _slow(_text: str) -> tuple[str, None]:
+        entered.set()
+        release.wait(5)
+        return "a: 2\n", None
+
+    first = asyncio.create_task(controller.rewrite_yaml("kitchen.yaml", _slow, message="first"))
+    await asyncio.to_thread(entered.wait, 5)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    second = asyncio.create_task(
+        persist_if_unchanged(controller, "kitchen.yaml", "b: 3\n", expected="a: 1\n", message="x")
+    )
+    await asyncio.sleep(0)
+    assert controller._yaml_write_lock("kitchen.yaml").locked()
+    release.set()
+
+    with pytest.raises(CommandError) as err:
+        await second
+    assert err.value.code == ErrorCode.PRECONDITION_FAILED
+    assert path.read_text(encoding="utf-8") == "a: 2\n"
 
 
 async def test_update_config_overwrites_existing_yaml(
@@ -550,6 +615,37 @@ async def test_update_config_writes_valid_secrets_yaml(
 
     assert result is None
     assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
+
+
+async def test_a_cancelled_secrets_save_keeps_the_secrets_lock_until_it_lands(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    release = asyncio.Event()
+    real_write = controller._write_yaml_atomic_async
+
+    async def _slow_write(path: Path, content: str) -> None:
+        await release.wait()
+        await real_write(path, content)
+
+    controller._write_yaml_atomic_async = _slow_write  # type: ignore[method-assign]
+    content = "wifi_ssid: home\nwifi_password: hunter2\n"
+    caller = asyncio.create_task(
+        controller.update_config(configuration="secrets.yaml", content=content)
+    )
+    for _ in range(50):
+        if controller._db.secrets_write_lock.locked():
+            break
+        await asyncio.sleep(0.01)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert controller._db.secrets_write_lock.locked()
+    release.set()
+
+    async with asyncio.timeout(5), controller._db.secrets_write_lock:
+        assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
 
 
 async def test_update_config_rejects_invalid_secrets_yaml(

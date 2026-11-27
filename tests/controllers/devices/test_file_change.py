@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -127,3 +129,28 @@ async def test_a_change_failing_part_way_still_refreshes_the_caches(
         )
 
     assert [c.args[0] for c in after_write.call_args_list] == ["kitchen.yaml", "garage.yaml"]
+
+
+async def test_a_cancelled_change_keeps_the_locks_until_it_lands(
+    make_controller: MakeControllerFactory, tmp_path: Path
+) -> None:
+    controller = make_controller(tmp_path)
+    entered, release = threading.Event(), threading.Event()
+
+    def _slow() -> None:
+        entered.set()
+        release.wait(5)
+        _write(tmp_path / "kitchen.yaml")
+
+    caller = asyncio.create_task(
+        commit_file_change(controller, ["kitchen.yaml"], _slow, message="Edit kitchen.yaml")
+    )
+    await asyncio.to_thread(entered.wait, 5)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert controller._yaml_write_lock("kitchen.yaml").locked()
+    release.set()
+
+    async with asyncio.timeout(5), controller._yaml_write_lock("kitchen.yaml"):
+        assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == "a: 1\n"
