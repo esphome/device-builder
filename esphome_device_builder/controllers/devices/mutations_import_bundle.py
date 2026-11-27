@@ -118,22 +118,23 @@ async def _import(
 ) -> _Outcome:
     """Extract into a temp dir, then place the files under their write locks; one at a time."""
     config_dir = controller._db.settings.config_dir
-    async with controller._bundle_import_lock:
+    lock = controller._bundle_import_lock
+    # Refused, not queued: a waiting upload would pin its whole buffer. The check and
+    # the acquire below run without a suspension in between, so they can't race.
+    if lock.locked():
+        msg = "Another bundle import is running; upload again when it finishes"
+        raise CommandError(ErrorCode.UNAVAILABLE, msg)
+    async with lock:
         tmp_path = Path(await run_in_executor(partial(tempfile.mkdtemp, prefix="esphb-import-")))
         try:
             plan = await run_in_executor(_plan_bundle, bundle_bytes, tmp_path)
-            # The write lock of the main config and every other YAML destination
-            # (secrets files answer to the secrets lock; no guarded writer takes other
-            # files), held across the placement and the history commit so a guarded
-            # save can't interleave with either. Taken before the secrets lock, the
-            # order every other writer uses.
+            # The write lock of every destination but the secrets files (they answer to
+            # the secrets lock), held across the placement and the history commit so a
+            # guarded save of any of them can't interleave with either. Taken before the
+            # secrets lock, the order every other writer uses.
             destinations = [
                 plan.configuration,
-                *(
-                    rel
-                    for rel, _ in plan.placements
-                    if rel.lower().endswith((".yaml", ".yml")) and not is_secrets_file(rel)
-                ),
+                *(rel for rel, _ in plan.placements if not is_secrets_file(rel)),
             ]
             async with yaml_write_locks(controller, destinations):
                 # Placement writes the bundle's files (secrets, !include fragments, packages,

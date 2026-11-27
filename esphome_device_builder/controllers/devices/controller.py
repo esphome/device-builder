@@ -166,8 +166,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # awaiting. Negligible in practice (a real fleet reuses filenames);
         # only churn through many unique names grows it.
         self._yaml_write_locks: dict[str, asyncio.Lock] = {}
-        # One bundle import at a time: each extracts a staging tree of up to the
-        # 500 MB extract cap and holds it until its files are placed.
+        # One bundle import at a time, a second one refused: each holds its upload
+        # buffer and a staging tree of up to the 500 MB extract cap until placed.
         self._bundle_import_lock = asyncio.Lock()
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``

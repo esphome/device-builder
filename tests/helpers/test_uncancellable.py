@@ -159,6 +159,31 @@ async def test_quiesce_lets_work_nested_in_a_running_task_through() -> None:
     assert ran == ["inner"]
 
 
+async def test_quiesce_lets_work_nested_at_once_through() -> None:
+    go = asyncio.Event()
+    ran: list[str] = []
+
+    async def innermost() -> None:
+        ran.append("innermost")
+
+    async def middle() -> None:
+        await run_to_completion(innermost(), name="innermost")
+
+    async def outer() -> None:
+        await go.wait()
+        await run_to_completion(middle(), name="middle")
+
+    caller = asyncio.create_task(run_to_completion(outer(), name="outer"))
+    await asyncio.sleep(0)
+    quiesce = asyncio.create_task(quiesce_uncancellable(timeout=5))
+    await asyncio.sleep(0)
+    go.set()
+
+    await asyncio.wait_for(quiesce, timeout=5)
+    await caller
+    assert ran == ["innermost"]
+
+
 async def test_resume_reopens_a_quiesced_loop() -> None:
     async def work() -> str:
         return "ran"

@@ -34,9 +34,7 @@ async def run_to_completion[T](coro: Coroutine[Any, Any, T], *, name: str) -> T:
     if loop in _QUIESCED and current_task() not in _UNCANCELLABLE:
         coro.close()
         raise CommandError(ErrorCode.UNAVAILABLE, "Shutting down; nothing was written")
-    task = create_eager_task(coro, name=name, loop=loop)
-    _UNCANCELLABLE.add(task)
-    task.add_done_callback(_UNCANCELLABLE.discard)
+    task = create_eager_task(_registered(coro), name=name, loop=loop)
     try:
         # Not ``shield``: on 3.14 it logs an abandoned failure with its message.
         await wait((task,))
@@ -61,6 +59,17 @@ async def quiesce_uncancellable(timeout: float) -> None:
 def resume_uncancellable() -> None:
     """Let ``run_to_completion`` accept new work on this loop again after a quiesce."""
     _QUIESCED.pop(get_running_loop(), None)
+
+
+async def _registered[T](coro: Coroutine[Any, Any, T]) -> T:
+    """Run *coro* as a registered task, so a call it nests at once counts as nested work."""
+    task = current_task()
+    assert task is not None  # type narrowing: always awaited inside its task
+    _UNCANCELLABLE.add(task)
+    try:
+        return await coro
+    finally:
+        _UNCANCELLABLE.discard(task)
 
 
 def _log_abandoned_failure(name: str, task: Task[Any]) -> None:
