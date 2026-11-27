@@ -206,7 +206,7 @@ def _bundle_config_filename(bundle_bytes: bytes | bytearray) -> str:
     with tempfile.TemporaryDirectory(prefix="esphb-import-") as tmp:
         bundle_path = Path(tmp) / "upload.esphomebundle.tar.gz"
         bundle_path.write_bytes(bundle_bytes)
-        return _read_manifest(bundle_path).config_filename
+        return str(_read_manifest(bundle_path).config_filename)
 
 
 def _read_manifest(bundle_path: Path) -> BundleManifest:
