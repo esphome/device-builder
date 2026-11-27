@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,7 +20,7 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import SECRETS_FILENAME, is_secrets_file
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
+from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor, run_to_completion
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_config import read_device_config, read_device_config_async
 from ...helpers.device_yaml import board_requires_wifi
@@ -92,6 +91,7 @@ from ._yaml_search_cache import YamlSearchCache
 from .helpers import _build_address_cache_args, persist_if_unchanged, refuse_empty_write
 from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
+from .write_locks import yaml_lock_key
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -934,11 +934,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             write_user_yaml(path, new_text)
             return result
 
-        async with self._yaml_write_lock(configuration):
-            result = await run_in_executor(_rewrite)
-            await self._commit_history(configuration, message)
-        self._after_yaml_write(configuration)
-        return result
+        async def _locked() -> T:
+            async with self._yaml_write_lock(configuration):
+                result = await run_in_executor(_rewrite)
+                await self._commit_history(configuration, message)
+            self._after_yaml_write(configuration)
+            return result
+
+        return await run_to_completion(_locked(), name=f"rewrite {configuration}")
 
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
@@ -1151,10 +1154,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         commit is awaited (not fire-and-forget) so the content is
         captured before the next save can overwrite it.
         """
-        async with self._yaml_write_lock(configuration):
-            await self._write_yaml_atomic_async(self._db.settings.rel_path(configuration), content)
-            await self._commit_history(configuration, message or f"Update {configuration}")
-        self._after_yaml_write(configuration)
+
+        async def _locked() -> None:
+            async with self._yaml_write_lock(configuration):
+                path = self._db.settings.rel_path(configuration)
+                await self._write_yaml_atomic_async(path, content)
+                await self._commit_history(configuration, message or f"Update {configuration}")
+            self._after_yaml_write(configuration)
+
+        await run_to_completion(_locked(), name=f"write {configuration}")
 
     def _after_yaml_write(self, configuration: str) -> None:
         """Drop the editor caches and reload *configuration* after a write."""
@@ -1170,8 +1178,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _yaml_write_lock(self, configuration: str) -> asyncio.Lock:
         """Return the per-file lock guarding a YAML write + its history commit."""
-        # Lexical, so every spelling of one path (``foo/../kitchen.yaml``) shares a lock.
-        key = os.path.normpath(configuration)
+        key = yaml_lock_key(configuration)
         lock = self._yaml_write_locks.get(key)
         if lock is None:
             lock = self._yaml_write_locks[key] = asyncio.Lock()

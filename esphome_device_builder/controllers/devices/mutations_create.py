@@ -10,7 +10,7 @@ from esphome.storage_json import StorageJSON
 
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor
+from ...helpers.async_ import run_in_executor, run_to_completion
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
@@ -183,24 +183,33 @@ async def create_device(  # noqa: C901, PLR0912
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg) from exc
 
     overwriting = overwrite and file_existed
-    if overwriting:
-        # Atomic in-place rewrite (stage + move) so a crash can't leave a
-        # half-written config; the user explicitly confirmed the overwrite.
-        await run_in_executor(write_user_yaml, config_path, yaml_content)
-    else:
-        await write_new_file_exclusive(config_path, yaml_content, on_exists=_raise_already_exists)
 
-    # Overwriting an existing device keeps its StorageJSON (build state)
-    # and dashboard metadata; only a fresh device gets a new sidecar.
-    if not overwriting:
-        platform = str(board.esphome.platform) if board else parsed_platform
-        await run_in_executor(init_device_storage, filename, name, friendly, platform)
-    await controller._register_new_device(
-        filename,
-        f"{'Overwrite' if overwriting else 'Create'} {filename}",
-        board_id=board_id,
-        clear_metadata=not overwriting,
-    )
+    async def _land() -> None:
+        # The write lock covers the write and its history commit, so a guarded
+        # save that read the old text can't interleave with an overwrite.
+        async with controller._yaml_write_lock(filename):
+            if overwriting:
+                # Atomic in-place rewrite (stage + move) so a crash can't leave a
+                # half-written config; the user explicitly confirmed the overwrite.
+                await run_in_executor(write_user_yaml, config_path, yaml_content)
+            else:
+                await write_new_file_exclusive(
+                    config_path, yaml_content, on_exists=_raise_already_exists
+                )
+
+            # Overwriting an existing device keeps its StorageJSON (build state)
+            # and dashboard metadata; only a fresh device gets a new sidecar.
+            if not overwriting:
+                platform = str(board.esphome.platform) if board else parsed_platform
+                await run_in_executor(init_device_storage, filename, name, friendly, platform)
+            await controller._register_new_device(
+                filename,
+                f"{'Overwrite' if overwriting else 'Create'} {filename}",
+                board_id=board_id,
+                clear_metadata=not overwriting,
+            )
+
+    await run_to_completion(_land(), name=f"create {filename}")
     return WizardResponse(configuration=filename, warning=warning.text if warning else None)
 
 

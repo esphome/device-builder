@@ -31,6 +31,7 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
+from esphome_device_builder.controllers.devices import mutations_create
 from esphome_device_builder.controllers.devices.helpers import (
     clean_friendly_name,
     slugify_hostname,
@@ -40,7 +41,7 @@ from esphome_device_builder.controllers.devices.mutations_yaml import (
 )
 from esphome_device_builder.controllers.editor import ValidatorTimeoutError
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.yaml import _safe_yaml_scalar
+from esphome_device_builder.helpers.yaml import _safe_yaml_scalar, write_user_yaml
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCategory,
@@ -1230,6 +1231,25 @@ async def test_create_device_overwrite_preserves_metadata(
     assert post.get("comment") == "my note"
     assert post.get("board_id") == "esp32-pick"
     assert ctrl._scanner.calls == [("scan", False)]
+
+
+async def test_create_device_overwrite_writes_under_the_file_write_lock(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", "utf-8")
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    locked_at_write: list[bool] = []
+
+    def _write(path: Path, content: str) -> None:
+        locked_at_write.append(ctrl._yaml_write_lock("kitchen.yaml").locked())
+        write_user_yaml(path, content)
+
+    monkeypatch.setattr(mutations_create, "write_user_yaml", _write)
+
+    await ctrl.create_device(name="kitchen", file_content=VALID_FILE_CONTENT, overwrite=True)
+
+    assert locked_at_write == [True]
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == VALID_FILE_CONTENT
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")

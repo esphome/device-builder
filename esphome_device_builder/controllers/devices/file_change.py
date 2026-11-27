@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...models import ErrorCode
 from ..version_history import GIT_COMMIT_ERRORS
+from .write_locks import yaml_write_locks
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -34,10 +34,7 @@ async def commit_file_change(
     Blocking *precheck* runs first under the locks; a refusal it raises records
     nothing. ``UNAVAILABLE`` when the *snapshot* of the files before the change fails.
     """
-    async with AsyncExitStack() as stack:
-        # Sorted, so two multi-file writers can't take the locks in opposite orders.
-        for configuration in sorted(set(configurations)):
-            await stack.enter_async_context(controller._yaml_write_lock(configuration))
+    async with yaml_write_locks(controller, configurations):
         if precheck is not None:
             await run_in_executor(precheck)
         if snapshot:

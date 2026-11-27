@@ -11,6 +11,7 @@ from esphome_device_builder.helpers.async_ import (
     create_eager_task,
     create_logged_task,
     log_gather_failures,
+    run_to_completion,
 )
 
 
@@ -112,3 +113,56 @@ def test_log_gather_failures_reraises_base_exception() -> None:
     """A cancellation result is re-raised rather than swallowed."""
     with pytest.raises(asyncio.CancelledError):
         log_gather_failures([asyncio.CancelledError()], "item failed")
+
+
+async def test_run_to_completion_finishes_after_the_caller_is_cancelled() -> None:
+    release = asyncio.Event()
+    finished: list[str] = []
+
+    async def work() -> None:
+        await release.wait()
+        finished.append("done")
+
+    caller = asyncio.create_task(run_to_completion(work(), name="work"))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    release.set()
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert finished == ["done"]
+
+
+async def test_run_to_completion_logs_a_failure_after_the_caller_is_cancelled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    release = asyncio.Event()
+
+    async def work() -> None:
+        await release.wait()
+        raise RuntimeError("boom")
+
+    caller = asyncio.create_task(run_to_completion(work(), name="late write"))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    with caplog.at_level(logging.ERROR):
+        release.set()
+        for _ in range(10):
+            await asyncio.sleep(0)
+    assert "late write crashed: boom" in caplog.text
+
+
+async def test_run_to_completion_returns_and_raises_like_the_coroutine() -> None:
+    async def ok() -> int:
+        await asyncio.sleep(0)
+        return 7
+
+    async def bad() -> None:
+        raise ValueError("nope")
+
+    assert await run_to_completion(ok(), name="ok") == 7
+    with pytest.raises(ValueError, match="nope"):
+        await run_to_completion(bad(), name="bad")

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
-from asyncio import AbstractEventLoop, Task, gather, get_running_loop
+from asyncio import AbstractEventLoop, CancelledError, Task, gather, get_running_loop, shield
 from collections.abc import Callable, Coroutine, Iterable
 from functools import partial
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
+
+# Strong refs: the loop only weakly references a task a cancelled caller stopped awaiting.
+_UNCANCELLABLE: set[Task[Any]] = set()
 
 
 def log_task_exit(label: str, task: Task[Any]) -> None:
@@ -67,6 +70,22 @@ async def run_in_executor[T](fn: Callable[..., T], *args: Any) -> T:
     case. Pass a ``functools.partial`` / lambda when *fn* needs keywords.
     """
     return await get_running_loop().run_in_executor(None, fn, *args)
+
+
+async def run_to_completion[T](coro: Coroutine[Any, Any, T], *, name: str) -> T:
+    """
+    Await *coro* in a task that finishes even if the caller is cancelled.
+
+    A cancelled caller still gets ``CancelledError``; the task's later failure is logged.
+    """
+    task = create_eager_task(coro, name=name)
+    _UNCANCELLABLE.add(task)
+    task.add_done_callback(_UNCANCELLABLE.discard)
+    try:
+        return await shield(task)
+    except CancelledError:
+        task.add_done_callback(partial(log_task_exit, name))
+        raise
 
 
 def create_logged_task[T](

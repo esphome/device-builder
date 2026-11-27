@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
@@ -21,6 +21,7 @@ from ...helpers.storage_path import resolve_storage_path
 from ...helpers.validated_config_cache import unlink_validated_cache
 from ...models import ErrorCode
 from .helpers import _validate_archive_configuration, require_file_exists
+from .write_locks import yaml_write_locks
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
@@ -49,10 +50,7 @@ def _translate_archive_fs_errors(configuration: str, *, archived: bool = False) 
 @asynccontextmanager
 async def _archive_locks(controller: DevicesController, configuration: str) -> AsyncIterator[None]:
     """Hold the write locks of *configuration* and its archived copy, in sorted order."""
-    async with AsyncExitStack() as locks:
-        # Sorted like ``commit_file_change``, which a package rename uses on ``archive/`` paths.
-        for name in sorted((configuration, f"archive/{configuration}")):
-            await locks.enter_async_context(controller._yaml_write_lock(name))
+    async with yaml_write_locks(controller, (configuration, f"archive/{configuration}")):
         yield
 
 

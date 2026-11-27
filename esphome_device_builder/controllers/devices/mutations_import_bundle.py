@@ -19,6 +19,7 @@ from esphome.core import EsphomeError
 
 from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor, run_to_completion
 from ...helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
 from ...helpers.secrets_state import merge_secrets_file
@@ -28,6 +29,8 @@ from .helpers import _validate_archive_configuration
 from .mutations_create import init_device_storage
 
 if TYPE_CHECKING:
+    from esphome.bundle import BundleManifest
+
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,12 +55,29 @@ async def import_bundle(
     """
     _validate_raw_bundle(bundle_bytes)
     config_dir = controller._db.settings.config_dir
-    # Staging writes the bundle's files (secrets, !include fragments, packages,
-    # external_components). Funnel through the shared lock + editor-cache drop so
-    # any of those overwrites refreshes an open editor's lint, not just secrets.
-    outcome = await controller._db.write_secrets_locked(
-        _stage_bundle, bundle_bytes, config_dir, overwrite
-    )
+    configuration = await run_in_executor(_bundle_config_filename, bundle_bytes)
+
+    async def _land() -> _Outcome:
+        # The main config's write lock covers the overwrite and its history
+        # commit, so a guarded save can't interleave with either.
+        async with controller._yaml_write_lock(configuration):
+            # Staging writes the bundle's files (secrets, !include fragments, packages,
+            # external_components). Funnel through the shared lock + editor-cache drop so
+            # any of those overwrites refreshes an open editor's lint, not just secrets.
+            outcome = await controller._db.write_secrets_locked(
+                _stage_bundle, bundle_bytes, config_dir, overwrite
+            )
+            if outcome.conflicts is None:
+                # The YAML is on disk; register it the same way create_device does.
+                # Overwriting a live device preserves its labels / comment / board_id.
+                await controller._register_new_device(
+                    outcome.configuration,
+                    f"Import bundle {outcome.configuration}",
+                    clear_metadata=not outcome.main_existed,
+                )
+            return outcome
+
+    outcome = await run_to_completion(_land(), name=f"import bundle {configuration}")
     if outcome.conflicts is not None:
         return ImportBundleResponse(
             status="conflicts",
@@ -66,14 +86,6 @@ async def import_bundle(
             has_secrets=outcome.has_secrets,
             esphome_version=outcome.esphome_version,
         )
-
-    # The YAML is on disk; register it the same way create_device does.
-    # Overwriting a live device preserves its labels / comment / board_id.
-    await controller._register_new_device(
-        outcome.configuration,
-        f"Import bundle {outcome.configuration}",
-        clear_metadata=not outcome.main_existed,
-    )
     return ImportBundleResponse(
         status="imported",
         configuration=outcome.configuration,
@@ -112,11 +124,7 @@ def _stage_bundle(
 ) -> _Outcome:
     """Extract the bundle to a temp dir, then plan or place the files (blocking)."""
     # Lazy: keeps esphome.bundle off cold import.
-    from esphome.bundle import (  # noqa: PLC0415
-        MANIFEST_FILENAME,
-        extract_bundle,
-        read_bundle_manifest,
-    )
+    from esphome.bundle import MANIFEST_FILENAME, extract_bundle  # noqa: PLC0415
 
     overwrite_set = set(overwrite or [])
 
@@ -124,16 +132,8 @@ def _stage_bundle(
         tmp_path = Path(tmp)
         bundle_path = tmp_path / "upload.esphomebundle.tar.gz"
         bundle_path.write_bytes(bundle_bytes)
-
-        try:
-            manifest = read_bundle_manifest(bundle_path)
-        except EsphomeError as exc:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS, f"Not a valid ESPHome bundle: {exc}"
-            ) from exc
-
+        manifest = _read_manifest(bundle_path)
         config_filename = manifest.config_filename
-        _validate_archive_configuration(config_filename)
         main_existed = (config_dir / config_filename).exists()
 
         staging = tmp_path / "staging"
@@ -199,6 +199,27 @@ def _stage_bundle(
             esphome_version=manifest.esphome_version,
             main_existed=main_existed,
         )
+
+
+def _bundle_config_filename(bundle_bytes: bytes | bytearray) -> str:
+    """Return the main config filename the bundle's manifest names (blocking)."""
+    with tempfile.TemporaryDirectory(prefix="esphb-import-") as tmp:
+        bundle_path = Path(tmp) / "upload.esphomebundle.tar.gz"
+        bundle_path.write_bytes(bundle_bytes)
+        return _read_manifest(bundle_path).config_filename
+
+
+def _read_manifest(bundle_path: Path) -> BundleManifest:
+    """Read and check the bundle's manifest; ``INVALID_ARGS`` when it isn't one."""
+    # Lazy: keeps esphome.bundle off cold import.
+    from esphome.bundle import read_bundle_manifest  # noqa: PLC0415
+
+    try:
+        manifest = read_bundle_manifest(bundle_path)
+    except EsphomeError as exc:
+        raise CommandError(ErrorCode.INVALID_ARGS, f"Not a valid ESPHome bundle: {exc}") from exc
+    _validate_archive_configuration(manifest.config_filename)
+    return manifest
 
 
 def _validate_raw_bundle(raw: bytes | bytearray) -> None:

@@ -19,6 +19,7 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.devices import mutations_import_bundle
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.yaml import write_user_yaml
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
@@ -164,6 +165,28 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
     assert result.written == ["kitchen.yaml"]
     assert result.kept == ["common/wifi.yaml"]
     assert ctrl._scanner.calls == [("scan", False)]
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_import_bundle_overwrite_writes_under_the_main_config_write_lock(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text("OLD\n", "utf-8")
+    bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
+    locked_at_write: list[bool] = []
+
+    def _write(path: Path, content: bytes) -> None:
+        locked_at_write.append(ctrl._yaml_write_lock("kitchen.yaml").locked())
+        write_user_yaml(path, content)
+
+    monkeypatch.setattr(mutations_import_bundle, "write_user_yaml", _write)
+
+    result = await ctrl.import_bundle(bundle_bytes=bundle, overwrite=["kitchen.yaml"])
+
+    assert result.status == "imported"
+    assert locked_at_write == [True]
+    assert (tmp_path / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
