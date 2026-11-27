@@ -9,11 +9,11 @@ from asyncio import (
     Task,
     gather,
     get_running_loop,
-    shield,
     wait,
 )
 from collections.abc import Callable, Coroutine, Iterable
 from functools import partial
+from traceback import format_tb
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -84,16 +84,19 @@ async def run_to_completion[T](coro: Coroutine[Any, Any, T], *, name: str) -> T:
     """
     Await *coro* in a task that finishes even if the caller is cancelled.
 
-    A cancelled caller still gets ``CancelledError``; the task's later failure is logged.
+    A cancelled caller still gets ``CancelledError``; the task's later failure is logged
+    without its message, which can carry config text.
     """
     task = create_eager_task(coro, name=name)
     _UNCANCELLABLE.add(task)
     task.add_done_callback(_UNCANCELLABLE.discard)
     try:
-        return await shield(task)
+        # Not ``shield``: on 3.14 it logs an abandoned failure with its message.
+        await wait((task,))
     except CancelledError:
-        task.add_done_callback(partial(log_task_exit, name))
+        task.add_done_callback(partial(_log_abandoned_failure, name))
         raise
+    return task.result()
 
 
 async def drain_uncancellable(timeout: float) -> None:
@@ -130,3 +133,13 @@ def create_eager_task[T](
     if loop is None:
         loop = get_running_loop()
     return Task(coro, loop=loop, name=name, eager_start=True)
+
+
+def _log_abandoned_failure(name: str, task: Task[Any]) -> None:
+    """Log a failure nobody awaits by type and stack only; the message can hold secrets."""
+    if task.cancelled() or (exc := task.exception()) is None:
+        return
+    stack = "".join(format_tb(exc.__traceback__))
+    _LOGGER.error(
+        "%s failed after its caller was cancelled: %s\n%s", name, type(exc).__name__, stack
+    )

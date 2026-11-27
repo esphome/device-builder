@@ -1020,7 +1020,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def set_encryption_key(self, *, name: str, key: str, mac: str = "") -> dict[str, Any]:
         """Apply an HA-provisioned API encryption key, or stash it for adoption."""
-        return await encryption_key.set_encryption_key(self, name=name, key=key, mac=mac)
+        # Whole handoff, so a cancel can't land the key but skip the pending-key bookkeeping.
+        return await run_to_completion(
+            encryption_key.set_encryption_key(self, name=name, key=key, mac=mac),
+            name=f"encryption key handoff for {name}",
+        )
 
     # ------------------------------------------------------------------
     # API commands — per-connection streams (validate, logs)

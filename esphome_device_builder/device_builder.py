@@ -47,7 +47,13 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.remote_build.discovery import start_discovery as start_peer_discovery
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
-from .helpers.async_ import create_eager_task, drain_tasks, drain_uncancellable, log_task_exit
+from .helpers.async_ import (
+    create_eager_task,
+    drain_tasks,
+    drain_uncancellable,
+    log_task_exit,
+    run_to_completion,
+)
 from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
@@ -354,9 +360,13 @@ class DeviceBuilder:
         couples the cache invalidation to the write, so a new secrets path can't
         forget that an open editor's ``!secret`` lint just went stale.
         """
-        result = await write_secrets_locked(self.secrets_write_lock, fn, *args)
-        self.invalidate_editor_cache()
-        return result
+
+        async def _write_then_invalidate() -> T:
+            result = await write_secrets_locked(self.secrets_write_lock, fn, *args)
+            self.invalidate_editor_cache()
+            return result
+
+        return await run_to_completion(_write_then_invalidate(), name="secrets.yaml write")
 
     def _install_default_executor(self) -> None:
         """Register the dashboard's executor as the loop's default.
@@ -626,6 +636,9 @@ class DeviceBuilder:
         """Tear down network-facing resources (remote-build, mDNS) once a full pass completes."""
         if self._network_stopped:
             return
+        # First: a config write a cancelled caller left running still scans,
+        # commits and schedules follow-up background tasks.
+        await drain_uncancellable(_WRITE_DRAIN_TIMEOUT)
         if self._bg_task:
             await drain_tasks((self._bg_task,), log_exceptions=True)
         if self._bg_poll is not None:
@@ -655,8 +668,6 @@ class DeviceBuilder:
         if self._dashboard_advertiser is not None:
             await self._dashboard_advertiser.unregister()
             self._dashboard_advertiser = None
-        # A config write a cancelled caller left running still scans and commits.
-        await drain_uncancellable(_WRITE_DRAIN_TIMEOUT)
         if self.devices is not None:
             await self.devices.stop()
         # Latch only after a full pass, so a partial teardown (a step raising in
@@ -675,6 +686,8 @@ class DeviceBuilder:
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""
         await drain_uncancellable(_WRITE_DRAIN_TIMEOUT)
+        # A write that finished just now may have scheduled follow-up work.
+        await drain_tasks(self._background_tasks)
         if self.firmware is not None:
             self.firmware.stop()  # sync — no await; see FirmwareController.stop()
         if self.editor is not None:

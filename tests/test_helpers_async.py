@@ -140,9 +140,11 @@ async def test_run_to_completion_logs_a_failure_after_the_caller_is_cancelled(
 ) -> None:
     release = asyncio.Event()
 
+    secret = "hunter" + "2"
+
     async def work() -> None:
         await release.wait()
-        raise RuntimeError("boom")
+        raise RuntimeError(secret)
 
     caller = asyncio.create_task(run_to_completion(work(), name="late write"))
     await asyncio.sleep(0)
@@ -153,7 +155,8 @@ async def test_run_to_completion_logs_a_failure_after_the_caller_is_cancelled(
         release.set()
         for _ in range(10):
             await asyncio.sleep(0)
-    assert "late write crashed: boom" in caplog.text
+    assert "late write failed after its caller was cancelled: RuntimeError" in caplog.text
+    assert secret not in caplog.text
 
 
 async def test_run_to_completion_returns_and_raises_like_the_coroutine() -> None:

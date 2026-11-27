@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -26,6 +27,7 @@ import pytest
 from esphome_device_builder.api.ws import close_active_websockets
 from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.device_builder import DeviceBuilder
+from esphome_device_builder.helpers.async_ import run_to_completion
 from esphome_device_builder.helpers.orphan_reaper import OrphanReaperLoop
 
 from .conftest import MakeSettingsFactory
@@ -106,6 +108,33 @@ async def test_write_secrets_locked_runs_fn_then_invalidates(
     result = await db.write_secrets_locked(_mutator, 2, 3)
     assert result == 5
     assert invalidations == 1
+
+
+async def test_a_cancelled_write_secrets_locked_still_invalidates(
+    make_settings: MakeSettingsFactory,
+) -> None:
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    invalidated = asyncio.Event()
+
+    class _Editor:
+        def invalidate_cache(self) -> None:
+            invalidated.set()
+
+    db.editor = _Editor()  # type: ignore[assignment]
+    entered, release = threading.Event(), threading.Event()
+
+    def _slow() -> None:
+        entered.set()
+        release.wait(5)
+
+    caller = asyncio.create_task(db.write_secrets_locked(_slow))
+    await asyncio.to_thread(entered.wait, 5)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    release.set()
+
+    await asyncio.wait_for(invalidated.wait(), timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +436,37 @@ async def test_background_poll_skips_when_no_subscribers(
         assert poll_calls >= 1
     finally:
         await db.stop()
+
+
+async def test_stop_drains_follow_up_work_of_a_write_finishing_during_shutdown(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    release = asyncio.Event()
+    follow_up_cancelled = asyncio.Event()
+
+    async def _follow_up() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            follow_up_cancelled.set()
+            raise
+
+    async def _write() -> None:
+        await release.wait()
+        db.create_background_task(_follow_up())
+
+    caller = asyncio.create_task(run_to_completion(_write(), name="write"))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    asyncio.get_running_loop().call_later(0.05, release.set)
+
+    await db.stop()
+
+    assert follow_up_cancelled.is_set()
 
 
 async def test_stop_detaches_background_poll_wake_callback(
