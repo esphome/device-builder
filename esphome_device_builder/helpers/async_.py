@@ -16,6 +16,8 @@ from functools import partial
 from traceback import format_tb
 from typing import Any
 
+from .api import CommandError
+
 _LOGGER = logging.getLogger(__name__)
 
 # Strong refs: the loop only weakly references a task a cancelled caller stopped awaiting.
@@ -136,8 +138,12 @@ def create_eager_task[T](
 
 
 def _log_abandoned_failure(name: str, task: Task[Any]) -> None:
-    """Log a failure nobody awaits by type and stack only; the message can hold secrets."""
+    """Log a failure nobody awaits without its message, which can hold secrets."""
     if task.cancelled() or (exc := task.exception()) is None:
+        return
+    if isinstance(exc, CommandError):
+        # A refusal (a stale precondition, say) is an outcome, not a crash.
+        _LOGGER.warning("%s was refused after its caller was cancelled: %s", name, exc.code)
         return
     stack = "".join(format_tb(exc.__traceback__))
     _LOGGER.error(

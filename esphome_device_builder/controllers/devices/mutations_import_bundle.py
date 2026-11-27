@@ -55,10 +55,9 @@ async def import_bundle(
     as a full one.
     """
     _validate_raw_bundle(bundle_bytes)
-    tmp_path = Path(await run_in_executor(partial(tempfile.mkdtemp, prefix="esphb-import-")))
     # Shielded as a whole, so the temp tree outlives a placement a cancelled caller left running.
     outcome = await run_to_completion(
-        _import(controller, bundle_bytes, tmp_path, overwrite), name="import bundle"
+        _import(controller, bundle_bytes, overwrite), name="import bundle"
     )
     if outcome.conflicts is not None:
         return ImportBundleResponse(
@@ -114,17 +113,22 @@ class _Outcome:
 async def _import(
     controller: DevicesController,
     bundle_bytes: bytes | bytearray,
-    tmp_path: Path,
     overwrite: list[str] | None,
 ) -> _Outcome:
-    """Extract into *tmp_path*, then place the files under their write locks."""
+    """Extract into a temp dir, then place the files under their write locks."""
     config_dir = controller._db.settings.config_dir
+    tmp_path = Path(await run_in_executor(partial(tempfile.mkdtemp, prefix="esphb-import-")))
     try:
         plan = await run_in_executor(_plan_bundle, bundle_bytes, tmp_path)
-        # Every destination's write lock (secrets.yaml has its own), held across the
-        # placement and the history commit, so a guarded save can't interleave with
-        # either. Taken before the secrets lock, the order every other writer uses.
-        destinations = [rel for rel, _ in plan.placements if not is_secrets_file(rel)]
+        # Every YAML destination's write lock (secrets.yaml has its own; no guarded
+        # writer takes other files), held across the placement and the history commit,
+        # so a guarded save can't interleave with either. Taken before the secrets
+        # lock, the order every other writer uses.
+        destinations = [
+            rel
+            for rel, _ in plan.placements
+            if rel.lower().endswith((".yaml", ".yml")) and not is_secrets_file(rel)
+        ]
         async with yaml_write_locks(controller, destinations):
             # Placement writes the bundle's files (secrets, !include fragments, packages,
             # external_components). Funnel through the shared lock + editor-cache drop so

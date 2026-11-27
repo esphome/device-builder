@@ -827,6 +827,14 @@ The dashboard writes a small set of files into `<config_dir>` and `<data_dir>` a
 | `ignored-devices.json` | `<data_dir>` | Discovered-device names the operator hid from the import list; the file shape is esphome's (`ignored_devices_storage_path`) so a legacy `esphome dashboard` reads the same list. Not sensitive. | 0o644 (`Store(mode=0o644)`); debounced, flushed at graceful stop |
 | `.device-builder-sessions.json` | `<config_dir>` | **Opaque dashboard session tokens. Sensitive.** A reader can replay a token as an authenticated client (WebSocket and REST bearer) until it expires (30 days sliding). Owned by `SessionStore` (`helpers/auth.py`); expired rows are dropped at load. | 0o600 enforced at write time (default for `Store`); login and logout writes are attempted before the reply (a failure is logged), the sliding-expiry refresh is deferred (at most hourly per token) and flushed at graceful stop |
 
+### Config writes: per-file locks
+
+Every write to a config YAML goes through `DevicesController`'s per-file `asyncio.Lock`, held across the write *and* its version-history commit: the editor save, `rewrite_yaml` (guarded saves: `update_config` with `expected`, `add_component`, automations, the encryption-key rotation, the MCP write tools), create, the bundle import, rename, archive / unarchive / delete, and `files/*` (`commit_file_change`). The rules:
+
+* **One key per file.** `write_locks.yaml_lock_key` normalises the path lexically and case-folds it, so `Kitchen.yaml` and `kitchen.yaml` share a lock on case-insensitive filesystems. Multi-file writers take their locks through `yaml_write_locks`, which dedupes by key and sorts, so two writers can't deadlock on order or on a non-reentrant lock.
+* **Order with the secrets lock.** YAML locks come before `DeviceBuilder.secrets_write_lock`. The one path taking the secrets lock first (the whole-file `secrets.yaml` save) then takes only the `secrets.yaml` key, which no other path holds while waiting on the secrets lock; a bundle may not name a secrets file as its main config.
+* **A cancelled caller can't break the lock.** Each locked section, plus any bookkeeping that must follow the write (metadata migration, pending-key consumption, cache invalidation), runs through `helpers.async_.run_to_completion`: the caller still gets `CancelledError`, but the task finishes the write and commit before releasing the lock. A failure nobody awaits is logged without its message, which can carry config text. Shutdown waits for these tasks (`drain_uncancellable`, bounded) before it drains background tasks and stops version history and the executor.
+
 ### Per-device metadata split
 
 Per-device metadata is partitioned across two files by *who writes it* and *how often*:

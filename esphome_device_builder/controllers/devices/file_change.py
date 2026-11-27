@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor
+from ...helpers.async_ import run_in_executor, run_to_completion
 from ...models import ErrorCode
 from ..version_history import GIT_COMMIT_ERRORS
 from .write_locks import yaml_write_locks
@@ -34,22 +34,26 @@ async def commit_file_change(
     Blocking *precheck* runs first under the locks; a refusal it raises records
     nothing. ``UNAVAILABLE`` when the *snapshot* of the files before the change fails.
     """
-    async with yaml_write_locks(controller, configurations):
-        if precheck is not None:
-            await run_in_executor(precheck)
-        if snapshot:
-            # The history baseline seeds top-level YAMLs only: record an untracked
-            # package before a delete or rename removes its only copy (no-op otherwise).
-            await _commit_history_many(
-                controller, configurations, f"Before: {message}", strict=True
-            )
-        try:
-            await run_in_executor(change)
-            await _commit_history_many(controller, configurations, message)
-        finally:
-            # Also after a change that failed part-way: some files may be written.
-            for configuration in configurations:
-                controller._after_yaml_write(configuration)
+
+    async def _locked() -> None:
+        async with yaml_write_locks(controller, configurations):
+            if precheck is not None:
+                await run_in_executor(precheck)
+            if snapshot:
+                # The history baseline seeds top-level YAMLs only: record an untracked
+                # package before a delete or rename removes its only copy (no-op otherwise).
+                await _commit_history_many(
+                    controller, configurations, f"Before: {message}", strict=True
+                )
+            try:
+                await run_in_executor(change)
+                await _commit_history_many(controller, configurations, message)
+            finally:
+                # Also after a change that failed part-way: some files may be written.
+                for configuration in configurations:
+                    controller._after_yaml_write(configuration)
+
+    await run_to_completion(_locked(), name=message)
 
 
 async def _commit_history_many(

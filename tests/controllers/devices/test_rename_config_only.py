@@ -12,6 +12,7 @@ from esphome.storage_json import StorageJSON
 from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import mutations_simple
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.async_ import drain_uncancellable
 from esphome_device_builder.helpers.yaml import read_yaml_scalar
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
@@ -154,6 +155,37 @@ async def test_config_only_rename_holds_both_filenames_only_while_the_metadata_m
     )
 
     assert held == {"migrate": (True, True), "rescan": (False, False)}
+
+
+async def test_a_cancelled_rename_still_moves_the_metadata(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
+    entered, release = asyncio.Event(), asyncio.Event()
+    migrated: list[tuple[str, str]] = []
+
+    async def _migrate(_controller: object, old: str, new: str) -> None:
+        entered.set()
+        await release.wait()
+        migrated.append((old, new))
+
+    monkeypatch.setattr(mutations_simple, "migrate_metadata", _migrate)
+    caller = asyncio.create_task(
+        controller.rename_device(
+            configuration="kitchen.yaml", new_name="livingroom", config_only=True
+        )
+    )
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert controller._yaml_write_lock("kitchen.yaml").locked()
+    release.set()
+    await drain_uncancellable(timeout=5)
+
+    assert migrated == [("kitchen.yaml", "livingroom.yaml")]
+    assert not controller._yaml_write_lock("kitchen.yaml").locked()
 
 
 async def test_config_only_rename_lands_as_one_executor_job(

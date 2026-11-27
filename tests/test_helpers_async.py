@@ -7,6 +7,7 @@ import logging
 
 import pytest
 
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.async_ import (
     create_eager_task,
     create_logged_task,
@@ -14,6 +15,7 @@ from esphome_device_builder.helpers.async_ import (
     log_gather_failures,
     run_to_completion,
 )
+from esphome_device_builder.models import ErrorCode
 
 
 async def test_eager_task_runs_synchronously_until_first_await() -> None:
@@ -157,6 +159,31 @@ async def test_run_to_completion_logs_a_failure_after_the_caller_is_cancelled(
             await asyncio.sleep(0)
     assert "late write failed after its caller was cancelled: RuntimeError" in caplog.text
     assert secret not in caplog.text
+
+
+async def test_run_to_completion_logs_an_abandoned_refusal_by_code_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    release = asyncio.Event()
+    secret = "hunter" + "2"
+
+    async def work() -> None:
+        await release.wait()
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, secret)
+
+    caller = asyncio.create_task(run_to_completion(work(), name="late save"))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    with caplog.at_level(logging.WARNING):
+        release.set()
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+    assert "late save was refused after its caller was cancelled" in caplog.text
+    assert secret not in caplog.text
+    assert "Traceback" not in caplog.text
 
 
 async def test_run_to_completion_returns_and_raises_like_the_coroutine() -> None:

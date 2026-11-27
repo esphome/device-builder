@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import run_in_executor
+from ...helpers.async_ import run_in_executor, run_to_completion
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_config import (
     raise_device_not_found,
@@ -336,22 +336,26 @@ async def _config_only_rename(
         # The YAML is already renamed; storage migration is best-effort (logs on failure).
         _migrate_storage_json(configuration, new_filename, new_name)
 
-    # Both filenames until the metadata has moved: a rename of the new name
-    # must not run between the file landing and its metadata following it.
-    async with yaml_write_locks(controller, (configuration, new_filename)):
-        await run_in_executor(_land)
-        deployed_name = controller._stamp_deployed_name(
-            configuration, old_name=old_name, new_name=new_name
-        )
-        await migrate_metadata(controller, configuration, new_filename)
-        # The migration is best-effort and its merge lets a stale target entry win.
-        controller._set_deployed_name(new_filename, deployed_name)
-    await rescan_renamed(controller, new_filename)
-    # An in-place rescan re-stamps the pre-rename name over a record this
-    # rename just cleared. Only the clear is re-asserted, so this can't
-    # overwrite a fresher mDNS or concurrent-rename value.
-    if not deployed_name:
-        controller._clear_deployed_name(new_filename)
+    async def _land_and_follow() -> None:
+        # Both filenames until the metadata has moved: a rename of the new name
+        # must not run between the file landing and its metadata following it.
+        async with yaml_write_locks(controller, (configuration, new_filename)):
+            await run_in_executor(_land)
+            deployed_name = controller._stamp_deployed_name(
+                configuration, old_name=old_name, new_name=new_name
+            )
+            await migrate_metadata(controller, configuration, new_filename)
+            # The migration is best-effort and its merge lets a stale target entry win.
+            controller._set_deployed_name(new_filename, deployed_name)
+        await rescan_renamed(controller, new_filename)
+        # An in-place rescan re-stamps the pre-rename name over a record this
+        # rename just cleared. Only the clear is re-asserted, so this can't
+        # overwrite a fresher mDNS or concurrent-rename value.
+        if not deployed_name:
+            controller._clear_deployed_name(new_filename)
+
+    # Whole landing, so a cancel can't leave the renamed file without its metadata.
+    await run_to_completion(_land_and_follow(), name=f"rename {configuration}")
     return {"configuration": new_filename, "job": None}
 
 
